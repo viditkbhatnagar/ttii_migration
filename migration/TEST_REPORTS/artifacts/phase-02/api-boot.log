@@ -1,0 +1,4 @@
+{"level":30,"time":1771768246627,"pid":24368,"hostname":"Vidits-MacBook-Pro.local","msg":"Server listening at http://127.0.0.1:4100"}
+{"level":30,"time":1771768246627,"pid":24368,"hostname":"Vidits-MacBook-Pro.local","msg":"api ready on http://127.0.0.1:4100"}
+{"level":30,"time":1771768248425,"pid":24368,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/health","host":"127.0.0.1:4100","remoteAddress":"127.0.0.1","remotePort":51489},"msg":"incoming request"}
+{"level":30,"time":1771768248430,"pid":24368,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":4.484124958515167,"msg":"request completed"}

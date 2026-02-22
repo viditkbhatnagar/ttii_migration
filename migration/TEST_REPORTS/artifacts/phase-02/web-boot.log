@@ -1,0 +1,15 @@
+
+> @ttii/web@0.1.0 dev
+> vite --host 127.0.0.1
+
+
+  VITE v7.3.1  ready in 140 ms
+
+  ➜  Local:   http://127.0.0.1:5174/
+npm error Lifecycle script `dev` failed with error:
+npm error code 143
+npm error path /Users/viditkbhatnagar/codes/ttii_app/apps/web
+npm error workspace @ttii/web@0.1.0
+npm error location /Users/viditkbhatnagar/codes/ttii_app/apps/web
+npm error command failed
+npm error command sh -c vite --host 127.0.0.1

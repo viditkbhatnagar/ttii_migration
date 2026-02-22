@@ -1,0 +1,89 @@
+name: ttii_app
+services:
+  api:
+    build:
+      context: /Users/viditkbhatnagar/codes/ttii_app
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: "4000"
+      MYSQL_DATABASE: ttii
+      MYSQL_HOST: db
+      MYSQL_PASSWORD: ttii_dev_password
+      MYSQL_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ttii_root_password
+      MYSQL_USER: ttii
+      NODE_ENV: development
+      VITE_API_BASE_URL: http://localhost:4000/api
+      WEB_PORT: "5173"
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 4000
+        published: "4000"
+        protocol: tcp
+  db:
+    environment:
+      MYSQL_DATABASE: ttii
+      MYSQL_PASSWORD: ttii_dev_password
+      MYSQL_ROOT_PASSWORD: ttii_root_password
+      MYSQL_USER: ttii
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD
+      timeout: 5s
+      interval: 10s
+      retries: 10
+    image: mysql:8.4
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 3306
+        published: "3306"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: mysql-data
+        target: /var/lib/mysql
+        volume: {}
+  web:
+    build:
+      context: /Users/viditkbhatnagar/codes/ttii_app
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+        required: true
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: "4000"
+      MYSQL_DATABASE: ttii
+      MYSQL_HOST: localhost
+      MYSQL_PASSWORD: ttii_dev_password
+      MYSQL_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ttii_root_password
+      MYSQL_USER: ttii
+      NODE_ENV: development
+      VITE_API_BASE_URL: http://localhost:4000/api
+      WEB_PORT: "5173"
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 5173
+        published: "5173"
+        protocol: tcp
+networks:
+  default:
+    name: ttii_app_default
+volumes:
+  mysql-data:
+    name: ttii_app_mysql-data

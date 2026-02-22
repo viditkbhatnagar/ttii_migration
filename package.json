@@ -1,0 +1,43 @@
+{
+  "name": "ttii-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TTII JavaScript/TypeScript monorepo foundation (Phase 02)",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @ttii/shared-types && npm run build -w @ttii/ui && concurrently -n api,web -c cyan,magenta \"npm run dev -w @ttii/api\" \"npm run dev -w @ttii/web\"",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,json,css,md}\" \"*.{json,md,yml,yaml}\" \"eslint.config.mjs\" \"docker-compose.yml\" \".github/workflows/*.yml\"",
+    "format:write": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,json,css,md}\" \"*.{json,md,yml,yaml}\" \"eslint.config.mjs\" \"docker-compose.yml\" \".github/workflows/*.yml\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build -w @ttii/shared-types && npm run build -w @ttii/ui && npm run build -w @ttii/api && npm run build -w @ttii/web",
+    "ci": "npm run lint && npm run test && npm run build",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down --remove-orphans"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@types/node": "^24.6.1",
+    "@types/react": "^19.2.1",
+    "@types/react-dom": "^19.2.1",
+    "@vitejs/plugin-react": "^5.0.3",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.38.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4"
+  }
+}

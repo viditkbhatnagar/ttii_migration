@@ -1,0 +1,26 @@
+{
+  "name": "@ttii/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "test": "vitest run --dir tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@prisma/client": "^7.4.1",
+    "fastify": "^5.6.1",
+    "mysql2": "^3.17.4",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "prisma": "^7.4.1",
+    "tsx": "^4.20.6"
+  }
+}

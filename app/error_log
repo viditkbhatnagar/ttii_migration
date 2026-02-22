@@ -1,0 +1,101 @@
+[15-Dec-2023 16:51:47 UTC] PHP Warning:  chdir(): No such file or directory (errno 2) in /home/trogon/apps/codeace/spark on line 56
+[15-Dec-2023 16:51:47 UTC] PHP Warning:  Undefined array key "HTTP_HOST" in /home/trogon/apps/codeace/app/Config/App.php on line 184
+[15-Dec-2023 16:51:47 UTC] PHP Fatal error:  Uncaught CodeIgniter\Exceptions\ConfigException: Config\App::$baseURL is invalid. in /home/trogon/apps/codeace/system/HTTP/SiteURI.php:199
+Stack trace:
+#0 /home/trogon/apps/codeace/system/HTTP/SiteURI.php(145): CodeIgniter\HTTP\SiteURI->normalizeBaseURL(Object(Config\App))
+#1 /home/trogon/apps/codeace/system/HTTP/SiteURI.php(100): CodeIgniter\HTTP\SiteURI->determineBaseURL(Object(Config\App), NULL, NULL)
+#2 /home/trogon/apps/codeace/system/HTTP/SiteURIFactory.php(224): CodeIgniter\HTTP\SiteURI->__construct(Object(Config\App), '/', NULL)
+#3 /home/trogon/apps/codeace/system/HTTP/SiteURIFactory.php(45): CodeIgniter\HTTP\SiteURIFactory->createURIFromRoutePath('/')
+#4 /home/trogon/apps/codeace/system/Config/Services.php(799): CodeIgniter\HTTP\SiteURIFactory->createFromGlobals()
+#5 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri(NULL, false)
+#6 /home/trogon/apps/codeace/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#7 /home/trogon/apps/codeace/system/Config/Services.php(792): CodeIgniter\Config\BaseService::getSharedInstance('uri', NULL)
+#8 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri()
+#9 /home/trogon/apps/codeace/system/Config/Services.php(566): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#10 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::incomingrequest(Object(Config\App), false)
+#11 /home/trogon/apps/codeace/system/Config/Services.php(524): CodeIgniter\Config\BaseService::__callStatic('incomingrequest', Array)
+#12 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request(NULL, false)
+#13 /home/trogon/apps/codeace/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#14 /home/trogon/apps/codeace/system/Config/Services.php(520): CodeIgniter\Config\BaseService::getSharedInstance('request', NULL)
+#15 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request()
+#16 /home/trogon/apps/codeace/system/Debug/Exceptions.php(137): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#17 [internal function]: CodeIgniter\Debug\Exceptions->exceptionHandler(Object(CodeIgniter\Exceptions\ConfigException))
+#18 {main}
+  thrown in /home/trogon/apps/codeace/system/HTTP/SiteURI.php on line 199
+[15-Dec-2023 16:51:47 UTC] PHP Fatal error:  Uncaught CodeIgniter\Exceptions\ConfigException: Config\App::$baseURL is invalid. in /home/trogon/apps/codeace/system/HTTP/SiteURI.php:199
+Stack trace:
+#0 /home/trogon/apps/codeace/system/HTTP/SiteURI.php(145): CodeIgniter\HTTP\SiteURI->normalizeBaseURL(Object(Config\App))
+#1 /home/trogon/apps/codeace/system/HTTP/SiteURI.php(100): CodeIgniter\HTTP\SiteURI->determineBaseURL(Object(Config\App), NULL, NULL)
+#2 /home/trogon/apps/codeace/system/HTTP/SiteURIFactory.php(224): CodeIgniter\HTTP\SiteURI->__construct(Object(Config\App), '/', NULL)
+#3 /home/trogon/apps/codeace/system/HTTP/SiteURIFactory.php(45): CodeIgniter\HTTP\SiteURIFactory->createURIFromRoutePath('/')
+#4 /home/trogon/apps/codeace/system/Config/Services.php(799): CodeIgniter\HTTP\SiteURIFactory->createFromGlobals()
+#5 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri(NULL, false)
+#6 /home/trogon/apps/codeace/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#7 /home/trogon/apps/codeace/system/Config/Services.php(792): CodeIgniter\Config\BaseService::getSharedInstance('uri', NULL)
+#8 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri()
+#9 /home/trogon/apps/codeace/system/Config/Services.php(566): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#10 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::incomingrequest(Object(Config\App), false)
+#11 /home/trogon/apps/codeace/system/Config/Services.php(524): CodeIgniter\Config\BaseService::__callStatic('incomingrequest', Array)
+#12 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request(NULL, false)
+#13 /home/trogon/apps/codeace/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#14 /home/trogon/apps/codeace/system/Config/Services.php(520): CodeIgniter\Config\BaseService::getSharedInstance('request', NULL)
+#15 /home/trogon/apps/codeace/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request()
+#16 /home/trogon/apps/codeace/system/Debug/Exceptions.php(137): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#17 /home/trogon/apps/codeace/system/Debug/Exceptions.php(238): CodeIgniter\Debug\Exceptions->exceptionHandler(Object(ErrorException))
+#18 [internal function]: CodeIgniter\Debug\Exceptions->shutdownHandler()
+#19 {main}
+  thrown in /home/trogon/apps/codeace/system/HTTP/SiteURI.php on line 199
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  chdir(): No such file or directory (errno 2) in /home2/trogon/apps/scale_up/spark on line 56
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "SERVER_ADDR" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 522
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "SCRIPT_URI" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 523
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "SERVER_NAME" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 524
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "SERVER_ADDR" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 525
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "SERVER_SOFTWARE" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 526
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "HTTP_HOST" in /home2/trogon/apps/scale_up/system/Helpers/url_helper.php on line 527
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  The use statement with non-compound name 'Exception' has no effect in /home2/trogon/apps/scale_up/app/Helpers/jwt_helper.php on line 7
+[06-Nov-2024 08:01:28 UTC] PHP Warning:  Undefined array key "HTTP_HOST" in /home2/trogon/apps/scale_up/app/Config/App.php on line 192
+[06-Nov-2024 13:31:28 Asia/Kolkata] PHP Fatal error:  Uncaught CodeIgniter\Exceptions\ConfigException: Config\App::$baseURL is invalid. in /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php:199
+Stack trace:
+#0 /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php(145): CodeIgniter\HTTP\SiteURI->normalizeBaseURL(Object(Config\App))
+#1 /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php(100): CodeIgniter\HTTP\SiteURI->determineBaseURL(Object(Config\App), NULL, NULL)
+#2 /home2/trogon/apps/scale_up/system/HTTP/SiteURIFactory.php(224): CodeIgniter\HTTP\SiteURI->__construct(Object(Config\App), '/', NULL)
+#3 /home2/trogon/apps/scale_up/system/HTTP/SiteURIFactory.php(45): CodeIgniter\HTTP\SiteURIFactory->createURIFromRoutePath('/')
+#4 /home2/trogon/apps/scale_up/system/Config/Services.php(799): CodeIgniter\HTTP\SiteURIFactory->createFromGlobals()
+#5 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri(NULL, false)
+#6 /home2/trogon/apps/scale_up/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#7 /home2/trogon/apps/scale_up/system/Config/Services.php(792): CodeIgniter\Config\BaseService::getSharedInstance('uri', NULL)
+#8 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri()
+#9 /home2/trogon/apps/scale_up/system/Config/Services.php(566): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#10 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::incomingrequest(Object(Config\App), false)
+#11 /home2/trogon/apps/scale_up/system/Config/Services.php(524): CodeIgniter\Config\BaseService::__callStatic('incomingrequest', Array)
+#12 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request(NULL, false)
+#13 /home2/trogon/apps/scale_up/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#14 /home2/trogon/apps/scale_up/system/Config/Services.php(520): CodeIgniter\Config\BaseService::getSharedInstance('request', NULL)
+#15 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request()
+#16 /home2/trogon/apps/scale_up/system/Debug/Exceptions.php(137): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#17 [internal function]: CodeIgniter\Debug\Exceptions->exceptionHandler(Object(CodeIgniter\Exceptions\ConfigException))
+#18 {main}
+  thrown in /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php on line 199
+[06-Nov-2024 13:31:28 Asia/Kolkata] PHP Fatal error:  Uncaught CodeIgniter\Exceptions\ConfigException: Config\App::$baseURL is invalid. in /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php:199
+Stack trace:
+#0 /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php(145): CodeIgniter\HTTP\SiteURI->normalizeBaseURL(Object(Config\App))
+#1 /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php(100): CodeIgniter\HTTP\SiteURI->determineBaseURL(Object(Config\App), NULL, NULL)
+#2 /home2/trogon/apps/scale_up/system/HTTP/SiteURIFactory.php(224): CodeIgniter\HTTP\SiteURI->__construct(Object(Config\App), '/', NULL)
+#3 /home2/trogon/apps/scale_up/system/HTTP/SiteURIFactory.php(45): CodeIgniter\HTTP\SiteURIFactory->createURIFromRoutePath('/')
+#4 /home2/trogon/apps/scale_up/system/Config/Services.php(799): CodeIgniter\HTTP\SiteURIFactory->createFromGlobals()
+#5 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri(NULL, false)
+#6 /home2/trogon/apps/scale_up/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#7 /home2/trogon/apps/scale_up/system/Config/Services.php(792): CodeIgniter\Config\BaseService::getSharedInstance('uri', NULL)
+#8 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::uri()
+#9 /home2/trogon/apps/scale_up/system/Config/Services.php(566): CodeIgniter\Config\BaseService::__callStatic('uri', Array)
+#10 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::incomingrequest(Object(Config\App), false)
+#11 /home2/trogon/apps/scale_up/system/Config/Services.php(524): CodeIgniter\Config\BaseService::__callStatic('incomingrequest', Array)
+#12 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request(NULL, false)
+#13 /home2/trogon/apps/scale_up/system/Config/BaseService.php(199): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#14 /home2/trogon/apps/scale_up/system/Config/Services.php(520): CodeIgniter\Config\BaseService::getSharedInstance('request', NULL)
+#15 /home2/trogon/apps/scale_up/system/Config/BaseService.php(258): CodeIgniter\Config\Services::request()
+#16 /home2/trogon/apps/scale_up/system/Debug/Exceptions.php(137): CodeIgniter\Config\BaseService::__callStatic('request', Array)
+#17 /home2/trogon/apps/scale_up/system/Debug/Exceptions.php(238): CodeIgniter\Debug\Exceptions->exceptionHandler(Object(ErrorException))
+#18 [internal function]: CodeIgniter\Debug\Exceptions->shutdownHandler()
+#19 {main}
+  thrown in /home2/trogon/apps/scale_up/system/HTTP/SiteURI.php on line 199

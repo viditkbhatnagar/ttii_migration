@@ -1,0 +1,61 @@
+project: ttii-js-migration
+updated_at: 2026-02-22
+current_phase: '03'
+phase_states:
+  '00': completed
+  '01': completed
+  '02': completed
+  '03': not_started
+  '04': not_started
+  '05': not_started
+  '06': not_started
+  '07': not_started
+  '08': not_started
+  '09': not_started
+  '10': not_started
+  '11': not_started
+  '12': not_started
+  '13': not_started
+  '14': not_started
+  '15': not_started
+exit_gates:
+  '00':
+    - leaked secrets rotated
+    - critical exploit paths mitigated
+    - migration control files initialized
+  '01':
+    - all major legacy features mapped in parity matrix
+    - p0 and p1 scopes tagged
+  '02':
+    - monorepo boots locally
+    - ci checks pass
+  '03':
+    - core data parity proven on existing schema
+  '04':
+    - auth and rbac parity with secure reset flow
+  '05':
+    - external integrations abstracted in node services
+  '06':
+    - content/catalog p0 parity delivered
+  '07':
+    - assessments p0 parity delivered
+  '08':
+    - commerce and enrollment parity delivered
+  '09':
+    - engagement p1 parity delivered
+  '10':
+    - admin and centre operation parity delivered
+  '11':
+    - role-based react shells operational
+  '12':
+    - student portal parity delivered
+  '13':
+    - centre portal parity delivered
+  '14':
+    - admin portal parity delivered
+  '15':
+    - production cutover and rollback runbooks validated
+notes:
+  - execute one phase per chat only
+  - no phase may start until previous phase handoff exists
+  - phase 00 smoke execution waiver approved in phase-00 test report and handoff

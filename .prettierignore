@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+dist/
+public_html/
+app/vendor/
+app/writable/
