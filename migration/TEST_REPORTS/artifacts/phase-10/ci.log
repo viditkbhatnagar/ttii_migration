@@ -1,0 +1,457 @@
+
+> ttii-platform@0.1.0 ci
+> npm run lint && npm run test && npm run build
+
+
+> ttii-platform@0.1.0 lint
+> npm run lint --workspaces --if-present
+
+
+> @ttii/api@0.1.0 lint
+> eslint "src/**/*.ts" "tests/**/*.ts"
+
+
+> @ttii/web@0.1.0 lint
+> eslint "src/**/*.{ts,tsx}" "tests/**/*.tsx" "vite.config.ts"
+
+
+> @ttii/shared-types@0.1.0 lint
+> eslint "src/index.ts" "tests/**/*.ts"
+
+
+> @ttii/ui@0.1.0 lint
+> eslint "src/**/*.{ts,tsx}" "tests/**/*.{ts,tsx}"
+
+
+> ttii-platform@0.1.0 test
+> npm run test --workspaces --if-present
+
+
+> @ttii/api@0.1.0 test
+> npm run db:prepare:test && DATABASE_URL='file:./prisma/test.db' vitest run --dir tests --no-file-parallelism
+
+
+> @ttii/api@0.1.0 db:prepare:test
+> rm -f prisma/test.db && sqlite3 prisma/test.db < prisma/core-schema.sql
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/apps/api
+
+{"level":30,"time":1771781781573,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=admin%40example.test&password=AdminPass%232026&role_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+stdout | tests/auth/auth-core.test.ts > Phase 04 auth + RBAC + security parity > uses signed, expiring, one-time password reset tokens and invalidates sessions after reset
+integration.email.send {"provider":"console-email","to":"re***@example.test","subject":"TTII Password Reset Link","has_html":false,"has_text":true}
+
+{"level":30,"time":1771781781621,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":47.81050002574921,"msg":"request completed"}
+{"level":30,"time":1771781781622,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/auth/me?auth_token=a1y9b5-394l8UKAjbe69UTTS-A2clezsdS-9noZc7opm9bhdtNAkeLmjSHKdUcMu","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781626,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":4.117416977882385,"msg":"request completed"}
+{"level":30,"time":1771781781677,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/login/index?email=student%40example.test&password=StudentPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781707,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":200},"responseTime":30.436958014965057,"msg":"request completed"}
+{"level":30,"time":1771781781707,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/auth/portal/student?auth_token=Mpha6lrs8RfYWA-gFDHe_JrIGcSwkZoyORq9ZAS_YJr99c9atUxsMnu7qrie8nUH","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781709,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":200},"responseTime":1.4519590139389038,"msg":"request completed"}
+{"level":30,"time":1771781781709,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/auth/portal/admin?auth_token=Mpha6lrs8RfYWA-gFDHe_JrIGcSwkZoyORq9ZAS_YJr99c9atUxsMnu7qrie8nUH","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781712,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":403},"responseTime":2.5909169912338257,"msg":"request completed"}
+{"level":30,"time":1771781781761,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"POST","url":"/api/login/forgot_password","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781766,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":4.831207990646362,"msg":"request completed"}
+{"level":30,"time":1771781781766,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"GET","url":"/api/login/reset_password/3?token=eyJ1aWQiOjMsImVoIjoiMzA5ZWVjZjE2N2Y2ZmE2NDZhMDExNjk5ZmJiYWNjZmIyMDY5ODcxYmY3NWVlYjViZmZiNWE4ZTgyY2M1ZGJmMiIsImlhdCI6MTc3MTc4MTc4MSwiZXhwIjoxNzcxNzgzNTgxLCJwd2giOiJiZTQ3NjgxMGUxZDBiZjFlZDNhODQ5MjkiLCJqdGkiOiI0Njc0MzMzMjBkZDIzMjJlZjhmNjYxN2ExZGI1Y2UzMCJ9.I3W52ZpUgJmQyVHIT_E5bndS7zQ0WSucfP3xXC2gXIg","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781767,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":1.1381250023841858,"msg":"request completed"}
+{"level":30,"time":1771781781768,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/login/reset_password/3?token=eyJ1aWQiOjMsImVoIjoiMzA5ZWVjZjE2N2Y2ZmE2NDZhMDExNjk5ZmJiYWNjZmIyMDY5ODcxYmY3NWVlYjViZmZiNWE4ZTgyY2M1ZGJmMiIsImlhdCI6MTc3MTc4MTc4MSwiZXhwIjoxNzcxNzgzNTgxLCJwd2giOiJiZTQ3NjgxMGUxZDBiZjFlZDNhODQ5MjkiLCJqdGkiOiI0Njc0MzMzMjBkZDIzMjJlZjhmNjYxN2ExZGI1Y2UzMCJ9.I3W52ZpUgJmQyVHIT_E5bndS7zQ0WSucfP3xXC2gXIgtampered","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781768,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":400},"responseTime":0.592290997505188,"msg":"request completed"}
+{"level":30,"time":1771781781768,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"POST","url":"/api/login/update_password","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781799,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":30.749374985694885,"msg":"request completed"}
+{"level":30,"time":1771781781799,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"POST","url":"/api/login/update_password","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+stdout | tests/auth/auth-core.test.ts > Phase 04 auth + RBAC + security parity > issues OTP challenges and rejects bypass/invalid OTP attempts
+integration.otp.send {"provider":"console-otp","user_id":4,"purpose":"login","target":"******1111","expires_at":"2026-02-22T17:41:21.914Z"}
+
+{"level":30,"time":1771781781801,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":400},"responseTime":1.2073749899864197,"msg":"request completed"}
+{"level":30,"time":1771781781801,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"GET","url":"/api/login/index?email=reset%40example.test&password=LegacyPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781830,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":401},"responseTime":29.769582986831665,"msg":"request completed"}
+{"level":30,"time":1771781781831,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"GET","url":"/api/login/index?email=reset%40example.test&password=NewSecurePass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781861,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":30.128000020980835,"msg":"request completed"}
+{"level":30,"time":1771781781912,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"GET","url":"/api/login/request_otp?phone=9990001111","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781916,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":4.0877909660339355,"msg":"request completed"}
+{"level":30,"time":1771781781917,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/login/verify_otp?user_id=4&otp=000000","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781920,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":401},"responseTime":3.359749972820282,"msg":"request completed"}
+{"level":30,"time":1771781781920,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/login/verify_otp?user_id=4&otp=620660","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781926,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":6.122332990169525,"msg":"request completed"}
+{"level":30,"time":1771781781926,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/login/verify_otp?user_id=4&otp=620660","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781928,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":400},"responseTime":1.4798750281333923,"msg":"request completed"}
+{"level":30,"time":1771781781928,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"GET","url":"/api/login/verify_otp?user_id=4&otp=123456","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781781929,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":400},"responseTime":1.3563340306282043,"msg":"request completed"}
+{"level":30,"time":1771781782022,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782058,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":401},"responseTime":35.71833300590515,"msg":"request completed"}
+{"level":30,"time":1771781782058,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782088,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":401},"responseTime":29.740958988666534,"msg":"request completed"}
+{"level":30,"time":1771781782088,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782171,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","res":{"statusCode":401},"responseTime":82.770417034626,"msg":"request completed"}
+{"level":30,"time":1771781782172,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782227,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","res":{"statusCode":401},"responseTime":54.79170900583267,"msg":"request completed"}
+{"level":30,"time":1771781782227,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782259,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","res":{"statusCode":401},"responseTime":31.992500007152557,"msg":"request completed"}
+{"level":30,"time":1771781782259,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","req":{"method":"GET","url":"/api/login/index?email=ratelimit%40example.test&password=WrongPass%232026","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782261,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","res":{"statusCode":429},"responseTime":1.4138750433921814,"msg":"request completed"}
+{"level":30,"time":1771781782347,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","req":{"method":"GET","url":"/api/login/index?email=admin-field%40example.test&password=EmailFieldPass%232026&role_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782379,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","res":{"statusCode":200},"responseTime":32.35629194974899,"msg":"request completed"}
+{"level":30,"time":1771781782379,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","req":{"method":"GET","url":"/api/login/index?email=student-field%40example.test&password=UserEmailFieldPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782413,"pid":8161,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","res":{"statusCode":200},"responseTime":33.15070801973343,"msg":"request completed"}
+ ✓ tests/auth/auth-core.test.ts (6 tests) 941ms
+   ✓ Phase 04 auth + RBAC + security parity > rate limits repeated failed login attempts and records auth audit trail  332ms
+{"level":30,"time":1771781782816,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=engagement.learner%40example.test&password=EngagementPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782862,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":45.54445797204971,"msg":"request completed"}
+{"level":30,"time":1771781782863,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/feed/index","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782864,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":401},"responseTime":1.7115839719772339,"msg":"request completed"}
+{"level":30,"time":1771781782865,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/feed/index?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782873,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":200},"responseTime":8.435667037963867,"msg":"request completed"}
+{"level":30,"time":1771781782873,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/feed/feed_like?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2&feed_id=3301","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782876,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":200},"responseTime":2.221292018890381,"msg":"request completed"}
+{"level":30,"time":1771781782876,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/feed/feed_watched?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2&feed_id=3301","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782878,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":200},"responseTime":2.6099590063095093,"msg":"request completed"}
+{"level":30,"time":1771781782879,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"GET","url":"/api/feed/add_feed_comment?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2&feed_id=3301&comment=Very+useful+update","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782881,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":1.9349169731140137,"msg":"request completed"}
+{"level":30,"time":1771781782881,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"GET","url":"/api/feed/index?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782884,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":2.328333020210266,"msg":"request completed"}
+{"level":30,"time":1771781782884,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/feed/feed_comments?auth_token=jXfwpC0ahHE1C9spr6-6al4US4q25QAk5XvjEenSczS3m_Qgucyyy6aZipwomkH2&feed_id=3301","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782885,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":1.3647500276565552,"msg":"request completed"}
+{"level":30,"time":1771781782941,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"GET","url":"/api/login/index?email=engagement.learner%40example.test&password=EngagementPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782971,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":30.15583300590515,"msg":"request completed"}
+{"level":30,"time":1771781782971,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"GET","url":"/api/review/add_review?auth_token=nblL9ghAA97vvCkLJofgCMLz-h5HROvF1YuAZL9tfIzBRH3St0lEgbIC8vaLK4zg&course_id=3101&rating=5&review=Great+progression+content","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782974,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":200},"responseTime":2.1177499890327454,"msg":"request completed"}
+{"level":30,"time":1771781782974,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"GET","url":"/api/review/get_user_review?auth_token=nblL9ghAA97vvCkLJofgCMLz-h5HROvF1YuAZL9tfIzBRH3St0lEgbIC8vaLK4zg&course_id=3101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782975,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":1.087374985218048,"msg":"request completed"}
+{"level":30,"time":1771781782975,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"GET","url":"/api/review/like_review?auth_token=nblL9ghAA97vvCkLJofgCMLz-h5HROvF1YuAZL9tfIzBRH3St0lEgbIC8vaLK4zg&review_id=3401","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782977,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":1.7387920022010803,"msg":"request completed"}
+{"level":30,"time":1771781782977,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"GET","url":"/api/review/like_review?auth_token=nblL9ghAA97vvCkLJofgCMLz-h5HROvF1YuAZL9tfIzBRH3St0lEgbIC8vaLK4zg&review_id=3401","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781782979,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":1.6856249570846558,"msg":"request completed"}
+{"level":30,"time":1771781783033,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/login/index?email=engagement.learner%40example.test&password=EngagementPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783064,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":30.38899999856949,"msg":"request completed"}
+{"level":30,"time":1771781783064,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/home/get_notification?auth_token=gPYtSfYPs2f1OP2G5Uy4KabNW9eiGipzQSrWQ6d0a6OKdwcJAxE9DlBY60DRPLnS","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783065,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":1.383542001247406,"msg":"request completed"}
+{"level":30,"time":1771781783065,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/home/mark_notification_as_read?auth_token=gPYtSfYPs2f1OP2G5Uy4KabNW9eiGipzQSrWQ6d0a6OKdwcJAxE9DlBY60DRPLnS&notification_id=3502","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783067,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":1.5527499914169312,"msg":"request completed"}
+{"level":30,"time":1771781783067,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"GET","url":"/api/home/get_notification_list?auth_token=gPYtSfYPs2f1OP2G5Uy4KabNW9eiGipzQSrWQ6d0a6OKdwcJAxE9DlBY60DRPLnS","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783068,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":200},"responseTime":0.9641249775886536,"msg":"request completed"}
+{"level":30,"time":1771781783068,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/home/save_notification_token?auth_token=gPYtSfYPs2f1OP2G5Uy4KabNW9eiGipzQSrWQ6d0a6OKdwcJAxE9DlBY60DRPLnS&notification_token=expo-device-token-phase09","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783070,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":1.7709580063819885,"msg":"request completed"}
+{"level":30,"time":1771781783131,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/login/index?email=engagement.learner%40example.test&password=EngagementPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783162,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":200},"responseTime":30.30495798587799,"msg":"request completed"}
+{"level":30,"time":1771781783162,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/events/index?auth_token=g-nkkpPKZzOj7Nfbi4ZglKekvAa1d3UwE81b1lmQ4eMUmgkMZsplU86TpBTDDNNI","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783164,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":2.490875005722046,"msg":"request completed"}
+{"level":30,"time":1771781783165,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","req":{"method":"GET","url":"/api/events/get_event_details?auth_token=g-nkkpPKZzOj7Nfbi4ZglKekvAa1d3UwE81b1lmQ4eMUmgkMZsplU86TpBTDDNNI&event_id=3601","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783166,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","res":{"statusCode":200},"responseTime":1.3761249780654907,"msg":"request completed"}
+{"level":30,"time":1771781783166,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","req":{"method":"POST","url":"/api/events/register_event","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783169,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","res":{"statusCode":200},"responseTime":2.82920902967453,"msg":"request completed"}
+{"level":30,"time":1771781783169,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","req":{"method":"POST","url":"/api/events/register_event","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783173,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","res":{"statusCode":200},"responseTime":3.586292028427124,"msg":"request completed"}
+{"level":30,"time":1771781783173,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","req":{"method":"GET","url":"/api/events/add_feedback?auth_token=g-nkkpPKZzOj7Nfbi4ZglKekvAa1d3UwE81b1lmQ4eMUmgkMZsplU86TpBTDDNNI&event_id=3601&rating=4&review=Great+session","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783174,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","res":{"statusCode":200},"responseTime":1.571042001247406,"msg":"request completed"}
+{"level":30,"time":1771781783175,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","req":{"method":"GET","url":"/api/events/add_feedback?auth_token=g-nkkpPKZzOj7Nfbi4ZglKekvAa1d3UwE81b1lmQ4eMUmgkMZsplU86TpBTDDNNI&event_id=3601&rating=5&review=Second+review","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783175,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","res":{"statusCode":200},"responseTime":0.7952919602394104,"msg":"request completed"}
+{"level":30,"time":1771781783229,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-q","req":{"method":"GET","url":"/api/login/index?email=engagement.learner%40example.test&password=EngagementPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783259,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-q","res":{"statusCode":200},"responseTime":30.42316699028015,"msg":"request completed"}
+{"level":30,"time":1771781783259,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-r","req":{"method":"GET","url":"/api/my_task/index?auth_token=qFtHpulecOLQLuic1kKeaak6WDMLXLkkIsLco7GObqdLMibVScTrvx_gveX2ukhr&date=2026-02-22","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783261,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-r","res":{"statusCode":200},"responseTime":1.4266669750213623,"msg":"request completed"}
+{"level":30,"time":1771781783261,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-s","req":{"method":"GET","url":"/api/support/get_messages?auth_token=qFtHpulecOLQLuic1kKeaak6WDMLXLkkIsLco7GObqdLMibVScTrvx_gveX2ukhr","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783262,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-s","res":{"statusCode":200},"responseTime":1.0987499952316284,"msg":"request completed"}
+{"level":30,"time":1771781783262,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-t","req":{"method":"POST","url":"/api/support/submit_message","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783264,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-t","res":{"statusCode":200},"responseTime":1.67391699552536,"msg":"request completed"}
+{"level":30,"time":1771781783264,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-u","req":{"method":"GET","url":"/api/support/get_messages?auth_token=qFtHpulecOLQLuic1kKeaak6WDMLXLkkIsLco7GObqdLMibVScTrvx_gveX2ukhr","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783265,"pid":8164,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-u","res":{"statusCode":200},"responseTime":0.8716249465942383,"msg":"request completed"}
+ ✓ tests/engagement/engagement-contract.test.ts (5 tests) 571ms
+{"level":30,"time":1771781783654,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=commerce.learner%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+ ✓ tests/commerce/commerce-contract.test.ts (4 tests) 734ms
+{"level":30,"time":1771781783706,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":51.22808301448822,"msg":"request completed"}
+{"level":30,"time":1771781783706,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/login/index?email=commerce.intruder%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783739,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":33.1503329873085,"msg":"request completed"}
+{"level":30,"time":1771781783740,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/packages/index","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783741,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":401},"responseTime":1.4234580397605896,"msg":"request completed"}
+{"level":30,"time":1771781783742,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/packages/index?auth_token=V9SFS3acVTuy17k2CN_adNoEi4hnbactw88FpIV5ErLoysZv5YxmkGkGjmMwv0cF&course_id=2101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783749,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":200},"responseTime":6.891999959945679,"msg":"request completed"}
+{"level":30,"time":1771781783749,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/payment/generate_payment?auth_token=V9SFS3acVTuy17k2CN_adNoEi4hnbactw88FpIV5ErLoysZv5YxmkGkGjmMwv0cF&package_id=2201&subjects=%5B2301%2C2302%5D","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783752,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":200},"responseTime":2.582584023475647,"msg":"request completed"}
+{"level":30,"time":1771781783752,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"GET","url":"/api/payment/apply_coupon?auth_token=V9SFS3acVTuy17k2CN_adNoEi4hnbactw88FpIV5ErLoysZv5YxmkGkGjmMwv0cF&course_id=2101&package_id=2201&coupon_code=SAVE20","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783754,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":2.2077500224113464,"msg":"request completed"}
+{"level":30,"time":1771781783755,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"GET","url":"/api/payment/apply_coupon?auth_token=V9SFS3acVTuy17k2CN_adNoEi4hnbactw88FpIV5ErLoysZv5YxmkGkGjmMwv0cF&course_id=2101&package_id=2201&coupon_code=INVALID","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783756,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":1.331125020980835,"msg":"request completed"}
+{"level":30,"time":1771781783810,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/login/index?email=commerce.learner%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783842,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":31.854499995708466,"msg":"request completed"}
+{"level":30,"time":1771781783842,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"GET","url":"/api/login/index?email=commerce.intruder%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783875,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":32.37766695022583,"msg":"request completed"}
+{"level":30,"time":1771781783875,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"GET","url":"/api/payment/create_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783878,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":200},"responseTime":2.5579580068588257,"msg":"request completed"}
+{"level":30,"time":1771781783878,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"GET","url":"/api/payment/complete_order?auth_token=os04c1zkkUIqLHibQrHdjgLJ5-8jjbtwcVQ_3u70pnJHInjIiFQghYKoMOLclI8D&course_id=2101&razorpay_order_id=order_24a7e877f3114323&razorpay_payment_id=pay_phase08_primary&razorpay_signature=d15f0e23e443d85703bf1ee58413293efb4b0dfab68ead8bdc03d61b8b172ae6","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783880,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":2.2425830364227295,"msg":"request completed"}
+{"level":30,"time":1771781783881,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"GET","url":"/api/payment/complete_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101&razorpay_order_id=order_24a7e877f3114323&razorpay_payment_id=pay_phase08_primary&razorpay_signature=wrong-signature","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783882,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":1.6230000257492065,"msg":"request completed"}
+{"level":30,"time":1771781783883,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"GET","url":"/api/payment/complete_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101&razorpay_order_id=order_24a7e877f3114323&razorpay_payment_id=pay_phase08_primary&razorpay_signature=d15f0e23e443d85703bf1ee58413293efb4b0dfab68ead8bdc03d61b8b172ae6","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783888,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":4.96433299779892,"msg":"request completed"}
+{"level":30,"time":1771781783889,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/payment/create_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783890,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":1.7952920198440552,"msg":"request completed"}
+{"level":30,"time":1771781783891,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/payment/complete_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101&razorpay_order_id=order_42bedebee0ce4c76&razorpay_payment_id=pay_phase08_primary&razorpay_signature=b512c6df4459c871c118c2a687c52171b8060e7cb5782fcb31be85613f6a753a","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783892,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":1.7254579663276672,"msg":"request completed"}
+{"level":30,"time":1771781783893,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/payment/create_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783894,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":1.7579169869422913,"msg":"request completed"}
+{"level":30,"time":1771781783895,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"GET","url":"/api/payment/complete_order?auth_token=eKEdEks6en8leCaO9KCUy6NyYmuZoTTSzCut55WoaOz9LwZvFZ5OQTNVGnrK6apv&course_id=2102&razorpay_order_id=order_8ccb587ba20a418e&razorpay_payment_id=pay_phase08_tamper&razorpay_signature=e10a68e75316135cceb4cc8b08ff19763b656de36279acd150d27ef92e55a31d","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783896,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":200},"responseTime":1.8897079825401306,"msg":"request completed"}
+{"level":30,"time":1771781783951,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/login/index?email=commerce.learner%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781783983,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":31.838083028793335,"msg":"request completed"}
+{"level":30,"time":1771781783983,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/login/index?email=commerce.intruder%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784014,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":200},"responseTime":30.84841698408127,"msg":"request completed"}
+{"level":30,"time":1771781784015,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/payment/get_student_courses?auth_token=NRYtsxdkW9jcWRhJ1F63FiVOAzbcxt13B_w52zCtYS0voxoz9gPUEZcmGFzCbj7N","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784016,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":1.6143329739570618,"msg":"request completed"}
+{"level":30,"time":1771781784017,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","req":{"method":"GET","url":"/api/payment/get_payment_details?auth_token=NRYtsxdkW9jcWRhJ1F63FiVOAzbcxt13B_w52zCtYS0voxoz9gPUEZcmGFzCbj7N&course_id=2101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784018,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","res":{"statusCode":200},"responseTime":1.5480000376701355,"msg":"request completed"}
+{"level":30,"time":1771781784076,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","req":{"method":"GET","url":"/api/login/index?email=commerce.learner%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784216,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","res":{"statusCode":200},"responseTime":139.96312499046326,"msg":"request completed"}
+{"level":30,"time":1771781784216,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","req":{"method":"GET","url":"/api/login/index?email=commerce.intruder%40example.test&password=CommercePass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784266,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","res":{"statusCode":200},"responseTime":49.564832985401154,"msg":"request completed"}
+{"level":30,"time":1771781784266,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","req":{"method":"GET","url":"/api/payment/apply_coupon?auth_token=vB1punvUjO-8nKGY8hDmAkbgqBohl-yMUjoKS6icKy4rrngWeJWLSetKrhm_G7do&course_id=2101&package_id=2201&coupon_code=FREE100","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784273,"pid":8187,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","res":{"statusCode":200},"responseTime":6.773374974727631,"msg":"request completed"}
+{"level":30,"time":1771781784712,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=phase10.admin%40example.test&password=OpsPass%232026&role_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784763,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":50.753291964530945,"msg":"request completed"}
+{"level":30,"time":1771781784764,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/login/index?email=phase10.centre%40example.test&password=OpsPass%232026&role_id=7","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784802,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":37.97058302164078,"msg":"request completed"}
+{"level":30,"time":1771781784802,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/admin/applications/index","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784804,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":401},"responseTime":2.009374976158142,"msg":"request completed"}
+{"level":30,"time":1771781784805,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/admin/applications/index?auth_token=-NGEYdl48tYNZFb5GjmBKQgXBGRdEjkoTLqKN1nuKiYrXidG9LW9se7Y4zogBCYM","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784811,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":403},"responseTime":5.761624991893768,"msg":"request completed"}
+{"level":30,"time":1771781784811,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/admin/applications/index?auth_token=22L68jxq9WgOlOCNtd-465zg5YHRdKNIcoy2KQ8z_N4URI8pU4nEPeZA-MYX7r8S","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784813,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":200},"responseTime":2.50662499666214,"msg":"request completed"}
+{"level":30,"time":1771781784814,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"GET","url":"/api/centre/applications/index?auth_token=-NGEYdl48tYNZFb5GjmBKQgXBGRdEjkoTLqKN1nuKiYrXidG9LW9se7Y4zogBCYM","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784816,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":2.121167004108429,"msg":"request completed"}
+{"level":30,"time":1771781784817,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"POST","url":"/api/admin/applications/convert","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784852,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":35.34379196166992,"msg":"request completed"}
+{"level":30,"time":1771781784853,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/admin/students/index?auth_token=22L68jxq9WgOlOCNtd-465zg5YHRdKNIcoy2KQ8z_N4URI8pU4nEPeZA-MYX7r8S","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784854,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":1.3293330073356628,"msg":"request completed"}
+{"level":30,"time":1771781784854,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"GET","url":"/api/centre/students/index?auth_token=-NGEYdl48tYNZFb5GjmBKQgXBGRdEjkoTLqKN1nuKiYrXidG9LW9se7Y4zogBCYM","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784856,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":1.370290994644165,"msg":"request completed"}
+{"level":30,"time":1771781784918,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"GET","url":"/api/login/index?email=phase10.admin%40example.test&password=OpsPass%232026&role_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784953,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":200},"responseTime":34.69645798206329,"msg":"request completed"}
+{"level":30,"time":1771781784953,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"GET","url":"/api/login/index?email=phase10.centre%40example.test&password=OpsPass%232026&role_id=7","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784984,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":31.169541001319885,"msg":"request completed"}
+{"level":30,"time":1771781784985,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"POST","url":"/api/centre/cohorts/add","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784988,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":3.3022080063819885,"msg":"request completed"}
+{"level":30,"time":1771781784988,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"POST","url":"/api/centre/cohorts/add_cohort_students","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784992,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":3.9206249713897705,"msg":"request completed"}
+{"level":30,"time":1771781784992,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"POST","url":"/api/centre/live_class/add","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784995,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":2.3711249828338623,"msg":"request completed"}
+{"level":30,"time":1771781784995,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/centre/live_class/index?auth_token=WEB-IQfKnhVGY9-QMnCfBM-HsE4Ld3E_cMlHuoE8RfBQuT8qcG_QZKQXo7ph8QwK","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784996,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":1.2300419807434082,"msg":"request completed"}
+{"level":30,"time":1771781784996,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"POST","url":"/api/centre/resources/add_folder","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781784998,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":1.7067079544067383,"msg":"request completed"}
+{"level":30,"time":1771781784998,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"POST","url":"/api/centre/resources/add_file","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785000,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":200},"responseTime":1.5776249766349792,"msg":"request completed"}
+{"level":30,"time":1771781785000,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/centre/resources/index?auth_token=WEB-IQfKnhVGY9-QMnCfBM-HsE4Ld3E_cMlHuoE8RfBQuT8qcG_QZKQXo7ph8QwK&folder_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785001,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":1.0955829620361328,"msg":"request completed"}
+{"level":30,"time":1771781785057,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/login/index?email=phase10.admin%40example.test&password=OpsPass%232026&role_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785088,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":200},"responseTime":30.663166999816895,"msg":"request completed"}
+{"level":30,"time":1771781785088,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/login/index?email=phase10.centre%40example.test&password=OpsPass%232026&role_id=7","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785118,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":30.124458014965057,"msg":"request completed"}
+{"level":30,"time":1771781785118,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","req":{"method":"POST","url":"/api/admin/centres/add","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785150,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-l","res":{"statusCode":200},"responseTime":31.353042006492615,"msg":"request completed"}
+{"level":30,"time":1771781785150,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","req":{"method":"POST","url":"/api/admin/centres/save_assign_plan","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785152,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-m","res":{"statusCode":200},"responseTime":2.3865829706192017,"msg":"request completed"}
+{"level":30,"time":1771781785152,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","req":{"method":"POST","url":"/api/admin/resources/add_folder","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785155,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-n","res":{"statusCode":200},"responseTime":2.1634170413017273,"msg":"request completed"}
+{"level":30,"time":1771781785155,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","req":{"method":"POST","url":"/api/admin/resources/add_file","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785156,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-o","res":{"statusCode":200},"responseTime":1.7001659870147705,"msg":"request completed"}
+{"level":30,"time":1771781785157,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","req":{"method":"GET","url":"/api/admin/resources/index?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&folder_id=2&centre_id=5104","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785158,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-p","res":{"statusCode":200},"responseTime":1.1578750014305115,"msg":"request completed"}
+{"level":30,"time":1771781785158,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-q","req":{"method":"GET","url":"/api/admin/settings/system_settings?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785159,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-q","res":{"statusCode":200},"responseTime":1.1035410165786743,"msg":"request completed"}
+{"level":30,"time":1771781785159,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-r","req":{"method":"POST","url":"/api/admin/settings/system_settings","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785161,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-r","res":{"statusCode":200},"responseTime":2.184374988079071,"msg":"request completed"}
+{"level":30,"time":1771781785161,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-s","req":{"method":"POST","url":"/api/admin/settings/website_settings","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785163,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-s","res":{"statusCode":200},"responseTime":1.9429159760475159,"msg":"request completed"}
+{"level":30,"time":1771781785163,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-t","req":{"method":"POST","url":"/api/admin/settings/edit_app_version","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785165,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-t","res":{"statusCode":200},"responseTime":1.9329580068588257,"msg":"request completed"}
+{"level":30,"time":1771781785166,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-u","req":{"method":"GET","url":"/api/admin/settings/app_version?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785167,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-u","res":{"statusCode":200},"responseTime":1.0264580249786377,"msg":"request completed"}
+{"level":30,"time":1771781785167,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-v","req":{"method":"GET","url":"/api/admin/reports/index?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&from_date=2026-02-21&to_date=2026-02-23","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785168,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-v","res":{"statusCode":200},"responseTime":1.1823749542236328,"msg":"request completed"}
+{"level":30,"time":1771781785168,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-w","req":{"method":"GET","url":"/api/admin/reports/export?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&type=summary","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785169,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-w","res":{"statusCode":200},"responseTime":1.300458014011383,"msg":"request completed"}
+{"level":30,"time":1771781785169,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-x","req":{"method":"GET","url":"/api/admin/live_report/index?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&live_id=5106&date=2026-02-22","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785171,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-x","res":{"statusCode":200},"responseTime":1.7394579648971558,"msg":"request completed"}
+{"level":30,"time":1771781785171,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-y","req":{"method":"GET","url":"/api/admin/reports/export?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&type=live_report&live_id=5106&date=2026-02-22","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785172,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-y","res":{"statusCode":200},"responseTime":1.003832995891571,"msg":"request completed"}
+{"level":30,"time":1771781785172,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-z","req":{"method":"GET","url":"/api/admin/global_calender/index?auth_token=5SyX1kPFVSeZlBuwXnG1y89Gl_gOor9K_qs2-7w0rDj4b_ZvQ0u5QBRpZ03rftNS&from_date=2026-02-20&to_date=2026-02-24","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785174,"pid":8190,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-z","res":{"statusCode":200},"responseTime":1.1532090306282043,"msg":"request completed"}
+ ✓ tests/operations/operations-contract.test.ts (3 tests) 596ms
+{"level":30,"time":1771781785581,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=assessment.learner%40example.test&password=AssessPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785627,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":45.6796669960022,"msg":"request completed"}
+{"level":30,"time":1771781785628,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/exams/index","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785631,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":401},"responseTime":3.311792016029358,"msg":"request completed"}
+{"level":30,"time":1771781785631,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/exams/index?auth_token=7w9fUtJP4dVJpBKOTPYYl7YsXVDru9wPchbyr9Ap7p3yKbNtV8VskZMAbpwLidCP","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785640,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":200},"responseTime":8.901082992553711,"msg":"request completed"}
+{"level":30,"time":1771781785641,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/exams/exam_calendar?auth_token=7w9fUtJP4dVJpBKOTPYYl7YsXVDru9wPchbyr9Ap7p3yKbNtV8VskZMAbpwLidCP","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785642,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":200},"responseTime":1.4838330149650574,"msg":"request completed"}
+{"level":30,"time":1771781785700,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/login/index?email=assessment.learner%40example.test&password=AssessPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785731,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":200},"responseTime":30.792666971683502,"msg":"request completed"}
+{"level":30,"time":1771781785731,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"POST","url":"/api/exams/exam_save_start","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785735,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":3.3425830006599426,"msg":"request completed"}
+{"level":30,"time":1771781785735,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"POST","url":"/api/exams/exam_save_result","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785741,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":6.024124979972839,"msg":"request completed"}
+{"level":30,"time":1771781785802,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/login/index?email=assessment.learner%40example.test&password=AssessPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785832,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":30.745540976524353,"msg":"request completed"}
+{"level":30,"time":1771781785833,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"POST","url":"/api/quiz/start_quiz","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785834,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":1.7958340048789978,"msg":"request completed"}
+{"level":30,"time":1771781785835,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"POST","url":"/api/quiz/save_quiz_result","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785845,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":200},"responseTime":10.629167020320892,"msg":"request completed"}
+{"level":30,"time":1771781785846,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"POST","url":"/api/practice/start_practice","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785848,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":1.966709017753601,"msg":"request completed"}
+{"level":30,"time":1771781785848,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"POST","url":"/api/practice/save_practice_result","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785851,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":2.8402079939842224,"msg":"request completed"}
+{"level":30,"time":1771781785906,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"GET","url":"/api/login/index?email=assessment.learner%40example.test&password=AssessPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785936,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":30.084541022777557,"msg":"request completed"}
+{"level":30,"time":1771781785937,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/assignment/index?auth_token=DivjpUS976oD2cOYwwDviPhWxLl0Y1br3ugrUAM1seq35z3Mx2m_gipNXBq8cott","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785944,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":7.319542050361633,"msg":"request completed"}
+{"level":30,"time":1771781785944,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/assignment/get_assignment_details?auth_token=DivjpUS976oD2cOYwwDviPhWxLl0Y1br3ugrUAM1seq35z3Mx2m_gipNXBq8cott&assignment_id=1601","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785946,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":1.7145000100135803,"msg":"request completed"}
+{"level":30,"time":1771781785946,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"POST","url":"/api/assignment/submit_assignment","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+stdout | tests/assessment/assessment-contract.test.ts > Phase 07 assessment parity contracts > supports assignment listing, submission, review evaluation, and save toggle parity
+integration.email.send {"provider":"console-email","to":"as****************@example.test","subject":"Assignment Submission Successful – Assessment Assignment","has_html":false,"has_text":true}
+
+stdout | tests/assessment/assessment-contract.test.ts > Phase 07 assessment parity contracts > supports assignment listing, submission, review evaluation, and save toggle parity
+integration.email.send {"provider":"console-email","to":"as*******************@example.test","subject":"Assignment Submitted by Learner – Assessment Assignment","has_html":false,"has_text":true}
+
+{"level":30,"time":1771781785950,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":4.169250011444092,"msg":"request completed"}
+{"level":30,"time":1771781785950,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"POST","url":"/api/assignment/submit_assignment","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785952,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":200},"responseTime":1.3680830001831055,"msg":"request completed"}
+{"level":30,"time":1771781785952,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/assignment/get_assignment_evaluation?auth_token=DivjpUS976oD2cOYwwDviPhWxLl0Y1br3ugrUAM1seq35z3Mx2m_gipNXBq8cott&assignment_id=1601","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785954,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":1.269957959651947,"msg":"request completed"}
+{"level":30,"time":1771781785954,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/assignment/save_assignment?auth_token=DivjpUS976oD2cOYwwDviPhWxLl0Y1br3ugrUAM1seq35z3Mx2m_gipNXBq8cott&assignment_id=1601","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785955,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":200},"responseTime":1.527500033378601,"msg":"request completed"}
+{"level":30,"time":1771781785956,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/assignment/save_assignment?auth_token=DivjpUS976oD2cOYwwDviPhWxLl0Y1br3ugrUAM1seq35z3Mx2m_gipNXBq8cott&assignment_id=1601","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781785957,"pid":8213,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":1.2882080078125,"msg":"request completed"}
+ ✓ tests/assessment/assessment-contract.test.ts (4 tests) 494ms
+{"level":30,"time":1771781786322,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/login/index?email=learner1%40example.test&password=LearnerPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+ ✓ tests/content/content-contract.test.ts (4 tests) 473ms
+{"level":30,"time":1771781786367,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":45.14241701364517,"msg":"request completed"}
+{"level":30,"time":1771781786368,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/category/index","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786369,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":0.9754160046577454,"msg":"request completed"}
+{"level":30,"time":1771781786369,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","req":{"method":"GET","url":"/api/course/all_course","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786372,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-3","res":{"statusCode":401},"responseTime":3.1400830149650574,"msg":"request completed"}
+{"level":30,"time":1771781786429,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","req":{"method":"GET","url":"/api/login/index?email=learner1%40example.test&password=LearnerPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786460,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-4","res":{"statusCode":200},"responseTime":31.156000018119812,"msg":"request completed"}
+{"level":30,"time":1771781786461,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","req":{"method":"GET","url":"/api/category/get_category_details?auth_token=tLLogBt9NDRqzaw_dTzKK3CWJgu_LPjFXe5dCQ0oOecyNdsfKQ-0p7o-MdeqfQy7&category_id=1","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786465,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-5","res":{"statusCode":200},"responseTime":4.36412501335144,"msg":"request completed"}
+{"level":30,"time":1771781786465,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","req":{"method":"GET","url":"/api/course/all_course?auth_token=tLLogBt9NDRqzaw_dTzKK3CWJgu_LPjFXe5dCQ0oOecyNdsfKQ-0p7o-MdeqfQy7","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786468,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":2.2809589505195618,"msg":"request completed"}
+{"level":30,"time":1771781786468,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","req":{"method":"GET","url":"/api/course/get_course_details?auth_token=tLLogBt9NDRqzaw_dTzKK3CWJgu_LPjFXe5dCQ0oOecyNdsfKQ-0p7o-MdeqfQy7&course_id=101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786471,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":3.098083019256592,"msg":"request completed"}
+{"level":30,"time":1771781786532,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/login/index?email=learner1%40example.test&password=LearnerPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786565,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":33.69562500715256,"msg":"request completed"}
+{"level":30,"time":1771781786566,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","req":{"method":"GET","url":"/api/course/get_lessons?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&subject_id=201","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786571,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":5.139999985694885,"msg":"request completed"}
+{"level":30,"time":1771781786571,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","req":{"method":"GET","url":"/api/lesson_file/index?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&lesson_id=301","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786574,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-a","res":{"statusCode":200},"responseTime":2.3952919840812683,"msg":"request completed"}
+{"level":30,"time":1771781786574,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","req":{"method":"GET","url":"/api/lesson_file/videos?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&lesson_id=301","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786576,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":2.167541980743408,"msg":"request completed"}
+{"level":30,"time":1771781786576,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","req":{"method":"GET","url":"/api/lesson_file/materials?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&course_id=101","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786579,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":2.8855420351028442,"msg":"request completed"}
+{"level":30,"time":1771781786579,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","req":{"method":"GET","url":"/api/lesson_file/save_video_progress?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&course_id=101&lesson_file_id=401&lesson_duration=00%3A10%3A00&user_progress=00%3A10%3A00","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786582,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":2.155541956424713,"msg":"request completed"}
+{"level":30,"time":1771781786582,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/lesson_file/save_material_progress?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&course_id=101&lesson_file_id=402&attachment_type=pdf","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786584,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":1.9259589910507202,"msg":"request completed"}
+{"level":30,"time":1771781786584,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/course/get_lessons?auth_token=5O7FrwerZ1UfBB4G9wfwqIT2WZyJ6yRoX4CqcVKFHfrk0bTbAd05h6y35irQy09D&subject_id=201","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786587,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":3.514459013938904,"msg":"request completed"}
+{"level":30,"time":1771781786647,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/login/index?email=learner1%40example.test&password=LearnerPass%232026&role_id=2","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786677,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":29.85666596889496,"msg":"request completed"}
+{"level":30,"time":1771781786677,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","req":{"method":"GET","url":"/api/lesson_file/save_video_progress?auth_token=2Oks8IQOA3DSoSkIEOXDuwcTj06WfFXrgWrI4ch8BsBLcghRIHXesjTmSIq9TO0s&lesson_file_id=401&lesson_duration=00%3A10%3A00&user_progress=00%3A10%3A00","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786679,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-h","res":{"statusCode":200},"responseTime":1.691457986831665,"msg":"request completed"}
+{"level":30,"time":1771781786679,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","req":{"method":"GET","url":"/api/lesson_file/save_video_progress?auth_token=2Oks8IQOA3DSoSkIEOXDuwcTj06WfFXrgWrI4ch8BsBLcghRIHXesjTmSIq9TO0s&lesson_file_id=401&lesson_duration=00%3A10%3A00&user_progress=00%3A05%3A00","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786680,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":1.042165994644165,"msg":"request completed"}
+{"level":30,"time":1771781786681,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","req":{"method":"GET","url":"/api/lesson_file/streak_data?auth_token=2Oks8IQOA3DSoSkIEOXDuwcTj06WfFXrgWrI4ch8BsBLcghRIHXesjTmSIq9TO0s&from_date=2026-02-22&to_date=2026-02-22","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781786682,"pid":8215,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-j","res":{"statusCode":200},"responseTime":1.466458022594452,"msg":"request completed"}
+{"level":30,"time":1771781787039,"pid":8217,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"POST","url":"/api/login/forgot_password","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781787057,"pid":8217,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":16.83270800113678,"msg":"request completed"}
+{"level":30,"time":1771781787115,"pid":8217,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","req":{"method":"GET","url":"/api/login/request_otp?phone=9000011111","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1771781787119,"pid":8217,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":4.200833022594452,"msg":"request completed"}
+ ✓ tests/integrations/auth-wiring.test.ts (2 tests) 189ms
+ ✓ tests/data/users.repository.test.ts (2 tests) 102ms
+ ✓ tests/data/transaction.test.ts (1 test) 85ms
+ ✓ tests/data/enrol.repository.test.ts (1 test) 78ms
+ ✓ tests/data/notification.repository.test.ts (1 test) 64ms
+{"level":30,"time":1771781788530,"pid":8249,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/api/health","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+ ✓ tests/health.test.ts (1 test) 33ms
+{"level":30,"time":1771781788534,"pid":8249,"hostname":"Vidits-MacBook-Pro.local","reqId":"req-1","res":{"statusCode":200},"responseTime":3.5208330154418945,"msg":"request completed"}
+ ✓ tests/integrations/openai-provider.test.ts (1 test) 4ms
+ ✓ tests/integrations/storage-provider.test.ts (1 test) 9ms
+ ✓ tests/integrations/zoom-provider.test.ts (1 test) 2ms
+ ✓ tests/integrations/payment-gateway.test.ts (2 tests) 2ms
+
+ Test Files  16 passed (16)
+      Tests  39 passed (39)
+   Start at  21:36:21
+   Duration  8.08s (transform 227ms, setup 0ms, collect 1.67s, tests 4.38s, environment 1ms, prepare 533ms)
+
+
+> @ttii/web@0.1.0 test
+> vitest run --dir tests
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/apps/web
+
+ ✓ tests/app.test.tsx (1 test) 5ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:36:29
+   Duration  379ms (transform 37ms, setup 0ms, collect 54ms, tests 5ms, environment 0ms, prepare 55ms)
+
+
+> @ttii/shared-types@0.1.0 test
+> vitest run --dir tests
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/packages/shared-types
+
+ ✓ tests/contracts.test.ts (1 test) 3ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:36:30
+   Duration  316ms (transform 26ms, setup 0ms, collect 22ms, tests 3ms, environment 0ms, prepare 44ms)
+
+
+> @ttii/ui@0.1.0 test
+> vitest run --dir tests
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/packages/ui
+
+ ✓ tests/shell-card.test.tsx (1 test) 7ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:36:30
+   Duration  318ms (transform 33ms, setup 0ms, collect 47ms, tests 7ms, environment 0ms, prepare 33ms)
+
+
+> ttii-platform@0.1.0 build
+> npm run build -w @ttii/shared-types && npm run build -w @ttii/ui && npm run build -w @ttii/api && npm run build -w @ttii/web
+
+
+> @ttii/shared-types@0.1.0 build
+> tsc -p tsconfig.build.json
+
+
+> @ttii/ui@0.1.0 build
+> tsc -p tsconfig.build.json
+
+
+> @ttii/api@0.1.0 build
+> tsc -p tsconfig.build.json
+
+
+> @ttii/web@0.1.0 build
+> tsc -p tsconfig.app.json --noEmit && vite build
+
+vite v7.3.1 building client environment for production...
+transforming...
+✓ 31 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.40 kB │ gzip:  0.27 kB
+dist/assets/index-CX9dW2vx.css    0.80 kB │ gzip:  0.46 kB
+dist/assets/index-D5XK1I08.js   194.07 kB │ gzip: 60.96 kB
+✓ built in 511ms

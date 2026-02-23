@@ -1,0 +1,24 @@
+
+> @ttii/api@0.1.0 db:introspect
+> npm run db:bootstrap && DATABASE_URL='file:./dev.db' prisma db pull --schema prisma/schema.prisma && HOME='/tmp/prisma-home' DATABASE_URL='file:./dev.db' prisma generate --schema prisma/schema.prisma
+
+
+> @ttii/api@0.1.0 db:bootstrap
+> rm -f prisma/dev.db && sqlite3 prisma/dev.db < prisma/core-schema.sql
+
+Prisma schema loaded from prisma/schema.prisma
+Datasource "db": SQLite database "dev.db" at "file:./dev.db"
+
+- Introspecting based on datasource defined in prisma/schema.prisma
+✔ Introspected 4 models and wrote them into prisma/schema.prisma in 14ms
+      
+Run prisma generate to generate Prisma Client.
+
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.16.2) to ./node_modules/@prisma/client in 29ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+

@@ -12,13 +12,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build -w @ttii/shared-types && npm run build -w @ttii/ui && concurrently -n api,web -c cyan,magenta \"npm run dev -w @ttii/api\" \"npm run dev -w @ttii/web\"",
+    "dev": "npm run build -w @ttii/shared-types && npm run build -w @ttii/frontend-core && npm run build -w @ttii/ui && concurrently -n api,web -c cyan,magenta \"npm run dev -w @ttii/api\" \"npm run dev -w @ttii/web\"",
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,json,css,md}\" \"*.{json,md,yml,yaml}\" \"eslint.config.mjs\" \"docker-compose.yml\" \".github/workflows/*.yml\"",
     "format:write": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,json,css,md}\" \"*.{json,md,yml,yaml}\" \"eslint.config.mjs\" \"docker-compose.yml\" \".github/workflows/*.yml\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run build -w @ttii/shared-types && npm run build -w @ttii/ui && npm run build -w @ttii/api && npm run build -w @ttii/web",
+    "build": "npm run build -w @ttii/shared-types && npm run build -w @ttii/frontend-core && npm run build -w @ttii/ui && npm run build -w @ttii/api && npm run build -w @ttii/web",
     "ci": "npm run lint && npm run test && npm run build",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down --remove-orphans"

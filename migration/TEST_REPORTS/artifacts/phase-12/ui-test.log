@@ -1,0 +1,14 @@
+
+> @ttii/ui@0.1.0 test
+> vitest run --dir tests
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/packages/ui
+
+ ✓ tests/shell-card.test.tsx (3 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  23:25:11
+   Duration  269ms (transform 38ms, setup 0ms, collect 51ms, tests 5ms, environment 0ms, prepare 55ms)
+

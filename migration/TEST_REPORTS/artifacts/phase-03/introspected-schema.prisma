@@ -1,0 +1,97 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model enrol {
+  id                Int       @id @default(autoincrement())
+  user_id           Int
+  course_id         Int
+  package_id        Int?
+  enrollment_date   DateTime?
+  enrollment_status String?
+  mode_of_study     String?
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+  users             users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([deleted_at], map: "idx_enrol_deleted_at")
+  @@index([user_id, course_id], map: "idx_enrol_user_course")
+}
+
+model notification {
+  id                Int                 @id @default(autoincrement())
+  title             String
+  description       String?
+  url               String?
+  course_id         Int                 @default(0)
+  is_read           Int                 @default(0)
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+  notification_read notification_read[]
+
+  @@index([deleted_at], map: "idx_notification_deleted_at")
+  @@index([course_id], map: "idx_notification_course")
+}
+
+model notification_read {
+  id              Int          @id @default(autoincrement())
+  notification_id Int
+  user_id         Int
+  status          Int          @default(1)
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+  users           users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  notification    notification @relation(fields: [notification_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([notification_id, user_id], map: "sqlite_autoindex_notification_read_1")
+  @@index([deleted_at], map: "idx_notification_read_deleted_at")
+}
+
+model users {
+  id                  Int                 @id @default(autoincrement())
+  user_id             String?
+  student_id          String?
+  name                String?
+  email               String?             @unique(map: "sqlite_autoindex_users_1")
+  user_email          String?             @unique(map: "sqlite_autoindex_users_2")
+  phone               String?
+  country_code        String?
+  role_id             Int?
+  user_designation_id Int?
+  password            String?
+  verification_code   String?
+  status              Int                 @default(0)
+  device_id           String?
+  course_id           Int?
+  notification_token  String?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+  enrol               enrol[]
+  notification_read   notification_read[]
+
+  @@index([deleted_at], map: "idx_users_deleted_at")
+  @@index([role_id], map: "idx_users_role")
+  @@index([phone], map: "idx_users_phone")
+}

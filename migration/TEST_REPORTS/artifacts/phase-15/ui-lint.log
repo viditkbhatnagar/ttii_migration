@@ -1,0 +1,4 @@
+
+> @ttii/ui@0.1.0 lint
+> eslint "src/**/*.{ts,tsx}" "tests/**/*.{ts,tsx}"
+

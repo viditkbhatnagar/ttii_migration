@@ -1,0 +1,4 @@
+
+> @ttii/api@0.1.0 lint
+> eslint "src/**/*.ts" "tests/**/*.ts"
+

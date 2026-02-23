@@ -1,0 +1,15 @@
+
+> @ttii/frontend-core@0.1.0 test
+> vitest run --dir tests
+
+
+ RUN  v3.2.4 /Users/viditkbhatnagar/codes/ttii_app/packages/frontend-core
+
+ ✓ tests/role-shell.test.ts (3 tests) 3ms
+ ✓ tests/legacy-api-client.test.ts (5 tests) 6ms
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  01:10:38
+   Duration  240ms (transform 59ms, setup 0ms, collect 118ms, tests 9ms, environment 0ms, prepare 77ms)
+

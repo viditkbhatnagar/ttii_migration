@@ -8,19 +8,24 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "test": "vitest run --dir tests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "npm run db:prepare:test && DATABASE_URL='file:./prisma/test.db' vitest run --dir tests --no-file-parallelism",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:bootstrap": "rm -f prisma/dev.db && sqlite3 prisma/dev.db < prisma/core-schema.sql",
+    "db:introspect": "npm run db:bootstrap && DATABASE_URL='file:./dev.db' prisma db pull --schema prisma/schema.prisma && HOME='/tmp/prisma-home' DATABASE_URL='file:./dev.db' prisma generate --schema prisma/schema.prisma",
+    "db:prepare:test": "rm -f prisma/test.db && sqlite3 prisma/test.db < prisma/core-schema.sql"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
-    "@prisma/client": "^7.4.1",
+    "@prisma/adapter-better-sqlite3": "^6.16.2",
+    "@prisma/client": "^6.16.2",
+    "better-sqlite3": "^12.6.2",
     "fastify": "^5.6.1",
     "mysql2": "^3.17.4",
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "prisma": "^7.4.1",
+    "prisma": "^6.16.2",
     "tsx": "^4.20.6"
   }
 }
