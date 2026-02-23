@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:bootstrap": "rm -f prisma/dev.db && sqlite3 prisma/dev.db < prisma/core-schema.sql",
     "db:introspect": "npm run db:bootstrap && DATABASE_URL='file:./dev.db' prisma db pull --schema prisma/schema.prisma && HOME='/tmp/prisma-home' DATABASE_URL='file:./dev.db' prisma generate --schema prisma/schema.prisma",
-    "db:prepare:test": "rm -f prisma/test.db && sqlite3 prisma/test.db < prisma/core-schema.sql"
+    "db:prepare:test": "rm -f prisma/test.db && sqlite3 prisma/test.db < prisma/core-schema.sql",
+    "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

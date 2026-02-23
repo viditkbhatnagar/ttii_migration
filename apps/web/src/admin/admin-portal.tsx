@@ -287,13 +287,13 @@ function AdminUsersSection({ api, session }: { api: AdminPortalApi; session: Aut
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [pipelineUsers, setPipelineUsers] = useState<Record<string, unknown>[]>([]);
 
-  const [centreName, setCentreName] = useState('Phase14 Operations Centre');
+  const [centreName, setCentreName] = useState('New Centre');
   const [contactPerson, setContactPerson] = useState('Centre Lead');
   const [countryCode, setCountryCode] = useState('+91');
   const [phone, setPhone] = useState('9001410001');
-  const [email, setEmail] = useState('phase14.centre@example.test');
-  const [address, setAddress] = useState('Phase 14 Street');
-  const [password, setPassword] = useState('Centre#Phase14');
+  const [email, setEmail] = useState('centre@example.test');
+  const [address, setAddress] = useState('');
+  const [password, setPassword] = useState('');
   const [registrationDate, setRegistrationDate] = useState(dateOnly(-1));
   const [expiryDate, setExpiryDate] = useState(dateOnly(365));
 
@@ -1676,7 +1676,7 @@ export function AdminPortal({ pathname, session, api, onNavigate, onLogout }: Ad
     <PortalScaffold
       roleLabel="Admin App"
       title="Admin operations portal"
-      subtitle="Phase 14 React migration for admin dashboards and management workflows"
+      subtitle="Manage users, content, assessments, reports, and settings"
       navItems={ADMIN_SECTION_NAV.map((entry) => ({
         id: entry.id,
         label: entry.label,

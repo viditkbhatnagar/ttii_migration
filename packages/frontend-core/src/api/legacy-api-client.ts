@@ -62,7 +62,7 @@ export class LegacyApiClient {
 
   constructor(options: LegacyApiClientOptions) {
     this.baseUrl = withTrailingSlash(options.baseUrl);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   }
 
   async request<T>(options: LegacyApiRequestOptions): Promise<T> {

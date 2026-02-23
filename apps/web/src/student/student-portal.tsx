@@ -1127,7 +1127,7 @@ function StudentSupportSection({ api, session }: { api: StudentPortalApi; sessio
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionState, setActionState] = useSectionActionState();
-  const [message, setMessage] = useState('Need help with assignment submission parity.');
+  const [message, setMessage] = useState('');
 
   const load = async (): Promise<void> => {
     setLoading(true);
@@ -1275,7 +1275,7 @@ export function StudentPortal({ pathname, session, api, onNavigate, onLogout }: 
       <PortalScaffold
         roleLabel="Student App"
         title="Student Portal"
-        subtitle="React migration routes for learner features"
+        subtitle="Access your courses, assessments, and learning resources"
         navItems={STUDENT_SECTION_NAV}
         activeHref={activeHref}
         onNavigate={onNavigate}
@@ -1295,7 +1295,7 @@ export function StudentPortal({ pathname, session, api, onNavigate, onLogout }: 
     <PortalScaffold
       roleLabel="Student App"
       title="Student Portal"
-      subtitle="Phase 12 parity pages on migrated Node APIs"
+      subtitle="Access your courses, assessments, and learning resources"
       navItems={STUDENT_SECTION_NAV}
       activeHref={activeHref}
       onNavigate={onNavigate}

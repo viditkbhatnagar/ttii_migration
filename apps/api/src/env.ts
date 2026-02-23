@@ -34,7 +34,7 @@ const envSchema = z.object({
   API_HOST: z.string().default('0.0.0.0'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   APP_BASE_URL: z.string().url().default('http://localhost:4000'),
-  DATABASE_URL: z.string().default('file:./apps/api/prisma/dev.db'),
+  DATABASE_URL: z.string().default('file:./prisma/dev.db'),
   MYSQL_HOST: z.string().default('localhost'),
   MYSQL_PORT: z.coerce.number().int().min(1).max(65535).default(3306),
   MYSQL_DATABASE: z.string().default('ttii'),

@@ -42,62 +42,62 @@ interface ShellCopy {
 const shellCopyMap: Record<Exclude<PortalSurface, 'student'>, ShellCopy> = {
   centre: {
     roleLabel: 'Centre App',
-    title: 'Operations shell',
-    subtitle: 'Role guard backed by /api/auth/portal/centre',
-    intro: 'Centre operations continue to run on the guarded shell while feature migration remains in Phase 13.',
+    title: 'Centre Dashboard',
+    subtitle: 'Manage your centre operations',
+    intro: 'Access cohort management, learner tracking, resources, wallet, and support from your centre dashboard.',
     focusAreas: [
-      'Cohort and learner screens in Phase 13 mount inside this scaffold.',
-      'Route guards fail closed on 401/403 API responses.',
-      'Layout intentionally mirrors centre workflow zones.',
+      'Manage cohorts and enrolled learners.',
+      'Track funding requests and wallet transactions.',
+      'Access training videos and shared resources.',
     ],
     metrics: [
       {
-        label: 'Guarded entry points',
-        value: '3',
-        detail: 'Dashboard, pipeline, and resources placeholders.',
+        label: 'Sections',
+        value: '9',
+        detail: 'Dashboard, applications, students, courses, cohorts, live classes, resources, wallet, support.',
         tone: 'success',
       },
       {
-        label: 'Shared client usage',
+        label: 'API client',
         value: '1',
         detail: 'Single API client contract across all portals.',
         tone: 'info',
       },
       {
-        label: 'Deferred pages',
-        value: 'All',
-        detail: 'Full migration intentionally deferred by phase plan.',
-        tone: 'warning',
+        label: 'Access',
+        value: 'Active',
+        detail: 'Role-gated centre portal.',
+        tone: 'neutral',
       },
     ],
   },
   admin: {
     roleLabel: 'Admin App',
-    title: 'Operations control plane',
-    subtitle: 'Role guard backed by /api/auth/portal/admin',
-    intro: 'Admin modules now run under the React portal with parity-safe workflows for users, content, assessments, reports, and settings.',
+    title: 'Admin Dashboard',
+    subtitle: 'Platform administration and management',
+    intro: 'Manage users, content, assessments, reports, and system settings from the admin dashboard.',
     focusAreas: [
-      'Backoffice routes reuse a dedicated admin API adapter over legacy-compatible contracts.',
-      'Portal guard honors legacy admin role matrix (admin/subadmin/staff roles).',
-      'Shared error and auth surfaces remain consistent across all role portals.',
+      'User and application management across all roles.',
+      'Content and assessment administration.',
+      'System settings and reporting.',
     ],
     metrics: [
       {
-        label: 'Portal sections',
+        label: 'Sections',
         value: '6',
         detail: 'Dashboard, users, content, assessments, reports, settings.',
         tone: 'success',
       },
       {
-        label: 'Migration phase',
-        value: 'Phase 14',
-        detail: 'Admin portal parity flow activated.',
+        label: 'Roles managed',
+        value: '3',
+        detail: 'Admin, centre, and student roles.',
         tone: 'info',
       },
       {
-        label: 'Shared guard',
+        label: 'Access',
         value: 'Active',
-        detail: 'Role-gated by /api/auth/portal/admin.',
+        detail: 'Role-gated admin portal.',
         tone: 'neutral',
       },
     ],
@@ -440,11 +440,10 @@ function LoginHome() {
   return (
     <main className="landing-shell">
       <header>
-        <p className="eyebrow">TTII migration</p>
-        <h1>Phase 14 Admin React Portal</h1>
+        <p className="eyebrow">TTII</p>
+        <h1>Welcome to TTII</h1>
         <p className="lead-copy">
-          Student, centre, and admin portal surfaces now run in React over migrated Node APIs, including admin
-          dashboard and management workflows in this phase.
+          Sign in to access your student, centre, or admin portal.
         </p>
       </header>
 
@@ -490,8 +489,8 @@ function LoginHome() {
       ) : null}
 
       <section className="login-card" aria-label="Legacy auth bridge login">
-        <h2>API auth bridge</h2>
-        <p>Use legacy-compatible credentials to request auth token and load a guarded role portal.</p>
+        <h2>Sign in</h2>
+        <p>Enter your credentials to access your portal.</p>
 
         <form
           className="login-form"

@@ -642,7 +642,7 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
   const [cohorts, setCohorts] = useState<Record<string, unknown>[]>([]);
   const [students, setStudents] = useState<Record<string, unknown>[]>([]);
   const [actionState, setActionState] = useActionState();
-  const [title, setTitle] = useState('Phase 13 Cohort');
+  const [title, setTitle] = useState('New Cohort');
   const [courseId, setCourseId] = useState('0');
   const [subjectId, setSubjectId] = useState('0');
   const [instructorId, setInstructorId] = useState('1');
@@ -803,7 +803,7 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
   const [liveClasses, setLiveClasses] = useState<Record<string, unknown>[]>([]);
   const [actionState, setActionState] = useActionState();
   const [cohortId, setCohortId] = useState('0');
-  const [title, setTitle] = useState('Phase 13 Live Session');
+  const [title, setTitle] = useState('New Live Session');
 
   const load = async (): Promise<void> => {
     setLoading(true);
@@ -1125,8 +1125,8 @@ function CentreWalletSection({ api, session }: { api: CentrePortalApi; session: 
   } | null>(null);
 
   const [amount, setAmount] = useState('2500');
-  const [transactionNo, setTransactionNo] = useState('TXN-PHASE13');
-  const [description, setDescription] = useState('Phase 13 wallet recharge request');
+  const [transactionNo, setTransactionNo] = useState('');
+  const [description, setDescription] = useState('');
 
   const load = async (): Promise<void> => {
     setLoading(true);
@@ -1262,7 +1262,7 @@ function CentreSupportSection({ api, session }: { api: CentrePortalApi; session:
   const [actionState, setActionState] = useActionState();
   const [messages, setMessages] = useState<Record<string, unknown>[]>([]);
   const [trainingVideos, setTrainingVideos] = useState<Record<string, unknown>[]>([]);
-  const [message, setMessage] = useState('Phase 13 centre support message');
+  const [message, setMessage] = useState('');
 
   const load = async (): Promise<void> => {
     setLoading(true);
@@ -1441,7 +1441,7 @@ export function CentrePortal({ pathname, session, api, onNavigate, onLogout }: C
     <PortalScaffold
       roleLabel="Centre App"
       title="Centre operations portal"
-      subtitle="Phase 13 React migration for centre-facing workflows"
+      subtitle="Manage applications, cohorts, live classes, and resources"
       navItems={CENTRE_SECTION_NAV.map((entry) => ({
         id: entry.id,
         label: entry.label,
