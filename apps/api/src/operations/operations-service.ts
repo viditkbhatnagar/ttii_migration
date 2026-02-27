@@ -227,6 +227,176 @@ export type ExportReportInput = {
   joinDate?: string;
 };
 
+export type BatchInput = {
+  title: string;
+  description?: string;
+  status?: string;
+};
+
+export type BannerInput = {
+  title?: string;
+  image?: string;
+  courseId?: number;
+  status?: string;
+};
+
+export type FaqInput = {
+  question: string;
+  answer?: string;
+  status?: string;
+};
+
+export type AdminCohortFilters = {
+  courseId?: number;
+  subjectId?: number;
+  centreId?: number;
+  status?: string;
+};
+
+export type AdminCentrePaymentFilters = {
+  fromDate?: string;
+  toDate?: string;
+  status?: string;
+  type?: string;
+};
+
+export type AdminPaymentFilters = {
+  fromDate?: string;
+  toDate?: string;
+  courseId?: number;
+};
+
+export type AdminWalletFilters = {
+  centreId?: number;
+  centreName?: string;
+};
+
+// ─── Phase 3: Operations & People Input Types ────────────────────────────────
+
+export type AdminCohortInput = {
+  title: string;
+  cohortCode?: string;
+  courseId: number;
+  subjectId: number;
+  centreId: number;
+  instructorId: number;
+  startDate: string;
+  endDate: string;
+};
+
+export type FeeInstallmentFilters = {
+  courseId?: number;
+  status?: string;
+};
+
+export type CohortAttendanceFilters = {
+  cohortId?: number;
+};
+
+// ─── Phase 2: Exam & Assessment Input Types ──────────────────────────────────
+
+export type QuestionBankFilters = {
+  courseId?: number;
+  subjectId?: number;
+  lessonId?: number;
+  qType?: number;
+};
+
+export type QuestionBankInput = {
+  courseId: number;
+  subjectId?: number;
+  lessonId?: number;
+  categoryId?: number;
+  type?: number;
+  qType?: number;
+  title: string;
+  titleFile?: string;
+  hint?: string;
+  hintFile?: string;
+  solution?: string;
+  solutionFile?: string;
+  isEquation?: number;
+  numberOfOptions?: number;
+  options?: string;
+  correctAnswers?: string;
+  rangeFrom?: string;
+  rangeTo?: string;
+};
+
+export type AdminExamFilters = {
+  courseId?: number;
+  subjectId?: number;
+  batchId?: number;
+  status?: string;
+};
+
+export type ExamInput = {
+  title: string;
+  description?: string;
+  mark?: number;
+  duration?: string;
+  fromDate?: string;
+  toDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  courseId: number;
+  subjectId?: number;
+  lessonId?: number;
+  batchId?: number;
+  free?: string;
+  publishResult?: number;
+  isPractice?: number;
+  questionIds?: number[];
+};
+
+export type AdminAssignmentFilters = {
+  courseId?: number;
+  cohortId?: number;
+};
+
+export type AssignmentInput = {
+  title: string;
+  description?: string;
+  totalMarks?: number;
+  addedDate?: string;
+  dueDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  instructions?: string;
+  file?: string;
+  courseId: number;
+  cohortId?: number;
+};
+
+export type AdminExamResultFilters = {
+  examId?: number;
+  courseId?: number;
+  batchId?: number;
+};
+
+export type AdminExamEvaluationFilters = {
+  examId?: number;
+  courseId?: number;
+};
+
+export type AdminReExamFilters = {
+  courseId?: number;
+  batchId?: number;
+};
+
+export type EntranceExamInput = {
+  title: string;
+  description?: string;
+  totalMarks?: number;
+  duration?: string;
+  examDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  courseId: number;
+  status?: string;
+  questionIds?: string;
+};
+
 function normalizeSqlRow(row: SqlRow): SqlRow {
   const normalized: SqlRow = {};
 
@@ -1774,6 +1944,17 @@ export class OperationsService {
       FROM exam
       WHERE exam.deleted_at IS NULL
         AND DATE(exam.from_date) BETWEEN ${range.fromDate} AND ${range.toDate}
+      UNION ALL
+      SELECT
+        events.id,
+        events.title,
+        events.event_date,
+        ${'event'} AS event_type,
+        events.from_time,
+        events.to_time
+      FROM events
+      WHERE events.deleted_at IS NULL
+        AND DATE(events.event_date) BETWEEN ${range.fromDate} AND ${range.toDate}
       ORDER BY event_date ASC, id ASC
     `);
   }
@@ -1904,5 +2085,1338 @@ export class OperationsService {
         rows,
       ),
     };
+  }
+
+  // ─── Phase 1: Admin Dashboard ──────────────────────────────────────────────
+
+  async getAdminDashboard(): Promise<Record<string, unknown>> {
+    const range = normalizeReportRange(undefined, undefined);
+
+    const [
+      coursesCount,
+      centresCount,
+      studentsCount,
+      enrolmentsCount,
+      paymentsTotal,
+      recentStudents,
+      upcomingEvents,
+    ] = await Promise.all([
+      this.count(Prisma.sql`SELECT COUNT(*) AS count FROM course WHERE deleted_at IS NULL`),
+      this.count(Prisma.sql`SELECT COUNT(*) AS count FROM centres WHERE deleted_at IS NULL`),
+      this.count(Prisma.sql`SELECT COUNT(*) AS count FROM users WHERE role_id = 2 AND deleted_at IS NULL`),
+      this.count(Prisma.sql`SELECT COUNT(*) AS count FROM enrol WHERE deleted_at IS NULL`),
+      this.queryOne(Prisma.sql`SELECT COALESCE(SUM(amount_paid), 0) AS total FROM payment_info WHERE deleted_at IS NULL`),
+      this.queryMany(Prisma.sql`
+        SELECT u.id, u.student_id, u.name, u.email, u.phone, u.created_at,
+               c.title AS course_title
+        FROM users u
+        LEFT JOIN enrol e ON e.user_id = u.id AND e.deleted_at IS NULL
+        LEFT JOIN course c ON c.id = e.course_id
+        WHERE u.role_id = 2 AND u.deleted_at IS NULL
+        ORDER BY u.id DESC
+        LIMIT 10
+      `),
+      this.queryMany(Prisma.sql`
+        SELECT id, title, event_date, from_time, to_time
+        FROM events
+        WHERE deleted_at IS NULL AND event_date >= ${range.toDate}
+        ORDER BY event_date ASC
+        LIMIT 10
+      `),
+    ]);
+
+    return {
+      courses_count: coursesCount,
+      centres_count: centresCount,
+      students_count: studentsCount,
+      enrolments_count: enrolmentsCount,
+      payments_total: toDbNumber(paymentsTotal?.total),
+      recent_students: recentStudents,
+      upcoming_events: upcomingEvents,
+    };
+  }
+
+  // ─── Phase 1: Batches (Intake) ────────────────────────────────────────────
+
+  async listBatches(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT b.*,
+        (SELECT COUNT(*) FROM enrol WHERE batch_id = b.id AND deleted_at IS NULL) AS student_count
+      FROM batch b
+      WHERE b.deleted_at IS NULL
+      ORDER BY b.id DESC
+    `);
+  }
+
+  async addBatch(actorUserId: number, input: BatchInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date().toISOString();
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO batch (title, description, status, created_by, created_at, updated_at)
+      VALUES (${input.title}, ${input.description ?? ''}, ${input.status ?? 'active'}, ${actorUserId}, ${now}, ${now})
+    `);
+
+    return { status: 1, message: 'Batch Added Successfully!' };
+  }
+
+  async editBatch(actorUserId: number, batchId: number, input: BatchInput): Promise<Record<string, unknown>> {
+    if (batchId <= 0) {
+      return { status: 0, message: 'Invalid batch ID.' };
+    }
+
+    const now = new Date().toISOString();
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE batch
+      SET title = ${input.title}, description = ${input.description ?? ''}, status = ${input.status ?? 'active'},
+          updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${batchId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Batch Updated Successfully!' };
+  }
+
+  async deleteBatch(actorUserId: number, batchId: number): Promise<Record<string, unknown>> {
+    if (batchId <= 0) {
+      return { status: 0, message: 'Invalid batch ID.' };
+    }
+
+    const now = new Date().toISOString();
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE batch
+      SET deleted_by = ${actorUserId}, deleted_at = ${now}
+      WHERE id = ${batchId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Batch Deleted Successfully!' };
+  }
+
+  // ─── Phase 1: Payments ────────────────────────────────────────────────────
+
+  async listPayments(filters: AdminPaymentFilters): Promise<SqlRow[]> {
+    const range = normalizeReportRange(filters.fromDate, filters.toDate);
+
+    return this.queryMany(Prisma.sql`
+      SELECT p.*, u.name AS user_name, u.student_id, c.title AS course_title
+      FROM payment_info p
+      LEFT JOIN users u ON u.id = p.user_id
+      LEFT JOIN course c ON c.id = p.course_id
+      WHERE p.deleted_at IS NULL
+        AND (${filters.fromDate ? Prisma.sql`DATE(p.payment_date) >= ${range.fromDate}` : Prisma.sql`1 = 1`})
+        AND (${filters.toDate ? Prisma.sql`DATE(p.payment_date) <= ${range.toDate}` : Prisma.sql`1 = 1`})
+        AND (${(filters.courseId ?? 0) > 0 ? Prisma.sql`p.course_id = ${filters.courseId ?? 0}` : Prisma.sql`1 = 1`})
+      ORDER BY p.id DESC
+    `);
+  }
+
+  // ─── Phase 1: Admin Cohorts ───────────────────────────────────────────────
+
+  async listAdminCohorts(filters: AdminCohortFilters): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT ch.*,
+        c.title AS course_title,
+        s.title AS subject_title,
+        ct.centre_name,
+        u.name AS instructor_name,
+        (SELECT COUNT(*) FROM cohort_students WHERE cohort_id = ch.id AND deleted_at IS NULL) AS student_count
+      FROM cohorts ch
+      LEFT JOIN course c ON c.id = ch.course_id
+      LEFT JOIN subject s ON s.id = ch.subject_id
+      LEFT JOIN centres ct ON ct.id = ch.centre_id
+      LEFT JOIN users u ON u.id = ch.instructor_id
+      WHERE ch.deleted_at IS NULL
+        AND (${(filters.courseId ?? 0) > 0 ? Prisma.sql`ch.course_id = ${filters.courseId ?? 0}` : Prisma.sql`1 = 1`})
+        AND (${(filters.subjectId ?? 0) > 0 ? Prisma.sql`ch.subject_id = ${filters.subjectId ?? 0}` : Prisma.sql`1 = 1`})
+        AND (${(filters.centreId ?? 0) > 0 ? Prisma.sql`ch.centre_id = ${filters.centreId ?? 0}` : Prisma.sql`1 = 1`})
+      ORDER BY ch.id DESC
+    `);
+  }
+
+  // ─── Phase 1: Admin Centre Payments (Fund Requests + Wallet Txns) ─────────
+
+  async listAdminCentrePayments(filters: AdminCentrePaymentFilters): Promise<Record<string, unknown>> {
+    const range = normalizeReportRange(filters.fromDate, filters.toDate);
+
+    const [fundRequests, walletTransactions] = await Promise.all([
+      this.queryMany(Prisma.sql`
+        SELECT fr.*, ct.centre_name, u.name AS user_name
+        FROM centre_fundrequests fr
+        LEFT JOIN centres ct ON ct.id = fr.centre_id
+        LEFT JOIN users u ON u.id = fr.user_id
+        WHERE fr.deleted_at IS NULL
+          AND (${filters.fromDate ? Prisma.sql`DATE(fr.date) >= ${range.fromDate}` : Prisma.sql`1 = 1`})
+          AND (${filters.toDate ? Prisma.sql`DATE(fr.date) <= ${range.toDate}` : Prisma.sql`1 = 1`})
+          AND (${filters.status ? Prisma.sql`fr.status = ${filters.status}` : Prisma.sql`1 = 1`})
+        ORDER BY fr.id DESC
+      `),
+      this.queryMany(Prisma.sql`
+        SELECT wt.*, ct.centre_name
+        FROM wallet_transactions wt
+        LEFT JOIN centres ct ON ct.id = wt.centre_id
+        WHERE wt.deleted_at IS NULL
+          AND (${filters.fromDate ? Prisma.sql`DATE(wt.created_at) >= ${range.fromDate}` : Prisma.sql`1 = 1`})
+          AND (${filters.toDate ? Prisma.sql`DATE(wt.created_at) <= ${range.toDate}` : Prisma.sql`1 = 1`})
+        ORDER BY wt.id DESC
+      `),
+    ]);
+
+    return {
+      fund_requests: fundRequests,
+      wallet_transactions: walletTransactions,
+    };
+  }
+
+  // ─── Phase 1: Admin Wallet Status ─────────────────────────────────────────
+
+  async listAdminWalletStatus(filters: AdminWalletFilters): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT ct.id, ct.centre_id, ct.centre_name, ct.wallet_balance, ct.phone, ct.email,
+        (SELECT COUNT(*) FROM wallet_transactions WHERE centre_id = ct.id AND deleted_at IS NULL) AS transaction_count
+      FROM centres ct
+      WHERE ct.deleted_at IS NULL
+        AND (${(filters.centreId ?? 0) > 0 ? Prisma.sql`ct.centre_id = ${filters.centreId ?? 0}` : Prisma.sql`1 = 1`})
+        AND (${filters.centreName ? Prisma.sql`ct.centre_name LIKE ${'%' + filters.centreName + '%'}` : Prisma.sql`1 = 1`})
+      ORDER BY ct.id DESC
+    `);
+  }
+
+  // ─── Phase 1: Admin Notifications ─────────────────────────────────────────
+
+  async listAdminNotifications(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT n.*, c.title AS course_title
+      FROM notification n
+      LEFT JOIN course c ON c.id = n.course_id AND c.deleted_at IS NULL
+      WHERE n.deleted_at IS NULL
+      ORDER BY n.id DESC
+    `);
+  }
+
+  // ─── Phase 1: Banners ────────────────────────────────────────────────────
+
+  async listBanners(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT b.*, c.title AS course_title
+      FROM banners b
+      LEFT JOIN course c ON c.id = b.course_id
+      WHERE b.deleted_at IS NULL
+      ORDER BY b.id DESC
+    `);
+  }
+
+  async addBanner(actorUserId: number, input: BannerInput): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO banners (title, image, course_id, status, created_by, created_at, updated_at)
+      VALUES (${input.title ?? ''}, ${input.image ?? ''}, ${input.courseId ?? 0}, ${input.status ?? 'active'}, ${actorUserId}, ${now}, ${now})
+    `);
+
+    return { status: 1, message: 'Banner Added Successfully!' };
+  }
+
+  // ─── Phase 1: FAQ ────────────────────────────────────────────────────────
+
+  async listFaqs(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT * FROM faq WHERE deleted_at IS NULL ORDER BY id DESC
+    `);
+  }
+
+  async addFaq(actorUserId: number, input: FaqInput): Promise<Record<string, unknown>> {
+    if (!input.question.trim()) {
+      return { status: 0, message: 'Question is required.' };
+    }
+
+    const now = new Date().toISOString();
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO faq (question, answer, status, created_by, created_at, updated_at)
+      VALUES (${input.question}, ${input.answer ?? ''}, ${input.status ?? 'active'}, ${actorUserId}, ${now}, ${now})
+    `);
+
+    return { status: 1, message: 'FAQ Added Successfully!' };
+  }
+
+  // ─── Phase 1: Contact Settings ────────────────────────────────────────────
+
+  async getContactSettings(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT * FROM settings
+      WHERE deleted_at IS NULL
+        AND "key" IN ('contact_email', 'contact_phone', 'contact_address', 'support_email', 'support_phone', 'whatsapp_number')
+      ORDER BY id ASC
+    `);
+  }
+
+  async updateContactSettings(actorUserId: number, settings: Record<string, string>): Promise<void> {
+    const now = new Date().toISOString();
+
+    for (const [key, value] of Object.entries(settings)) {
+      const existing = await this.queryOne(Prisma.sql`
+        SELECT id FROM settings WHERE "key" = ${key} AND deleted_at IS NULL LIMIT 1
+      `);
+
+      if (existing) {
+        await this.prisma.$executeRaw(Prisma.sql`
+          UPDATE settings SET value = ${value}, updated_by = ${actorUserId}, updated_at = ${now}
+          WHERE "key" = ${key} AND deleted_at IS NULL
+        `);
+      } else {
+        await this.prisma.$executeRaw(Prisma.sql`
+          INSERT INTO settings ("key", value, created_by, created_at, updated_at)
+          VALUES (${key}, ${value}, ${actorUserId}, ${now}, ${now})
+        `);
+      }
+    }
+  }
+
+  // ─── Phase 2: Question Bank ─────────────────────────────────────────────────
+
+  async listQuestionBank(filters: QuestionBankFilters = {}): Promise<SqlRow[]> {
+    const conditions = [Prisma.sql`qb.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      conditions.push(Prisma.sql`qb.course_id = ${filters.courseId}`);
+    }
+    if (filters.subjectId && filters.subjectId > 0) {
+      conditions.push(Prisma.sql`qb.subject_id = ${filters.subjectId}`);
+    }
+    if (filters.lessonId && filters.lessonId > 0) {
+      conditions.push(Prisma.sql`qb.lesson_id = ${filters.lessonId}`);
+    }
+    if (filters.qType !== undefined && filters.qType >= 0) {
+      conditions.push(Prisma.sql`qb.q_type = ${filters.qType}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    return this.queryMany(Prisma.sql`
+      SELECT qb.*,
+        c.title AS course_title,
+        s.title AS subject_title,
+        l.title AS lesson_title
+      FROM question_bank qb
+      LEFT JOIN course c ON c.id = qb.course_id
+      LEFT JOIN subject s ON s.id = qb.subject_id
+      LEFT JOIN lesson l ON l.id = qb.lesson_id
+      WHERE ${where}
+      ORDER BY qb.id DESC
+    `);
+  }
+
+  async addQuestion(actorUserId: number, input: QuestionBankInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Question title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO question_bank (
+        course_id, subject_id, lesson_id, category_id, type, q_type,
+        title, title_file, hint, hint_file, solution, solution_file,
+        is_equation, number_of_options, options, correct_answers,
+        range_from, range_to,
+        created_by, created_at, updated_at
+      ) VALUES (
+        ${input.courseId}, ${input.subjectId ?? null}, ${input.lessonId ?? null},
+        ${input.categoryId ?? null}, ${input.type ?? 0}, ${input.qType ?? 0},
+        ${input.title}, ${input.titleFile ?? null}, ${input.hint ?? null},
+        ${input.hintFile ?? null}, ${input.solution ?? null}, ${input.solutionFile ?? null},
+        ${input.isEquation ?? 0}, ${input.numberOfOptions ?? 4},
+        ${input.options ?? '[]'}, ${input.correctAnswers ?? '[]'},
+        ${input.rangeFrom ?? null}, ${input.rangeTo ?? null},
+        ${actorUserId}, ${now}, ${now}
+      )
+    `);
+
+    return { status: 1, message: 'Question added successfully.' };
+  }
+
+  async editQuestion(actorUserId: number, questionId: number, input: QuestionBankInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Question title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE question_bank SET
+        course_id = ${input.courseId}, subject_id = ${input.subjectId ?? null},
+        lesson_id = ${input.lessonId ?? null}, category_id = ${input.categoryId ?? null},
+        type = ${input.type ?? 0}, q_type = ${input.qType ?? 0},
+        title = ${input.title}, title_file = ${input.titleFile ?? null},
+        hint = ${input.hint ?? null}, hint_file = ${input.hintFile ?? null},
+        solution = ${input.solution ?? null}, solution_file = ${input.solutionFile ?? null},
+        is_equation = ${input.isEquation ?? 0}, number_of_options = ${input.numberOfOptions ?? 4},
+        options = ${input.options ?? '[]'}, correct_answers = ${input.correctAnswers ?? '[]'},
+        range_from = ${input.rangeFrom ?? null}, range_to = ${input.rangeTo ?? null},
+        updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${questionId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Question updated successfully.' };
+  }
+
+  async deleteQuestion(actorUserId: number, questionId: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE question_bank SET deleted_by = ${actorUserId}, deleted_at = ${now}
+      WHERE id = ${questionId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Question deleted successfully.' };
+  }
+
+  // ─── Phase 2: Exams ────────────────────────────────────────────────────────
+
+  async listAdminExams(filters: AdminExamFilters = {}): Promise<{
+    exams: SqlRow[];
+    summary: { total: number; upcoming: number; expired: number; practice: number };
+  }> {
+    const conditions = [Prisma.sql`e.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      conditions.push(Prisma.sql`e.course_id = ${filters.courseId}`);
+    }
+    if (filters.subjectId && filters.subjectId > 0) {
+      conditions.push(Prisma.sql`e.subject_id = ${filters.subjectId}`);
+    }
+    if (filters.batchId && filters.batchId > 0) {
+      conditions.push(Prisma.sql`e.batch_id = ${filters.batchId}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    const exams = await this.queryMany(Prisma.sql`
+      SELECT e.*,
+        c.title AS course_title,
+        s.title AS subject_title,
+        b.title AS batch_title,
+        (SELECT COUNT(*) FROM exam_questions eq WHERE eq.exam_id = e.id AND eq.deleted_at IS NULL) AS question_count,
+        (SELECT COUNT(*) FROM exam_attempt ea WHERE ea.exam_id = e.id AND ea.submit_status = 1 AND ea.deleted_at IS NULL) AS attempt_count
+      FROM exam e
+      LEFT JOIN course c ON c.id = e.course_id
+      LEFT JOIN subject s ON s.id = e.subject_id
+      LEFT JOIN batch b ON b.id = e.batch_id
+      WHERE ${where}
+      ORDER BY e.id DESC
+    `);
+
+    const now = new Date().toISOString().slice(0, 10);
+    let upcoming = 0;
+    let expired = 0;
+    let practice = 0;
+
+    for (const exam of exams) {
+      if (toInteger(exam.is_practice) === 1) {
+        practice++;
+      }
+      const toDate = toStringValue(exam.to_date).slice(0, 10);
+      const fromDate = toStringValue(exam.from_date).slice(0, 10);
+      if (fromDate > now) {
+        upcoming++;
+      } else if (toDate < now) {
+        expired++;
+      }
+    }
+
+    return {
+      exams,
+      summary: { total: exams.length, upcoming, expired, practice },
+    };
+  }
+
+  async addExam(actorUserId: number, input: ExamInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Exam title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    const result = await this.prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+      INSERT INTO exam (
+        title, description, mark, duration,
+        from_date, to_date, from_time, to_time,
+        course_id, subject_id, lesson_id, batch_id,
+        free, publish_result, is_practice,
+        created_by, created_at, updated_at
+      ) VALUES (
+        ${input.title}, ${input.description ?? null}, ${input.mark ?? 0}, ${input.duration ?? null},
+        ${input.fromDate ?? null}, ${input.toDate ?? null}, ${input.fromTime ?? null}, ${input.toTime ?? null},
+        ${input.courseId}, ${input.subjectId ?? null}, ${input.lessonId ?? null}, ${input.batchId ?? null},
+        ${input.free ?? '0'}, ${input.publishResult ?? 0}, ${input.isPractice ?? 0},
+        ${actorUserId}, ${now}, ${now}
+      )
+      RETURNING id
+    `);
+
+    const examId = toInteger(result[0]?.id);
+
+    if (examId > 0 && input.questionIds && input.questionIds.length > 0) {
+      for (let i = 0; i < input.questionIds.length; i++) {
+        const qId = input.questionIds[i];
+        await this.prisma.$executeRaw(Prisma.sql`
+          INSERT INTO exam_questions (exam_id, question_id, question_no, mark, created_by, created_at, updated_at)
+          VALUES (${examId}, ${qId}, ${i + 1}, ${(input.mark ?? 0) / input.questionIds.length}, ${actorUserId}, ${now}, ${now})
+        `);
+      }
+    }
+
+    return { status: 1, message: 'Exam created successfully.', data: { id: examId } };
+  }
+
+  async editExam(actorUserId: number, examId: number, input: ExamInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Exam title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE exam SET
+        title = ${input.title}, description = ${input.description ?? null},
+        mark = ${input.mark ?? 0}, duration = ${input.duration ?? null},
+        from_date = ${input.fromDate ?? null}, to_date = ${input.toDate ?? null},
+        from_time = ${input.fromTime ?? null}, to_time = ${input.toTime ?? null},
+        course_id = ${input.courseId}, subject_id = ${input.subjectId ?? null},
+        lesson_id = ${input.lessonId ?? null}, batch_id = ${input.batchId ?? null},
+        free = ${input.free ?? '0'}, publish_result = ${input.publishResult ?? 0},
+        is_practice = ${input.isPractice ?? 0},
+        updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${examId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Exam updated successfully.' };
+  }
+
+  async deleteExam(actorUserId: number, examId: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE exam SET deleted_by = ${actorUserId}, deleted_at = ${now}
+      WHERE id = ${examId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Exam deleted successfully.' };
+  }
+
+  async publishExamResult(actorUserId: number, examId: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE exam SET publish_result = 1, updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${examId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Exam results published.' };
+  }
+
+  // ─── Phase 2: Assignments ──────────────────────────────────────────────────
+
+  async listAdminAssignments(filters: AdminAssignmentFilters = {}): Promise<SqlRow[]> {
+    const conditions = [Prisma.sql`a.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      conditions.push(Prisma.sql`a.course_id = ${filters.courseId}`);
+    }
+    if (filters.cohortId && filters.cohortId > 0) {
+      conditions.push(Prisma.sql`a.cohort_id = ${filters.cohortId}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    return this.queryMany(Prisma.sql`
+      SELECT a.*,
+        c.title AS course_title,
+        ch.title AS cohort_title,
+        (SELECT COUNT(*) FROM assignment_submissions asub WHERE asub.assignment_id = a.id AND asub.deleted_at IS NULL) AS submission_count
+      FROM assignment a
+      LEFT JOIN course c ON c.id = a.course_id
+      LEFT JOIN cohorts ch ON ch.id = a.cohort_id
+      WHERE ${where}
+      ORDER BY a.id DESC
+    `);
+  }
+
+  async addAssignment(actorUserId: number, input: AssignmentInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Assignment title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO assignment (
+        title, description, total_marks, added_date, due_date,
+        from_time, to_time, instructions, file,
+        course_id, cohort_id, created_by, created_at, updated_at
+      ) VALUES (
+        ${input.title}, ${input.description ?? null}, ${input.totalMarks ?? 0},
+        ${input.addedDate ?? now.slice(0, 10)}, ${input.dueDate ?? null},
+        ${input.fromTime ?? null}, ${input.toTime ?? null},
+        ${input.instructions ?? null}, ${input.file ?? null},
+        ${input.courseId}, ${input.cohortId ?? null},
+        ${actorUserId}, ${now}, ${now}
+      )
+    `);
+
+    return { status: 1, message: 'Assignment created successfully.' };
+  }
+
+  async editAssignment(actorUserId: number, assignmentId: number, input: AssignmentInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Assignment title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE assignment SET
+        title = ${input.title}, description = ${input.description ?? null},
+        total_marks = ${input.totalMarks ?? 0},
+        due_date = ${input.dueDate ?? null},
+        from_time = ${input.fromTime ?? null}, to_time = ${input.toTime ?? null},
+        instructions = ${input.instructions ?? null}, file = ${input.file ?? null},
+        course_id = ${input.courseId}, cohort_id = ${input.cohortId ?? null},
+        updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${assignmentId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Assignment updated successfully.' };
+  }
+
+  async deleteAssignment(actorUserId: number, assignmentId: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE assignment SET deleted_by = ${actorUserId}, deleted_at = ${now}
+      WHERE id = ${assignmentId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Assignment deleted successfully.' };
+  }
+
+  async listAssignmentSubmissions(assignmentId: number): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT asub.*, u.name AS student_name, u.student_id
+      FROM assignment_submissions asub
+      LEFT JOIN users u ON u.id = asub.user_id
+      WHERE asub.assignment_id = ${assignmentId} AND asub.deleted_at IS NULL
+      ORDER BY asub.id DESC
+    `);
+  }
+
+  async evaluateSubmission(
+    actorUserId: number,
+    submissionId: number,
+    marks: string,
+    remarks?: string,
+  ): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE assignment_submissions SET
+        marks = ${marks}, remarks = ${remarks ?? null},
+        updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${submissionId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Submission evaluated successfully.' };
+  }
+
+  // ─── Phase 2: Exam Results ─────────────────────────────────────────────────
+
+  async listAdminExamResults(filters: AdminExamResultFilters = {}): Promise<{
+    exams: SqlRow[];
+    results: SqlRow[];
+  }> {
+    const examConditions = [Prisma.sql`e.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      examConditions.push(Prisma.sql`e.course_id = ${filters.courseId}`);
+    }
+    if (filters.batchId && filters.batchId > 0) {
+      examConditions.push(Prisma.sql`e.batch_id = ${filters.batchId}`);
+    }
+
+    const examWhere = Prisma.join(examConditions, ' AND ');
+
+    const exams = await this.queryMany(Prisma.sql`
+      SELECT e.id, e.title, e.mark, e.course_id, e.batch_id
+      FROM exam e WHERE ${examWhere} ORDER BY e.title ASC
+    `);
+
+    let results: SqlRow[] = [];
+
+    if (filters.examId && filters.examId > 0) {
+      results = await this.queryMany(Prisma.sql`
+        SELECT ea.*, u.name AS student_name, u.student_id,
+          e.title AS exam_title, e.mark AS total_marks
+        FROM exam_attempt ea
+        LEFT JOIN users u ON u.id = ea.user_id
+        LEFT JOIN exam e ON e.id = ea.exam_id
+        WHERE ea.exam_id = ${filters.examId} AND ea.submit_status = 1 AND ea.deleted_at IS NULL
+        ORDER BY ea.score DESC
+      `);
+    }
+
+    return { exams, results };
+  }
+
+  // ─── Phase 2: Exam Evaluation ──────────────────────────────────────────────
+
+  async listExamEvaluations(filters: AdminExamEvaluationFilters = {}): Promise<{
+    exams: SqlRow[];
+    pendingEvaluations: SqlRow[];
+  }> {
+    const examConditions = [Prisma.sql`e.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      examConditions.push(Prisma.sql`e.course_id = ${filters.courseId}`);
+    }
+
+    const examWhere = Prisma.join(examConditions, ' AND ');
+
+    const exams = await this.queryMany(Prisma.sql`
+      SELECT e.id, e.title, e.mark, e.course_id FROM exam e WHERE ${examWhere} ORDER BY e.title ASC
+    `);
+
+    const evalConditions = [
+      Prisma.sql`ea.submit_status = 1`,
+      Prisma.sql`ea.deleted_at IS NULL`,
+    ];
+
+    if (filters.examId && filters.examId > 0) {
+      evalConditions.push(Prisma.sql`ea.exam_id = ${filters.examId}`);
+    }
+    if (filters.courseId && filters.courseId > 0) {
+      evalConditions.push(Prisma.sql`e.course_id = ${filters.courseId}`);
+    }
+
+    const evalWhere = Prisma.join(evalConditions, ' AND ');
+
+    const pendingEvaluations = await this.queryMany(Prisma.sql`
+      SELECT ea.*, u.name AS student_name, u.student_id,
+        e.title AS exam_title, e.mark AS total_marks
+      FROM exam_attempt ea
+      LEFT JOIN users u ON u.id = ea.user_id
+      LEFT JOIN exam e ON e.id = ea.exam_id
+      WHERE ${evalWhere}
+      ORDER BY ea.id DESC
+    `);
+
+    return { exams, pendingEvaluations };
+  }
+
+  async evaluateExamAttempt(actorUserId: number, attemptId: number, score: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE exam_attempt SET score = ${score}, updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${attemptId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Exam attempt evaluated successfully.' };
+  }
+
+  // ─── Phase 2: Re-Examination ───────────────────────────────────────────────
+
+  async listReExams(filters: AdminReExamFilters = {}): Promise<SqlRow[]> {
+    const conditions = [Prisma.sql`e.deleted_at IS NULL`];
+
+    if (filters.courseId && filters.courseId > 0) {
+      conditions.push(Prisma.sql`e.course_id = ${filters.courseId}`);
+    }
+    if (filters.batchId && filters.batchId > 0) {
+      conditions.push(Prisma.sql`e.batch_id = ${filters.batchId}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    return this.queryMany(Prisma.sql`
+      SELECT e.*,
+        c.title AS course_title,
+        b.title AS batch_title,
+        (SELECT COUNT(*) FROM exam_attempt ea2 WHERE ea2.exam_id = e.id AND ea2.submit_status = 1 AND ea2.deleted_at IS NULL) AS total_attempts,
+        (SELECT COUNT(*) FROM exam_attempt ea3 WHERE ea3.exam_id = e.id AND ea3.submit_status = 1 AND ea3.deleted_at IS NULL AND ea3.score < (COALESCE(e.mark, 0) * 0.4)) AS failed_count
+      FROM exam e
+      LEFT JOIN course c ON c.id = e.course_id
+      LEFT JOIN batch b ON b.id = e.batch_id
+      WHERE ${where}
+      ORDER BY e.id DESC
+    `);
+  }
+
+  async grantReExam(actorUserId: number, examId: number, userIds: number[]): Promise<Record<string, unknown>> {
+    if (userIds.length === 0) {
+      return { status: 0, message: 'No students selected.' };
+    }
+
+    const now = new Date().toISOString();
+
+    for (const userId of userIds) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE exam_attempt SET deleted_by = ${actorUserId}, deleted_at = ${now}
+        WHERE exam_id = ${examId} AND user_id = ${userId} AND submit_status = 1 AND deleted_at IS NULL
+      `);
+    }
+
+    return { status: 1, message: `Re-exam granted to ${userIds.length} student(s).` };
+  }
+
+  // ─── Phase 2: Entrance Exams ───────────────────────────────────────────────
+
+  async listEntranceExams(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT ee.*,
+        c.title AS course_title,
+        (SELECT COUNT(*) FROM entrance_exam_registration eer WHERE eer.entrance_exam_id = ee.id AND eer.deleted_at IS NULL) AS registration_count
+      FROM entrance_exam ee
+      LEFT JOIN course c ON c.id = ee.course_id
+      WHERE ee.deleted_at IS NULL
+      ORDER BY ee.id DESC
+    `);
+  }
+
+  async addEntranceExam(actorUserId: number, input: EntranceExamInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Entrance exam title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO entrance_exam (
+        title, description, total_marks, duration,
+        exam_date, from_time, to_time,
+        course_id, status, question_ids,
+        created_by, created_at, updated_at
+      ) VALUES (
+        ${input.title}, ${input.description ?? null}, ${input.totalMarks ?? 0},
+        ${input.duration ?? null}, ${input.examDate ?? null},
+        ${input.fromTime ?? null}, ${input.toTime ?? null},
+        ${input.courseId}, ${input.status ?? 'draft'}, ${input.questionIds ?? '[]'},
+        ${actorUserId}, ${now}, ${now}
+      )
+    `);
+
+    return { status: 1, message: 'Entrance exam created successfully.' };
+  }
+
+  async editEntranceExam(actorUserId: number, examId: number, input: EntranceExamInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Entrance exam title is required.' };
+    }
+
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE entrance_exam SET
+        title = ${input.title}, description = ${input.description ?? null},
+        total_marks = ${input.totalMarks ?? 0}, duration = ${input.duration ?? null},
+        exam_date = ${input.examDate ?? null},
+        from_time = ${input.fromTime ?? null}, to_time = ${input.toTime ?? null},
+        course_id = ${input.courseId}, status = ${input.status ?? 'draft'},
+        question_ids = ${input.questionIds ?? '[]'},
+        updated_by = ${actorUserId}, updated_at = ${now}
+      WHERE id = ${examId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Entrance exam updated successfully.' };
+  }
+
+  async deleteEntranceExam(actorUserId: number, examId: number): Promise<Record<string, unknown>> {
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE entrance_exam SET deleted_by = ${actorUserId}, deleted_at = ${now}
+      WHERE id = ${examId} AND deleted_at IS NULL
+    `);
+
+    return { status: 1, message: 'Entrance exam deleted successfully.' };
+  }
+
+  async listEntranceExamRegistrations(examId?: number): Promise<SqlRow[]> {
+    const conditions = [Prisma.sql`eer.deleted_at IS NULL`];
+
+    if (examId && examId > 0) {
+      conditions.push(Prisma.sql`eer.entrance_exam_id = ${examId}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    return this.queryMany(Prisma.sql`
+      SELECT eer.*, ee.title AS exam_title, c.title AS course_title
+      FROM entrance_exam_registration eer
+      LEFT JOIN entrance_exam ee ON ee.id = eer.entrance_exam_id
+      LEFT JOIN course c ON c.id = eer.course_id
+      WHERE ${where}
+      ORDER BY eer.id DESC
+    `);
+  }
+
+  async listEntranceExamResults(examId?: number): Promise<SqlRow[]> {
+    const conditions = [Prisma.sql`res.deleted_at IS NULL`];
+
+    if (examId && examId > 0) {
+      conditions.push(Prisma.sql`res.entrance_exam_id = ${examId}`);
+    }
+
+    const where = Prisma.join(conditions, ' AND ');
+
+    return this.queryMany(Prisma.sql`
+      SELECT res.*, reg.name, reg.email, reg.phone,
+        ee.title AS exam_title
+      FROM entrance_exam_result res
+      LEFT JOIN entrance_exam_registration reg ON reg.id = res.registration_id
+      LEFT JOIN entrance_exam ee ON ee.id = res.entrance_exam_id
+      WHERE ${where}
+      ORDER BY res.score DESC
+    `);
+  }
+
+  // ─── Phase 3: Operations & People ───────────────────────────────────────────
+
+  async listInstructors(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        u.id, u.name, u.user_email, u.phone, u.status, u.created_at,
+        GROUP_CONCAT(DISTINCT c.title) AS assigned_courses,
+        (SELECT COUNT(*) FROM cohorts ch WHERE ch.instructor_id = u.id AND ch.deleted_at IS NULL) AS cohort_count
+      FROM users u
+      LEFT JOIN instructor_enrol ie ON ie.instructor_id = u.id AND ie.deleted_at IS NULL
+      LEFT JOIN course c ON c.id = ie.course_id AND c.deleted_at IS NULL
+      WHERE u.role_id = 3 AND u.deleted_at IS NULL
+      GROUP BY u.id
+      ORDER BY u.id DESC
+    `);
+  }
+
+  async listUsersByRole(roleId: number): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT u.id, u.name, u.user_email, u.phone, u.status, u.created_at, u.updated_at
+      FROM users u
+      WHERE u.role_id = ${roleId} AND u.deleted_at IS NULL
+      ORDER BY u.id DESC
+    `);
+  }
+
+  async addAdminCohort(actorUserId: number, input: AdminCohortInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Cohort title is required.' };
+    }
+
+    const cohortCode = input.cohortCode?.trim() || `COH-${Date.now()}`;
+    const now = new Date().toISOString();
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO cohorts (
+        title, cohort_id, course_id, subject_id, centre_id, instructor_id,
+        start_date, end_date, created_by, created_at, updated_at
+      ) VALUES (
+        ${input.title}, ${cohortCode}, ${input.courseId}, ${input.subjectId},
+        ${input.centreId}, ${input.instructorId},
+        ${input.startDate || null}, ${input.endDate || null},
+        ${actorUserId}, ${now}, ${now}
+      )
+    `);
+
+    return { status: 1, message: 'Cohort created successfully.' };
+  }
+
+  async listCourseFees(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        c.id AS course_id,
+        c.title AS course_title,
+        c.price,
+        c.sale_price,
+        COUNT(DISTINCT sf.user_id) AS students_with_fees,
+        COALESCE(SUM(sf.amount), 0) AS total_fee_amount,
+        COALESCE(SUM(CASE WHEN sf.status = 'paid' THEN sf.amount ELSE 0 END), 0) AS paid_amount,
+        COALESCE(SUM(CASE WHEN sf.status != 'paid' OR sf.status IS NULL THEN sf.amount ELSE 0 END), 0) AS pending_amount,
+        (SELECT COUNT(DISTINCT pi.user_id) FROM payment_info pi WHERE pi.course_id = c.id AND pi.deleted_at IS NULL) AS payments_count,
+        (SELECT COALESCE(SUM(pi.amount_paid), 0) FROM payment_info pi WHERE pi.course_id = c.id AND pi.deleted_at IS NULL) AS total_collected
+      FROM course c
+      LEFT JOIN student_fee sf ON sf.course_id = c.id AND sf.deleted_at IS NULL
+      WHERE c.deleted_at IS NULL
+      GROUP BY c.id
+      ORDER BY c.id DESC
+    `);
+  }
+
+  async listFeeInstallments(filters: FeeInstallmentFilters): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        sf.id, sf.user_id, sf.course_id, sf.amount, sf.due_date, sf.status, sf.created_at,
+        u.name AS student_name, u.student_id, u.phone,
+        c.title AS course_title
+      FROM student_fee sf
+      LEFT JOIN users u ON u.id = sf.user_id
+      LEFT JOIN course c ON c.id = sf.course_id
+      WHERE sf.deleted_at IS NULL
+        AND (${(filters.courseId ?? 0) > 0 ? Prisma.sql`sf.course_id = ${filters.courseId ?? 0}` : Prisma.sql`1 = 1`})
+        AND (${filters.status ? Prisma.sql`sf.status = ${filters.status}` : Prisma.sql`1 = 1`})
+      ORDER BY sf.due_date DESC, sf.id DESC
+    `);
+  }
+
+  async listPaymentStatus(filters: AdminPaymentFilters): Promise<Record<string, unknown>> {
+    const range = normalizeReportRange(filters.fromDate, filters.toDate);
+
+    const dateConditions = [Prisma.sql`p.deleted_at IS NULL`];
+    if (filters.fromDate) {
+      dateConditions.push(Prisma.sql`DATE(p.payment_date) >= ${range.fromDate}`);
+    }
+    if (filters.toDate) {
+      dateConditions.push(Prisma.sql`DATE(p.payment_date) <= ${range.toDate}`);
+    }
+    if ((filters.courseId ?? 0) > 0) {
+      dateConditions.push(Prisma.sql`p.course_id = ${filters.courseId ?? 0}`);
+    }
+
+    const where = Prisma.join(dateConditions, ' AND ');
+
+    const [summaryRow, payments] = await Promise.all([
+      this.queryOne(Prisma.sql`
+        SELECT
+          COUNT(*) AS total_payments,
+          COUNT(DISTINCT p.user_id) AS unique_students,
+          COALESCE(SUM(p.amount_paid), 0) AS total_collected,
+          COALESCE(AVG(p.amount_paid), 0) AS avg_payment
+        FROM payment_info p
+        WHERE ${where}
+      `),
+      this.queryMany(Prisma.sql`
+        SELECT p.*, u.name AS user_name, u.student_id, c.title AS course_title
+        FROM payment_info p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN course c ON c.id = p.course_id
+        WHERE ${where}
+        ORDER BY p.id DESC
+      `),
+    ]);
+
+    return {
+      summary: summaryRow ?? { total_payments: 0, unique_students: 0, total_collected: 0, avg_payment: 0 },
+      payments,
+    };
+  }
+
+  async listCohortAttendance(filters: CohortAttendanceFilters): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        zh.id, zh.user_id, zh.live_id, zh.join_date, zh.join_time, zh.leave_time, zh.duration,
+        u.name AS student_name, u.student_id,
+        lc.title AS session_title, lc.date AS session_date,
+        ch.title AS cohort_title, c.title AS course_title
+      FROM zoom_history zh
+      LEFT JOIN users u ON u.id = zh.user_id
+      LEFT JOIN live_class lc ON lc.id = zh.live_id
+      LEFT JOIN cohorts ch ON ch.id = lc.cohort_id
+      LEFT JOIN course c ON c.id = ch.course_id
+      WHERE zh.deleted_at IS NULL
+        AND (${(filters.cohortId ?? 0) > 0 ? Prisma.sql`lc.cohort_id = ${filters.cohortId ?? 0}` : Prisma.sql`1 = 1`})
+      ORDER BY zh.join_date DESC, zh.id DESC
+    `);
+  }
+
+  async listScholarships(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        cc.id, cc.code, cc.discount_perc, cc.total_no, cc.per_user_no,
+        cc.validity, cc.start_date, cc.end_date, cc.created_at,
+        cp.title AS package_title
+      FROM coupon_code cc
+      LEFT JOIN course_package cp ON cp.id = cc.package_id
+      WHERE cc.deleted_at IS NULL
+      ORDER BY cc.id DESC
+    `);
+  }
+
+  // ─── Phase 4: CRM & Content ─────────────────────────────────────────────────
+
+  async listCounsellors(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        u.id, u.name, u.user_email, u.phone, u.status, u.centre_id, u.created_at,
+        ct.centre_name,
+        (SELECT COUNT(*) FROM applications a WHERE a.pipeline_user = u.id AND a.deleted_at IS NULL) AS applications_referred,
+        (SELECT COUNT(*) FROM applications a WHERE a.pipeline_user = u.id AND a.is_converted = 1 AND a.deleted_at IS NULL) AS applications_converted
+      FROM users u
+      LEFT JOIN centres ct ON ct.id = u.centre_id
+      WHERE u.role_id = 9 AND u.deleted_at IS NULL
+      ORDER BY u.id DESC
+    `);
+  }
+
+  async listCounsellorTargets(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        t.id, t.user_id, t.period, t.target_type, t.target_value, t.achieved_value,
+        t.remarks, t.created_at,
+        u.name AS counsellor_name, u.user_email AS counsellor_email
+      FROM counsellor_target t
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE t.deleted_at IS NULL
+      ORDER BY t.period DESC, t.id DESC
+    `);
+  }
+
+  async listAssociates(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        u.id, u.name, u.user_email, u.phone, u.status, u.centre_id, u.created_at,
+        ct.centre_name,
+        (SELECT COUNT(*) FROM applications a WHERE a.pipeline_user = u.id AND a.deleted_at IS NULL) AS applications_referred,
+        (SELECT COUNT(*) FROM applications a WHERE a.pipeline_user = u.id AND a.is_converted = 1 AND a.deleted_at IS NULL) AS applications_converted
+      FROM users u
+      LEFT JOIN centres ct ON ct.id = u.centre_id
+      WHERE u.role_id = 10 AND u.deleted_at IS NULL
+      ORDER BY u.id DESC
+    `);
+  }
+
+  async listAssociateTargets(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        t.id, t.user_id, t.period, t.target_type, t.target_value, t.achieved_value,
+        t.remarks, t.created_at,
+        u.name AS associate_name, u.user_email AS associate_email
+      FROM associate_target t
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE t.deleted_at IS NULL
+      ORDER BY t.period DESC, t.id DESC
+    `);
+  }
+
+  async listDocumentRequests(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        dr.id, dr.student_id, dr.document_type, dr.status, dr.remarks, dr.created_at,
+        u.name AS student_name, u.student_id AS student_code, u.user_email AS student_email
+      FROM document_request dr
+      LEFT JOIN users u ON u.id = dr.student_id
+      WHERE dr.deleted_at IS NULL
+      ORDER BY dr.id DESC
+    `);
+  }
+
+  async listDocumentsIssued(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        dr.id, dr.student_id, dr.document_type, dr.status, dr.remarks, dr.created_at, dr.updated_at,
+        u.name AS student_name, u.student_id AS student_code, u.user_email AS student_email,
+        cb.name AS issued_by_name
+      FROM document_request dr
+      LEFT JOIN users u ON u.id = dr.student_id
+      LEFT JOIN users cb ON cb.id = dr.updated_by
+      WHERE dr.deleted_at IS NULL
+        AND dr.status IN (${'issued'}, ${'delivered'})
+      ORDER BY dr.updated_at DESC, dr.id DESC
+    `);
+  }
+
+  async listDocumentsDelivery(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        dr.id, dr.student_id, dr.document_type, dr.status, dr.tracking_number,
+        dr.courier_name, dr.dispatch_date, dr.delivery_date, dr.delivery_address,
+        dr.created_at, dr.updated_at,
+        u.name AS student_name, u.student_id AS student_code
+      FROM document_request dr
+      LEFT JOIN users u ON u.id = dr.student_id
+      WHERE dr.deleted_at IS NULL
+        AND dr.status IN (${'issued'}, ${'delivered'})
+        AND (dr.tracking_number IS NOT NULL OR dr.dispatch_date IS NOT NULL)
+      ORDER BY dr.dispatch_date DESC, dr.id DESC
+    `);
+  }
+
+  async listAdminEvents(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        e.id, e.title, e.description, e.event_date, e.from_time, e.to_time,
+        e.image, e.objectives, e.duration, e.is_recording_available, e.created_at,
+        u.name AS instructor_name,
+        (SELECT COUNT(*) FROM event_registration er WHERE er.event_id = e.id AND er.deleted_at IS NULL) AS registration_count
+      FROM events e
+      LEFT JOIN users u ON u.id = e.instructor_id
+      WHERE e.deleted_at IS NULL
+      ORDER BY e.event_date DESC, e.id DESC
+    `);
+  }
+
+  async listCirculars(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        c.id, c.title, c.content, c.target_audience, c.status,
+        c.publish_date, c.expiry_date, c.attachment, c.created_at,
+        u.name AS created_by_name
+      FROM circular c
+      LEFT JOIN users u ON u.id = c.created_by
+      WHERE c.deleted_at IS NULL
+      ORDER BY c.id DESC
+    `);
+  }
+
+  async listMentorshipHistory(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        ms.id, ms.student_id, ms.mentor_type, ms.topic, ms.summary,
+        ms.messages_count, ms.duration_minutes, ms.satisfaction_rating, ms.created_at,
+        u.name AS student_name, u.student_id AS student_code, u.user_email AS student_email
+      FROM mentorship_session ms
+      LEFT JOIN users u ON u.id = ms.student_id
+      WHERE ms.deleted_at IS NULL
+      ORDER BY ms.created_at DESC, ms.id DESC
+    `);
+  }
+
+  async mentorshipAnalysis(): Promise<Record<string, unknown>> {
+    const totalSessions = await this.count(Prisma.sql`
+      SELECT COUNT(*) AS count FROM mentorship_session WHERE deleted_at IS NULL
+    `);
+
+    const aiSessions = await this.count(Prisma.sql`
+      SELECT COUNT(*) AS count FROM mentorship_session WHERE deleted_at IS NULL AND mentor_type = ${'ai'}
+    `);
+
+    const avgDuration = await this.queryOne(Prisma.sql`
+      SELECT COALESCE(AVG(duration_minutes), 0) AS avg_duration
+      FROM mentorship_session
+      WHERE deleted_at IS NULL AND duration_minutes > 0
+    `);
+
+    const avgRating = await this.queryOne(Prisma.sql`
+      SELECT COALESCE(AVG(satisfaction_rating), 0) AS avg_rating
+      FROM mentorship_session
+      WHERE deleted_at IS NULL AND satisfaction_rating IS NOT NULL
+    `);
+
+    const topicBreakdown = await this.queryMany(Prisma.sql`
+      SELECT
+        COALESCE(topic, 'General') AS topic,
+        COUNT(*) AS session_count,
+        COALESCE(AVG(duration_minutes), 0) AS avg_duration,
+        COALESCE(AVG(satisfaction_rating), 0) AS avg_rating
+      FROM mentorship_session
+      WHERE deleted_at IS NULL
+      GROUP BY topic
+      ORDER BY session_count DESC
+    `);
+
+    return {
+      totalSessions,
+      aiSessions,
+      humanSessions: totalSessions - aiSessions,
+      avgDuration: toDbNumber(avgDuration?.avg_duration),
+      avgRating: toDbNumber(avgRating?.avg_rating),
+      topicBreakdown,
+    };
+  }
+
+  // ── Phase 5: Integrations & Polish ──────────────────────────────
+
+  async listAdminSupportChats(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        sc.chat_id,
+        u.name AS user_name,
+        u.user_email,
+        COUNT(sc.id) AS message_count,
+        MAX(sc.created_at) AS last_message_at,
+        MIN(sc.created_at) AS first_message_at
+      FROM support_chat sc
+      LEFT JOIN users u ON u.id = sc.chat_id
+      WHERE sc.deleted_at IS NULL
+      GROUP BY sc.chat_id
+      ORDER BY last_message_at DESC
+    `);
+  }
+
+  async listAdminTrainingVideos(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT id, title, description, category, video_type, video_url, thumbnail, created_at
+      FROM training_videos
+      WHERE deleted_at IS NULL
+      ORDER BY id DESC
+    `);
+  }
+
+  async listAdminEnrollments(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        e.id, e.enrollment_id, e.enrollment_status, e.enrollment_date,
+        e.mode_of_study, e.preferred_language, e.discount_perc, e.created_at,
+        u.name AS student_name, u.user_email AS student_email,
+        c.title AS course_title,
+        b.title AS batch_title
+      FROM enrol e
+      LEFT JOIN users u ON u.id = e.user_id
+      LEFT JOIN course c ON c.id = e.course_id
+      LEFT JOIN batch b ON b.id = e.batch_id
+      WHERE e.deleted_at IS NULL
+      ORDER BY e.id DESC
+    `);
+  }
+
+  async listAdminFeeds(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        f.id, f.title, f.content, f.image, f.created_at,
+        u.name AS instructor_name,
+        c.title AS course_title,
+        (SELECT COUNT(*) FROM feed_watched fw WHERE fw.feed_id = f.id AND fw.deleted_at IS NULL) AS watch_count,
+        (SELECT COUNT(*) FROM feed_like fl WHERE fl.feed_id = f.id AND fl.deleted_at IS NULL) AS like_count,
+        (SELECT COUNT(*) FROM feed_comments fc WHERE fc.feed_id = f.id AND fc.deleted_at IS NULL) AS comment_count
+      FROM feed f
+      LEFT JOIN users u ON u.id = f.instructor_id
+      LEFT JOIN course c ON c.id = f.course_id
+      WHERE f.deleted_at IS NULL
+      ORDER BY f.id DESC
+    `);
+  }
+
+  async listIntegrationSettings(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT key, value
+      FROM settings
+      WHERE deleted_at IS NULL
+        AND (
+          key LIKE '%api%' OR key LIKE '%provider%' OR key LIKE '%gateway%'
+          OR key LIKE '%secret%' OR key LIKE '%smtp%' OR key LIKE '%firebase%'
+          OR key LIKE '%zoom%' OR key LIKE '%razorpay%' OR key LIKE '%whatsapp%'
+          OR key LIKE '%sms%' OR key LIKE '%email%' OR key LIKE '%payment%'
+        )
+      ORDER BY key ASC
+    `);
+  }
+
+  async listAdminReviews(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT
+        r.id, r.rating, r.review, r.item_type, r.created_at,
+        u.name AS user_name, u.user_email,
+        c.title AS course_title,
+        (SELECT COUNT(*) FROM review_like rl WHERE rl.review_id = r.id AND rl.deleted_at IS NULL) AS like_count
+      FROM review r
+      LEFT JOIN users u ON u.id = r.user_id
+      LEFT JOIN course c ON c.id = r.course_id
+      WHERE r.deleted_at IS NULL
+      ORDER BY r.id DESC
+    `);
+  }
+
+  async listLanguages(): Promise<SqlRow[]> {
+    return this.queryMany(Prisma.sql`
+      SELECT id, title, code, status, created_at
+      FROM language
+      WHERE deleted_at IS NULL
+      ORDER BY id ASC
+    `);
   }
 }

@@ -4,7 +4,10 @@
     "composite": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "vitest/globals", "react", "react-dom"],
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "tests", "vite.config.ts"]
 }

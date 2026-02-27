@@ -35,8 +35,11 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
       }
 
       return (
-        <section className="app-error-boundary" role="alert">
-          <h2>Application error</h2>
+        <section
+          className="w-[min(680px,calc(100%-2rem))] mx-auto mt-9 border border-red-300 bg-red-50 rounded-2xl p-5 text-red-900"
+          role="alert"
+        >
+          <h2 className="font-semibold text-lg mb-2">Application error</h2>
           <p>{this.state.message || 'Unexpected render failure.'}</p>
         </section>
       );

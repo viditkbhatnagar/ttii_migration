@@ -210,17 +210,17 @@ function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteD
       activeHref={pathname}
       onNavigate={navigateTo}
     >
-      <section className="portal-intro">
+      <section className="border-l-4 border-teal-600 px-3.5 py-2.5 bg-teal-50/80 rounded-r-xl leading-relaxed text-gray-700">
         <p>{content.intro}</p>
       </section>
 
-      <section className="metrics-grid" aria-label="Shell metrics">
+      <section className="grid grid-cols-3 gap-3 max-md:grid-cols-2 max-sm:grid-cols-1" aria-label="Shell metrics">
         {content.metrics.map((metric) => (
           <MetricCard key={metric.label} label={metric.label} value={metric.value} detail={metric.detail} tone={metric.tone} />
         ))}
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Architecture anchors" subtitle="Reusable pieces shared across student, centre, and admin surfaces.">
           <ul>
             {content.focusAreas.map((entry) => (
@@ -309,7 +309,11 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
     return (
       <InlineNotice tone="warning" title="Login required">
         <p>{guardMessage}</p>
-        <button type="button" className="action-button" onClick={() => navigateTo('/')}>
+        <button
+          type="button"
+          className="border-0 rounded-xl px-4 py-2.5 bg-teal-700 text-white font-bold cursor-pointer hover:-translate-y-px transition-transform"
+          onClick={() => navigateTo('/')}
+        >
           Go to login
         </button>
       </InlineNotice>
@@ -320,7 +324,11 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
     return (
       <InlineNotice tone="danger" title="Access denied">
         <p>{guardMessage}</p>
-        <button type="button" className="action-button" onClick={() => navigateTo(resolveShellPathForRole(session?.roleId ?? 2))}>
+        <button
+          type="button"
+          className="border-0 rounded-xl px-4 py-2.5 bg-teal-700 text-white font-bold cursor-pointer hover:-translate-y-px transition-transform"
+          onClick={() => navigateTo(resolveShellPathForRole(session?.roleId ?? 2))}
+        >
           Open my allowed shell
         </button>
       </InlineNotice>
@@ -438,11 +446,11 @@ function LoginHome() {
   };
 
   return (
-    <main className="landing-shell">
+    <main className="w-[min(900px,calc(100%-2rem))] mx-auto py-9 pb-14 grid gap-5 animate-[shellEnter_360ms_ease]">
       <header>
-        <p className="eyebrow">TTII</p>
-        <h1>Welcome to TTII</h1>
-        <p className="lead-copy">
+        <p className="uppercase tracking-widest text-teal-700 font-bold text-xs mb-1">TTII</p>
+        <h1 className="text-2xl font-bold">Welcome to TTII</h1>
+        <p className="mt-3 max-w-prose leading-relaxed text-gray-700">
           Sign in to access your student, centre, or admin portal.
         </p>
       </header>
@@ -450,7 +458,11 @@ function LoginHome() {
       {error ? (
         <InlineNotice tone="danger" title="Auth state warning">
           <p>{error.message}</p>
-          <button type="button" className="action-button action-button--small" onClick={clearError}>
+          <button
+            type="button"
+            className="border-0 rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
+            onClick={clearError}
+          >
             Dismiss
           </button>
         </InlineNotice>
@@ -461,17 +473,17 @@ function LoginHome() {
           <p>
             Logged in as role <strong>{session.roleId}</strong>. Continue to your guarded portal.
           </p>
-          <div className="inline-actions">
+          <div className="flex gap-2.5 mt-2.5">
             <button
               type="button"
-              className="action-button action-button--small"
+              className="border-0 rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
               onClick={() => navigateTo(resolveShellPathForRole(session.roleId))}
             >
               Open portal
             </button>
             <button
               type="button"
-              className="action-button action-button--small action-button--ghost"
+              className="rounded-lg px-2.5 py-1.5 bg-gray-100 text-gray-700 border border-gray-300 font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
               onClick={() => {
                 void logout();
               }}
@@ -488,18 +500,21 @@ function LoginHome() {
         </InlineNotice>
       ) : null}
 
-      <section className="login-card" aria-label="Legacy auth bridge login">
-        <h2>Sign in</h2>
-        <p>Enter your credentials to access your portal.</p>
+      <section
+        className="bg-white/85 border border-gray-300 rounded-2xl p-5 shadow-lg grid gap-4"
+        aria-label="Sign in"
+      >
+        <h2 className="text-lg font-semibold">Sign in</h2>
+        <p className="text-gray-600">Enter your credentials to access your portal.</p>
 
         <form
-          className="login-form"
+          className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             void onSubmit();
           }}
         >
-          <label>
+          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
             Email or username
             <input
               name="email"
@@ -508,10 +523,11 @@ function LoginHome() {
               onChange={(event) => setEmail(event.target.value)}
               placeholder="student@example.test"
               autoComplete="username"
+              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
             />
           </label>
 
-          <label>
+          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
             Password
             <input
               name="password"
@@ -520,19 +536,28 @@ function LoginHome() {
               onChange={(event) => setPassword(event.target.value)}
               placeholder="••••••••"
               autoComplete="current-password"
+              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
             />
           </label>
 
-          <label>
+          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
             Requested role
-            <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
+            <select
+              value={roleId}
+              onChange={(event) => setRoleId(event.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
+            >
               <option value="2">Student (role_id 2)</option>
               <option value="7">Centre (role_id 7)</option>
               <option value="1">Admin (role_id 1)</option>
             </select>
           </label>
 
-          <button type="submit" className="action-button" disabled={submitting}>
+          <button
+            type="submit"
+            className="border-0 rounded-xl px-4 py-2.5 bg-teal-700 text-white font-bold cursor-pointer hover:-translate-y-px transition-transform disabled:cursor-not-allowed disabled:opacity-65"
+            disabled={submitting}
+          >
             {submitting ? 'Signing in...' : 'Sign in and open portal'}
           </button>
         </form>
@@ -572,10 +597,14 @@ function PortalRouter({
   const route = findPortalRoute(pathname);
   if (!route) {
     return (
-      <main className="landing-shell">
+      <main className="w-[min(900px,calc(100%-2rem))] mx-auto py-9 pb-14 grid gap-5">
         <InlineNotice tone="warning" title="Unknown route">
           <p>No role shell is registered for: {pathname}</p>
-          <button type="button" className="action-button" onClick={() => navigateTo('/')}>
+          <button
+            type="button"
+            className="border-0 rounded-xl px-4 py-2.5 bg-teal-700 text-white font-bold cursor-pointer hover:-translate-y-px transition-transform"
+            onClick={() => navigateTo('/')}
+          >
             Go to login
           </button>
         </InlineNotice>

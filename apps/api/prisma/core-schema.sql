@@ -1,3 +1,7 @@
+DROP TABLE IF EXISTS language;
+DROP TABLE IF EXISTS faq;
+DROP TABLE IF EXISTS banners;
+DROP TABLE IF EXISTS batch;
 DROP TABLE IF EXISTS zoom_history;
 DROP TABLE IF EXISTS app_version;
 DROP TABLE IF EXISTS frontend_settings;
@@ -1427,3 +1431,247 @@ CREATE TABLE support_chat (
 
 CREATE INDEX idx_support_chat_chat_sender ON support_chat (chat_id, sender_id);
 CREATE INDEX idx_support_chat_deleted_at ON support_chat (deleted_at);
+
+-- ── NEW: Phase 1 tables ──
+
+CREATE TABLE batch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_batch_status ON batch (status);
+CREATE INDEX idx_batch_deleted_at ON batch (deleted_at);
+
+CREATE TABLE banners (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT,
+  image TEXT,
+  course_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_banners_status ON banners (status);
+CREATE INDEX idx_banners_deleted_at ON banners (deleted_at);
+
+CREATE TABLE faq (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  question TEXT NOT NULL,
+  answer TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_faq_status ON faq (status);
+CREATE INDEX idx_faq_deleted_at ON faq (deleted_at);
+
+CREATE TABLE language (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  code TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_language_deleted_at ON language (deleted_at);
+
+-- ── NEW: Phase 2 — Entrance Exam tables ──
+
+CREATE TABLE entrance_exam (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT,
+  description TEXT,
+  total_marks REAL,
+  duration TEXT,
+  exam_date DATE,
+  from_time TEXT,
+  to_time TEXT,
+  course_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'draft',
+  question_ids TEXT,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_entrance_exam_course ON entrance_exam (course_id);
+CREATE INDEX idx_entrance_exam_status ON entrance_exam (status);
+CREATE INDEX idx_entrance_exam_deleted_at ON entrance_exam (deleted_at);
+
+CREATE TABLE entrance_exam_registration (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entrance_exam_id INTEGER NOT NULL,
+  name TEXT,
+  email TEXT,
+  phone TEXT,
+  country_code TEXT,
+  course_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'registered',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_entrance_reg_exam ON entrance_exam_registration (entrance_exam_id);
+CREATE INDEX idx_entrance_reg_status ON entrance_exam_registration (status);
+CREATE INDEX idx_entrance_reg_deleted_at ON entrance_exam_registration (deleted_at);
+
+CREATE TABLE entrance_exam_result (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entrance_exam_id INTEGER NOT NULL,
+  registration_id INTEGER NOT NULL,
+  score REAL NOT NULL DEFAULT 0,
+  total_marks REAL NOT NULL DEFAULT 0,
+  correct INTEGER NOT NULL DEFAULT 0,
+  incorrect INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_entrance_result_exam ON entrance_exam_result (entrance_exam_id);
+CREATE INDEX idx_entrance_result_reg ON entrance_exam_result (registration_id);
+CREATE INDEX idx_entrance_result_deleted_at ON entrance_exam_result (deleted_at);
+
+-- ── Phase 4: CRM & Content tables ──
+
+CREATE TABLE counsellor_target (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  target_type TEXT DEFAULT 'applications',
+  target_value INTEGER DEFAULT 0,
+  achieved_value INTEGER DEFAULT 0,
+  remarks TEXT,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_counsellor_target_user ON counsellor_target (user_id);
+CREATE INDEX idx_counsellor_target_period ON counsellor_target (period);
+CREATE INDEX idx_counsellor_target_deleted_at ON counsellor_target (deleted_at);
+
+CREATE TABLE associate_target (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  target_type TEXT DEFAULT 'applications',
+  target_value INTEGER DEFAULT 0,
+  achieved_value INTEGER DEFAULT 0,
+  remarks TEXT,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_associate_target_user ON associate_target (user_id);
+CREATE INDEX idx_associate_target_period ON associate_target (period);
+CREATE INDEX idx_associate_target_deleted_at ON associate_target (deleted_at);
+
+CREATE TABLE document_request (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL,
+  document_type TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  remarks TEXT,
+  tracking_number TEXT,
+  dispatch_date DATE,
+  delivery_date DATE,
+  delivery_address TEXT,
+  courier_name TEXT,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME,
+  FOREIGN KEY (student_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_document_request_student ON document_request (student_id);
+CREATE INDEX idx_document_request_status ON document_request (status);
+CREATE INDEX idx_document_request_deleted_at ON document_request (deleted_at);
+
+CREATE TABLE circular (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  content TEXT,
+  target_audience TEXT DEFAULT 'all',
+  status TEXT DEFAULT 'draft',
+  publish_date DATE,
+  expiry_date DATE,
+  attachment TEXT,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME
+);
+
+CREATE INDEX idx_circular_status ON circular (status);
+CREATE INDEX idx_circular_deleted_at ON circular (deleted_at);
+
+CREATE TABLE mentorship_session (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL,
+  mentor_type TEXT DEFAULT 'ai',
+  topic TEXT,
+  summary TEXT,
+  messages_count INTEGER DEFAULT 0,
+  duration_minutes INTEGER DEFAULT 0,
+  satisfaction_rating INTEGER,
+  created_by INTEGER,
+  updated_by INTEGER,
+  deleted_by INTEGER,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME,
+  FOREIGN KEY (student_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_mentorship_session_student ON mentorship_session (student_id);
+CREATE INDEX idx_mentorship_session_deleted_at ON mentorship_session (deleted_at);

@@ -242,7 +242,7 @@ function CentreDashboardSection({ api, session }: { api: CentrePortalApi; sessio
     return (
       <InlineNotice tone="danger" title="Dashboard failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -254,13 +254,13 @@ function CentreDashboardSection({ api, session }: { api: CentrePortalApi; sessio
   }
 
   return (
-    <section className="student-section" aria-label="Centre dashboard">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre dashboard">
+      <header className="grid gap-1.5">
         <h2>Dashboard</h2>
-        <p>Centre summary for student operations, applications, cohorts, and wallet visibility.</p>
+        <p className="text-teal-800 leading-snug">Centre summary for student operations, applications, cohorts, and wallet visibility.</p>
       </header>
 
-      <section className="metrics-grid">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <MetricCard label="Students" value={String(snapshot.students)} detail={snapshot.centreName || 'Centre'} tone="info" />
         <MetricCard label="Wallet" value={`₹${snapshot.walletBalance.toFixed(0)}`} detail={`Centre ${snapshot.centreCode || 'N/A'}`} tone="success" />
         <MetricCard label="Cohorts" value={String(snapshot.activeCohorts)} detail="Active centre cohorts" tone="neutral" />
@@ -268,19 +268,19 @@ function CentreDashboardSection({ api, session }: { api: CentrePortalApi; sessio
       </section>
 
       <ShellCard title="Recent students" subtitle="Last three student enrollments linked to this centre.">
-        <ul className="student-list">
+        <ul className="list-none m-0 p-0 grid gap-2">
           {snapshot.recentStudents.map((student) => (
-            <li key={String(student.id ?? student.student_id)}>
-              <strong>{asString(student.student_name) || 'Unnamed student'}</strong>
-              <span>Course: {asString(student.course_name) || 'N/A'}</span>
-              <span>Enrolled: {asString(student.enrollment_date) || 'N/A'}</span>
+            <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(student.id ?? student.student_id)}>
+              <strong className="text-teal-950 text-[0.95rem]">{asString(student.student_name) || 'Unnamed student'}</strong>
+              <span className="text-sm text-teal-700">Course: {asString(student.course_name) || 'N/A'}</span>
+              <span className="text-sm text-teal-700">Enrolled: {asString(student.enrollment_date) || 'N/A'}</span>
             </li>
           ))}
         </ul>
       </ShellCard>
 
-      <div className="student-actions">
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Refresh dashboard
         </button>
       </div>
@@ -424,7 +424,7 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
     return (
       <InlineNotice tone="danger" title="Applications failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -432,75 +432,75 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
   }
 
   return (
-    <section className="student-section" aria-label="Centre applications">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre applications">
+      <header className="grid gap-1.5">
         <h2>Applications</h2>
-        <p>Lead intake and conversion workflow parity for centre operators.</p>
+        <p className="text-teal-800 leading-snug">Lead intake and conversion workflow parity for centre operators.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Application action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Application action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="metrics-grid">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <MetricCard label="Total leads" value={String(items.length)} detail="Centre pipeline records" tone="neutral" />
         <MetricCard label="Pending" value={String(pendingCount)} detail="Awaiting conversion" tone="warning" />
         <MetricCard label="Rejected" value={String(rejectedCount)} detail="Needs follow-up" tone="info" />
         <MetricCard label="Pipeline users" value={String(pipelineUsers.length)} detail="Role-based mapping users" tone="success" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Add application" subtitle="Legacy-compatible centre application create route.">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void addApplication();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Name
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={name} onChange={(event) => setName(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Country code
-              <input type="text" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Phone
-              <input type="text" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={phone} onChange={(event) => setPhone(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Email
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Status
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <select className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" value={status} onChange={(event) => setStatus(event.target.value)}>
                 <option value="pending">pending</option>
                 <option value="rejected">rejected</option>
               </select>
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Add application'}
             </button>
           </form>
         </ShellCard>
 
         <ShellCard title="Pipeline list" subtitle="Latest leads under this centre." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {items.slice(0, 8).map((application) => (
-              <li key={String(application.id)}>
-                <strong>{asString(application.name) || 'Unnamed lead'}</strong>
-                <span>Course: {asString(application.course_title) || 'N/A'}</span>
-                <span>Status: {asString(application.status) || 'pending'}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(application.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(application.name) || 'Unnamed lead'}</strong>
+                <span className="text-sm text-teal-700">Course: {asString(application.course_title) || 'N/A'}</span>
+                <span className="text-sm text-teal-700">Status: {asString(application.status) || 'pending'}</span>
               </li>
             ))}
           </ul>
-          <div className="student-actions">
-            <button type="button" className="action-button action-button--small" onClick={() => void convertFirst()} disabled={actionState.pending}>
+          <div className="flex flex-wrap gap-2.5 items-end">
+            <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void convertFirst()} disabled={actionState.pending}>
               {actionState.pending ? 'Converting...' : 'Convert first application'}
             </button>
-            <button type="button" className="action-button action-button--small action-button--ghost" onClick={() => void load()}>
+            <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-50 text-teal-900 border border-teal-300 font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
               Reload list
             </button>
           </div>
@@ -541,7 +541,7 @@ function CentreStudentsSection({ api, session }: { api: CentrePortalApi; session
     return (
       <InlineNotice tone="danger" title="Students failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -549,21 +549,21 @@ function CentreStudentsSection({ api, session }: { api: CentrePortalApi; session
   }
 
   return (
-    <section className="student-section" aria-label="Centre students">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre students">
+      <header className="grid gap-1.5">
         <h2>Students</h2>
-        <p>Centre-scoped student management listing from migrated operations APIs.</p>
+        <p className="text-teal-800 leading-snug">Centre-scoped student management listing from migrated operations APIs.</p>
       </header>
 
       <MetricCard label="Students" value={String(students.length)} detail="Scoped by centre_id" tone="info" />
 
       <ShellCard title="Student list" subtitle="Latest student rows in this centre.">
-        <ul className="student-list">
+        <ul className="list-none m-0 p-0 grid gap-2">
           {students.slice(0, 12).map((student) => (
-            <li key={String(student.id)}>
-              <strong>{asString(student.name) || asString(student.student_id) || 'Student'}</strong>
-              <span>Course: {asString(student.course_title) || String(asNumber(student.course_id) || 'N/A')}</span>
-              <span>Email: {asString(student.user_email) || asString(student.email) || 'N/A'}</span>
+            <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(student.id)}>
+              <strong className="text-teal-950 text-[0.95rem]">{asString(student.name) || asString(student.student_id) || 'Student'}</strong>
+              <span className="text-sm text-teal-700">Course: {asString(student.course_title) || String(asNumber(student.course_id) || 'N/A')}</span>
+              <span className="text-sm text-teal-700">Email: {asString(student.user_email) || asString(student.email) || 'N/A'}</span>
             </li>
           ))}
         </ul>
@@ -603,7 +603,7 @@ function CentreCoursesSection({ api, session }: { api: CentrePortalApi; session:
     return (
       <InlineNotice tone="danger" title="Courses failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -611,21 +611,21 @@ function CentreCoursesSection({ api, session }: { api: CentrePortalApi; session:
   }
 
   return (
-    <section className="student-section" aria-label="Centre courses">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre courses">
+      <header className="grid gap-1.5">
         <h2>Courses</h2>
-        <p>Assigned centre course plans and active date windows.</p>
+        <p className="text-teal-800 leading-snug">Assigned centre course plans and active date windows.</p>
       </header>
 
       <MetricCard label="Assigned plans" value={String(courses.length)} detail="Centre course-plan mappings" tone="success" />
 
       <ShellCard title="Course plan view" subtitle="Legacy course assignment grid in React.">
-        <ul className="student-list">
+        <ul className="list-none m-0 p-0 grid gap-2">
           {courses.slice(0, 12).map((course) => (
-            <li key={String(course.id)}>
-              <strong>{asString(course.course_title) || asString(course.short_name) || 'Course'}</strong>
-              <span>Amount: ₹{asNumber(course.assigned_amount).toFixed(2)}</span>
-              <span>
+            <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(course.id)}>
+              <strong className="text-teal-950 text-[0.95rem]">{asString(course.course_title) || asString(course.short_name) || 'Course'}</strong>
+              <span className="text-sm text-teal-700">Amount: ₹{asNumber(course.assigned_amount).toFixed(2)}</span>
+              <span className="text-sm text-teal-700">
                 Dates: {asString(course.start_date) || 'N/A'} to {asString(course.end_date) || 'N/A'}
               </span>
             </li>
@@ -732,7 +732,7 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
     return (
       <InlineNotice tone="danger" title="Cohorts failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -740,53 +740,53 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
   }
 
   return (
-    <section className="student-section" aria-label="Centre cohorts">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre cohorts">
+      <header className="grid gap-1.5">
         <h2>Cohorts</h2>
-        <p>Cohort create and learner mapping for centre operations.</p>
+        <p className="text-teal-800 leading-snug">Cohort create and learner mapping for centre operations.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Cohort action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Cohort action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Add cohort" subtitle="Legacy-compatible cohort create flow.">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void addCohortAndStudent();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Title
-              <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Course ID
-              <input type="number" value={courseId} onChange={(event) => setCourseId(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="number" value={courseId} onChange={(event) => setCourseId(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Subject ID
-              <input type="number" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="number" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Instructor ID
-              <input type="number" value={instructorId} onChange={(event) => setInstructorId(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="number" value={instructorId} onChange={(event) => setInstructorId(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Add cohort + learner'}
             </button>
           </form>
         </ShellCard>
 
         <ShellCard title="Cohort list" subtitle="Cohorts currently available in centre scope." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {cohorts.slice(0, 10).map((cohort) => (
-              <li key={String(cohort.id)}>
-                <strong>{asString(cohort.title) || asString(cohort.cohort_id) || 'Cohort'}</strong>
-                <span>Course: {asString(cohort.course_name) || String(asNumber(cohort.course_id) || 'N/A')}</span>
-                <span>Students: {String(asNumber(cohort.students_count))}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(cohort.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(cohort.title) || asString(cohort.cohort_id) || 'Cohort'}</strong>
+                <span className="text-sm text-teal-700">Course: {asString(cohort.course_name) || String(asNumber(cohort.course_id) || 'N/A')}</span>
+                <span className="text-sm text-teal-700">Students: {String(asNumber(cohort.students_count))}</span>
               </li>
             ))}
           </ul>
@@ -879,7 +879,7 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
     return (
       <InlineNotice tone="danger" title="Live class failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -887,33 +887,33 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
   }
 
   return (
-    <section className="student-section" aria-label="Centre live classes">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre live classes">
+      <header className="grid gap-1.5">
         <h2>Live classes</h2>
-        <p>Schedule and monitor centre live class operations.</p>
+        <p className="text-teal-800 leading-snug">Schedule and monitor centre live class operations.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Live class action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Live class action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Add live class" subtitle="Creates a single live class session for selected cohort.">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void addLiveClass();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Cohort ID
-              <input type="number" value={cohortId} onChange={(event) => setCohortId(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="number" value={cohortId} onChange={(event) => setCohortId(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Session title
-              <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Add live class'}
             </button>
           </form>
@@ -921,12 +921,12 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
         </ShellCard>
 
         <ShellCard title="Live class list" subtitle="Recent live sessions for this centre." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {liveClasses.slice(0, 10).map((entry) => (
-              <li key={String(entry.id)}>
-                <strong>{asString(entry.title) || 'Live class'}</strong>
-                <span>Cohort: {String(asNumber(entry.cohort_id))}</span>
-                <span>Date: {asString(entry.date) || 'N/A'}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(entry.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(entry.title) || 'Live class'}</strong>
+                <span className="text-sm text-teal-700">Cohort: {String(asNumber(entry.cohort_id))}</span>
+                <span className="text-sm text-teal-700">Date: {asString(entry.date) || 'N/A'}</span>
               </li>
             ))}
           </ul>
@@ -1032,7 +1032,7 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
     return (
       <InlineNotice tone="danger" title="Resources failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load(folderId)}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load(folderId)}>
           Retry
         </button>
       </InlineNotice>
@@ -1040,38 +1040,38 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
   }
 
   return (
-    <section className="student-section" aria-label="Centre resources">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre resources">
+      <header className="grid gap-1.5">
         <h2>Resources</h2>
-        <p>Folder and file operations for centre resource library.</p>
+        <p className="text-teal-800 leading-snug">Folder and file operations for centre resource library.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Resource action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Resource action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Folder operations" subtitle={`Current folder: ${folderId}`}>
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void addFolder();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               New folder name
-              <input type="text" value={folderName} onChange={(event) => setFolderName(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={folderName} onChange={(event) => setFolderName(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Add folder'}
             </button>
           </form>
 
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {folders.map((folder) => (
-              <li key={String(folder.id)}>
-                <strong>{asString(folder.name) || `Folder ${String(folder.id)}`}</strong>
-                <button type="button" className="action-button action-button--small" onClick={() => void load(asNumber(folder.id))}>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(folder.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(folder.name) || `Folder ${String(folder.id)}`}</strong>
+                <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load(asNumber(folder.id))}>
                   Open
                 </button>
               </li>
@@ -1081,27 +1081,27 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
 
         <ShellCard title="File operations" subtitle="Attach files under current folder." theme="dark">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void addFile();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               File name
-              <input type="text" value={fileName} onChange={(event) => setFileName(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={fileName} onChange={(event) => setFileName(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Add file'}
             </button>
           </form>
 
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {files.map((file) => (
-              <li key={String(file.id)}>
-                <strong>{asString(file.name) || `File ${String(file.id)}`}</strong>
-                <span>Type: {asString(file.type) || 'N/A'}</span>
-                <span>Path: {asString(file.path) || 'N/A'}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(file.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(file.name) || `File ${String(file.id)}`}</strong>
+                <span className="text-sm text-teal-700">Type: {asString(file.type) || 'N/A'}</span>
+                <span className="text-sm text-teal-700">Path: {asString(file.path) || 'N/A'}</span>
               </li>
             ))}
           </ul>
@@ -1185,7 +1185,7 @@ function CentreWalletSection({ api, session }: { api: CentrePortalApi; session: 
     return (
       <InlineNotice tone="danger" title="Wallet failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -1197,56 +1197,56 @@ function CentreWalletSection({ api, session }: { api: CentrePortalApi; session: 
   }
 
   return (
-    <section className="student-section" aria-label="Centre wallet">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre wallet">
+      <header className="grid gap-1.5">
         <h2>Wallet</h2>
-        <p>Wallet balance, transactions, and fund request submission.</p>
+        <p className="text-teal-800 leading-snug">Wallet balance, transactions, and fund request submission.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Wallet action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Wallet action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="metrics-grid">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <MetricCard label="Balance" value={`₹${wallet.walletBalance.toFixed(2)}`} detail="Current centre wallet" tone="info" />
         <MetricCard label="Credits" value={`₹${wallet.totalCredits.toFixed(2)}`} detail={`${wallet.credits.length} entries`} tone="success" />
         <MetricCard label="Debits" value={`₹${wallet.totalDebits.toFixed(2)}`} detail={`${wallet.debits.length} entries`} tone="warning" />
         <MetricCard label="Fund requests" value={String(wallet.fundRequests.length)} detail="Pending + processed" tone="neutral" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Request fund" subtitle="Submit fund recharge request to admin flow.">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void submitFundRequest();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Amount
-              <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="number" value={amount} onChange={(event) => setAmount(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Transaction reference
-              <input type="text" value={transactionNo} onChange={(event) => setTransactionNo(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={transactionNo} onChange={(event) => setTransactionNo(event.target.value)} />
             </label>
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Description
-              <input type="text" value={description} onChange={(event) => setDescription(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={description} onChange={(event) => setDescription(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Submitting...' : 'Submit request'}
             </button>
           </form>
         </ShellCard>
 
         <ShellCard title="Fund requests" subtitle="Latest wallet requisitions." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {wallet.fundRequests.slice(0, 10).map((entry) => (
-              <li key={String(entry.id)}>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(entry.id)}>
                 <strong>₹{asNumber(entry.amount).toFixed(2)}</strong>
-                <span>Status: {asString(entry.status) || 'pending'}</span>
-                <span>Description: {asString(entry.description) || 'N/A'}</span>
+                <span className="text-sm text-teal-700">Status: {asString(entry.status) || 'pending'}</span>
+                <span className="text-sm text-teal-700">Description: {asString(entry.description) || 'N/A'}</span>
               </li>
             ))}
           </ul>
@@ -1322,7 +1322,7 @@ function CentreSupportSection({ api, session }: { api: CentrePortalApi; session:
     return (
       <InlineNotice tone="danger" title="Support failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -1330,56 +1330,56 @@ function CentreSupportSection({ api, session }: { api: CentrePortalApi; session:
   }
 
   return (
-    <section className="student-section" aria-label="Centre support and training">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Centre support and training">
+      <header className="grid gap-1.5">
         <h2>Support and training</h2>
-        <p>Centre support chat and training-video parity flows.</p>
+        <p className="text-teal-800 leading-snug">Centre support chat and training-video parity flows.</p>
       </header>
 
       {actionState.error ? <InlineNotice tone="danger" title="Support action failed">{actionState.error}</InlineNotice> : null}
       {actionState.message ? <InlineNotice tone="success" title="Support action complete">{actionState.message}</InlineNotice> : null}
 
-      <section className="metrics-grid">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <MetricCard label="Messages" value={String(messages.length)} detail="Centre-admin support thread" tone="info" />
         <MetricCard label="Training videos" value={String(trainingVideos.length)} detail="Operator enablement library" tone="success" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Support chat" subtitle="Send message to support thread.">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void sendMessage();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Message
-              <input type="text" value={message} onChange={(event) => setMessage(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={message} onChange={(event) => setMessage(event.target.value)} />
             </label>
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Sending...' : 'Send message'}
             </button>
           </form>
 
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {messages.slice(-8).map((entry) => (
-              <li key={String(entry.id)}>
-                <strong>{asNumber(entry.sender_id) === session.userId ? 'You' : 'Support'}</strong>
-                <span>{asString(entry.message)}</span>
-                <span>{asString(entry.created_at)}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(entry.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asNumber(entry.sender_id) === session.userId ? 'You' : 'Support'}</strong>
+                <span className="text-sm text-teal-700">{asString(entry.message)}</span>
+                <span className="text-sm text-teal-700">{asString(entry.created_at)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
 
         <ShellCard title="Training videos" subtitle="Latest operator training records." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {trainingVideos.slice(0, 10).map((video) => (
-              <li key={String(video.id)}>
-                <strong>{asString(video.title) || `Video ${String(video.id)}`}</strong>
-                <span>Category: {asString(video.category) || 'Lectures'}</span>
-                <span>URL: {asString(video.video_url) || 'N/A'}</span>
+              <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(video.id)}>
+                <strong className="text-teal-950 text-[0.95rem]">{asString(video.title) || `Video ${String(video.id)}`}</strong>
+                <span className="text-sm text-teal-700">Category: {asString(video.category) || 'Lectures'}</span>
+                <span className="text-sm text-teal-700">URL: {asString(video.video_url) || 'N/A'}</span>
               </li>
             ))}
           </ul>
@@ -1451,7 +1451,7 @@ export function CentrePortal({ pathname, session, api, onNavigate, onLogout }: C
       onNavigate={onNavigate}
       onLogout={onLogout}
     >
-      <section className="portal-intro">
+      <section className="border-l-4 border-teal-600 px-3.5 py-2.5 bg-cyan-50/80 rounded-r-xl leading-relaxed text-teal-900">
         <p>
           {CENTRE_SECTION_NAV.find((entry) => entry.id === section)?.subtitle || 'Centre portal'}
           {' '}section running on migrated Node operations endpoints.

@@ -153,6 +153,100 @@ export interface ExportAdminReportInput {
   date?: string;
 }
 
+// ─── Phase 2: Exam & Assessment Types ─────────────────────────────────────
+
+export interface AdminExamListSnapshot {
+  exams: Record<string, unknown>[];
+  summary: { total: number; upcoming: number; expired: number; practice: number };
+}
+
+export interface AdminExamResultSnapshot {
+  exams: Record<string, unknown>[];
+  results: Record<string, unknown>[];
+}
+
+export interface AdminExamEvaluationSnapshot {
+  exams: Record<string, unknown>[];
+  pendingEvaluations: Record<string, unknown>[];
+}
+
+export interface AddExamInput {
+  title: string;
+  description?: string;
+  mark?: number;
+  duration?: string;
+  fromDate?: string;
+  toDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  courseId: number;
+  subjectId?: number;
+  lessonId?: number;
+  batchId?: number;
+  free?: string;
+  publishResult?: number;
+  isPractice?: number;
+  questionIds?: number[];
+}
+
+export interface AddQuestionInput {
+  courseId: number;
+  subjectId?: number;
+  lessonId?: number;
+  qType?: number;
+  title: string;
+  options?: string;
+  correctAnswers?: string;
+  numberOfOptions?: number;
+  hint?: string;
+  solution?: string;
+}
+
+export interface AddAssignmentInput {
+  title: string;
+  description?: string;
+  totalMarks?: number;
+  addedDate?: string;
+  dueDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  instructions?: string;
+  file?: string;
+  courseId: number;
+  cohortId?: number;
+}
+
+export interface AddEntranceExamInput {
+  title: string;
+  description?: string;
+  totalMarks?: number;
+  duration?: string;
+  examDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  courseId: number;
+  status?: string;
+  questionIds?: string;
+}
+
+// ─── Phase 3: Operations & People Types ───────────────────────────────────
+
+export interface AddAdminCohortInput {
+  title: string;
+  cohortCode?: string;
+  courseId: number;
+  subjectId: number;
+  centreId: number;
+  instructorId: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface AdminPaymentStatusSnapshot {
+  summary: Record<string, unknown>;
+  payments: Record<string, unknown>[];
+}
+
 export class AdminPortalApi {
   private readonly apiClient: LegacyApiClient;
 
@@ -525,5 +619,639 @@ export class AdminPortalApi {
 
   static firstLiveId(rows: Record<string, unknown>[]): number {
     return asNumber(firstRecord(rows)?.id) || asNumber(firstRecord(rows)?.live_id);
+  }
+
+  // ─── Phase 1: Admin Dashboard (dedicated endpoint) ────────────────────────
+
+  async loadAdminDashboard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/dashboard/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  // ─── Phase 1: Batches (Intake) ────────────────────────────────────────────
+
+  async loadBatches(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/batch/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async addBatch(
+    authToken: string,
+    input: { title: string; description?: string; status?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/batch/add', authToken, input);
+  }
+
+  async editBatch(
+    authToken: string,
+    input: { id: number; title: string; description?: string; status?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/batch/edit', authToken, input);
+  }
+
+  async deleteBatch(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/batch/delete', authToken, { id });
+  }
+
+  // ─── Phase 1: Payments ────────────────────────────────────────────────────
+
+  async loadPayments(
+    authToken: string,
+    input: { fromDate?: string; toDate?: string; courseId?: number } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/payments/index', authToken, {
+      ...(input.fromDate ? { from_date: input.fromDate } : {}),
+      ...(input.toDate ? { to_date: input.toDate } : {}),
+      ...(input.courseId ? { course_id: input.courseId } : {}),
+    });
+
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 1: Admin Cohorts ───────────────────────────────────────────────
+
+  async loadAdminCohorts(
+    authToken: string,
+    input: { courseId?: number; subjectId?: number; centreId?: number; status?: string } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/centres/cohorts', authToken, {
+      ...(input.courseId ? { course_id: input.courseId } : {}),
+      ...(input.subjectId ? { subject_id: input.subjectId } : {}),
+      ...(input.centreId ? { centre_id: input.centreId } : {}),
+      ...(input.status ? { status: input.status } : {}),
+    });
+
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 1: Admin Centre Payments ───────────────────────────────────────
+
+  async loadAdminCentrePayments(
+    authToken: string,
+    input: { fromDate?: string; toDate?: string; status?: string } = {},
+  ): Promise<{ fundRequests: Record<string, unknown>[]; walletTransactions: Record<string, unknown>[] }> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/centres/centre_payments', authToken, {
+      ...(input.fromDate ? { from_date: input.fromDate } : {}),
+      ...(input.toDate ? { to_date: input.toDate } : {}),
+      ...(input.status ? { status: input.status } : {}),
+    });
+
+    const data = asRecord(payload.data) ?? {};
+
+    return {
+      fundRequests: toRecords(data.fund_requests),
+      walletTransactions: toRecords(data.wallet_transactions),
+    };
+  }
+
+  // ─── Phase 1: Admin Wallet Status ─────────────────────────────────────────
+
+  async loadAdminWalletStatus(
+    authToken: string,
+    input: { centreId?: number; centreName?: string } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/wallet/index', authToken, {
+      ...(input.centreId ? { centre_id: input.centreId } : {}),
+      ...(input.centreName ? { centre_name: input.centreName } : {}),
+    });
+
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 1: Notifications (admin) ───────────────────────────────────────
+
+  async loadNotifications(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/notification/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 1: Banners ────────────────────────────────────────────────────
+
+  async loadBanners(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/banners/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async addBanner(
+    authToken: string,
+    input: { title?: string; image?: string; courseId?: number; status?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/banners/add', authToken, {
+      title: input.title,
+      image: input.image,
+      course_id: input.courseId,
+      status: input.status,
+    });
+  }
+
+  // ─── Phase 1: FAQ ────────────────────────────────────────────────────────
+
+  async loadFaqs(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/faq/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async addFaq(
+    authToken: string,
+    input: { question: string; answer?: string; status?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/faq/add', authToken, input);
+  }
+
+  // ─── Phase 1: Contact Settings ────────────────────────────────────────────
+
+  async loadContactSettings(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/settings/contact_settings', authToken);
+    return toRecords(payload.data);
+  }
+
+  async updateContactSettings(authToken: string, contact: Record<string, string>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/settings/contact_settings', authToken, { contact });
+  }
+
+  // ─── Phase 2: Question Bank ─────────────────────────────────────────────
+
+  async loadQuestionBank(
+    authToken: string,
+    filters: { courseId?: number; subjectId?: number; lessonId?: number; qType?: number } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/question_bank/index', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.subjectId ? { subject_id: filters.subjectId } : {}),
+      ...(filters.lessonId ? { lesson_id: filters.lessonId } : {}),
+      ...(filters.qType !== undefined ? { q_type: filters.qType } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async addQuestion(authToken: string, input: AddQuestionInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/add', authToken, {
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      lesson_id: input.lessonId,
+      q_type: input.qType ?? 0,
+      title: input.title,
+      number_of_options: input.numberOfOptions ?? 4,
+      options: input.options ?? '[]',
+      correct_answers: input.correctAnswers ?? '[]',
+      hint: input.hint,
+      solution: input.solution,
+    });
+  }
+
+  async editQuestion(authToken: string, id: number, input: AddQuestionInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/edit', authToken, {
+      id,
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      lesson_id: input.lessonId,
+      q_type: input.qType ?? 0,
+      title: input.title,
+      number_of_options: input.numberOfOptions ?? 4,
+      options: input.options ?? '[]',
+      correct_answers: input.correctAnswers ?? '[]',
+      hint: input.hint,
+      solution: input.solution,
+    });
+  }
+
+  async deleteQuestion(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/delete', authToken, { id });
+  }
+
+  // ─── Phase 2: Exams ────────────────────────────────────────────────────
+
+  async loadAdminExams(
+    authToken: string,
+    filters: { courseId?: number; subjectId?: number; batchId?: number; status?: string } = {},
+  ): Promise<AdminExamListSnapshot> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/exam/index', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.subjectId ? { subject_id: filters.subjectId } : {}),
+      ...(filters.batchId ? { batch_id: filters.batchId } : {}),
+      ...(filters.status ? { status: filters.status } : {}),
+    });
+
+    const data = asRecord(payload.data) ?? {};
+    const summary = asRecord(data.summary) ?? {};
+
+    return {
+      exams: toRecords(data.exams),
+      summary: {
+        total: asNumber(summary.total),
+        upcoming: asNumber(summary.upcoming),
+        expired: asNumber(summary.expired),
+        practice: asNumber(summary.practice),
+      },
+    };
+  }
+
+  async addExam(authToken: string, input: AddExamInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/add', authToken, {
+      title: input.title,
+      description: input.description,
+      mark: input.mark,
+      duration: input.duration,
+      from_date: input.fromDate,
+      to_date: input.toDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      lesson_id: input.lessonId,
+      batch_id: input.batchId,
+      free: input.free ?? '0',
+      publish_result: input.publishResult ?? 0,
+      is_practice: input.isPractice ?? 0,
+      question_ids: input.questionIds,
+    });
+  }
+
+  async editExam(authToken: string, id: number, input: AddExamInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/edit', authToken, {
+      id,
+      title: input.title,
+      description: input.description,
+      mark: input.mark,
+      duration: input.duration,
+      from_date: input.fromDate,
+      to_date: input.toDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      lesson_id: input.lessonId,
+      batch_id: input.batchId,
+      free: input.free ?? '0',
+      publish_result: input.publishResult ?? 0,
+      is_practice: input.isPractice ?? 0,
+    });
+  }
+
+  async deleteExam(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/delete', authToken, { id });
+  }
+
+  async publishExamResult(authToken: string, examId: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/publish_result', authToken, { id: examId });
+  }
+
+  // ─── Phase 2: Assignments ──────────────────────────────────────────────
+
+  async loadAdminAssignments(
+    authToken: string,
+    filters: { courseId?: number; cohortId?: number } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/index', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.cohortId ? { cohort_id: filters.cohortId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async addAssignment(authToken: string, input: AddAssignmentInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/assignment/add', authToken, {
+      title: input.title,
+      description: input.description,
+      total_marks: input.totalMarks,
+      added_date: input.addedDate,
+      due_date: input.dueDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      instructions: input.instructions,
+      file: input.file,
+      course_id: input.courseId,
+      cohort_id: input.cohortId,
+    });
+  }
+
+  async editAssignment(authToken: string, id: number, input: AddAssignmentInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/assignment/edit', authToken, {
+      id,
+      title: input.title,
+      description: input.description,
+      total_marks: input.totalMarks,
+      due_date: input.dueDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      instructions: input.instructions,
+      file: input.file,
+      course_id: input.courseId,
+      cohort_id: input.cohortId,
+    });
+  }
+
+  async deleteAssignment(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/assignment/delete', authToken, { id });
+  }
+
+  async loadAssignmentSubmissions(authToken: string, assignmentId: number): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/submissions', authToken, {
+      assignment_id: assignmentId,
+    });
+    return toRecords(payload.data);
+  }
+
+  async evaluateSubmission(
+    authToken: string,
+    submissionId: number,
+    marks: string,
+    remarks?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/assignment/evaluate', authToken, {
+      id: submissionId,
+      marks,
+      remarks: remarks ?? '',
+    });
+  }
+
+  // ─── Phase 2: Exam Results ─────────────────────────────────────────────
+
+  async loadAdminExamResults(
+    authToken: string,
+    filters: { examId?: number; courseId?: number; batchId?: number } = {},
+  ): Promise<AdminExamResultSnapshot> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/Exam_result/index', authToken, {
+      ...(filters.examId ? { exam_id: filters.examId } : {}),
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.batchId ? { batch_id: filters.batchId } : {}),
+    });
+
+    const data = asRecord(payload.data) ?? {};
+
+    return {
+      exams: toRecords(data.exams),
+      results: toRecords(data.results),
+    };
+  }
+
+  // ─── Phase 2: Exam Evaluation ──────────────────────────────────────────
+
+  async loadExamEvaluations(
+    authToken: string,
+    filters: { examId?: number; courseId?: number } = {},
+  ): Promise<AdminExamEvaluationSnapshot> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/Exam_evaluation/index', authToken, {
+      ...(filters.examId ? { exam_id: filters.examId } : {}),
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+    });
+
+    const data = asRecord(payload.data) ?? {};
+
+    return {
+      exams: toRecords(data.exams),
+      pendingEvaluations: toRecords(data.pendingEvaluations),
+    };
+  }
+
+  async evaluateExamAttempt(authToken: string, attemptId: number, score: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/Exam_evaluation/evaluate', authToken, {
+      attempt_id: attemptId,
+      score,
+    });
+  }
+
+  // ─── Phase 2: Re-Examination ───────────────────────────────────────────
+
+  async loadReExams(
+    authToken: string,
+    filters: { courseId?: number; batchId?: number } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/Re_exam/index', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.batchId ? { batch_id: filters.batchId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async grantReExam(authToken: string, examId: number, userIds: number[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/Re_exam/grant', authToken, {
+      exam_id: examId,
+      user_ids: userIds,
+    });
+  }
+
+  // ─── Phase 2: Entrance Exams ───────────────────────────────────────────
+
+  async loadEntranceExams(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/entrance_exam/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async addEntranceExam(authToken: string, input: AddEntranceExamInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/entrance_exam/add', authToken, {
+      title: input.title,
+      description: input.description,
+      total_marks: input.totalMarks,
+      duration: input.duration,
+      exam_date: input.examDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      course_id: input.courseId,
+      status: input.status ?? 'draft',
+      question_ids: input.questionIds ?? '[]',
+    });
+  }
+
+  async editEntranceExam(authToken: string, id: number, input: AddEntranceExamInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/entrance_exam/edit', authToken, {
+      id,
+      title: input.title,
+      description: input.description,
+      total_marks: input.totalMarks,
+      duration: input.duration,
+      exam_date: input.examDate,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      course_id: input.courseId,
+      status: input.status ?? 'draft',
+      question_ids: input.questionIds ?? '[]',
+    });
+  }
+
+  async deleteEntranceExam(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/entrance_exam/delete', authToken, { id });
+  }
+
+  async loadEntranceExamRegistrations(authToken: string, examId?: number): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/entrance_exam/registrations', authToken, {
+      ...(examId ? { exam_id: examId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async loadEntranceExamResults(authToken: string, examId?: number): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/entrance_exam/results', authToken, {
+      ...(examId ? { exam_id: examId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 3: Operations & People ───────────────────────────────────────
+
+  async loadInstructors(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/instructor/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadAdminUsers(authToken: string, roleId: number): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      roleId === 1 ? '/admin/admin/index' : '/admin/sub_admin/index',
+      authToken,
+    );
+    return toRecords(payload.data);
+  }
+
+  async addAdminCohort(authToken: string, input: AddAdminCohortInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/add', authToken, {
+      title: input.title,
+      cohort_code: input.cohortCode,
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      centre_id: input.centreId,
+      instructor_id: input.instructorId,
+      start_date: input.startDate,
+      end_date: input.endDate,
+    });
+  }
+
+  async loadCourseFees(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course_fee/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadFeeInstallments(
+    authToken: string,
+    filters: { courseId?: number; status?: string } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/installments', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.status ? { status: filters.status } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async loadPaymentStatus(
+    authToken: string,
+    filters: { fromDate?: string; toDate?: string; courseId?: number } = {},
+  ): Promise<AdminPaymentStatusSnapshot> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/payment_status', authToken, {
+      ...(filters.fromDate ? { from_date: filters.fromDate } : {}),
+      ...(filters.toDate ? { to_date: filters.toDate } : {}),
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+    });
+
+    const data = asRecord(payload.data) ?? {};
+
+    return {
+      summary: asRecord(data.summary) ?? { total_payments: 0, unique_students: 0, total_collected: 0, avg_payment: 0 },
+      payments: toRecords(data.payments),
+    };
+  }
+
+  async loadCohortAttendance(authToken: string, cohortId?: number): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/cohorts/attendance', authToken, {
+      ...(cohortId ? { cohort_id: cohortId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
+  async loadScholarships(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/scholarships/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase 4: CRM & Content ───────────────────────────────────────────────
+
+  async loadCounsellors(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/counsellor/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadCounsellorTargets(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/counsellor_target/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadAssociates(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/associates/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadAssociateTargets(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/associates_target/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadDocumentRequests(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/requests', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadDocumentsIssued(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/issued', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadDocumentsDelivery(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/delivery', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadEvents(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/events/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadCirculars(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/circulars/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadMentorshipHistory(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/mentorship/history', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadMentorshipAnalysis(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/mentorship/analysis', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  // ── Phase 5: Integrations & Polish ──────────────────────────────
+
+  async loadChatSupport(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/chat_support', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/training_videos', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadEnrollments(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/enrol/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadFeeds(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/feed/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadIntegrations(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/integration/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadUserFeedbacks(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/review/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadLanguages(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/language/index', authToken);
+    return toRecords(payload.data);
   }
 }

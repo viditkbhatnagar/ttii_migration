@@ -215,7 +215,7 @@ function StudentDashboardSection({ api, session }: { api: StudentPortalApi; sess
     return (
       <InlineNotice tone="danger" title="Dashboard failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -228,13 +228,13 @@ function StudentDashboardSection({ api, session }: { api: StudentPortalApi; sess
   }
 
   return (
-    <section className="student-section" aria-label="Student dashboard">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student dashboard">
+      <header className="grid gap-1.5">
         <h2>Dashboard</h2>
-        <p>Student KPI parity pulled from content, assessment, engagement, and task APIs.</p>
+        <p className="text-teal-800 leading-snug">Student KPI parity pulled from content, assessment, engagement, and task APIs.</p>
       </header>
 
-      <section className="metrics-grid" aria-label="Student dashboard metrics">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1" aria-label="Student dashboard metrics">
         <MetricCard label="Courses" value={String(data.coursesCount)} detail={`Primary: ${data.primaryCourseTitle || 'N/A'}`} tone="info" />
         <MetricCard label="Assignments" value={String(data.currentAssignments)} detail={`${data.upcomingAssignments} upcoming / ${data.completedAssignments} completed`} tone="neutral" />
         <MetricCard label="Exams" value={String(data.upcomingExams)} detail={`${data.expiredExams} expired`} tone="warning" />
@@ -243,8 +243,8 @@ function StudentDashboardSection({ api, session }: { api: StudentPortalApi; sess
         <MetricCard label="Streak" value={String(data.streakCurrent)} detail={`Total ${data.streakTotal}`} tone="success" />
       </section>
 
-      <div className="student-actions">
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Refresh dashboard
         </button>
       </div>
@@ -334,7 +334,7 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
     return (
       <InlineNotice tone="danger" title="Profile failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -342,10 +342,10 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
   }
 
   return (
-    <section className="student-section" aria-label="Student profile">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student profile">
+      <header className="grid gap-1.5">
         <h2>Profile</h2>
-        <p>Student identity and password management over legacy-compatible profile endpoints.</p>
+        <p className="text-teal-800 leading-snug">Student identity and password management over legacy-compatible profile endpoints.</p>
       </header>
 
       {profile?.source === 'session' ? (
@@ -366,36 +366,36 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
         </InlineNotice>
       ) : null}
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Profile details" subtitle={`User ID ${profile?.userId ?? session.userId} | Role ${profile?.roleId ?? session.roleId}`}>
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void updateProfile();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Name
-              <input type="text" value={name} onChange={(event) => setName(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={name} onChange={(event) => setName(event.target.value)} />
             </label>
 
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Email
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
             </label>
 
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Phone
-              <input type="text" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={phone} onChange={(event) => setPhone(event.target.value)} />
             </label>
 
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Academic year
-              <input type="text" value={academicYear} onChange={(event) => setAcademicYear(event.target.value)} />
+              <input className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white" type="text" value={academicYear} onChange={(event) => setAcademicYear(event.target.value)} />
             </label>
 
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Save profile'}
             </button>
           </form>
@@ -403,15 +403,16 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
 
         <ShellCard title="Password" subtitle="Legacy-compatible confirmation check with Node auth hash storage." theme="dark">
           <form
-            className="student-form"
+            className="grid gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void updatePassword();
             }}
           >
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Password
               <input
+                className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -419,9 +420,10 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
               />
             </label>
 
-            <label>
+            <label className="grid gap-1.5 font-semibold text-teal-900">
               Confirm password
               <input
+                className="border border-teal-300 rounded-lg px-2.5 py-2 bg-white"
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
@@ -429,7 +431,7 @@ function StudentProfileSection({ api, session }: { api: StudentPortalApi; sessio
               />
             </label>
 
-            <button type="submit" className="action-button action-button--small" disabled={actionState.pending}>
+            <button type="submit" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" disabled={actionState.pending}>
               {actionState.pending ? 'Saving...' : 'Change password'}
             </button>
           </form>
@@ -512,7 +514,7 @@ function StudentLearningSection({ api, session }: { api: StudentPortalApi; sessi
     return (
       <InlineNotice tone="danger" title="Learning failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -525,10 +527,10 @@ function StudentLearningSection({ api, session }: { api: StudentPortalApi; sessi
   }
 
   return (
-    <section className="student-section" aria-label="Student learning">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student learning">
+      <header className="grid gap-1.5">
         <h2>Learning</h2>
-        <p>Course, subject, lesson, and file progression parity for the student portal.</p>
+        <p className="text-teal-800 leading-snug">Course, subject, lesson, and file progression parity for the student portal.</p>
       </header>
 
       {actionState.error ? (
@@ -543,7 +545,7 @@ function StudentLearningSection({ api, session }: { api: StudentPortalApi; sessi
         </InlineNotice>
       ) : null}
 
-      <section className="metrics-grid" aria-label="Learning metrics">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1" aria-label="Learning metrics">
         <MetricCard label="Courses" value={String(data.courses.length)} detail="Catalog parity" tone="info" />
         <MetricCard label="Subjects" value={String(data.subjects.length)} detail="Sequencing + locks" tone="neutral" />
         <MetricCard label="Lessons" value={String(data.lessons.length)} detail="Lesson progression" tone="success" />
@@ -552,37 +554,37 @@ function StudentLearningSection({ api, session }: { api: StudentPortalApi; sessi
         <MetricCard label="Active Course" value={String(data.selectedCourseId || 0)} detail="Selected from catalog" tone="warning" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Lessons" subtitle="First-subject lesson flow for parity validation.">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.lessons.slice(0, 6).map((lesson) => (
-              <li key={asNumber(lesson.id)}>
-                <strong>{asString(lesson.title) || `Lesson ${asNumber(lesson.id)}`}</strong>
-                <span>Completion: {asNumber(lesson.completed_percentage)}%</span>
-                <span>Locked: {asBoolean(lesson.lock) ? 'Yes' : 'No'}</span>
+              <li key={asNumber(lesson.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(lesson.title) || `Lesson ${asNumber(lesson.id)}`}</strong>
+                <span className="text-sm text-teal-700">Completion: {asNumber(lesson.completed_percentage)}%</span>
+                <span className="text-sm text-teal-700">Locked: {asBoolean(lesson.lock) ? 'Yes' : 'No'}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
 
         <ShellCard title="Lesson files" subtitle="Video-rooted grouped resources.">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.lessonFiles.slice(0, 6).map((file) => (
-              <li key={asNumber(file.id)}>
-                <strong>{asString(file.title) || `File ${asNumber(file.id)}`}</strong>
-                <span>Type: {asString(file.attachment_type) || asString(file.lesson_type) || 'Unknown'}</span>
-                <span>Related: {toRecords(file.related_files).length}</span>
+              <li key={asNumber(file.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(file.title) || `File ${asNumber(file.id)}`}</strong>
+                <span className="text-sm text-teal-700">Type: {asString(file.attachment_type) || asString(file.lesson_type) || 'Unknown'}</span>
+                <span className="text-sm text-teal-700">Related: {toRecords(file.related_files).length}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
       </section>
 
-      <div className="student-actions">
-        <button type="button" className="action-button action-button--small" onClick={() => void updateFirstProgress()} disabled={actionState.pending}>
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void updateFirstProgress()} disabled={actionState.pending}>
           {actionState.pending ? 'Updating...' : 'Update first progress item'}
         </button>
-        <button type="button" className="action-button action-button--small action-button--ghost" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-50 text-teal-900 border border-teal-300 font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Reload learning
         </button>
       </div>
@@ -707,7 +709,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
     return (
       <InlineNotice tone="danger" title="Assessments failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -720,10 +722,10 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
   }
 
   return (
-    <section className="student-section" aria-label="Student assessments">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student assessments">
+      <header className="grid gap-1.5">
         <h2>Assessments</h2>
-        <p>Assignments, exams, quiz, and practice workflow parity in React student portal.</p>
+        <p className="text-teal-800 leading-snug">Assignments, exams, quiz, and practice workflow parity in React student portal.</p>
       </header>
 
       {actionState.error ? (
@@ -738,7 +740,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         </InlineNotice>
       ) : null}
 
-      <section className="metrics-grid" aria-label="Assessment metrics">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1" aria-label="Assessment metrics">
         <MetricCard label="Assignments" value={String(data.assignments.current.length)} detail={`${data.assignments.upcoming.length} upcoming`} tone="info" />
         <MetricCard label="Completed" value={String(data.assignments.completed.length)} detail="Submitted assignments" tone="success" />
         <MetricCard label="Upcoming Exams" value={String(data.exams.upcoming.length)} detail={`${data.exams.expired.length} expired`} tone="warning" />
@@ -746,36 +748,36 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         <MetricCard label="Quiz File" value={String(data.quizLessonFileId || 0)} detail="Auto-discovered from lessons" tone="neutral" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Current assignments" subtitle="First six active assignments">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.assignments.current.slice(0, 6).map((assignment) => (
-              <li key={asNumber(assignment.id)}>
-                <strong>{asString(assignment.title) || `Assignment ${asNumber(assignment.id)}`}</strong>
-                <span>Status: {asString(assignment.status) || 'Current'}</span>
-                <span>Saved: {asNumber(assignment.is_saved)}</span>
+              <li key={asNumber(assignment.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(assignment.title) || `Assignment ${asNumber(assignment.id)}`}</strong>
+                <span className="text-sm text-teal-700">Status: {asString(assignment.status) || 'Current'}</span>
+                <span className="text-sm text-teal-700">Saved: {asNumber(assignment.is_saved)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
 
         <ShellCard title="Exam windows" subtitle="Upcoming and expired exam cards" theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.exams.upcoming.concat(data.exams.expired).slice(0, 6).map((exam) => (
-              <li key={asNumber(exam.id)}>
-                <strong>{asString(exam.title) || `Exam ${asNumber(exam.id)}`}</strong>
-                <span>{asString(exam.date)}</span>
-                <span>{asString(exam.questions_count)}</span>
+              <li key={asNumber(exam.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(exam.title) || `Exam ${asNumber(exam.id)}`}</strong>
+                <span className="text-sm text-teal-700">{asString(exam.date)}</span>
+                <span className="text-sm text-teal-700">{asString(exam.questions_count)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
       </section>
 
-      <div className="student-actions">
+      <div className="flex flex-wrap gap-2.5 items-end">
         <button
           type="button"
-          className="action-button action-button--small"
+          className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65"
           onClick={() => void toggleFirstSavedAssignment()}
           disabled={actionState.pending}
         >
@@ -783,7 +785,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         </button>
         <button
           type="button"
-          className="action-button action-button--small"
+          className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65"
           onClick={() => void submitFirstAssignment()}
           disabled={actionState.pending}
         >
@@ -791,7 +793,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         </button>
         <button
           type="button"
-          className="action-button action-button--small"
+          className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65"
           onClick={() => void submitFirstExam()}
           disabled={actionState.pending}
         >
@@ -799,7 +801,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         </button>
         <button
           type="button"
-          className="action-button action-button--small"
+          className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65"
           onClick={() => void submitQuizAndPractice()}
           disabled={actionState.pending}
         >
@@ -887,7 +889,7 @@ function StudentPaymentsSection({ api, session }: { api: StudentPortalApi; sessi
     return (
       <InlineNotice tone="danger" title="Payments failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -900,10 +902,10 @@ function StudentPaymentsSection({ api, session }: { api: StudentPortalApi; sessi
   }
 
   return (
-    <section className="student-section" aria-label="Student payments">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student payments">
+      <header className="grid gap-1.5">
         <h2>Payments</h2>
-        <p>Packages, coupon validation, and student fee ledger parity.</p>
+        <p className="text-teal-800 leading-snug">Packages, coupon validation, and student fee ledger parity.</p>
       </header>
 
       {actionState.error ? (
@@ -918,63 +920,63 @@ function StudentPaymentsSection({ api, session }: { api: StudentPortalApi; sessi
         </InlineNotice>
       ) : null}
 
-      <section className="metrics-grid" aria-label="Payment metrics">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1" aria-label="Payment metrics">
         <MetricCard label="Courses in ledger" value={String(data.studentCourses.length)} detail="/payment/get_student_courses" tone="info" />
         <MetricCard label="Packages" value={String(data.packages.length)} detail={`Course ${data.selectedCourseId || 0}`} tone="neutral" />
         <MetricCard label="Installments" value={String(toRecords(data.paymentDetails.installments).length)} detail="/payment/get_payment_details" tone="warning" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Fee ledger" subtitle="Student course fees and installment status.">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.studentCourses.slice(0, 6).map((course) => (
-              <li key={asNumber(course.course_id)}>
-                <strong>{asString(course.title) || `Course ${asNumber(course.course_id)}`}</strong>
-                <span>Status: {asString(course.status) || 'Unknown'}</span>
-                <span>Balance: {asNumber(course.balance)}</span>
+              <li key={asNumber(course.course_id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(course.title) || `Course ${asNumber(course.course_id)}`}</strong>
+                <span className="text-sm text-teal-700">Status: {asString(course.status) || 'Unknown'}</span>
+                <span className="text-sm text-teal-700">Balance: {asNumber(course.balance)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
 
         <ShellCard title="Packages" subtitle="Active package list for selected course." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.packages.slice(0, 6).map((pkg) => (
-              <li key={asNumber(pkg.id)}>
-                <strong>{asString(pkg.title) || `Package ${asNumber(pkg.id)}`}</strong>
-                <span>Payable: {asNumber(pkg.payable_amount)}</span>
-                <span>Purchased: {asBoolean(pkg.is_purchased) ? 'Yes' : 'No'}</span>
+              <li key={asNumber(pkg.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(pkg.title) || `Package ${asNumber(pkg.id)}`}</strong>
+                <span className="text-sm text-teal-700">Payable: {asNumber(pkg.payable_amount)}</span>
+                <span className="text-sm text-teal-700">Purchased: {asBoolean(pkg.is_purchased) ? 'Yes' : 'No'}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
       </section>
 
-      <div className="student-actions">
-        <label className="inline-input">
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <label className="grid gap-1.5 text-teal-900 font-semibold">
           Coupon
-          <input type="text" value={couponCode} onChange={(event) => setCouponCode(event.target.value)} placeholder="SAVE20" />
+          <input className="border border-teal-300 rounded-lg px-2.5 py-2 min-w-40 bg-white" type="text" value={couponCode} onChange={(event) => setCouponCode(event.target.value)} placeholder="SAVE20" />
         </label>
-        <button type="button" className="action-button action-button--small" onClick={() => void applyCoupon()} disabled={actionState.pending}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void applyCoupon()} disabled={actionState.pending}>
           Apply coupon
         </button>
-        <button type="button" className="action-button action-button--small" onClick={() => void createOrder()} disabled={actionState.pending}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void createOrder()} disabled={actionState.pending}>
           Create order
         </button>
-        <button type="button" className="action-button action-button--small action-button--ghost" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-50 text-teal-900 border border-teal-300 font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Reload payments
         </button>
       </div>
 
       {couponResponse ? (
         <ShellCard title="Coupon response" subtitle="Raw parity payload for validation.">
-          <pre className="student-json">{JSON.stringify(couponResponse, null, 2)}</pre>
+          <pre className="m-0 whitespace-pre-wrap break-words p-3 rounded-lg border border-teal-200 bg-cyan-50 font-mono text-xs text-teal-900">{JSON.stringify(couponResponse, null, 2)}</pre>
         </ShellCard>
       ) : null}
 
       {orderResponse ? (
         <ShellCard title="Order response" subtitle="Create-order payload for gateway handoff.">
-          <pre className="student-json">{JSON.stringify(orderResponse, null, 2)}</pre>
+          <pre className="m-0 whitespace-pre-wrap break-words p-3 rounded-lg border border-teal-200 bg-cyan-50 font-mono text-xs text-teal-900">{JSON.stringify(orderResponse, null, 2)}</pre>
         </ShellCard>
       ) : null}
     </section>
@@ -1046,7 +1048,7 @@ function StudentNotificationsSection({ api, session }: { api: StudentPortalApi; 
     return (
       <InlineNotice tone="danger" title="Notifications failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -1059,10 +1061,10 @@ function StudentNotificationsSection({ api, session }: { api: StudentPortalApi; 
   }
 
   return (
-    <section className="student-section" aria-label="Student notifications">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student notifications">
+      <header className="grid gap-1.5">
         <h2>Notifications</h2>
-        <p>Notification inbox, list feed, and read/token mutation parity.</p>
+        <p className="text-teal-800 leading-snug">Notification inbox, list feed, and read/token mutation parity.</p>
       </header>
 
       {actionState.error ? (
@@ -1077,44 +1079,44 @@ function StudentNotificationsSection({ api, session }: { api: StudentPortalApi; 
         </InlineNotice>
       ) : null}
 
-      <section className="metrics-grid" aria-label="Notification metrics">
+      <section className="grid grid-cols-3 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1" aria-label="Notification metrics">
         <MetricCard label="Inbox" value={String(data.notifications.length)} detail="Course + global" tone="info" />
         <MetricCard label="Master list" value={String(data.notificationList.length)} detail="All system notifications" tone="neutral" />
       </section>
 
-      <section className="shell-cards-grid">
+      <section className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
         <ShellCard title="Inbox notifications" subtitle="User-scoped notification entries.">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.notifications.slice(0, 8).map((notification) => (
-              <li key={asNumber(notification.id)}>
-                <strong>{asString(notification.title) || `Notification ${asNumber(notification.id)}`}</strong>
-                <span>{asString(notification.description)}</span>
+              <li key={asNumber(notification.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(notification.title) || `Notification ${asNumber(notification.id)}`}</strong>
+                <span className="text-sm text-teal-700">{asString(notification.description)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
 
         <ShellCard title="System list" subtitle="Global ordered notification feed." theme="dark">
-          <ul className="student-list">
+          <ul className="list-none m-0 p-0 grid gap-2">
             {data.notificationList.slice(0, 8).map((notification) => (
-              <li key={asNumber(notification.id)}>
-                <strong>{asString(notification.title) || `Notification ${asNumber(notification.id)}`}</strong>
-                <span>{asString(notification.description)}</span>
+              <li key={asNumber(notification.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+                <strong className="text-teal-950 text-[0.95rem]">{asString(notification.title) || `Notification ${asNumber(notification.id)}`}</strong>
+                <span className="text-sm text-teal-700">{asString(notification.description)}</span>
               </li>
             ))}
           </ul>
         </ShellCard>
       </section>
 
-      <div className="student-actions">
-        <button type="button" className="action-button action-button--small" onClick={() => void markFirstRead()} disabled={actionState.pending}>
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void markFirstRead()} disabled={actionState.pending}>
           Mark first as read
         </button>
-        <label className="inline-input">
+        <label className="grid gap-1.5 text-teal-900 font-semibold">
           Device token
-          <input type="text" value={notificationToken} onChange={(event) => setNotificationToken(event.target.value)} />
+          <input className="border border-teal-300 rounded-lg px-2.5 py-2 min-w-40 bg-white" type="text" value={notificationToken} onChange={(event) => setNotificationToken(event.target.value)} />
         </label>
-        <button type="button" className="action-button action-button--small" onClick={() => void saveToken()} disabled={actionState.pending}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void saveToken()} disabled={actionState.pending}>
           Save token
         </button>
       </div>
@@ -1174,7 +1176,7 @@ function StudentSupportSection({ api, session }: { api: StudentPortalApi; sessio
     return (
       <InlineNotice tone="danger" title="Support failed">
         <p>{error}</p>
-        <button type="button" className="action-button action-button--small" onClick={() => void load()}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load()}>
           Retry
         </button>
       </InlineNotice>
@@ -1187,10 +1189,10 @@ function StudentSupportSection({ api, session }: { api: StudentPortalApi; sessio
   }
 
   return (
-    <section className="student-section" aria-label="Student support">
-      <header className="student-section__header">
+    <section className="grid gap-4" aria-label="Student support">
+      <header className="grid gap-1.5">
         <h2>Support</h2>
-        <p>Support chat parity with message load and submit flows.</p>
+        <p className="text-teal-800 leading-snug">Support chat parity with message load and submit flows.</p>
       </header>
 
       {actionState.error ? (
@@ -1206,23 +1208,23 @@ function StudentSupportSection({ api, session }: { api: StudentPortalApi; sessio
       ) : null}
 
       <ShellCard title="Conversation" subtitle="Latest support chat messages for current learner.">
-        <ul className="student-list">
+        <ul className="list-none m-0 p-0 grid gap-2">
           {data.messages.slice(-12).map((entry) => (
-            <li key={asNumber(entry.id)}>
-              <strong>{asNumber(entry.sender_id) === session.userId ? 'You' : `Agent ${asNumber(entry.sender_id)}`}</strong>
-              <span>{asString(entry.message)}</span>
-              <span>{asString(entry.created_at)}</span>
+            <li key={asNumber(entry.id)} className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1">
+              <strong className="text-teal-950 text-[0.95rem]">{asNumber(entry.sender_id) === session.userId ? 'You' : `Agent ${asNumber(entry.sender_id)}`}</strong>
+              <span className="text-sm text-teal-700">{asString(entry.message)}</span>
+              <span className="text-sm text-teal-700">{asString(entry.created_at)}</span>
             </li>
           ))}
         </ul>
       </ShellCard>
 
-      <div className="student-actions">
-        <label className="inline-input inline-input--wide">
+      <div className="flex flex-wrap gap-2.5 items-end">
+        <label className="grid gap-1.5 text-teal-900 font-semibold">
           Message
-          <input type="text" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Type support message" />
+          <input className="border border-teal-300 rounded-lg px-2.5 py-2 min-w-[min(460px,calc(100vw-5rem))] bg-white" type="text" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Type support message" />
         </label>
-        <button type="button" className="action-button action-button--small" onClick={() => void submitMessage()} disabled={actionState.pending}>
+        <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void submitMessage()} disabled={actionState.pending}>
           Send message
         </button>
       </div>
@@ -1283,7 +1285,7 @@ export function StudentPortal({ pathname, session, api, onNavigate, onLogout }: 
       >
         <InlineNotice tone="warning" title="Unknown student route">
           <p>No student section is registered for path: {pathname}</p>
-          <button type="button" className="action-button action-button--small" onClick={() => onNavigate('/student/dashboard')}>
+          <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => onNavigate('/student/dashboard')}>
             Open dashboard
           </button>
         </InlineNotice>
@@ -1301,7 +1303,7 @@ export function StudentPortal({ pathname, session, api, onNavigate, onLogout }: 
       onNavigate={onNavigate}
       onLogout={onLogout}
     >
-      <section className="portal-intro">
+      <section className="border-l-4 border-teal-600 px-3.5 py-2.5 bg-cyan-50/80 rounded-r-xl leading-relaxed text-teal-900">
         <p>
           Student P0 and P1 workflows now run through React routes: dashboard, profile, learning, assessments, payments,
           notifications, and support.

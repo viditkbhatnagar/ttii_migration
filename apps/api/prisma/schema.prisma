@@ -8,24 +8,104 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model enrol {
-  id                Int       @id @default(autoincrement())
-  user_id           Int
-  course_id         Int
-  package_id        Int?
-  enrollment_date   DateTime?
-  enrollment_status String?
-  mode_of_study     String?
-  created_by        Int?
-  updated_by        Int?
-  deleted_by        Int?
-  created_at        DateTime?
-  updated_at        DateTime?
-  deleted_at        DateTime?
-  users             users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+// ─── Auth & Users ──────────────────────────────────────────────────────────────
 
-  @@index([deleted_at], map: "idx_enrol_deleted_at")
-  @@index([user_id, course_id], map: "idx_enrol_user_course")
+model users {
+  id                   Int                    @id @default(autoincrement())
+  user_id              String?
+  student_id           String?
+  name                 String?
+  email                String?                @unique(map: "sqlite_autoindex_users_1")
+  user_email           String?                @unique(map: "sqlite_autoindex_users_2")
+  phone                String?
+  country_code         String?
+  role_id              Int?
+  user_designation_id  Int?
+  centre_id            Int?
+  added_under_centre   Int?
+  username             String?
+  password             String?
+  verification_code    String?
+  status               Int                    @default(0)
+  device_id            String?
+  course_id            Int?
+  notification_token   String?
+  profile_picture      String?
+  image                String?
+  academic_year        String?
+  premium              Int                    @default(0)
+  created_by           Int?
+  updated_by           Int?
+  deleted_by           Int?
+  created_at           DateTime?
+  updated_at           DateTime?
+  deleted_at           DateTime?
+  auth_audit_log       auth_audit_log[]
+  auth_session         auth_session[]
+  enrol                enrol[]
+  notification_read    notification_read[]
+  otp_challenge        otp_challenge[]
+  password_reset_token password_reset_token[]
+
+  @@index([deleted_at], map: "idx_users_deleted_at")
+  @@index([role_id], map: "idx_users_role")
+  @@index([phone], map: "idx_users_phone")
+  @@index([course_id], map: "idx_users_course_id")
+  @@index([centre_id], map: "idx_users_centre_id")
+  @@index([added_under_centre], map: "idx_users_added_under_centre")
+}
+
+model auth_session {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  token_hash     String    @unique(map: "sqlite_autoindex_auth_session_1")
+  created_at     DateTime?
+  updated_at     DateTime?
+  expires_at     DateTime
+  revoked_at     DateTime?
+  revoked_reason String?
+  ip_address     String?
+  user_agent     String?
+  users          users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id, revoked_at], map: "idx_auth_session_user_revoked")
+  @@index([expires_at], map: "idx_auth_session_expires_at")
+}
+
+model password_reset_token {
+  id                   Int       @id @default(autoincrement())
+  user_id              Int
+  token_hash           String    @unique(map: "sqlite_autoindex_password_reset_token_1")
+  created_at           DateTime?
+  updated_at           DateTime?
+  expires_at           DateTime
+  used_at              DateTime?
+  requested_ip         String?
+  requested_user_agent String?
+  users                users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id, used_at], map: "idx_password_reset_token_user_used")
+  @@index([expires_at], map: "idx_password_reset_token_expires_at")
+}
+
+model otp_challenge {
+  id                   Int       @id @default(autoincrement())
+  user_id              Int
+  purpose              String
+  delivery_target      String?
+  otp_hash             String
+  created_at           DateTime?
+  updated_at           DateTime?
+  expires_at           DateTime
+  used_at              DateTime?
+  attempt_count        Int       @default(0)
+  max_attempts         Int       @default(5)
+  requested_ip         String?
+  requested_user_agent String?
+  users                users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id, purpose, used_at], map: "idx_otp_challenge_user_purpose_used")
+  @@index([expires_at], map: "idx_otp_challenge_expires_at")
 }
 
 model auth_audit_log {
@@ -45,22 +125,1221 @@ model auth_audit_log {
   @@index([created_at], map: "idx_auth_audit_created_at")
 }
 
-model auth_session {
+// ─── Centres & Wallet ──────────────────────────────────────────────────────────
+
+model centres {
+  id                          Int       @id @default(autoincrement())
+  centre_id                   Int?
+  centre_name                 String
+  country_id                  Int?
+  state_id                    Int?
+  district_id                 Int?
+  address                     String?
+  contact_person              String?
+  contact_person_designation  String?
+  country_code                String?
+  phone                       String?
+  whatsapp                    String?
+  secondary_phone             String?
+  email                       String?
+  registraion_certificate     String?
+  affiliation_document        String?
+  wallet_balance              Float     @default(0)
+  date_of_registration        DateTime?
+  date_of_expiry              DateTime?
+  created_by                  Int?
+  updated_by                  Int?
+  deleted_by                  Int?
+  created_at                  DateTime?
+  updated_at                  DateTime?
+  deleted_at                  DateTime?
+
+  @@index([centre_id], map: "idx_centres_centre_id")
+  @@index([country_code, phone], map: "idx_centres_phone")
+  @@index([email], map: "idx_centres_email")
+  @@index([deleted_at], map: "idx_centres_deleted_at")
+}
+
+model wallet_transactions {
+  id               Int       @id @default(autoincrement())
+  centre_id        Int
+  transaction_type String    @default("credit")
+  amount           Float     @default(0)
+  remarks          String?
+  reference_id     String?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([centre_id], map: "idx_wallet_transactions_centre")
+  @@index([transaction_type], map: "idx_wallet_transactions_type")
+  @@index([deleted_at], map: "idx_wallet_transactions_deleted_at")
+}
+
+model centre_fundrequests {
+  id                  Int       @id @default(autoincrement())
+  centre_id           Int
+  user_id             Int
+  amount              Float     @default(0)
+  date                DateTime?
+  transaction_receipt  String?
+  description         String?
+  attachment_file     String?
+  status              String    @default("pending")
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([centre_id], map: "idx_centre_fundrequests_centre")
+  @@index([status], map: "idx_centre_fundrequests_status")
+  @@index([deleted_at], map: "idx_centre_fundrequests_deleted_at")
+}
+
+model centre_course_plans {
+  id              Int       @id @default(autoincrement())
+  centre_id       Int
+  course_id       Int
+  assigned_amount Float     @default(0)
+  start_date      DateTime?
+  end_date        DateTime?
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([centre_id, course_id], map: "idx_centre_course_plans_centre_course")
+  @@index([deleted_at], map: "idx_centre_course_plans_deleted_at")
+}
+
+// ─── Applications ──────────────────────────────────────────────────────────────
+
+model applications {
+  id                    Int       @id @default(autoincrement())
+  application_id        String?
+  name                  String
+  country_code          String?
+  phone                 String?
+  email                 String?
+  user_email            String?
+  username              String?
+  password              String?
+  image                 String?
+  status                String?   @default("pending")
+  is_converted          Int       @default(0)
+  pipeline              String?
+  pipeline_user         Int?
+  course_id             Int?
+  batch_id              Int?
+  enrollment_date       DateTime?
+  enrollment_status     String?
+  mode_of_study         String?
+  preferred_language    String?
+  date_of_birth         DateTime?
+  age                   Int?
+  gender                String?
+  nationality           String?
+  marital_status        String?
+  aadhar_no             String?
+  passport_no           String?
+  whatsapp_no           String?
+  second_code           String?
+  second_phone          String?
+  country_id            Int?
+  district              String?
+  state                 String?
+  address               String?
+  native_address        String?
+  father_name           String?
+  mother_name           String?
+  guardian_name          String?
+  emergency_name        String?
+  emergency_phone       String?
+  emergency_relation    String?
+  learning_disabilities String?
+  accessibility_needs   String?
+  marketing_source      String?
+  added_under_centre    Int?
+  created_by            Int?
+  updated_by            Int?
+  deleted_by            Int?
+  created_at            DateTime?
+  updated_at            DateTime?
+  deleted_at            DateTime?
+
+  @@index([status], map: "idx_applications_status")
+  @@index([is_converted], map: "idx_applications_converted")
+  @@index([course_id], map: "idx_applications_course")
+  @@index([pipeline_user], map: "idx_applications_pipeline_user")
+  @@index([added_under_centre], map: "idx_applications_centre")
+  @@index([created_by], map: "idx_applications_created_by")
+  @@index([deleted_at], map: "idx_applications_deleted_at")
+  @@index([email, user_email], map: "idx_applications_email")
+}
+
+// ─── Qualifications & Documents ────────────────────────────────────────────────
+
+model qualification {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int
+  qualification       String?
+  institution         String?
+  year_of_passing     String?
+  percentage_or_grade String?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id], map: "idx_qualification_user")
+  @@index([deleted_at], map: "idx_qualification_deleted_at")
+}
+
+model student_document {
+  student_document_id Int       @id @default(autoincrement())
+  student_id          Int
+  label               String?
+  file                String?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([student_id], map: "idx_student_document_student")
+  @@index([deleted_at], map: "idx_student_document_deleted_at")
+}
+
+// ─── Resources (Folders & Files) ───────────────────────────────────────────────
+
+model folder {
+  id         Int       @id @default(autoincrement())
+  parent_id  Int       @default(0)
+  centre_id  Int?
+  name       String
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([parent_id], map: "idx_folder_parent")
+  @@index([centre_id], map: "idx_folder_centre")
+  @@index([deleted_at], map: "idx_folder_deleted_at")
+}
+
+model file {
+  id         Int       @id @default(autoincrement())
+  folder_id  Int       @default(0)
+  centre_id  Int?
+  name       String
+  type       String?
+  size       Int?
+  path       String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([folder_id], map: "idx_file_folder")
+  @@index([centre_id], map: "idx_file_centre")
+  @@index([deleted_at], map: "idx_file_deleted_at")
+}
+
+// ─── Settings ──────────────────────────────────────────────────────────────────
+
+model settings {
+  id         Int       @id @default(autoincrement())
+  key        String    @unique
+  value      String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at], map: "idx_settings_deleted_at")
+}
+
+model frontend_settings {
+  id         Int       @id @default(autoincrement())
+  key        String    @unique
+  value      String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at], map: "idx_frontend_settings_deleted_at")
+}
+
+model app_version {
+  id              Int       @id @default(autoincrement())
+  app_version     String?
+  app_version_ios String?
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([deleted_at], map: "idx_app_version_deleted_at")
+}
+
+// ─── Categories & Courses ──────────────────────────────────────────────────────
+
+model category {
+  id                Int       @id @default(autoincrement())
+  code              String?
+  name              String?
+  parent            Int?
+  slug              String?
+  description       String?
+  short_description String?
+  video_type        String?
+  video_url         String?
+  font_awesome_class String?
+  thumbnail         String?
+  category_icon     String?
+  status            String?
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+
+  @@index([deleted_at], map: "idx_category_deleted_at")
+}
+
+model course {
   id             Int       @id @default(autoincrement())
-  user_id        Int
-  token_hash     String    @unique(map: "sqlite_autoindex_auth_session_1")
+  category_id    Int?
+  title          String
+  short_name     String?
+  label          String?
+  status         String?
+  price          Float?
+  sale_price     Float?
+  total_amount   Float?
+  description    String?
+  duration       String?
+  thumbnail      String?
+  course_icon    String?
+  features       String?
+  is_free_course Int       @default(0)
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
   created_at     DateTime?
   updated_at     DateTime?
-  expires_at     DateTime
-  revoked_at     DateTime?
-  revoked_reason String?
-  ip_address     String?
-  user_agent     String?
-  users          users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deleted_at     DateTime?
 
-  @@index([user_id, revoked_at], map: "idx_auth_session_user_revoked")
-  @@index([expires_at], map: "idx_auth_session_expires_at")
+  @@index([category_id], map: "idx_course_category")
+  @@index([deleted_at], map: "idx_course_deleted_at")
 }
+
+model course_package {
+  id           Int       @id @default(autoincrement())
+  title        String?
+  description  String?
+  type         Int?
+  category_id  Int?
+  course_id    Int?
+  amount       Float?
+  discount     Float?
+  is_free      Int?
+  package_type String?
+  remarks      String?
+  offline      Int?
+  start_date   DateTime?
+  end_date     DateTime?
+  duration     Int?
+  created_by   Int?
+  updated_by   Int?
+  deleted_by   Int?
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id], map: "idx_package_course")
+  @@index([deleted_at], map: "idx_package_deleted_at")
+  @@index([start_date, end_date], map: "idx_package_active_window")
+  @@map("package")
+}
+
+model subject_package {
+  id         Int       @id @default(autoincrement())
+  package_id Int
+  subject_id Int?
+  amount     Float?
+  discount   Float?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([package_id], map: "idx_subject_package_package")
+  @@index([deleted_at], map: "idx_subject_package_deleted_at")
+}
+
+model coupon_code {
+  id            Int       @id @default(autoincrement())
+  code          String
+  package_id    Int       @default(0)
+  user_id       Int       @default(0)
+  discount_perc Float     @default(0)
+  total_no      Int       @default(0)
+  per_user_no   Int       @default(0)
+  validity      Int       @default(1)
+  start_date    DateTime?
+  end_date      DateTime?
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([code], map: "idx_coupon_code_code")
+  @@index([package_id, user_id], map: "idx_coupon_code_package_user")
+  @@index([validity, start_date, end_date], map: "idx_coupon_code_validity_window")
+  @@index([deleted_at], map: "idx_coupon_code_deleted_at")
+}
+
+model create_order {
+  id             Int       @id @default(autoincrement())
+  order_id       String    @unique
+  amount         Float     @default(0)
+  user_id        Int
+  course_id      Int
+  order_status   String    @default("pending")
+  notes          String?
+  payment_id_raz String?
+  datetime       DateTime?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, course_id], map: "idx_create_order_user_course")
+  @@index([order_status], map: "idx_create_order_status")
+  @@index([payment_id_raz], map: "idx_create_order_payment_id")
+  @@index([deleted_at], map: "idx_create_order_deleted_at")
+}
+
+// ─── Content: Subjects, Lessons, Files ─────────────────────────────────────────
+
+model subject {
+  id                Int       @id @default(autoincrement())
+  course_id         Int
+  master_subject_id Int?
+  title             String
+  description       String?
+  thumbnail         String?
+  order             Int?
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+
+  @@index([course_id], map: "idx_subject_course")
+  @@index([master_subject_id], map: "idx_subject_master")
+  @@index([deleted_at], map: "idx_subject_deleted_at")
+}
+
+model lesson {
+  id         Int       @id @default(autoincrement())
+  course_id  Int
+  subject_id Int
+  title      String
+  summary    String?
+  free       String?
+  thumbnail  String?
+  order      Int?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id], map: "idx_lesson_course")
+  @@index([subject_id], map: "idx_lesson_subject")
+  @@index([deleted_at], map: "idx_lesson_deleted_at")
+}
+
+model lesson_files {
+  id              Int       @id @default(autoincrement())
+  lesson_id       Int
+  parent_file_id  Int?
+  sub_title       String?
+  title           String?
+  summary         String?
+  duration        String?
+  lesson_provider String?
+  video_type      String?
+  video_url       String?
+  download_url    String?
+  lesson_type     String?
+  attachment_type String?
+  attachment      String?
+  audio_file      String?
+  thumbnail       String?
+  free            String?
+  order           Int?
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([lesson_id], map: "idx_lesson_files_lesson")
+  @@index([attachment_type], map: "idx_lesson_files_attachment_type")
+  @@index([deleted_at], map: "idx_lesson_files_deleted_at")
+  @@index([parent_file_id], map: "idx_lesson_files_parent")
+}
+
+model demo_video {
+  id         Int       @id @default(autoincrement())
+  course_id  Int
+  title      String?
+  video_type String?
+  video_url  String?
+  thumbnail  String?
+  order      Int?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id], map: "idx_demo_video_course")
+  @@index([deleted_at], map: "idx_demo_video_deleted_at")
+}
+
+model training_videos {
+  id          Int       @id @default(autoincrement())
+  title       String?
+  description String?
+  category    String?
+  video_type  String?
+  video_url   String?
+  thumbnail   String?
+  created_by  Int?
+  updated_by  Int?
+  deleted_by  Int?
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([category], map: "idx_training_videos_category")
+  @@index([deleted_at], map: "idx_training_videos_deleted_at")
+}
+
+model vimeo_videolinks {
+  id             Int       @id @default(autoincrement())
+  lesson_file_id Int
+  quality        String?
+  rendition      String?
+  height         Int?
+  width          Int?
+  type           String?
+  link           String?
+  fps            Int?
+  size           Int?
+  public_name    String?
+  size_short     String?
+  download_link  String?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([lesson_file_id], map: "idx_vimeo_videolinks_lesson_file")
+  @@index([deleted_at], map: "idx_vimeo_videolinks_deleted_at")
+}
+
+// ─── Events ────────────────────────────────────────────────────────────────────
+
+model events {
+  id                       Int       @id @default(autoincrement())
+  title                    String?
+  description              String?
+  event_date               DateTime?
+  from_time                String?
+  to_time                  String?
+  image                    String?
+  objectives               String?
+  duration                 String?
+  is_recording_available   Int       @default(0)
+  instructor_id            Int?
+  created_by               Int?
+  updated_by               Int?
+  deleted_by               Int?
+  created_at               DateTime?
+  updated_at               DateTime?
+  deleted_at               DateTime?
+
+  @@index([event_date], map: "idx_events_event_date")
+  @@index([instructor_id], map: "idx_events_instructor")
+  @@index([deleted_at], map: "idx_events_deleted_at")
+}
+
+model recorded_events {
+  id         Int       @id @default(autoincrement())
+  event_id   Int
+  title      String?
+  video_url  String?
+  duration   String?
+  summary    String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([event_id], map: "idx_recorded_events_event")
+  @@index([deleted_at], map: "idx_recorded_events_deleted_at")
+}
+
+model event_registration {
+  id            Int       @id @default(autoincrement())
+  user_id       Int
+  event_id      Int
+  name          String?
+  phone         String?
+  attend_status String?
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([event_id, user_id], map: "idx_event_registration_event_user")
+  @@index([deleted_at], map: "idx_event_registration_deleted_at")
+}
+
+// ─── Feed ──────────────────────────────────────────────────────────────────────
+
+model feed {
+  id               Int       @id @default(autoincrement())
+  title            String?
+  content          String?
+  feed_category_id Int?
+  course_id        Int       @default(0)
+  image            String?
+  instructor_id    Int?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([course_id], map: "idx_feed_course")
+  @@index([deleted_at], map: "idx_feed_deleted_at")
+}
+
+model feed_watched {
+  id         Int       @id @default(autoincrement())
+  feed_id    Int
+  user_id    Int
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id, user_id], map: "idx_feed_watched_feed_user")
+  @@index([deleted_at], map: "idx_feed_watched_deleted_at")
+}
+
+model feed_like {
+  id         Int       @id @default(autoincrement())
+  feed_id    Int
+  user_id    Int
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id, user_id], map: "idx_feed_like_feed_user")
+  @@index([deleted_at], map: "idx_feed_like_deleted_at")
+}
+
+model feed_comments {
+  id         Int       @id @default(autoincrement())
+  feed_id    Int
+  user_id    Int
+  comment    String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id], map: "idx_feed_comments_feed")
+  @@index([user_id], map: "idx_feed_comments_user")
+  @@index([deleted_at], map: "idx_feed_comments_deleted_at")
+}
+
+// ─── Reviews ───────────────────────────────────────────────────────────────────
+
+model review {
+  id         Int       @id @default(autoincrement())
+  course_id  Int?
+  event_id   Int?
+  item_type  Int?
+  user_id    Int?
+  rating     Float?
+  review     String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id], map: "idx_review_course")
+  @@index([user_id], map: "idx_review_user")
+  @@index([deleted_at], map: "idx_review_deleted_at")
+}
+
+model review_like {
+  id         Int       @id @default(autoincrement())
+  review_id  Int
+  user_id    Int
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([review_id], map: "idx_review_like_review")
+  @@index([user_id], map: "idx_review_like_user")
+  @@index([deleted_at], map: "idx_review_like_deleted_at")
+}
+
+// ─── Cohorts & Live Classes ────────────────────────────────────────────────────
+
+model instructor_enrol {
+  id            Int       @id @default(autoincrement())
+  instructor_id Int
+  course_id     Int
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([course_id], map: "idx_instructor_enrol_course")
+  @@index([instructor_id], map: "idx_instructor_enrol_instructor")
+  @@index([deleted_at], map: "idx_instructor_enrol_deleted_at")
+}
+
+model cohorts {
+  id            Int       @id @default(autoincrement())
+  subject_id    Int?
+  course_id     Int?
+  language_id   Int?
+  centre_id     Int?
+  cohort_id     String?
+  title         String?
+  start_date    DateTime?
+  end_date      DateTime?
+  instructor_id Int?
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([subject_id], map: "idx_cohorts_subject")
+  @@index([centre_id], map: "idx_cohorts_centre")
+  @@index([deleted_at], map: "idx_cohorts_deleted_at")
+}
+
+model live_class {
+  id            Int       @id @default(autoincrement())
+  cohort_id     Int?
+  session_id    String?
+  title         String?
+  date          DateTime?
+  fromTime      String?
+  toTime        String?
+  repeat_dates  String?
+  zoom_id       String?
+  password      String?
+  video_url     String?
+  is_repetitive Int       @default(0)
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([cohort_id, date], map: "idx_live_class_cohort_date")
+  @@index([deleted_at], map: "idx_live_class_deleted_at")
+}
+
+model cohort_students {
+  id         Int       @id @default(autoincrement())
+  cohort_id  Int
+  user_id    Int
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id], map: "idx_cohort_students_user")
+  @@index([cohort_id], map: "idx_cohort_students_cohort")
+  @@index([deleted_at], map: "idx_cohort_students_deleted_at")
+}
+
+// ─── Payments & Enrolments ─────────────────────────────────────────────────────
+
+model enrol {
+  id                Int       @id @default(autoincrement())
+  user_id           Int
+  course_id         Int
+  package_id        Int?
+  batch_id          Int?
+  enrollment_date   DateTime?
+  enrollment_id     String?
+  enrollment_status String?
+  mode_of_study     String?
+  preferred_language String?
+  pipeline          String?
+  pipeline_user     Int?
+  discount_perc     Float?
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+  users             users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id, course_id], map: "idx_enrol_user_course")
+  @@index([enrollment_id], map: "idx_enrol_enrollment_id")
+  @@index([deleted_at], map: "idx_enrol_deleted_at")
+}
+
+model payment_info {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int
+  course_id           Int
+  account_id          Int?
+  package_id          Int?
+  amount_paid         Float?
+  discount            Float?
+  coupon_id           Int?
+  razorpay_payment_id String?
+  user_phone          String?
+  user_email          String?
+  razorpay_order_id   String?
+  razorpay_signature  String?
+  package_duration    Int?
+  code                String?
+  expiry_date         DateTime?
+  payment_date        DateTime?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id, course_id], map: "idx_payment_info_user_course")
+  @@index([expiry_date], map: "idx_payment_info_expiry_date")
+  @@index([razorpay_payment_id], map: "idx_payment_info_payment_id")
+  @@index([coupon_id], map: "idx_payment_info_coupon_id")
+  @@index([deleted_at], map: "idx_payment_info_deleted_at")
+}
+
+model student_fee {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  course_id  Int
+  amount     Float     @default(0)
+  due_date   DateTime?
+  status     String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id, course_id], map: "idx_student_fee_user_course")
+  @@index([due_date], map: "idx_student_fee_due_date")
+  @@index([deleted_at], map: "idx_student_fee_deleted_at")
+}
+
+// ─── Progress Tracking ─────────────────────────────────────────────────────────
+
+model video_progress_status {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  course_id      Int
+  lesson_file_id Int
+  total_duration String?
+  user_progress  String?
+  status         Int       @default(0)
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, lesson_file_id], map: "idx_video_progress_user_file")
+  @@index([course_id], map: "idx_video_progress_course")
+  @@index([status], map: "idx_video_progress_status")
+  @@index([deleted_at], map: "idx_video_progress_deleted_at")
+}
+
+model material_progress {
+  id              Int       @id @default(autoincrement())
+  user_id         Int
+  course_id       Int
+  lesson_file_id  Int
+  attachment_type String?
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([user_id, lesson_file_id], map: "idx_material_progress_user_file")
+  @@index([course_id], map: "idx_material_progress_course")
+  @@index([deleted_at], map: "idx_material_progress_deleted_at")
+}
+
+// ─── Assessments: Quizzes, Exams, Practice ─────────────────────────────────────
+
+model quiz {
+  id             Int       @id @default(autoincrement())
+  lesson_file_id Int
+  question       String?
+  question_type  Int       @default(0)
+  answer_id      String?
+  answer_ids     String?
+  answers        String?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([lesson_file_id], map: "idx_quiz_lesson_file")
+  @@index([deleted_at], map: "idx_quiz_deleted_at")
+}
+
+model practice_attempt {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  lesson_id      String?
+  lesson_file_id Int?
+  question_no    Int       @default(0)
+  question_id    String?
+  start_time     DateTime?
+  end_time       DateTime?
+  time_taken     String?
+  correct        Int       @default(0)
+  incorrect      Int       @default(0)
+  skip           Int       @default(0)
+  score          Float     @default(0)
+  submit_status  Int       @default(0)
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id], map: "idx_practice_attempt_user")
+  @@index([lesson_file_id], map: "idx_practice_attempt_lesson_file")
+  @@index([submit_status], map: "idx_practice_attempt_submit_status")
+  @@index([deleted_at], map: "idx_practice_attempt_deleted_at")
+}
+
+model practice_answer {
+  id               Int       @id @default(autoincrement())
+  user_id          Int
+  attempt_id       Int
+  question_id      Int
+  answer_correct   String?
+  answer_submitted String?
+  answer_status    Int?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([attempt_id], map: "idx_practice_answer_attempt")
+  @@index([user_id], map: "idx_practice_answer_user")
+  @@index([deleted_at], map: "idx_practice_answer_deleted_at")
+}
+
+model lesson_files_report {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  lesson_file_id Int
+  report_file    String?
+  file_type      String?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, lesson_file_id], map: "idx_lesson_files_report_user_file")
+  @@index([deleted_at], map: "idx_lesson_files_report_deleted_at")
+}
+
+model exam {
+  id             Int       @id @default(autoincrement())
+  title          String?
+  description    String?
+  mark           Float?
+  duration       String?
+  from_date      DateTime?
+  to_date        DateTime?
+  from_time      String?
+  to_time        String?
+  course_id      Int?
+  subject_id     Int?
+  lesson_id      Int?
+  batch_id       Int?
+  free           String?
+  publish_result Int?
+  is_practice    Int?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([course_id], map: "idx_exam_course")
+  @@index([subject_id], map: "idx_exam_subject")
+  @@index([lesson_id], map: "idx_exam_lesson")
+  @@index([deleted_at], map: "idx_exam_deleted_at")
+}
+
+model question_bank {
+  id                  Int       @id @default(autoincrement())
+  lesson_id           Int?
+  subject_id          Int?
+  course_id           Int?
+  category_id         Int?
+  type                Int?
+  q_type              Int?
+  title               String?
+  title_file          String?
+  hint                String?
+  hint_file           String?
+  solution            String?
+  solution_file       String?
+  is_equation         Int?
+  is_equation_solution Int?
+  number_of_options   Int?
+  options             String?
+  correct_answers     String?
+  range_from          String?
+  range_to            String?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([course_id], map: "idx_question_bank_course")
+  @@index([subject_id], map: "idx_question_bank_subject")
+  @@index([lesson_id], map: "idx_question_bank_lesson")
+  @@index([deleted_at], map: "idx_question_bank_deleted_at")
+}
+
+model exam_questions {
+  id            Int       @id @default(autoincrement())
+  exam_id       Int
+  question_id   Int
+  question_no   Int?
+  mark          Float?
+  negative_mark Float?
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([exam_id], map: "idx_exam_questions_exam")
+  @@index([question_id], map: "idx_exam_questions_question")
+  @@index([deleted_at], map: "idx_exam_questions_deleted_at")
+}
+
+model exam_attempt {
+  id            Int       @id @default(autoincrement())
+  user_id       Int
+  exam_id       Int
+  question_no   Int       @default(0)
+  question_id   String?
+  start_time    DateTime?
+  end_time      DateTime?
+  time_taken    String?
+  correct       Int       @default(0)
+  incorrect     Int       @default(0)
+  skip          Int       @default(0)
+  score         Float     @default(0)
+  submit_status Int       @default(0)
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([user_id, exam_id], map: "idx_exam_attempt_user_exam")
+  @@index([submit_status], map: "idx_exam_attempt_submit_status")
+  @@index([deleted_at], map: "idx_exam_attempt_deleted_at")
+}
+
+model exam_answer {
+  id               Int       @id @default(autoincrement())
+  user_id          Int
+  exam_id          Int
+  attempt_id       Int
+  question_id      Int
+  answer_correct   String?
+  answer_submitted String?
+  answer_status    Int?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([attempt_id], map: "idx_exam_answer_attempt")
+  @@index([user_id], map: "idx_exam_answer_user")
+  @@index([exam_id, question_id], map: "idx_exam_answer_exam_question")
+  @@index([deleted_at], map: "idx_exam_answer_deleted_at")
+}
+
+// ─── Assignments ───────────────────────────────────────────────────────────────
+
+model assignment {
+  id           Int       @id @default(autoincrement())
+  title        String?
+  description  String?
+  total_marks  Float?
+  added_date   DateTime?
+  due_date     DateTime?
+  from_time    String?
+  to_time      String?
+  instructions String?
+  file         String?
+  course_id    Int?
+  cohort_id    Int?
+  created_by   Int?
+  updated_by   Int?
+  deleted_by   Int?
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id], map: "idx_assignment_course")
+  @@index([cohort_id], map: "idx_assignment_cohort")
+  @@index([due_date], map: "idx_assignment_due_date")
+  @@index([deleted_at], map: "idx_assignment_deleted_at")
+}
+
+model saved_assignments {
+  id            Int       @id @default(autoincrement())
+  user_id       Int
+  assignment_id Int
+  created_by    Int?
+  updated_by    Int?
+  deleted_by    Int?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([user_id], map: "idx_saved_assignments_user")
+  @@index([assignment_id], map: "idx_saved_assignments_assignment")
+  @@index([deleted_at], map: "idx_saved_assignments_deleted_at")
+}
+
+model assignment_submissions {
+  id               Int       @id @default(autoincrement())
+  user_id          Int
+  cohort_id        Int?
+  assignment_id    Int
+  course_id        Int?
+  assignment_files String?
+  marks            String?
+  remarks          String?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([user_id, assignment_id], map: "idx_assignment_submissions_user_assignment")
+  @@index([assignment_id], map: "idx_assignment_submissions_assignment")
+  @@index([deleted_at], map: "idx_assignment_submissions_deleted_at")
+}
+
+// ─── Notifications ─────────────────────────────────────────────────────────────
 
 model notification {
   id                Int                 @id @default(autoincrement())
@@ -99,73 +1378,280 @@ model notification_read {
   @@index([deleted_at], map: "idx_notification_read_deleted_at")
 }
 
-model otp_challenge {
-  id                   Int       @id @default(autoincrement())
-  user_id              Int
-  purpose              String
-  delivery_target      String?
-  otp_hash             String
-  created_at           DateTime?
-  updated_at           DateTime?
-  expires_at           DateTime
-  used_at              DateTime?
-  attempt_count        Int       @default(0)
-  max_attempts         Int       @default(5)
-  requested_ip         String?
-  requested_user_agent String?
-  users                users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+// ─── Support & Zoom ────────────────────────────────────────────────────────────
 
-  @@index([user_id, purpose, used_at], map: "idx_otp_challenge_user_purpose_used")
-  @@index([expires_at], map: "idx_otp_challenge_expires_at")
+model support_chat {
+  id         Int       @id @default(autoincrement())
+  chat_id    Int
+  sender_id  Int
+  message    String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([chat_id, sender_id], map: "idx_support_chat_chat_sender")
+  @@index([deleted_at], map: "idx_support_chat_deleted_at")
 }
 
-model password_reset_token {
-  id                   Int       @id @default(autoincrement())
-  user_id              Int
-  token_hash           String    @unique(map: "sqlite_autoindex_password_reset_token_1")
-  created_at           DateTime?
-  updated_at           DateTime?
-  expires_at           DateTime
-  used_at              DateTime?
-  requested_ip         String?
-  requested_user_agent String?
-  users                users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+model zoom_history {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  live_id    Int
+  join_date  DateTime?
+  join_time  String?
+  leave_time String?
+  duration   String?
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
 
-  @@index([user_id, used_at], map: "idx_password_reset_token_user_used")
-  @@index([expires_at], map: "idx_password_reset_token_expires_at")
+  @@index([live_id, join_date], map: "idx_zoom_history_live_date")
+  @@index([user_id], map: "idx_zoom_history_user")
+  @@index([deleted_at], map: "idx_zoom_history_deleted_at")
 }
 
-model users {
-  id                   Int                    @id @default(autoincrement())
-  user_id              String?
-  student_id           String?
-  name                 String?
-  email                String?                @unique(map: "sqlite_autoindex_users_1")
-  user_email           String?                @unique(map: "sqlite_autoindex_users_2")
-  phone                String?
-  country_code         String?
-  role_id              Int?
-  user_designation_id  Int?
-  password             String?
-  verification_code    String?
-  status               Int                    @default(0)
-  device_id            String?
-  course_id            Int?
-  notification_token   String?
-  created_by           Int?
-  updated_by           Int?
-  deleted_by           Int?
-  created_at           DateTime?
-  updated_at           DateTime?
-  deleted_at           DateTime?
-  auth_audit_log       auth_audit_log[]
-  auth_session         auth_session[]
-  enrol                enrol[]
-  notification_read    notification_read[]
-  otp_challenge        otp_challenge[]
-  password_reset_token password_reset_token[]
+// ─── NEW: Phase 1 Additions ────────────────────────────────────────────────────
 
-  @@index([deleted_at], map: "idx_users_deleted_at")
-  @@index([role_id], map: "idx_users_role")
-  @@index([phone], map: "idx_users_phone")
+model batch {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  status      String    @default("active")
+  created_by  Int?
+  updated_by  Int?
+  deleted_by  Int?
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([status], map: "idx_batch_status")
+  @@index([deleted_at], map: "idx_batch_deleted_at")
+}
+
+model banners {
+  id         Int       @id @default(autoincrement())
+  title      String?
+  image      String?
+  course_id  Int?
+  status     String    @default("active")
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([status], map: "idx_banners_status")
+  @@index([deleted_at], map: "idx_banners_deleted_at")
+}
+
+model faq {
+  id         Int       @id @default(autoincrement())
+  question   String
+  answer     String?
+  status     String    @default("active")
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([status], map: "idx_faq_status")
+  @@index([deleted_at], map: "idx_faq_deleted_at")
+}
+
+model language {
+  id         Int       @id @default(autoincrement())
+  title      String
+  code       String?
+  status     String    @default("active")
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at], map: "idx_language_deleted_at")
+}
+
+// ─── NEW: Phase 2 — Entrance Exam ────────────────────────────────────────────
+
+model entrance_exam {
+  id           Int       @id @default(autoincrement())
+  title        String?
+  description  String?
+  total_marks  Float?
+  duration     String?
+  exam_date    DateTime?
+  from_time    String?
+  to_time      String?
+  course_id    Int?
+  status       String    @default("draft")
+  question_ids String?
+  created_by   Int?
+  updated_by   Int?
+  deleted_by   Int?
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id], map: "idx_entrance_exam_course")
+  @@index([status], map: "idx_entrance_exam_status")
+  @@index([deleted_at], map: "idx_entrance_exam_deleted_at")
+}
+
+model entrance_exam_registration {
+  id               Int       @id @default(autoincrement())
+  entrance_exam_id Int
+  name             String?
+  email            String?
+  phone            String?
+  country_code     String?
+  course_id        Int?
+  status           String    @default("registered")
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([entrance_exam_id], map: "idx_entrance_reg_exam")
+  @@index([status], map: "idx_entrance_reg_status")
+  @@index([deleted_at], map: "idx_entrance_reg_deleted_at")
+}
+
+model entrance_exam_result {
+  id               Int       @id @default(autoincrement())
+  entrance_exam_id Int
+  registration_id  Int
+  score            Float     @default(0)
+  total_marks      Float     @default(0)
+  correct          Int       @default(0)
+  incorrect        Int       @default(0)
+  skipped          Int       @default(0)
+  status           String    @default("pending")
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([entrance_exam_id], map: "idx_entrance_result_exam")
+  @@index([registration_id], map: "idx_entrance_result_reg")
+  @@index([deleted_at], map: "idx_entrance_result_deleted_at")
+}
+
+// ─── Phase 4: CRM & Content ─────────────────────────────────────────────────────
+
+model counsellor_target {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  period         String
+  target_type    String?   @default("applications")
+  target_value   Int       @default(0)
+  achieved_value Int       @default(0)
+  remarks        String?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id], map: "idx_counsellor_target_user")
+  @@index([period], map: "idx_counsellor_target_period")
+  @@index([deleted_at], map: "idx_counsellor_target_deleted_at")
+}
+
+model associate_target {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  period         String
+  target_type    String?   @default("applications")
+  target_value   Int       @default(0)
+  achieved_value Int       @default(0)
+  remarks        String?
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id], map: "idx_associate_target_user")
+  @@index([period], map: "idx_associate_target_period")
+  @@index([deleted_at], map: "idx_associate_target_deleted_at")
+}
+
+model document_request {
+  id               Int       @id @default(autoincrement())
+  student_id       Int
+  document_type    String
+  status           String?   @default("pending")
+  remarks          String?
+  tracking_number  String?
+  dispatch_date    DateTime?
+  delivery_date    DateTime?
+  delivery_address String?
+  courier_name     String?
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([student_id], map: "idx_document_request_student")
+  @@index([status], map: "idx_document_request_status")
+  @@index([deleted_at], map: "idx_document_request_deleted_at")
+}
+
+model circular {
+  id              Int       @id @default(autoincrement())
+  title           String
+  content         String?
+  target_audience String?   @default("all")
+  status          String?   @default("draft")
+  publish_date    DateTime?
+  expiry_date     DateTime?
+  attachment      String?
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([status], map: "idx_circular_status")
+  @@index([deleted_at], map: "idx_circular_deleted_at")
+}
+
+model mentorship_session {
+  id                  Int       @id @default(autoincrement())
+  student_id          Int
+  mentor_type         String?   @default("ai")
+  topic               String?
+  summary             String?
+  messages_count      Int       @default(0)
+  duration_minutes    Int       @default(0)
+  satisfaction_rating Int?
+  created_by          Int?
+  updated_by          Int?
+  deleted_by          Int?
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([student_id], map: "idx_mentorship_session_student")
+  @@index([deleted_at], map: "idx_mentorship_session_deleted_at")
 }
