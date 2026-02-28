@@ -151,7 +151,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
   app.get('/login/reset_password/:userId', async (request, reply) => {
     const params = request.params as { userId?: string };
     const query = request.query as { token?: string };
-    const userId = toNumber(params.userId);
+    const userId = toStringValue(params.userId);
     const token = toStringValue(query.token);
 
     try {
@@ -178,7 +178,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     const payload = requestPayload(request);
 
     try {
-      const userId = toNumber(payload.user_id);
+      const userId = toStringValue(payload.user_id);
       if (!userId) {
         throw new AuthError(400, 'Unable to update password.', 'VALIDATION_ERROR');
       }
@@ -283,7 +283,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     const payload = requestPayload(request);
 
     try {
-      const userId = toNumber(payload.user_id);
+      const userId = toStringValue(payload.user_id);
       if (!userId) {
         throw new AuthError(400, 'Invalid OTP request.', 'VALIDATION_ERROR');
       }

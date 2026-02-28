@@ -1,9 +1,7 @@
-import { Prisma, type PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
-
-type SqlRow = Record<string, unknown>;
 
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_NAMES_LONG = [
@@ -20,29 +18,6 @@ const MONTH_NAMES_LONG = [
   'November',
   'December',
 ];
-
-function toDbNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'bigint') {
-    return Number(value);
-  }
-
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
-}
-
-function toInteger(value: unknown): number {
-  return Math.trunc(toDbNumber(value));
-}
 
 function toStringValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -79,6 +54,14 @@ function stripHtml(value: string): string {
 }
 
 function parseDateParts(value: unknown): { year: number; month: number; day: number } | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return {
+      year: value.getFullYear(),
+      month: value.getMonth() + 1,
+      day: value.getDate(),
+    };
+  }
+
   const raw = toNullableString(value);
   if (!raw) {
     return null;
@@ -226,16 +209,22 @@ function toDateTimeEpoch(dateValue: unknown, timeValue: unknown): number | null 
 }
 
 function parseObjectives(value: unknown): unknown {
-  const raw = toNullableString(value);
-  if (!raw) {
-    return null;
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (raw === '') {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return null;
+    }
   }
-
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return null;
+  // If already parsed (e.g. MongoDB returns JSON natively), return as-is
+  if (value !== null && value !== undefined) {
+    return value;
   }
+  return null;
 }
 
 function normalizeDateInput(value: string | undefined): string {
@@ -250,24 +239,49 @@ function normalizeDateInput(value: string | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Convert a YYYY-MM-DD string to a Date at start of that day (UTC). */
+function dateStringToStartOfDay(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00.000Z`);
+}
+
+/** Convert a YYYY-MM-DD string to a Date at end of that day (UTC). */
+function dateStringToEndOfDay(dateStr: string): Date {
+  return new Date(`${dateStr}T23:59:59.999Z`);
+}
+
 export interface AddReviewInput {
-  courseId: number;
+  courseId: string;
   rating: number;
   review: string;
 }
 
 export interface RegisterEventInput {
-  eventId: number;
+  eventId: string;
   name: string;
   phone: string;
   attendStatus: string;
 }
 
 export interface AddEventFeedbackInput {
-  eventId: number;
+  eventId: string;
   rating: number;
   review: string;
 }
+
+type EventRow = {
+  id: string;
+  title: string | null;
+  description: string | null;
+  event_date: Date | null;
+  from_time: string | null;
+  to_time: string | null;
+  image: string | null;
+  objectives: string | null;
+  duration: string | null;
+  is_recording_available: number;
+  instructor_id: string | null;
+  [key: string]: unknown;
+};
 
 export class EngagementService {
   private readonly appBaseUrl = env.APP_BASE_URL.replace(/\/$/, '');
@@ -287,32 +301,23 @@ export class EngagementService {
     return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
   }
 
-  private async queryMany(sql: Prisma.Sql): Promise<SqlRow[]> {
-    return this.prisma.$queryRaw<SqlRow[]>(sql);
-  }
-
-  private async queryOne(sql: Prisma.Sql): Promise<SqlRow | null> {
-    const rows = await this.queryMany(sql);
-    return rows[0] ?? null;
-  }
-
-  private async count(sql: Prisma.Sql): Promise<number> {
-    const row = await this.queryOne(sql);
-    return toDbNumber(row?.count);
-  }
-
-  private async getUserById(userId: number): Promise<SqlRow | null> {
-    if (userId <= 0) {
+  private async getUserById(userId: string) {
+    if (!userId) {
       return null;
     }
 
-    return this.queryOne(Prisma.sql`
-      SELECT id, name, image, course_id
-      FROM users
-      WHERE id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    return this.prisma.users.findFirst({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        course_id: true,
+      },
+    });
   }
 
   private eventStatus(eventDate: unknown, fromTime: unknown, toTime: unknown): string {
@@ -331,7 +336,7 @@ export class EngagementService {
     return 'Live Now';
   }
 
-  private filterEventsByWindow(events: SqlRow[], filter?: string): SqlRow[] {
+  private filterEventsByWindow(events: EventRow[], filter?: string): EventRow[] {
     if (filter !== 'weekly' && filter !== 'monthly') {
       return events;
     }
@@ -371,36 +376,47 @@ export class EngagementService {
     });
   }
 
-  private async toEventPayload(userId: number, eventRow: SqlRow): Promise<Record<string, unknown>> {
-    const eventId = toInteger(eventRow.id);
-    const instructorId = toInteger(eventRow.instructor_id);
+  private async toEventPayload(userId: string, eventRow: EventRow): Promise<Record<string, unknown>> {
+    const eventId = eventRow.id;
+    const instructorId = eventRow.instructor_id;
 
     const instructor =
-      instructorId > 0
-        ? await this.queryOne(Prisma.sql`
-            SELECT id, name, image
-            FROM users
-            WHERE id = ${instructorId}
-              AND deleted_at IS NULL
-            LIMIT 1
-          `)
+      instructorId
+        ? await this.prisma.users.findFirst({
+            where: {
+              id: instructorId,
+              deleted_at: null,
+            },
+            select: {
+              id: true,
+              name: true,
+              image: true,
+            },
+          })
         : null;
 
-    const recordings = await this.queryMany(Prisma.sql`
-      SELECT id, title, video_url, duration, summary
-      FROM recorded_events
-      WHERE event_id = ${eventId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const recordings = await this.prisma.recorded_events.findMany({
+      where: {
+        event_id: eventId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        video_url: true,
+        duration: true,
+        summary: true,
+      },
+    });
 
-    const isRegistered = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM event_registration
-      WHERE event_id = ${eventId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-    `);
+    const isRegistered = await this.prisma.event_registration.count({
+      where: {
+        event_id: eventId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     return {
       id: eventId,
@@ -412,7 +428,7 @@ export class EngagementService {
       image: this.toFileUrl(eventRow.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
       objectives: parseObjectives(eventRow.objectives),
       duration: toStringValue(eventRow.duration),
-      recording_status: toInteger(eventRow.is_recording_available) === 1 ? 'Available' : 'Not available',
+      recording_status: eventRow.is_recording_available === 1 ? 'Available' : 'Not available',
       recordings,
       status: this.eventStatus(eventRow.event_date, eventRow.from_time, eventRow.to_time),
       is_registered: isRegistered,
@@ -421,7 +437,7 @@ export class EngagementService {
     };
   }
 
-  async listFeed(userId: number): Promise<{ feed: Record<string, unknown>[] }> {
+  async listFeed(userId: string): Promise<{ feed: Record<string, unknown>[] }> {
     const user = await this.getUserById(userId);
     if (!user) {
       return {
@@ -429,60 +445,76 @@ export class EngagementService {
       };
     }
 
-    const courseId = toInteger(user.course_id);
+    const courseId = user.course_id;
 
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT
-        feed.id,
-        feed.title,
-        feed.content,
-        feed.feed_category_id,
-        feed.course_id,
-        feed.image,
-        feed.created_at AS date,
-        feed.instructor_id,
-        users.name AS instructor_name,
-        users.image AS instructor_image
-      FROM feed
-      LEFT JOIN users ON users.id = feed.instructor_id
-        AND users.deleted_at IS NULL
-      WHERE feed.deleted_at IS NULL
-        AND (feed.course_id = ${courseId} OR feed.course_id = 0)
-      ORDER BY feed.id ASC
-    `);
+    // Fetch feeds that match the user's course or apply to all courses (course_id = null)
+    const feedRows = await this.prisma.feed.findMany({
+      where: {
+        deleted_at: null,
+        OR: [
+          ...(courseId ? [{ course_id: courseId }] : []),
+          { course_id: null },
+        ],
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    // Collect instructor IDs to batch-fetch users
+    const instructorIds = [...new Set(feedRows.map((f) => f.instructor_id).filter(Boolean))] as string[];
+    const instructors = instructorIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: {
+            id: { in: instructorIds },
+            deleted_at: null,
+          },
+          select: { id: true, name: true, image: true },
+        })
+      : [];
+    const instructorMap = new Map(instructors.map((u) => [u.id, u]));
+
+    // Collect feed IDs for batch count queries
+    const feedIds = feedRows.map((f) => f.id);
+
+    // Batch fetch: all likes for these feeds by this user
+    const userLikes = await this.prisma.feed_like.findMany({
+      where: {
+        feed_id: { in: feedIds },
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: { feed_id: true },
+    });
+    const userLikedFeedIds = new Set(userLikes.map((l) => l.feed_id));
+
+    // Batch fetch: total like counts per feed
+    const allLikes = await this.prisma.feed_like.groupBy({
+      by: ['feed_id'],
+      where: {
+        feed_id: { in: feedIds },
+        deleted_at: null,
+      },
+      _count: { feed_id: true },
+    });
+    const likesCountMap = new Map(allLikes.map((l) => [l.feed_id, l._count.feed_id]));
 
     const output: Record<string, unknown>[] = [];
 
-    for (const row of rows) {
-      const feedId = toInteger(row.id);
-      const isLiked = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM feed_like
-        WHERE feed_id = ${feedId}
-          AND user_id = ${userId}
-          AND deleted_at IS NULL
-      `);
-
-      const likes = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM feed_like
-        WHERE feed_id = ${feedId}
-          AND deleted_at IS NULL
-      `);
+    for (const row of feedRows) {
+      const instructor = row.instructor_id ? instructorMap.get(row.instructor_id) : null;
 
       output.push({
-        id: feedId,
+        id: row.id,
         title: toStringValue(row.title),
         content: toStringValue(row.content),
-        feed_category_id: toInteger(row.feed_category_id),
-        course_id: toInteger(row.course_id),
+        feed_category_id: row.feed_category_id ?? '',
+        course_id: row.course_id ?? '',
         image: this.toFileUrl(row.image),
-        date: formatLegacyDateDmy(row.date),
-        instructor_id: toInteger(row.instructor_id),
-        instructor_name: toStringValue(row.instructor_name),
-        instructor_image: this.toFileUrl(row.instructor_image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
-        is_liked: isLiked > 0 ? 1 : 0,
-        likes,
+        date: formatLegacyDateDmy(row.created_at),
+        instructor_id: row.instructor_id ?? '',
+        instructor_name: toStringValue(instructor?.name),
+        instructor_image: this.toFileUrl(instructor?.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
+        is_liked: userLikedFeedIds.has(row.id) ? 1 : 0,
+        likes: likesCountMap.get(row.id) ?? 0,
       });
     }
 
@@ -491,294 +523,361 @@ export class EngagementService {
     };
   }
 
-  async markFeedWatched(userId: number, feedId: number): Promise<void> {
-    if (userId <= 0 || feedId <= 0) {
+  async markFeedWatched(userId: string, feedId: string): Promise<void> {
+    if (!userId || !feedId) {
       return;
     }
 
-    const watched = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM feed_watched
-      WHERE feed_id = ${feedId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-    `);
+    const watched = await this.prisma.feed_watched.count({
+      where: {
+        feed_id: feedId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     if (watched > 0) {
       return;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO feed_watched (feed_id, user_id, created_by, created_at)
-      VALUES (${feedId}, ${userId}, ${userId}, ${now})
-    `);
+    await this.prisma.feed_watched.create({
+      data: {
+        feed_id: feedId,
+        user_id: userId,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async toggleFeedLike(userId: number, feedId: number): Promise<void> {
-    if (userId <= 0 || feedId <= 0) {
+  async toggleFeedLike(userId: string, feedId: string): Promise<void> {
+    if (!userId || !feedId) {
       return;
     }
 
-    const existing = await this.queryOne(Prisma.sql`
-      SELECT id
-      FROM feed_like
-      WHERE feed_id = ${feedId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const existing = await this.prisma.feed_like.findFirst({
+      where: {
+        feed_id: feedId,
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     if (existing) {
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE feed_like
-        SET deleted_at = ${now},
-            deleted_by = ${userId}
-        WHERE id = ${toInteger(existing.id)}
-      `);
+      await this.prisma.feed_like.update({
+        where: { id: existing.id },
+        data: {
+          deleted_at: now,
+          deleted_by: userId,
+        },
+      });
       return;
     }
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO feed_like (feed_id, user_id, created_by, created_at)
-      VALUES (${feedId}, ${userId}, ${userId}, ${now})
-    `);
+    await this.prisma.feed_like.create({
+      data: {
+        feed_id: feedId,
+        user_id: userId,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async addFeedComment(userId: number, feedId: number, comment: string): Promise<void> {
-    if (userId <= 0 || feedId <= 0) {
+  async addFeedComment(userId: string, feedId: string, comment: string): Promise<void> {
+    if (!userId || !feedId) {
       return;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO feed_comments (user_id, feed_id, comment, created_by, created_at)
-      VALUES (${userId}, ${feedId}, ${comment}, ${userId}, ${now})
-    `);
+    await this.prisma.feed_comments.create({
+      data: {
+        user_id: userId,
+        feed_id: feedId,
+        comment,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async listFeedComments(feedId: number): Promise<Record<string, unknown>[]> {
-    if (feedId <= 0) {
+  async listFeedComments(feedId: string): Promise<Record<string, unknown>[]> {
+    if (!feedId) {
       return [];
     }
 
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT
-        feed_comments.feed_id,
-        feed.title AS feed_title,
-        feed.content,
-        feed_comments.id AS comment_id,
-        feed_comments.comment,
-        feed_comments.created_at AS date,
-        feed_comments.user_id,
-        users.name AS user_name,
-        users.image AS profile
-      FROM feed_comments
-      LEFT JOIN users ON users.id = feed_comments.user_id
-        AND users.deleted_at IS NULL
-      LEFT JOIN feed ON feed.id = feed_comments.feed_id
-        AND feed.deleted_at IS NULL
-      WHERE feed_comments.feed_id = ${feedId}
-        AND feed_comments.deleted_at IS NULL
-      ORDER BY feed_comments.id ASC
-    `);
+    // Fetch comments
+    const comments = await this.prisma.feed_comments.findMany({
+      where: {
+        feed_id: feedId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
 
-    return rows.map((row) => ({
-      feed_id: toInteger(row.feed_id),
-      feed_title: toStringValue(row.feed_title),
-      content: toStringValue(row.content),
-      comment_id: toInteger(row.comment_id),
-      comment: toStringValue(row.comment),
-      date: formatLegacyDateDmy(row.date),
-      user_id: toInteger(row.user_id),
-      user_name: toStringValue(row.user_name),
-      profile: this.toFileUrl(row.profile),
-    }));
+    if (comments.length === 0) {
+      return [];
+    }
+
+    // Fetch the feed for this feedId
+    const feedRow = await this.prisma.feed.findFirst({
+      where: {
+        id: feedId,
+        deleted_at: null,
+      },
+      select: { title: true, content: true },
+    });
+
+    // Collect user IDs and batch-fetch
+    const userIds = [...new Set(comments.map((c) => c.user_id))];
+    const users = await this.prisma.users.findMany({
+      where: {
+        id: { in: userIds },
+        deleted_at: null,
+      },
+      select: { id: true, name: true, image: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return comments.map((row) => {
+      const user = userMap.get(row.user_id);
+      return {
+        feed_id: row.feed_id,
+        feed_title: toStringValue(feedRow?.title),
+        content: toStringValue(feedRow?.content),
+        comment_id: row.id,
+        comment: toStringValue(row.comment),
+        date: formatLegacyDateDmy(row.created_at),
+        user_id: row.user_id,
+        user_name: toStringValue(user?.name),
+        profile: this.toFileUrl(user?.image),
+      };
+    });
   }
 
-  async addOrUpdateReview(userId: number, input: AddReviewInput): Promise<void> {
-    const now = new Date().toISOString();
+  async addOrUpdateReview(userId: string, input: AddReviewInput): Promise<void> {
+    const now = new Date();
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM review
-      WHERE course_id = ${input.courseId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.review.findFirst({
+      where: {
+        course_id: input.courseId,
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
 
-    if (existing > 0) {
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE review
-        SET rating = ${input.rating},
-            review = ${input.review},
-            updated_by = ${userId},
-            updated_at = ${now}
-        WHERE course_id = ${input.courseId}
-          AND user_id = ${userId}
-          AND deleted_at IS NULL
-      `);
+    if (existing) {
+      await this.prisma.review.update({
+        where: { id: existing.id },
+        data: {
+          rating: input.rating,
+          review: input.review,
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
       return;
     }
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO review (user_id, course_id, rating, review, created_by, created_at)
-      VALUES (${userId}, ${input.courseId}, ${input.rating}, ${input.review}, ${userId}, ${now})
-    `);
+    await this.prisma.review.create({
+      data: {
+        user_id: userId,
+        course_id: input.courseId,
+        rating: input.rating,
+        review: input.review,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async getUserReview(userId: number, courseId: number): Promise<Record<string, unknown> | null> {
-    const row = await this.queryOne(Prisma.sql`
-      SELECT id, course_id, user_id, rating, review
-      FROM review
-      WHERE course_id = ${courseId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async getUserReview(userId: string, courseId: string): Promise<Record<string, unknown> | null> {
+    const row = await this.prisma.review.findFirst({
+      where: {
+        course_id: courseId,
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        course_id: true,
+        user_id: true,
+        rating: true,
+        review: true,
+      },
+    });
 
     if (!row) {
       return null;
     }
 
     return {
-      id: toInteger(row.id),
-      course_id: toInteger(row.course_id),
-      user_id: toInteger(row.user_id),
-      rating: toDbNumber(row.rating),
+      id: row.id,
+      course_id: row.course_id ?? '',
+      user_id: row.user_id ?? '',
+      rating: row.rating ?? 0,
       review: toStringValue(row.review),
     };
   }
 
-  async toggleReviewLike(userId: number, reviewId: number): Promise<void> {
-    if (userId <= 0 || reviewId <= 0) {
+  async toggleReviewLike(userId: string, reviewId: string): Promise<void> {
+    if (!userId || !reviewId) {
       return;
     }
 
-    const existing = await this.queryOne(Prisma.sql`
-      SELECT id
-      FROM review_like
-      WHERE review_id = ${reviewId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const existing = await this.prisma.review_like.findFirst({
+      where: {
+        review_id: reviewId,
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     if (existing) {
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE review_like
-        SET deleted_at = ${now},
-            deleted_by = ${userId}
-        WHERE id = ${toInteger(existing.id)}
-      `);
+      await this.prisma.review_like.update({
+        where: { id: existing.id },
+        data: {
+          deleted_at: now,
+          deleted_by: userId,
+        },
+      });
       return;
     }
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO review_like (review_id, user_id, created_by, created_at)
-      VALUES (${reviewId}, ${userId}, ${userId}, ${now})
-    `);
+    await this.prisma.review_like.create({
+      data: {
+        review_id: reviewId,
+        user_id: userId,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async getNotifications(userId: number): Promise<Record<string, unknown>[]> {
+  async getNotifications(userId: string): Promise<Record<string, unknown>[]> {
     const user = await this.getUserById(userId);
     if (!user) {
       return [];
     }
 
-    const courseId = toInteger(user.course_id);
+    const courseId = user.course_id;
 
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id, title, description
-      FROM notification
-      WHERE deleted_at IS NULL
-        AND (course_id = ${courseId} OR course_id = 0)
-      ORDER BY id DESC
-    `);
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        deleted_at: null,
+        OR: [
+          ...(courseId ? [{ course_id: courseId }] : []),
+          { course_id: null },
+        ],
+      },
+      orderBy: { id: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+      },
+    });
 
     return rows.map((row) => ({
-      id: toInteger(row.id),
+      id: row.id,
       title: toStringValue(row.title),
       description: stripHtml(toStringValue(row.description)),
     }));
   }
 
   async getNotificationList(): Promise<Record<string, unknown>[]> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id, title, description
-      FROM notification
-      WHERE deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+      },
+    });
 
     return rows.map((row) => ({
-      id: toInteger(row.id),
+      id: row.id,
       title: toStringValue(row.title),
       description: stripHtml(decodeHtmlEntities(toStringValue(row.description))),
     }));
   }
 
-  async markNotificationAsRead(userId: number, notificationId: number): Promise<boolean> {
-    if (userId <= 0 || notificationId <= 0) {
+  async markNotificationAsRead(userId: string, notificationId: string): Promise<boolean> {
+    if (!userId || !notificationId) {
       return false;
     }
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM notification_read
-      WHERE user_id = ${userId}
-        AND notification_id = ${notificationId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.notification_read.count({
+      where: {
+        user_id: userId,
+        notification_id: notificationId,
+        deleted_at: null,
+      },
+    });
 
     if (existing > 0) {
       return true;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO notification_read (notification_id, user_id, status, created_by, created_at)
-      VALUES (${notificationId}, ${userId}, 1, ${userId}, ${now})
-    `);
+    await this.prisma.notification_read.create({
+      data: {
+        notification_id: notificationId,
+        user_id: userId,
+        status: 1,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
-    return inserted > 0;
+    return true;
   }
 
-  async saveNotificationToken(userId: number, token: string): Promise<boolean> {
-    if (token.trim() === '' || userId <= 0) {
+  async saveNotificationToken(userId: string, token: string): Promise<boolean> {
+    if (token.trim() === '' || !userId) {
       return false;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const updated = await this.prisma.$executeRaw(Prisma.sql`
-      UPDATE users
-      SET notification_token = ${token},
-          updated_at = ${now},
-          updated_by = ${userId}
-      WHERE id = ${userId}
-        AND deleted_at IS NULL
-    `);
+    const result = await this.prisma.users.updateMany({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      data: {
+        notification_token: token,
+        updated_at: now,
+        updated_by: userId,
+      },
+    });
 
-    return updated > 0;
+    return result.count > 0;
   }
 
-  async listEvents(userId: number, filter?: string): Promise<{ expired: unknown[]; live: unknown[]; upcoming: unknown[] }> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM events
-      WHERE deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+  async listEvents(userId: string, filter?: string): Promise<{ expired: unknown[]; live: unknown[]; upcoming: unknown[] }> {
+    const rows = await this.prisma.events.findMany({
+      where: {
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
 
-    const filtered = this.filterEventsByWindow(rows, filter);
+    const filtered = this.filterEventsByWindow(rows as EventRow[], filter);
 
     const expired: unknown[] = [];
     const live: unknown[] = [];
@@ -804,44 +903,43 @@ export class EngagementService {
     };
   }
 
-  async getEventDetails(userId: number, eventId: number): Promise<Record<string, unknown> | null> {
-    if (eventId <= 0) {
+  async getEventDetails(userId: string, eventId: string): Promise<Record<string, unknown> | null> {
+    if (!eventId) {
       return null;
     }
 
-    const event = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM events
-      WHERE id = ${eventId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const event = await this.prisma.events.findFirst({
+      where: {
+        id: eventId,
+        deleted_at: null,
+      },
+    });
 
     if (!event) {
       return null;
     }
 
-    return this.toEventPayload(userId, event);
+    return this.toEventPayload(userId, event as EventRow);
   }
 
   async registerEvent(
-    userId: number,
+    userId: string,
     input: RegisterEventInput,
   ): Promise<{ success: boolean; duplicate: boolean }> {
-    if (userId <= 0 || input.eventId <= 0) {
+    if (!userId || !input.eventId) {
       return {
         success: false,
         duplicate: false,
       };
     }
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM event_registration
-      WHERE event_id = ${input.eventId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.event_registration.count({
+      where: {
+        event_id: input.eventId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     if (existing > 0) {
       return {
@@ -850,80 +948,103 @@ export class EngagementService {
       };
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO event_registration (
-        user_id,
-        name,
-        phone,
-        event_id,
-        attend_status,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${input.name},
-        ${input.phone},
-        ${input.eventId},
-        ${input.attendStatus},
-        ${userId},
-        ${now}
-      )
-    `);
+    await this.prisma.event_registration.create({
+      data: {
+        user_id: userId,
+        name: input.name,
+        phone: input.phone,
+        event_id: input.eventId,
+        attend_status: input.attendStatus,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
     return {
-      success: inserted > 0,
+      success: true,
       duplicate: false,
     };
   }
 
-  async addEventFeedback(userId: number, input: AddEventFeedbackInput): Promise<boolean> {
-    if (userId <= 0 || input.eventId <= 0) {
+  async addEventFeedback(userId: string, input: AddEventFeedbackInput): Promise<boolean> {
+    if (!userId || !input.eventId) {
       return false;
     }
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM review
-      WHERE user_id = ${userId}
-        AND event_id = ${input.eventId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.review.count({
+      where: {
+        user_id: userId,
+        event_id: input.eventId,
+        deleted_at: null,
+      },
+    });
 
     if (existing > 0) {
       return false;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO review (rating, user_id, event_id, review, item_type, created_by, created_at)
-      VALUES (${input.rating}, ${userId}, ${input.eventId}, ${input.review}, 2, ${userId}, ${now})
-    `);
+    await this.prisma.review.create({
+      data: {
+        rating: input.rating,
+        user_id: userId,
+        event_id: input.eventId,
+        review: input.review,
+        item_type: 2,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
-    return inserted > 0;
+    return true;
   }
 
-  async getMyTask(userId: number, dateInput: string | undefined): Promise<Record<string, unknown>> {
+  async getMyTask(userId: string, dateInput: string | undefined): Promise<Record<string, unknown>> {
     const date = normalizeDateInput(dateInput);
+    const dateStart = dateStringToStartOfDay(date);
+    const dateEnd = dateStringToEndOfDay(date);
 
-    const cohort = await this.queryOne(Prisma.sql`
-      SELECT
-        cohort_students.cohort_id AS cohort_id,
-        cohorts.title AS cohort_title,
-        cohorts.cohort_id AS cohort_code,
-        cohorts.course_id AS course_id,
-        cohorts.instructor_id AS cohort_instructor,
-        cohorts.start_date AS cohort_start_date,
-        cohorts.end_date AS cohort_end_date
-      FROM cohort_students
-      JOIN cohorts ON cohorts.id = cohort_students.cohort_id
-      WHERE cohort_students.user_id = ${userId}
-        AND cohort_students.deleted_at IS NULL
-        AND cohorts.deleted_at IS NULL
-      LIMIT 1
-    `);
+    // Find the user's cohort via cohort_students + cohorts
+    const cohortStudent = await this.prisma.cohort_students.findFirst({
+      where: {
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: {
+        cohort_id: true,
+      },
+    });
+
+    let cohort: {
+      id: string;
+      title: string | null;
+      cohort_id: string | null;
+      course_id: string | null;
+      instructor_id: string | null;
+      start_date: Date | null;
+      end_date: Date | null;
+    } | null = null;
+
+    if (cohortStudent) {
+      cohort = await this.prisma.cohorts.findFirst({
+        where: {
+          id: cohortStudent.cohort_id,
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          title: true,
+          cohort_id: true,
+          course_id: true,
+          instructor_id: true,
+          start_date: true,
+          end_date: true,
+        },
+      });
+    }
 
     const scheduledLiveClasses: Record<string, unknown>[] = [];
     const overdueLiveClasses: Record<string, unknown>[] = [];
@@ -931,20 +1052,35 @@ export class EngagementService {
     const overdueAssignments: Record<string, unknown>[] = [];
 
     if (cohort) {
-      const cohortId = toInteger(cohort.cohort_id);
+      const cohortId = cohort.id;
 
-      const liveClasses = await this.queryMany(Prisma.sql`
-        SELECT id, session_id, title, fromTime, toTime, date, repeat_dates, zoom_id, password, video_url
-        FROM live_class
-        WHERE cohort_id = ${cohortId}
-          AND date = ${date}
-          AND deleted_at IS NULL
-        ORDER BY id ASC
-      `);
+      const liveClasses = await this.prisma.live_class.findMany({
+        where: {
+          cohort_id: cohortId,
+          date: {
+            gte: dateStart,
+            lte: dateEnd,
+          },
+          deleted_at: null,
+        },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          session_id: true,
+          title: true,
+          fromTime: true,
+          toTime: true,
+          date: true,
+          repeat_dates: true,
+          zoom_id: true,
+          password: true,
+          video_url: true,
+        },
+      });
 
       for (const liveClass of liveClasses) {
         const payload = {
-          id: toInteger(liveClass.id),
+          id: liveClass.id,
           session_id: toStringValue(liveClass.session_id),
           title: toStringValue(liveClass.title),
           fromTime: toStringValue(liveClass.fromTime),
@@ -954,10 +1090,10 @@ export class EngagementService {
           zoom_id: toStringValue(liveClass.zoom_id),
           password: toStringValue(liveClass.password),
           video_url: toStringValue(liveClass.video_url),
-          instructor_id: toInteger(cohort.cohort_instructor),
+          instructor_id: cohort.instructor_id ?? '',
           fromDate: toDateOnly(liveClass.date),
           toDate: toDateOnly(liveClass.date),
-          course_id: toInteger(cohort.course_id),
+          course_id: cohort.course_id ?? '',
           type: 'Live',
         };
 
@@ -968,18 +1104,31 @@ export class EngagementService {
         }
       }
 
-      const assignments = await this.queryMany(Prisma.sql`
-        SELECT id, title, description, added_date, due_date, from_time, to_time, instructions
-        FROM assignment
-        WHERE cohort_id = ${cohortId}
-          AND due_date = ${date}
-          AND deleted_at IS NULL
-        ORDER BY id ASC
-      `);
+      const assignments = await this.prisma.assignment.findMany({
+        where: {
+          cohort_id: cohortId,
+          due_date: {
+            gte: dateStart,
+            lte: dateEnd,
+          },
+          deleted_at: null,
+        },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          added_date: true,
+          due_date: true,
+          from_time: true,
+          to_time: true,
+          instructions: true,
+        },
+      });
 
       for (const assignment of assignments) {
         const payload = {
-          id: toInteger(assignment.id),
+          id: assignment.id,
           title: toStringValue(assignment.title),
           description: toStringValue(assignment.description),
           added_date: toDateOnly(assignment.added_date),
@@ -1001,13 +1150,13 @@ export class EngagementService {
     return {
       cohort: cohort
         ? {
-            cohort_id: toInteger(cohort.cohort_id),
-            cohort_title: toStringValue(cohort.cohort_title),
-            cohort_code: toStringValue(cohort.cohort_code),
-            course_id: toInteger(cohort.course_id),
-            cohort_instructor: toInteger(cohort.cohort_instructor),
-            cohort_start_date: toDateOnly(cohort.cohort_start_date),
-            cohort_end_date: toDateOnly(cohort.cohort_end_date),
+            cohort_id: cohort.id,
+            cohort_title: toStringValue(cohort.title),
+            cohort_code: toStringValue(cohort.cohort_id),
+            course_id: cohort.course_id ?? '',
+            cohort_instructor: cohort.instructor_id ?? '',
+            cohort_start_date: toDateOnly(cohort.start_date),
+            cohort_end_date: toDateOnly(cohort.end_date),
           }
         : [],
       scheduled: {
@@ -1021,56 +1170,56 @@ export class EngagementService {
     };
   }
 
-  async getSupportMessages(userId: number): Promise<Record<string, unknown>[]> {
-    if (userId <= 0) {
+  async getSupportMessages(userId: string): Promise<Record<string, unknown>[]> {
+    if (!userId) {
       return [];
     }
 
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id, chat_id, sender_id, message, created_at, updated_at
-      FROM support_chat
-      WHERE chat_id = ${userId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const rows = await this.prisma.support_chat.findMany({
+      where: {
+        chat_id: userId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        chat_id: true,
+        sender_id: true,
+        message: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
 
     return rows.map((row) => ({
-      id: toInteger(row.id),
-      chat_id: toInteger(row.chat_id),
-      sender_id: toInteger(row.sender_id),
+      id: row.id,
+      chat_id: row.chat_id,
+      sender_id: row.sender_id,
       message: toStringValue(row.message),
       created_at: toStringValue(row.created_at),
       updated_at: toStringValue(row.updated_at),
     }));
   }
 
-  async submitSupportMessage(userId: number, message: string): Promise<boolean> {
-    if (userId <= 0 || message.trim() === '') {
+  async submitSupportMessage(userId: string, message: string): Promise<boolean> {
+    if (!userId || message.trim() === '') {
       return false;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO support_chat (
-        chat_id,
-        sender_id,
+    await this.prisma.support_chat.create({
+      data: {
+        chat_id: userId,
+        sender_id: userId,
         message,
-        created_at,
-        created_by,
-        updated_at,
-        updated_by
-      ) VALUES (
-        ${userId},
-        ${userId},
-        ${message},
-        ${now},
-        ${userId},
-        ${now},
-        ${userId}
-      )
-    `);
+        created_at: now,
+        created_by: userId,
+        updated_at: now,
+        updated_by: userId,
+      },
+    });
 
-    return inserted > 0;
+    return true;
   }
 }

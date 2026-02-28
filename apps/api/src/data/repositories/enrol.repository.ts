@@ -34,7 +34,7 @@ export class EnrolRepository {
     }
   }
 
-  async isUserEnrolled(userId: number, courseId: number): Promise<boolean> {
+  async isUserEnrolled(userId: string, courseId: string): Promise<boolean> {
     try {
       const count = await this.enrolModel.count({
         where: activeEnrolWhere(
@@ -52,7 +52,7 @@ export class EnrolRepository {
     }
   }
 
-  async listUserEnrollments(userId: number, includeDeleted = false): Promise<enrol[]> {
+  async listUserEnrollments(userId: string, includeDeleted = false): Promise<enrol[]> {
     try {
       return await this.enrolModel.findMany({
         where: activeEnrolWhere(
@@ -70,7 +70,7 @@ export class EnrolRepository {
     }
   }
 
-  async softDeleteByUserAndCourse(userId: number, courseId: number, deletedBy: number | null = null): Promise<number> {
+  async softDeleteByUserAndCourse(userId: string, courseId: string, deletedBy: string | null = null): Promise<number> {
     try {
       const result = await this.enrolModel.updateMany({
         where: activeEnrolWhere(

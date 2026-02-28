@@ -25,9 +25,8 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
   }, [api, session.token]);
 
   useEffect(() => {
-    const courseId = Number(courseFilter);
-    if (courseId > 0) {
-      api.loadSubjects(session.token, courseId).then(setSubjects).catch(() => {});
+    if (courseFilter) {
+      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
     } else {
       setSubjects([]);
     }
@@ -36,9 +35,9 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadAdminCohorts(session.token, {
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
-      ...(subjectFilter ? { subjectId: Number(subjectFilter) } : {}),
-      ...(centreFilter ? { centreId: Number(centreFilter) } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
+      ...(subjectFilter ? { subjectId: subjectFilter } : {}),
+      ...(centreFilter ? { centreId: centreFilter } : {}),
     }),
     [courseFilter, subjectFilter, centreFilter],
   );
@@ -61,19 +60,19 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
     {
       key: 'course', label: 'Course', type: 'select' as const, value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
       key: 'subject', label: 'Subject', type: 'select' as const, value: subjectFilter,
       placeholder: 'All Subjects',
-      options: subjects.map((s) => ({ label: asString(s.title), value: String(asNumber(s.id)) })),
+      options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
       onChange: setSubjectFilter,
     },
     {
       key: 'centre', label: 'Centre', type: 'select' as const, value: centreFilter,
       placeholder: 'All Centres',
-      options: centres.map((ct) => ({ label: asString(ct.centre_name || ct.name), value: String(asNumber(ct.id)) })),
+      options: centres.map((ct) => ({ label: asString(ct.centre_name || ct.name), value: asString(ct.id) })),
       onChange: setCentreFilter,
     },
   ], [courseFilter, subjectFilter, centreFilter, courses, subjects, centres]);

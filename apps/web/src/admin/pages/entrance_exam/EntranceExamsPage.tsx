@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -61,7 +61,7 @@ export default function EntranceExamsPage({ api, session, onNavigate }: AdminPag
         actions={[
           {
             label: 'Delete',
-            onClick: (row) => { api.deleteEntranceExam(session.token, asNumber(row.id)); },
+            onClick: (row) => { api.deleteEntranceExam(session.token, asString(row.id)); },
             variant: 'destructive',
           },
         ]}

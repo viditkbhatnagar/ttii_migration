@@ -92,24 +92,24 @@ export interface AddCentreApplicationInput {
   countryCode: string;
   phone: string;
   email: string;
-  courseId: number;
+  courseId: string;
   pipeline?: string;
-  pipelineUser?: number;
+  pipelineUser?: string;
   status?: string;
 }
 
 export interface AddCentreCohortInput {
   title: string;
   cohortCode?: string;
-  courseId: number;
-  subjectId: number;
-  instructorId: number;
+  courseId: string;
+  subjectId: string;
+  instructorId: string;
   startDate: string;
   endDate: string;
 }
 
 export interface AddCentreLiveClassInput {
-  cohortId: number;
+  cohortId: string;
   zoomId: string;
   password: string;
   entries: Array<{
@@ -124,7 +124,7 @@ export interface AddCentreLiveClassInput {
 }
 
 export interface AddCentreFileInput {
-  folderId: number;
+  folderId: string;
   name: string;
   type: string;
   size: number;
@@ -208,14 +208,14 @@ export class CentrePortalApi {
       email: input.email,
       course_id: input.courseId,
       pipeline: input.pipeline ?? '0',
-      pipeline_user: input.pipelineUser ?? 0,
+      pipeline_user: input.pipelineUser ?? '',
       status: input.status ?? 'pending',
     });
 
     return response;
   }
 
-  async convertApplication(authToken: string, applicationId: number): Promise<Record<string, unknown>> {
+  async convertApplication(authToken: string, applicationId: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/centre/applications/convert', authToken, {
       application_id: applicationId,
     });
@@ -256,7 +256,7 @@ export class CentrePortalApi {
     });
   }
 
-  async addCohortStudents(authToken: string, cohortId: number, studentIds: number[]): Promise<Record<string, unknown>> {
+  async addCohortStudents(authToken: string, cohortId: string, studentIds: string[]): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/centre/cohorts/add_cohort_students', authToken, {
       cohort_id: cohortId,
       student_id: studentIds,
@@ -285,15 +285,15 @@ export class CentrePortalApi {
     });
   }
 
-  async loadResources(authToken: string, folderId = 0): Promise<Record<string, unknown>> {
+  async loadResources(authToken: string, folderId = ''): Promise<Record<string, unknown>> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/centre/resources/index', authToken, {
-      folder_id: folderId,
+      ...(folderId ? { folder_id: folderId } : {}),
     });
 
     return asRecord(payload.data) ?? {};
   }
 
-  async addFolder(authToken: string, parentId: number, name: string): Promise<Record<string, unknown>> {
+  async addFolder(authToken: string, parentId: string, name: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/centre/resources/add_folder', authToken, {
       parent_id: parentId,
       name,
@@ -353,20 +353,20 @@ export class CentrePortalApi {
     return toRecords(payload.data);
   }
 
-  static getId(value: Record<string, unknown>): number {
-    return asNumber(value.id);
+  static getId(value: Record<string, unknown>): string {
+    return asString(value.id);
   }
 
-  static getCourseId(value: Record<string, unknown>): number {
-    return asNumber(value.course_id) || asNumber(value.id);
+  static getCourseId(value: Record<string, unknown>): string {
+    return asString(value.course_id) || asString(value.id);
   }
 
-  static getSubjectId(value: Record<string, unknown>): number {
-    return asNumber(value.subject_id) || asNumber(value.id);
+  static getSubjectId(value: Record<string, unknown>): string {
+    return asString(value.subject_id) || asString(value.id);
   }
 
-  static getUserId(value: Record<string, unknown>): number {
-    return asNumber(value.id) || asNumber(value.user_id);
+  static getUserId(value: Record<string, unknown>): string {
+    return asString(value.id) || asString(value.user_id);
   }
 
   static getTitle(value: Record<string, unknown>): string {
@@ -377,7 +377,7 @@ export class CentrePortalApi {
     return asString(value.message);
   }
 
-  static firstCourseId(rows: Record<string, unknown>[]): number {
-    return asNumber(firstRecord(rows)?.course_id) || asNumber(firstRecord(rows)?.id);
+  static firstCourseId(rows: Record<string, unknown>[]): string {
+    return asString(firstRecord(rows)?.course_id) || asString(firstRecord(rows)?.id);
   }
 }

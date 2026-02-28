@@ -88,11 +88,11 @@ function toStringRecord(value: unknown): Record<string, string> {
   return output;
 }
 
-function toIntegerArray(value: unknown): number[] {
+function toStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
-      .map((entry) => toInteger(entry))
-      .filter((entry) => entry > 0);
+      .map((entry) => toStringValue(entry))
+      .filter((entry) => entry !== '');
   }
 
   if (typeof value === 'string' && value.trim() !== '') {
@@ -100,8 +100,8 @@ function toIntegerArray(value: unknown): number[] {
       const parsed = JSON.parse(value) as unknown;
       if (Array.isArray(parsed)) {
         return parsed
-          .map((entry) => toInteger(entry))
-          .filter((entry) => entry > 0);
+          .map((entry) => toStringValue(entry))
+          .filter((entry) => entry !== '');
       }
     } catch {
       return [];
@@ -123,8 +123,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
   return {};
 }
 
-function requestUserId(request: FastifyRequest): number {
-  return request.authContext?.user.id ?? 0;
+function requestUserId(request: FastifyRequest): string {
+  return request.authContext?.user.id ?? '';
 }
 
 function toLiveEntries(value: unknown): AddLiveClassInput['entries'] {
@@ -185,7 +185,7 @@ export function registerOperationsRoutes(
         fromDate: toStringValue(payload.from_date),
         toDate: toStringValue(payload.to_date),
         pipelineRoleId: toInteger(payload.filter_pipeline),
-        courseId: toInteger(payload.course),
+        courseId: toStringValue(payload.course),
         listBy: toStringValue(payload.list_by),
       });
 
@@ -206,7 +206,7 @@ export function registerOperationsRoutes(
     handler: async (request, reply) => {
       try {
         const payload = requestPayload(request);
-        const result = await operationsService.convertApplication(requestUserId(request), toInteger(payload.id || payload.application_id));
+        const result = await operationsService.convertApplication(requestUserId(request), toStringValue(payload.id || payload.application_id));
 
         reply.code(200).send(result);
       } catch (error: unknown) {
@@ -254,9 +254,9 @@ export function registerOperationsRoutes(
         countryCode: toStringValue(payload.code || payload.country_code),
         phone: toStringValue(payload.phone),
         email: toStringValue(payload.email),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         pipeline: toStringValue(payload.pipeline),
-        pipelineUser: toInteger(payload.pipeline_user),
+        pipelineUser: toStringValue(payload.pipeline_user),
         status: toStringValue(payload.status) || 'pending',
       };
 
@@ -274,7 +274,7 @@ export function registerOperationsRoutes(
     handler: async (request, reply) => {
       try {
         const payload = requestPayload(request);
-        const result = await operationsService.convertApplication(requestUserId(request), toInteger(payload.id || payload.application_id));
+        const result = await operationsService.convertApplication(requestUserId(request), toStringValue(payload.id || payload.application_id));
 
         reply.code(200).send(result);
       } catch (error: unknown) {
@@ -424,7 +424,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const students = await operationsService.listStudents('admin', requestUserId(request), {
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
       });
 
       reply.code(200).send({
@@ -441,7 +441,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const students = await operationsService.listStudents('centre', requestUserId(request), {
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
       });
 
       reply.code(200).send({
@@ -493,8 +493,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.assignCentrePlan(requestUserId(request), {
-        centreId: toInteger(payload.centre_id),
-        courseId: toInteger(payload.course_id),
+        centreId: toStringValue(payload.centre_id),
+        courseId: toStringValue(payload.course_id),
         assignedAmount: toInteger(payload.assigned_amount),
         startDate: toStringValue(payload.start_date),
         endDate: toStringValue(payload.end_date),
@@ -525,9 +525,9 @@ export function registerOperationsRoutes(
       const input: CohortInput = {
         title: toStringValue(payload.title),
         cohortCode: toStringValue(payload.cohort_id),
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        instructorId: toInteger(payload.instructor_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        instructorId: toStringValue(payload.instructor_id),
         startDate: toStringValue(payload.start_date),
         endDate: toStringValue(payload.end_date),
       };
@@ -543,8 +543,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.addCentreCohortStudents(requestUserId(request), {
-        cohortId: toInteger(payload.cohort_id),
-        studentIds: toIntegerArray(payload.student_id),
+        cohortId: toStringValue(payload.cohort_id),
+        studentIds: toStringArray(payload.student_id),
       });
 
       reply.code(200).send(result);
@@ -570,7 +570,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const input: AddLiveClassInput = {
-        cohortId: toInteger(payload.cohort_id),
+        cohortId: toStringValue(payload.cohort_id),
         zoomId: toStringValue(payload.zoom_id),
         password: toStringValue(payload.password),
         entries: toLiveEntries(payload.entries),
@@ -600,7 +600,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const input: AddLiveClassInput = {
-        cohortId: toInteger(payload.cohort_id),
+        cohortId: toStringValue(payload.cohort_id),
         zoomId: toStringValue(payload.zoom_id),
         password: toStringValue(payload.password),
         entries: toLiveEntries(payload.entries),
@@ -617,8 +617,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listResources('admin', requestUserId(request), {
-        folderId: toInteger(payload.folder_id || payload.id),
-        centreId: toInteger(payload.centre_id),
+        folderId: toStringValue(payload.folder_id || payload.id),
+        centreId: toStringValue(payload.centre_id),
       });
 
       reply.code(200).send({
@@ -635,9 +635,9 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.addFolder('admin', requestUserId(request), {
-        parentId: toInteger(payload.parent_id),
+        parentId: toStringValue(payload.parent_id),
         name: toStringValue(payload.name),
-        centreId: toInteger(payload.centre_id),
+        centreId: toStringValue(payload.centre_id),
       });
 
       reply.code(200).send(result);
@@ -650,12 +650,12 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.addFile('admin', requestUserId(request), {
-        folderId: toInteger(payload.folder_id),
+        folderId: toStringValue(payload.folder_id),
         name: toStringValue(payload.name),
         fileType: toStringValue(payload.type),
         size: toInteger(payload.size),
         path: toStringValue(payload.path),
-        centreId: toInteger(payload.centre_id),
+        centreId: toStringValue(payload.centre_id),
       });
 
       reply.code(200).send(result);
@@ -668,7 +668,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listResources('centre', requestUserId(request), {
-        folderId: toInteger(payload.folder_id || payload.id),
+        folderId: toStringValue(payload.folder_id || payload.id),
       });
 
       reply.code(200).send({
@@ -685,7 +685,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.addFolder('centre', requestUserId(request), {
-        parentId: toInteger(payload.parent_id),
+        parentId: toStringValue(payload.parent_id),
         name: toStringValue(payload.name),
       });
 
@@ -699,7 +699,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.addFile('centre', requestUserId(request), {
-        folderId: toInteger(payload.folder_id),
+        folderId: toStringValue(payload.folder_id),
         name: toStringValue(payload.name),
         fileType: toStringValue(payload.type),
         size: toInteger(payload.size),
@@ -797,7 +797,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listLiveReport(
-        toInteger(payload.live_id),
+        toStringValue(payload.live_id),
         toStringValue(payload.date),
       );
 
@@ -854,7 +854,7 @@ export function registerOperationsRoutes(
         type: toStringValue(payload.type) === 'live_report' ? 'live_report' : 'summary',
         fromDate: toStringValue(payload.from_date),
         toDate: toStringValue(payload.to_date),
-        liveId: toInteger(payload.live_id),
+        liveId: toStringValue(payload.live_id),
         joinDate: toStringValue(payload.date),
       };
 
@@ -927,7 +927,7 @@ export function registerOperationsRoutes(
         status: toStringValue(payload.status) || 'active',
       };
 
-      const result = await operationsService.editBatch(requestUserId(request), toInteger(payload.id), input);
+      const result = await operationsService.editBatch(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -937,7 +937,7 @@ export function registerOperationsRoutes(
   app.post('/admin/batch/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.deleteBatch(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.deleteBatch(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -952,7 +952,7 @@ export function registerOperationsRoutes(
       const data = await operationsService.listPayments({
         fromDate: toStringValue(payload.from_date),
         toDate: toStringValue(payload.to_date),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -967,9 +967,9 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminCohorts({
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        centreId: toInteger(payload.centre_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        centreId: toStringValue(payload.centre_id),
         status: toStringValue(payload.status),
       });
 
@@ -1003,7 +1003,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listAdminWalletStatus({
-        centreId: toInteger(payload.centre_id),
+        centreId: toStringValue(payload.centre_id),
         centreName: toStringValue(payload.centre_name),
       });
 
@@ -1041,7 +1041,7 @@ export function registerOperationsRoutes(
       const input: BannerInput = {
         title: toStringValue(payload.title),
         image: toStringValue(payload.image),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         status: toStringValue(payload.status) || 'active',
       };
 
@@ -1107,9 +1107,9 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: QuestionBankFilters = {
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        lessonId: toStringValue(payload.lesson_id),
         ...(payload.q_type !== undefined ? { qType: toInteger(payload.q_type) } : {}),
       };
       const data = await operationsService.listQuestionBank(filters);
@@ -1123,10 +1123,10 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const input: QuestionBankInput = {
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
-        categoryId: toInteger(payload.category_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        lessonId: toStringValue(payload.lesson_id),
+        categoryId: toStringValue(payload.category_id),
         type: toInteger(payload.type),
         qType: toInteger(payload.q_type),
         title: toStringValue(payload.title),
@@ -1153,10 +1153,10 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const input: QuestionBankInput = {
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
-        categoryId: toInteger(payload.category_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        lessonId: toStringValue(payload.lesson_id),
+        categoryId: toStringValue(payload.category_id),
         type: toInteger(payload.type),
         qType: toInteger(payload.q_type),
         title: toStringValue(payload.title),
@@ -1172,7 +1172,7 @@ export function registerOperationsRoutes(
         rangeFrom: toStringValue(payload.range_from),
         rangeTo: toStringValue(payload.range_to),
       };
-      const result = await operationsService.editQuestion(requestUserId(request), toInteger(payload.id), input);
+      const result = await operationsService.editQuestion(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1182,7 +1182,7 @@ export function registerOperationsRoutes(
   app.post('/admin/question_bank/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.deleteQuestion(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.deleteQuestion(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1195,9 +1195,9 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: AdminExamFilters = {
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        batchId: toInteger(payload.batch_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        batchId: toStringValue(payload.batch_id),
         status: toStringValue(payload.status),
       };
       const data = await operationsService.listAdminExams(filters);
@@ -1219,14 +1219,14 @@ export function registerOperationsRoutes(
         toDate: toStringValue(payload.to_date),
         fromTime: toStringValue(payload.from_time),
         toTime: toStringValue(payload.to_time),
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
-        batchId: toInteger(payload.batch_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        lessonId: toStringValue(payload.lesson_id),
+        batchId: toStringValue(payload.batch_id),
         free: toStringValue(payload.free) || '0',
         publishResult: toInteger(payload.publish_result),
         isPractice: toInteger(payload.is_practice),
-        questionIds: toIntegerArray(payload.question_ids),
+        questionIds: toStringArray(payload.question_ids),
       };
       const result = await operationsService.addExam(requestUserId(request), input);
       reply.code(200).send(result);
@@ -1247,15 +1247,15 @@ export function registerOperationsRoutes(
         toDate: toStringValue(payload.to_date),
         fromTime: toStringValue(payload.from_time),
         toTime: toStringValue(payload.to_time),
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
-        batchId: toInteger(payload.batch_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        lessonId: toStringValue(payload.lesson_id),
+        batchId: toStringValue(payload.batch_id),
         free: toStringValue(payload.free) || '0',
         publishResult: toInteger(payload.publish_result),
         isPractice: toInteger(payload.is_practice),
       };
-      const result = await operationsService.editExam(requestUserId(request), toInteger(payload.id), input);
+      const result = await operationsService.editExam(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1265,7 +1265,7 @@ export function registerOperationsRoutes(
   app.post('/admin/exam/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.deleteExam(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.deleteExam(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1275,7 +1275,7 @@ export function registerOperationsRoutes(
   app.post('/admin/exam/publish_result', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.publishExamResult(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.publishExamResult(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1288,8 +1288,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: AdminAssignmentFilters = {
-        courseId: toInteger(payload.course_id),
-        cohortId: toInteger(payload.cohort_id),
+        courseId: toStringValue(payload.course_id),
+        cohortId: toStringValue(payload.cohort_id),
       };
       const data = await operationsService.listAdminAssignments(filters);
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1311,8 +1311,8 @@ export function registerOperationsRoutes(
         toTime: toStringValue(payload.to_time),
         instructions: toStringValue(payload.instructions),
         file: toStringValue(payload.file),
-        courseId: toInteger(payload.course_id),
-        cohortId: toInteger(payload.cohort_id),
+        courseId: toStringValue(payload.course_id),
+        cohortId: toStringValue(payload.cohort_id),
       };
       const result = await operationsService.addAssignment(requestUserId(request), input);
       reply.code(200).send(result);
@@ -1333,10 +1333,10 @@ export function registerOperationsRoutes(
         toTime: toStringValue(payload.to_time),
         instructions: toStringValue(payload.instructions),
         file: toStringValue(payload.file),
-        courseId: toInteger(payload.course_id),
-        cohortId: toInteger(payload.cohort_id),
+        courseId: toStringValue(payload.course_id),
+        cohortId: toStringValue(payload.cohort_id),
       };
-      const result = await operationsService.editAssignment(requestUserId(request), toInteger(payload.id), input);
+      const result = await operationsService.editAssignment(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1346,7 +1346,7 @@ export function registerOperationsRoutes(
   app.post('/admin/assignment/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.deleteAssignment(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.deleteAssignment(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1356,7 +1356,7 @@ export function registerOperationsRoutes(
   app.get('/admin/assignment/submissions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const data = await operationsService.listAssignmentSubmissions(toInteger(payload.assignment_id));
+      const data = await operationsService.listAssignmentSubmissions(toStringValue(payload.assignment_id));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1368,7 +1368,7 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const result = await operationsService.evaluateSubmission(
         requestUserId(request),
-        toInteger(payload.id),
+        toStringValue(payload.id),
         toStringValue(payload.marks),
         toStringValue(payload.remarks),
       );
@@ -1384,9 +1384,9 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: AdminExamResultFilters = {
-        examId: toInteger(payload.exam_id),
-        courseId: toInteger(payload.course_id),
-        batchId: toInteger(payload.batch_id),
+        examId: toStringValue(payload.exam_id),
+        courseId: toStringValue(payload.course_id),
+        batchId: toStringValue(payload.batch_id),
       };
       const data = await operationsService.listAdminExamResults(filters);
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1401,8 +1401,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: AdminExamEvaluationFilters = {
-        examId: toInteger(payload.exam_id),
-        courseId: toInteger(payload.course_id),
+        examId: toStringValue(payload.exam_id),
+        courseId: toStringValue(payload.course_id),
       };
       const data = await operationsService.listExamEvaluations(filters);
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1416,7 +1416,7 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const result = await operationsService.evaluateExamAttempt(
         requestUserId(request),
-        toInteger(payload.attempt_id),
+        toStringValue(payload.attempt_id),
         toNumber(payload.score),
       );
       reply.code(200).send(result);
@@ -1431,8 +1431,8 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const filters: AdminReExamFilters = {
-        courseId: toInteger(payload.course_id),
-        batchId: toInteger(payload.batch_id),
+        courseId: toStringValue(payload.course_id),
+        batchId: toStringValue(payload.batch_id),
       };
       const data = await operationsService.listReExams(filters);
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1446,8 +1446,8 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const result = await operationsService.grantReExam(
         requestUserId(request),
-        toInteger(payload.exam_id),
-        toIntegerArray(payload.user_ids),
+        toStringValue(payload.exam_id),
+        toStringArray(payload.user_ids),
       );
       reply.code(200).send(result);
     } catch (error: unknown) {
@@ -1477,7 +1477,7 @@ export function registerOperationsRoutes(
         examDate: toStringValue(payload.exam_date),
         fromTime: toStringValue(payload.from_time),
         toTime: toStringValue(payload.to_time),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         status: toStringValue(payload.status) || 'draft',
         questionIds: toStringValue(payload.question_ids) || '[]',
       };
@@ -1499,11 +1499,11 @@ export function registerOperationsRoutes(
         examDate: toStringValue(payload.exam_date),
         fromTime: toStringValue(payload.from_time),
         toTime: toStringValue(payload.to_time),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         status: toStringValue(payload.status) || 'draft',
         questionIds: toStringValue(payload.question_ids) || '[]',
       };
-      const result = await operationsService.editEntranceExam(requestUserId(request), toInteger(payload.id), input);
+      const result = await operationsService.editEntranceExam(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1513,7 +1513,7 @@ export function registerOperationsRoutes(
   app.post('/admin/entrance_exam/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.deleteEntranceExam(requestUserId(request), toInteger(payload.id));
+      const result = await operationsService.deleteEntranceExam(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1523,7 +1523,7 @@ export function registerOperationsRoutes(
   app.get('/admin/entrance_exam/registrations', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const data = await operationsService.listEntranceExamRegistrations(toInteger(payload.exam_id));
+      const data = await operationsService.listEntranceExamRegistrations(toStringValue(payload.exam_id));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1533,7 +1533,7 @@ export function registerOperationsRoutes(
   app.get('/admin/entrance_exam/results', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const data = await operationsService.listEntranceExamResults(toInteger(payload.exam_id));
+      const data = await operationsService.listEntranceExamResults(toStringValue(payload.exam_id));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -1579,10 +1579,10 @@ export function registerOperationsRoutes(
       const input: AdminCohortInput = {
         title: toStringValue(payload.title),
         cohortCode: toStringValue(payload.cohort_code),
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        centreId: toInteger(payload.centre_id),
-        instructorId: toInteger(payload.instructor_id),
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+        centreId: toStringValue(payload.centre_id),
+        instructorId: toStringValue(payload.instructor_id),
         startDate: toStringValue(payload.start_date),
         endDate: toStringValue(payload.end_date),
       };
@@ -1611,7 +1611,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listFeeInstallments({
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         status: toStringValue(payload.status),
       });
 
@@ -1629,7 +1629,7 @@ export function registerOperationsRoutes(
       const data = await operationsService.listPaymentStatus({
         fromDate: toStringValue(payload.from_date),
         toDate: toStringValue(payload.to_date),
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1644,7 +1644,7 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listCohortAttendance({
-        cohortId: toInteger(payload.cohort_id),
+        cohortId: toStringValue(payload.cohort_id),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });

@@ -65,8 +65,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
   return {};
 }
 
-function requestUserId(request: FastifyRequest): number {
-  return request.authContext?.user.id ?? 0;
+function requestUserId(request: FastifyRequest): string {
+  return request.authContext?.user.id ?? '';
 }
 
 function sendEngagementError(reply: FastifyReply, error: unknown): void {
@@ -103,7 +103,7 @@ export function registerEngagementRoutes(
   app.get('/feed/feed_watched', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      await engagementService.markFeedWatched(requestUserId(request), toInteger(payload.feed_id));
+      await engagementService.markFeedWatched(requestUserId(request), toStringValue(payload.feed_id));
       reply.code(200).send({
         status: 1,
         message: 'success',
@@ -117,7 +117,7 @@ export function registerEngagementRoutes(
   app.get('/feed/feed_like', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      await engagementService.toggleFeedLike(requestUserId(request), toInteger(payload.feed_id));
+      await engagementService.toggleFeedLike(requestUserId(request), toStringValue(payload.feed_id));
       reply.code(200).send({
         status: 1,
         message: 'success',
@@ -133,7 +133,7 @@ export function registerEngagementRoutes(
       const payload = requestPayload(request);
       await engagementService.addFeedComment(
         requestUserId(request),
-        toInteger(payload.feed_id),
+        toStringValue(payload.feed_id),
         toStringValue(payload.comment),
       );
       reply.code(200).send({
@@ -149,7 +149,7 @@ export function registerEngagementRoutes(
   app.get('/feed/feed_comments', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const comments = await engagementService.listFeedComments(toInteger(payload.feed_id));
+      const comments = await engagementService.listFeedComments(toStringValue(payload.feed_id));
       reply.code(200).send({
         status: 1,
         message: 'success',
@@ -164,7 +164,7 @@ export function registerEngagementRoutes(
     try {
       const payload = requestPayload(request);
       const input: AddReviewInput = {
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         rating: toNumber(payload.rating),
         review: toStringValue(payload.review),
       };
@@ -184,7 +184,7 @@ export function registerEngagementRoutes(
   app.get('/review/get_user_review', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const review = await engagementService.getUserReview(requestUserId(request), toInteger(payload.course_id));
+      const review = await engagementService.getUserReview(requestUserId(request), toStringValue(payload.course_id));
 
       reply.code(200).send({
         status: 1,
@@ -199,7 +199,7 @@ export function registerEngagementRoutes(
   app.get('/review/like_review', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      await engagementService.toggleReviewLike(requestUserId(request), toInteger(payload.review_id));
+      await engagementService.toggleReviewLike(requestUserId(request), toStringValue(payload.review_id));
 
       reply.code(200).send({
         status: 1,
@@ -242,7 +242,7 @@ export function registerEngagementRoutes(
       const payload = requestPayload(request);
       const marked = await engagementService.markNotificationAsRead(
         requestUserId(request),
-        toInteger(payload.notification_id),
+        toStringValue(payload.notification_id),
       );
 
       reply.code(200).send({
@@ -288,7 +288,7 @@ export function registerEngagementRoutes(
   app.get('/events/get_event_details', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const eventDetails = await engagementService.getEventDetails(requestUserId(request), toInteger(payload.event_id));
+      const eventDetails = await engagementService.getEventDetails(requestUserId(request), toStringValue(payload.event_id));
 
       if (!eventDetails) {
         reply.code(200).send({
@@ -311,7 +311,7 @@ export function registerEngagementRoutes(
     try {
       const payload = requestPayload(request);
       const input: RegisterEventInput = {
-        eventId: toInteger(payload.event_id),
+        eventId: toStringValue(payload.event_id),
         name: toStringValue(payload.name),
         phone: toStringValue(payload.phone),
         attendStatus: toStringValue(payload.attend_status),
@@ -342,7 +342,7 @@ export function registerEngagementRoutes(
     try {
       const payload = requestPayload(request);
       const input: AddEventFeedbackInput = {
-        eventId: toInteger(payload.event_id),
+        eventId: toStringValue(payload.event_id),
         rating: toNumber(payload.rating),
         review: toStringValue(payload.review),
       };

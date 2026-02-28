@@ -25,9 +25,8 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
   }, [api, session.token]);
 
   useEffect(() => {
-    const courseId = Number(courseFilter);
-    if (courseId > 0) {
-      api.loadSubjects(session.token, courseId).then(setSubjects).catch(() => {});
+    if (courseFilter) {
+      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
     } else {
       setSubjects([]);
     }
@@ -36,9 +35,8 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
   }, [api, session.token, courseFilter]);
 
   useEffect(() => {
-    const subjectId = Number(subjectFilter);
-    if (subjectId > 0) {
-      api.loadLessons(session.token, subjectId).then(setLessons).catch(() => {});
+    if (subjectFilter) {
+      api.loadLessons(session.token, subjectFilter).then(setLessons).catch(() => {});
     } else {
       setLessons([]);
     }
@@ -47,9 +45,9 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadQuestionBank(session.token, {
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
-      ...(subjectFilter ? { subjectId: Number(subjectFilter) } : {}),
-      ...(lessonFilter ? { lessonId: Number(lessonFilter) } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
+      ...(subjectFilter ? { subjectId: subjectFilter } : {}),
+      ...(lessonFilter ? { lessonId: lessonFilter } : {}),
     }),
     [courseFilter, subjectFilter, lessonFilter],
   );
@@ -92,7 +90,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
       type: 'select' as const,
       value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
@@ -101,7 +99,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
       type: 'select' as const,
       value: subjectFilter,
       placeholder: 'All Subjects',
-      options: subjects.map((s) => ({ label: asString(s.title), value: String(asNumber(s.id)) })),
+      options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
       onChange: setSubjectFilter,
     },
     {
@@ -110,7 +108,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
       type: 'select' as const,
       value: lessonFilter,
       placeholder: 'All Lessons',
-      options: lessons.map((l) => ({ label: asString(l.title), value: String(asNumber(l.id)) })),
+      options: lessons.map((l) => ({ label: asString(l.title), value: asString(l.id) })),
       onChange: setLessonFilter,
     },
   ], [courseFilter, subjectFilter, lessonFilter, courses, subjects, lessons]);
@@ -147,7 +145,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
         columns={columns}
         rows={questions}
         actions={[
-          { label: 'Delete', onClick: (row) => { api.deleteQuestion(session.token, asNumber(row.id)); }, variant: 'destructive' },
+          { label: 'Delete', onClick: (row) => { api.deleteQuestion(session.token, asString(row.id)); }, variant: 'destructive' },
         ]}
       />
     </div>

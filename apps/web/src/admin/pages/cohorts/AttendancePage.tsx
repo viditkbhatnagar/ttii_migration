@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -18,7 +18,7 @@ export default function AttendancePage({ api, session }: AdminPageProps) {
   }, [api, session.token]);
 
   const { data, loading, error } = useAdminPageData(
-    () => api.loadCohortAttendance(session.token, cohortFilter ? Number(cohortFilter) : undefined),
+    () => api.loadCohortAttendance(session.token, cohortFilter || undefined),
     [cohortFilter],
   );
 
@@ -39,7 +39,7 @@ export default function AttendancePage({ api, session }: AdminPageProps) {
     {
       key: 'cohort', label: 'Cohort', type: 'select' as const, value: cohortFilter,
       placeholder: 'All Cohorts',
-      options: cohorts.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: cohorts.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCohortFilter,
     },
   ], [cohortFilter, cohorts]);

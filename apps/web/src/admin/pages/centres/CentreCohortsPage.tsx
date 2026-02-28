@@ -19,8 +19,8 @@ export default function CentreCohortsPage({ api, session }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState('all');
 
   const filters = useMemo(() => ({
-    ...(appliedCourse ? { courseId: Number(appliedCourse) } : {}),
-    ...(appliedSubject ? { subjectId: Number(appliedSubject) } : {}),
+    ...(appliedCourse ? { courseId: appliedCourse } : {}),
+    ...(appliedSubject ? { subjectId: appliedSubject } : {}),
     ...(appliedStatus ? { status: appliedStatus } : {}),
   }), [appliedCourse, appliedSubject, appliedStatus]);
 

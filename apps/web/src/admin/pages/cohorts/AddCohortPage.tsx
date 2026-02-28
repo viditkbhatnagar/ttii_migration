@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
-import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 
 export default function AddCohortPage({ api, session, onNavigate }: AdminPageProps) {
@@ -36,9 +36,8 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   }, [api, session.token]);
 
   useEffect(() => {
-    const cId = Number(courseId);
-    if (cId > 0) {
-      api.loadSubjects(session.token, cId).then(setSubjects).catch(() => {});
+    if (courseId) {
+      api.loadSubjects(session.token, courseId).then(setSubjects).catch(() => {});
     } else {
       setSubjects([]);
     }
@@ -53,10 +52,10 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       await api.addAdminCohort(session.token, {
         title,
         cohortCode,
-        courseId: Number(courseId) || 0,
-        subjectId: Number(subjectId) || 0,
-        centreId: Number(centreId) || 0,
-        instructorId: Number(instructorId) || 0,
+        courseId,
+        subjectId,
+        centreId,
+        instructorId,
         startDate,
         endDate,
       });
@@ -93,7 +92,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               >
                 <option value="">Select Course</option>
                 {courses.map((c) => (
-                  <option key={asNumber(c.id)} value={String(asNumber(c.id))}>{asString(c.title)}</option>
+                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
                 ))}
               </select>
             </div>
@@ -108,7 +107,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               >
                 <option value="">Select Subject</option>
                 {subjects.map((s) => (
-                  <option key={asNumber(s.id)} value={String(asNumber(s.id))}>{asString(s.title)}</option>
+                  <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
                 ))}
               </select>
             </div>
@@ -125,7 +124,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               >
                 <option value="">Select Centre</option>
                 {centres.map((c) => (
-                  <option key={asNumber(c.id)} value={String(asNumber(c.id))}>{asString(c.title)}</option>
+                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
                 ))}
               </select>
             </div>
@@ -140,7 +139,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               >
                 <option value="">Select Instructor</option>
                 {instructors.map((ins) => (
-                  <option key={asNumber(ins.id)} value={String(asNumber(ins.id))}>{asString(ins.name)}</option>
+                  <option key={asString(ins.id)} value={asString(ins.id)}>{asString(ins.name)}</option>
                 ))}
               </select>
             </div>

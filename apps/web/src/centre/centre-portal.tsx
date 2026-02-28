@@ -306,19 +306,19 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
 
   const courseId = useMemo(() => {
     if (courses.length === 0) {
-      return 0;
+      return '';
     }
 
     const first = courses[0] ?? {};
-    return asNumber(first.id) || asNumber(first.course_id);
+    return asString(first.id) || asString(first.course_id);
   }, [courses]);
 
   const pipelineUserId = useMemo(() => {
     if (pipelineUsers.length === 0) {
-      return 0;
+      return '';
     }
 
-    return asNumber(pipelineUsers[0]?.id);
+    return asString(pipelineUsers[0]?.id);
   }, [pipelineUsers]);
 
   const load = async (): Promise<void> => {
@@ -350,7 +350,7 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
   }, [session.token]);
 
   const addApplication = async (): Promise<void> => {
-    if (name.trim() === '' || phone.trim() === '' || email.trim() === '' || courseId <= 0) {
+    if (name.trim() === '' || phone.trim() === '' || email.trim() === '' || !courseId) {
       setActionState({
         pending: false,
         message: '',
@@ -367,7 +367,7 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
         phone,
         email,
         courseId,
-        pipeline: pipelineUserId > 0 ? '1' : '0',
+        pipeline: pipelineUserId ? '1' : '0',
         pipelineUser: pipelineUserId,
         status,
       });
@@ -390,8 +390,8 @@ function CentreApplicationsSection({ api, session }: { api: CentrePortalApi; ses
 
   const convertFirst = async (): Promise<void> => {
     const first = items[0] ?? {};
-    const applicationId = asNumber(first.id);
-    if (applicationId <= 0) {
+    const applicationId = asString(first.id);
+    if (!applicationId) {
       setActionState({ pending: false, message: '', error: 'No application available to convert.' });
       return;
     }
@@ -562,7 +562,7 @@ function CentreStudentsSection({ api, session }: { api: CentrePortalApi; session
           {students.slice(0, 12).map((student) => (
             <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(student.id)}>
               <strong className="text-teal-950 text-[0.95rem]">{asString(student.name) || asString(student.student_id) || 'Student'}</strong>
-              <span className="text-sm text-teal-700">Course: {asString(student.course_title) || String(asNumber(student.course_id) || 'N/A')}</span>
+              <span className="text-sm text-teal-700">Course: {asString(student.course_title) || asString(student.course_id) || 'N/A'}</span>
               <span className="text-sm text-teal-700">Email: {asString(student.user_email) || asString(student.email) || 'N/A'}</span>
             </li>
           ))}
@@ -657,14 +657,14 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
       setStudents(studentRows);
 
       const firstCohort = cohortRows[0] ?? {};
-      if (asNumber(firstCohort.course_id) > 0) {
-        setCourseId(String(asNumber(firstCohort.course_id)));
+      if (asString(firstCohort.course_id)) {
+        setCourseId(asString(firstCohort.course_id));
       }
-      if (asNumber(firstCohort.subject_id) > 0) {
-        setSubjectId(String(asNumber(firstCohort.subject_id)));
+      if (asString(firstCohort.subject_id)) {
+        setSubjectId(asString(firstCohort.subject_id));
       }
-      if (asNumber(firstCohort.instructor_id) > 0) {
-        setInstructorId(String(asNumber(firstCohort.instructor_id)));
+      if (asString(firstCohort.instructor_id)) {
+        setInstructorId(asString(firstCohort.instructor_id));
       }
     } catch (loadError: unknown) {
       setError(messageFromError(loadError));
@@ -679,11 +679,7 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
   }, [session.token]);
 
   const addCohortAndStudent = async (): Promise<void> => {
-    const parsedCourseId = Number.parseInt(courseId, 10);
-    const parsedSubjectId = Number.parseInt(subjectId, 10);
-    const parsedInstructorId = Number.parseInt(instructorId, 10);
-
-    if (!Number.isFinite(parsedCourseId) || !Number.isFinite(parsedSubjectId) || !Number.isFinite(parsedInstructorId)) {
+    if (!courseId || !subjectId || !instructorId) {
       setActionState({ pending: false, message: '', error: 'Course, subject, and instructor IDs are required.' });
       return;
     }
@@ -693,9 +689,9 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
       const response = await api.addCohort(session.token, {
         title,
         cohortCode: '',
-        courseId: parsedCourseId,
-        subjectId: parsedSubjectId,
-        instructorId: parsedInstructorId,
+        courseId,
+        subjectId,
+        instructorId,
         startDate: dateOnly(0),
         endDate: dateOnly(30),
       });
@@ -710,10 +706,10 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
       }
 
       const responseData = asRecord(response.data) ?? {};
-      const cohortId = asNumber(responseData.cohort_id);
-      const firstStudentId = asNumber(students[0]?.id);
+      const cohortId = asString(responseData.cohort_id);
+      const firstStudentId = asString(students[0]?.id);
 
-      if (cohortId > 0 && firstStudentId > 0) {
+      if (cohortId && firstStudentId) {
         await api.addCohortStudents(session.token, cohortId, [firstStudentId]);
       }
 
@@ -785,7 +781,7 @@ function CentreCohortsSection({ api, session }: { api: CentrePortalApi; session:
             {cohorts.slice(0, 10).map((cohort) => (
               <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(cohort.id)}>
                 <strong className="text-teal-950 text-[0.95rem]">{asString(cohort.title) || asString(cohort.cohort_id) || 'Cohort'}</strong>
-                <span className="text-sm text-teal-700">Course: {asString(cohort.course_name) || String(asNumber(cohort.course_id) || 'N/A')}</span>
+                <span className="text-sm text-teal-700">Course: {asString(cohort.course_name) || asString(cohort.course_id) || 'N/A'}</span>
                 <span className="text-sm text-teal-700">Students: {String(asNumber(cohort.students_count))}</span>
               </li>
             ))}
@@ -813,9 +809,9 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
       setCohorts(cohortRows);
       setLiveClasses(liveRows);
 
-      const firstCohortId = asNumber(cohortRows[0]?.id);
-      if (firstCohortId > 0) {
-        setCohortId(String(firstCohortId));
+      const firstCohortId = asString(cohortRows[0]?.id);
+      if (firstCohortId) {
+        setCohortId(firstCohortId);
       }
     } catch (loadError: unknown) {
       setError(messageFromError(loadError));
@@ -830,8 +826,7 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
   }, [session.token]);
 
   const addLiveClass = async (): Promise<void> => {
-    const parsedCohortId = Number.parseInt(cohortId, 10);
-    if (!Number.isFinite(parsedCohortId) || parsedCohortId <= 0) {
+    if (!cohortId) {
       setActionState({ pending: false, message: '', error: 'Cohort ID is required for live class creation.' });
       return;
     }
@@ -839,7 +834,7 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
     setActionState({ pending: true, message: '', error: null });
     try {
       const response = await api.addLiveClass(session.token, {
-        cohortId: parsedCohortId,
+        cohortId,
         zoomId: 'zoom-phase13-centre',
         password: 'live-pass-phase13',
         entries: [
@@ -925,7 +920,7 @@ function CentreLiveSection({ api, session }: { api: CentrePortalApi; session: Au
             {liveClasses.slice(0, 10).map((entry) => (
               <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(entry.id)}>
                 <strong className="text-teal-950 text-[0.95rem]">{asString(entry.title) || 'Live class'}</strong>
-                <span className="text-sm text-teal-700">Cohort: {String(asNumber(entry.cohort_id))}</span>
+                <span className="text-sm text-teal-700">Cohort: {asString(entry.cohort_id)}</span>
                 <span className="text-sm text-teal-700">Date: {asString(entry.date) || 'N/A'}</span>
               </li>
             ))}
@@ -940,7 +935,7 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionState, setActionState] = useActionState();
-  const [folderId, setFolderId] = useState(0);
+  const [folderId, setFolderId] = useState('');
   const [resourceState, setResourceState] = useState<Record<string, unknown>>({});
   const [folderName, setFolderName] = useState('Phase13 Resources');
   const [fileName, setFileName] = useState('phase13-guide.txt');
@@ -954,7 +949,7 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
     try {
       const data = await api.loadResources(session.token, nextFolderId);
       setResourceState(data);
-      setFolderId(asNumber(data.folder_id));
+      setFolderId(asString(data.folder_id));
     } catch (loadError: unknown) {
       setError(messageFromError(loadError));
     } finally {
@@ -963,7 +958,7 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
   };
 
   useEffect(() => {
-    void load(0);
+    void load('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.token]);
 
@@ -1071,7 +1066,7 @@ function CentreResourcesSection({ api, session }: { api: CentrePortalApi; sessio
             {folders.map((folder) => (
               <li className="border border-teal-200 rounded-lg px-3 py-2.5 bg-white/90 grid gap-1" key={String(folder.id)}>
                 <strong className="text-teal-950 text-[0.95rem]">{asString(folder.name) || `Folder ${String(folder.id)}`}</strong>
-                <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load(asNumber(folder.id))}>
+                <button type="button" className="rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer transition-transform hover:enabled:-translate-y-px disabled:cursor-not-allowed disabled:opacity-65" onClick={() => void load(asString(folder.id))}>
                   Open
                 </button>
               </li>

@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed \"s/\\\\` .*//\")",
+      "Bash(grep -A 50 \"^CREATE TABLE \\\\`about\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 40 \"^CREATE TABLE \\\\`role\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 40 \"^CREATE TABLE \\\\`permission\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 30 \"^CREATE TABLE \\\\`message\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 30 \"^CREATE TABLE \\\\`books\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 20 \"^CREATE TABLE \\\\`module\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(sed 's/CREATE TABLE `\\\\\\([^`]*\\\\\\)`.*/\\\\1/')",
+      "Bash(npm uninstall @prisma/adapter-better-sqlite3 better-sqlite3)",
+      "Bash(grep -l \"Prisma.sql\" /Users/viditkbhatnagar/codes/ttii_app/apps/api/src/**/*.ts)",
+      "Bash(git -C \"/Users/viditkbhatnagar/codes/ttii_app\" diff --stat HEAD)",
+      "Bash(python3 -m json.tool)",
+      "Bash(lsof -ti :4000)",
+      "Bash(xargs kill -9)",
+      "Bash(lsof -ti :5173)",
+      "Bash(npx dotenv -e ../../.env -- npx prisma db push)",
+      "Bash(DATABASE_URL=\"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" npx prisma db push)",
+      "Bash(grep \"^INSERT INTO \\\\`batch\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 2 \"^INSERT INTO \\\\`batch\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(grep -A 2 \"^INSERT INTO \\\\`language\\\\`\" /Users/viditkbhatnagar/codes/ttii_app/lms_ttii.sql)",
+      "Bash(mongosh \"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" --eval 'db.dropDatabase\\(\\)')",
+      "Bash(DATABASE_URL=\"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" npx prisma db push --skip-generate)",
+      "Bash(DATABASE_URL=\"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" npx tsx prisma/seed-from-sql.ts)",
+      "Bash(DATABASE_URL=\"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" npx tsx prisma/debug-seed.ts)",
+      "Bash(mongosh \"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" --eval 'const u = db.users.findOne\\({email: \"\"admin@ttii.test\"\"}\\); print\\(\"\"password length:\"\", u.password.length\\); print\\(\"\"password:\"\", u.password\\);')",
+      "Bash(mongosh \"mongodb+srv://agi_admin:X7UJ82nzrrtORPNM@dev.gdddmth.mongodb.net/ttii_lms?retryWrites=true&w=majority&appName=dev\" --eval ':*)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/Users/viditkbhatnagar/codes/ttii_app/apps/api"
+    ]
+  }
+}

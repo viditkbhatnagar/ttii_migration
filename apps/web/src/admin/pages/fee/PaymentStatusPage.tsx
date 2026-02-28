@@ -25,7 +25,7 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
     () => api.loadPaymentStatus(session.token, {
       ...(fromDate ? { fromDate } : {}),
       ...(toDate ? { toDate } : {}),
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
     }),
     [fromDate, toDate, courseFilter],
   );
@@ -53,7 +53,7 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
       type: 'select' as const,
       value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
   ], [fromDate, toDate, courseFilter, courses]);

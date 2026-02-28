@@ -28,9 +28,8 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
   }, [api, session.token]);
 
   useEffect(() => {
-    const courseId = Number(courseFilter);
-    if (courseId > 0) {
-      api.loadSubjects(session.token, courseId).then(setSubjects).catch(() => {});
+    if (courseFilter) {
+      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
     } else {
       setSubjects([]);
     }
@@ -39,9 +38,9 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadAdminExams(session.token, {
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
-      ...(subjectFilter ? { subjectId: Number(subjectFilter) } : {}),
-      ...(batchFilter ? { batchId: Number(batchFilter) } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
+      ...(subjectFilter ? { subjectId: subjectFilter } : {}),
+      ...(batchFilter ? { batchId: batchFilter } : {}),
     }),
     [courseFilter, subjectFilter, batchFilter],
   );
@@ -88,19 +87,19 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
     {
       key: 'course', label: 'Course', type: 'select' as const, value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
       key: 'subject', label: 'Subject', type: 'select' as const, value: subjectFilter,
       placeholder: 'All Subjects',
-      options: subjects.map((s) => ({ label: asString(s.title), value: String(asNumber(s.id)) })),
+      options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
       onChange: setSubjectFilter,
     },
     {
       key: 'batch', label: 'Batch', type: 'select' as const, value: batchFilter,
       placeholder: 'All Batches',
-      options: batches.map((b) => ({ label: asString(b.title), value: String(asNumber(b.id)) })),
+      options: batches.map((b) => ({ label: asString(b.title), value: asString(b.id) })),
       onChange: setBatchFilter,
     },
   ], [courseFilter, subjectFilter, batchFilter, courses, subjects, batches]);
@@ -159,11 +158,11 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
         actions={[
           {
             label: 'Publish Result',
-            onClick: (row) => { api.publishExamResult(session.token, asNumber(row.id)); },
+            onClick: (row) => { api.publishExamResult(session.token, asString(row.id)); },
           },
           {
             label: 'Delete',
-            onClick: (row) => { api.deleteExam(session.token, asNumber(row.id)); },
+            onClick: (row) => { api.deleteExam(session.token, asString(row.id)); },
             variant: 'destructive',
           },
         ]}

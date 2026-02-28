@@ -6,13 +6,11 @@ import { toDataLayerError } from '../errors.js';
 
 type NotificationDelegate = PrismaClient['notification'];
 type NotificationReadDelegate = PrismaClient['notification_read'];
-type QueryRawDelegate = Pick<PrismaClient, '$queryRaw'>;
 
 export class NotificationRepository {
   constructor(
     private readonly notificationModel: NotificationDelegate = getPrismaClient().notification,
     private readonly notificationReadModel: NotificationReadDelegate = getPrismaClient().notification_read,
-    private readonly queryRawClient: QueryRawDelegate = getPrismaClient(),
   ) {}
 
   async create(data: Prisma.notificationUncheckedCreateInput): Promise<notification> {
@@ -31,7 +29,7 @@ export class NotificationRepository {
     }
   }
 
-  async markRead(userId: number, notificationId: number): Promise<notification_read> {
+  async markRead(userId: string, notificationId: string): Promise<notification_read> {
     try {
       const existing = await this.notificationReadModel.findFirst({
         where: {
@@ -59,31 +57,38 @@ export class NotificationRepository {
     }
   }
 
-  async getUnreadCount(userId: number, courseId: number | null): Promise<number> {
-    const scopedCourseId = courseId ?? 0;
-
+  async getUnreadCount(userId: string, courseId: string | null): Promise<number> {
     try {
-      const result = await this.queryRawClient.$queryRaw<Array<{ unread_count: number }>>(
-        Prisma.sql`
-          SELECT COUNT(n.id) AS unread_count
-          FROM notification AS n
-          LEFT JOIN notification_read AS nr
-            ON n.id = nr.notification_id
-            AND nr.user_id = ${userId}
-            AND nr.deleted_at IS NULL
-          WHERE nr.notification_id IS NULL
-            AND n.deleted_at IS NULL
-            AND n.course_id IN (${scopedCourseId}, 0)
-        `,
-      );
+      // Get IDs of notifications already read by this user
+      const readRecords = await this.notificationReadModel.findMany({
+        where: {
+          user_id: userId,
+          deleted_at: null,
+        },
+        select: {
+          notification_id: true,
+        },
+      });
 
-      const firstRow = result.at(0);
+      const readNotificationIds = readRecords.map((r) => r.notification_id);
 
-      if (!firstRow) {
-        return 0;
-      }
+      // Build the course filter: match the given courseId or notifications with no course (null)
+      const courseFilter: Prisma.notificationWhereInput['course_id'] = courseId
+        ? { in: [courseId] }
+        : undefined;
 
-      return Number(firstRow.unread_count ?? 0);
+      // Count notifications that are not read and match course scope
+      const unreadCount = await this.notificationModel.count({
+        where: {
+          deleted_at: null,
+          ...(courseFilter ? { course_id: courseFilter } : {}),
+          ...(readNotificationIds.length > 0
+            ? { id: { notIn: readNotificationIds } }
+            : {}),
+        },
+      });
+
+      return unreadCount;
     } catch (error: unknown) {
       throw toDataLayerError(error, 'notification.getUnreadCount');
     }

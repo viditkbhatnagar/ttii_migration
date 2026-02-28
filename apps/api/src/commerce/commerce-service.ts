@@ -1,11 +1,9 @@
-import { Prisma, type PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
 import type { IntegrationRegistry, PaymentGateway } from '../integrations/contracts.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
-
-type SqlRow = Record<string, unknown>;
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
 
@@ -109,9 +107,9 @@ function parseDescriptionItems(value: string): string[] {
   return output;
 }
 
-function parseSubjects(subjects: unknown): number[] {
+function parseSubjects(subjects: unknown): string[] {
   if (Array.isArray(subjects)) {
-    return subjects.map((entry) => toInteger(entry)).filter((entry) => entry > 0);
+    return subjects.map((entry) => String(entry)).filter((entry) => entry !== '' && entry !== '0');
   }
 
   if (typeof subjects === 'string') {
@@ -123,7 +121,7 @@ function parseSubjects(subjects: unknown): number[] {
     try {
       const parsed: unknown = JSON.parse(normalized);
       if (Array.isArray(parsed)) {
-        return parsed.map((entry) => toInteger(entry)).filter((entry) => entry > 0);
+        return parsed.map((entry) => String(entry)).filter((entry) => entry !== '' && entry !== '0');
       }
     } catch {
       return [];
@@ -145,51 +143,38 @@ function toSubjectsToken(subjects: unknown): string {
   return '';
 }
 
-function isValidOrderBinding(orderDetails: SqlRow, userId: number, courseId: number): boolean {
-  const orderUserId = toInteger(orderDetails.user_id);
-  const orderCourseId = toInteger(orderDetails.course_id);
-  const orderStatus = toStringValue(orderDetails.order_status);
-
-  if (orderUserId !== userId) {
-    return false;
-  }
-
-  if (orderCourseId !== courseId) {
-    return false;
-  }
-
-  return orderStatus === 'pending';
-}
-
 interface CommerceServiceDependencies {
   prisma?: PrismaClient;
   integrations?: Pick<IntegrationRegistry, 'payment'>;
 }
 
 export interface CreateOrderInput {
-  courseId: number;
+  courseId: string;
   receipt: string;
   currency: string;
 }
 
 export interface CompleteOrderInput {
-  courseId: number;
+  courseId: string;
   razorpayOrderId: string;
   razorpayPaymentId: string;
   razorpaySignature: string;
 }
 
 export interface ApplyCouponInput {
-  courseId: number;
-  packageId: number;
+  courseId: string;
+  packageId: string;
   couponCode: string;
 }
 
 export interface GeneratePaymentLinkInput {
-  packageId: number;
+  packageId: string;
   subjects: unknown;
   platform: 'app' | 'web';
 }
+
+// Type for Prisma interactive transaction client
+type TxClient = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
 export class CommerceService {
   private readonly prisma: PrismaClient;
@@ -200,20 +185,6 @@ export class CommerceService {
     this.prisma = dependencies.prisma ?? getPrismaClient();
     const integrations = dependencies.integrations ?? createIntegrationRegistry();
     this.paymentGateway = integrations.payment;
-  }
-
-  private async queryMany(sql: Prisma.Sql): Promise<SqlRow[]> {
-    return this.prisma.$queryRaw<SqlRow[]>(sql);
-  }
-
-  private async queryOne(sql: Prisma.Sql): Promise<SqlRow | null> {
-    const rows = await this.queryMany(sql);
-    return rows[0] ?? null;
-  }
-
-  private async count(sql: Prisma.Sql): Promise<number> {
-    const row = await this.queryOne(sql);
-    return toDbNumber(row?.count);
   }
 
   private toFileUrl(path: unknown): string {
@@ -229,130 +200,140 @@ export class CommerceService {
     return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
   }
 
-  private async getUserById(userId: number): Promise<SqlRow | null> {
-    if (userId <= 0) {
+  private async getUserById(userId: string) {
+    if (!userId) {
       return null;
     }
 
-    return this.queryOne(Prisma.sql`
-      SELECT id, name, email, user_email, phone, course_id
-      FROM users
-      WHERE id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    return this.prisma.users.findFirst({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        user_email: true,
+        phone: true,
+        course_id: true,
+      },
+    });
   }
 
-  private async couponAppliedCount(couponId: number, userId = 0): Promise<number> {
-    if (couponId <= 0) {
+  private async couponAppliedCount(couponId: string, userId?: string): Promise<number> {
+    if (!couponId) {
       return 0;
     }
 
-    if (userId > 0) {
-      return this.count(Prisma.sql`
-        SELECT COUNT(coupon_id) AS count
-        FROM payment_info
-        WHERE coupon_id = ${couponId}
-          AND user_id = ${userId}
-          AND deleted_at IS NULL
-      `);
+    const where: Record<string, unknown> = {
+      coupon_id: couponId,
+      deleted_at: null,
+    };
+
+    if (userId) {
+      where.user_id = userId;
     }
 
-    return this.count(Prisma.sql`
-      SELECT COUNT(coupon_id) AS count
-      FROM payment_info
-      WHERE coupon_id = ${couponId}
-        AND deleted_at IS NULL
-    `);
+    return this.prisma.payment_info.count({ where });
   }
 
-  private async getStudentFeeInstallments(userId: number, courseId: number): Promise<SqlRow[]> {
-    if (userId <= 0 || courseId <= 0) {
+  private async getStudentFeeInstallments(userId: string, courseId: string) {
+    if (!userId || !courseId) {
       return [];
     }
 
-    return this.queryMany(Prisma.sql`
-      SELECT *
-      FROM student_fee
-      WHERE user_id = ${userId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY due_date ASC, id ASC
-    `);
+    return this.prisma.student_fee.findMany({
+      where: {
+        user_id: userId,
+        course_id: courseId,
+        deleted_at: null,
+      },
+      orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
+    });
   }
 
   private async ensureEnrolment(
-    tx: Prisma.TransactionClient,
-    userId: number,
-    courseId: number,
-    packageId: number | null,
+    tx: TxClient,
+    userId: string,
+    courseId: string,
+    packageId: string | null,
     updateUserCourseWhenAlreadyEnrolled: boolean,
   ): Promise<void> {
-    if (userId <= 0 || courseId <= 0) {
+    if (!userId || !courseId) {
       return;
     }
 
-    const existing = await tx.$queryRaw<Array<{ count: number | bigint }>>(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM enrol
-      WHERE user_id = ${userId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+    const existingCount = await tx.enrol.count({
+      where: {
+        user_id: userId,
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
 
-    const enrolmentExists = toDbNumber(existing[0]?.count) > 0;
+    const enrolmentExists = existingCount > 0;
     const now = new Date();
-    const nowIso = now.toISOString();
-    const today = toDateOnlyString(now);
 
     if (!enrolmentExists) {
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO enrol (
-          user_id,
-          course_id,
-          package_id,
-          enrollment_date,
-          enrollment_status,
-          mode_of_study,
-          created_by,
-          created_at
-        ) VALUES (
-          ${userId},
-          ${courseId},
-          ${packageId},
-          ${today},
-          ${'Active'},
-          ${'Online'},
-          ${userId},
-          ${nowIso}
-        )
-      `);
+      await tx.enrol.create({
+        data: {
+          user_id: userId,
+          course_id: courseId,
+          package_id: packageId,
+          enrollment_date: now,
+          enrollment_status: 'Active',
+          mode_of_study: 'Online',
+          created_by: userId,
+          created_at: now,
+        },
+      });
     }
 
     if (!enrolmentExists || updateUserCourseWhenAlreadyEnrolled) {
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE users
-        SET course_id = ${courseId},
-            updated_by = ${userId},
-            updated_at = ${nowIso}
-        WHERE id = ${userId}
-      `);
+      await tx.users.update({
+        where: { id: userId },
+        data: {
+          course_id: courseId,
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
     }
   }
 
-  private async formatPackageData(packageRow: SqlRow, user: SqlRow): Promise<Record<string, unknown>> {
-    const packageId = toInteger(packageRow.id);
+  private async formatPackageData(
+    packageRow: {
+      id: string;
+      title: string | null;
+      type: number | null;
+      category_id: string | null;
+      course_id: string | null;
+      amount: number | null;
+      discount: number | null;
+      is_free: number | null;
+      package_type: string | null;
+      remarks: string | null;
+      offline: number | null;
+      description: string | null;
+      start_date: Date | null;
+      end_date: Date | null;
+      [key: string]: unknown;
+    },
+    user: { id: string; name: string | null; email: string | null; user_email: string | null; phone: string | null },
+  ): Promise<Record<string, unknown>> {
+    const packageId = packageRow.id;
     const packageType = toInteger(packageRow.type);
 
     const purchasedCount =
       packageType !== 2
-        ? await this.count(Prisma.sql`
-            SELECT COUNT(*) AS count
-            FROM payment_info
-            WHERE package_id = ${packageId}
-              AND user_id = ${toInteger(user.id)}
-              AND deleted_at IS NULL
-          `)
+        ? await this.prisma.payment_info.count({
+            where: {
+              package_id: packageId,
+              user_id: user.id,
+              deleted_at: null,
+            },
+          })
         : 0;
 
     const amount = toDbNumber(packageRow.amount);
@@ -370,7 +351,7 @@ export class CommerceService {
       course_id: packageRow.course_id ?? '',
       actual_amount: amount === actualAmount ? '' : amount,
       discount_percentage: discountPercentage,
-      best_value: packageId === 1 ? 1 : 0,
+      best_value: packageId === '1' ? 1 : 0,
       price_text: '',
       payable_amount: actualAmount,
       is_free: packageRow.is_free ?? '',
@@ -389,7 +370,7 @@ export class CommerceService {
     };
   }
 
-  async listPackages(userId: number, courseId = 0): Promise<Record<string, unknown>> {
+  async listPackages(userId: string, courseId?: string): Promise<Record<string, unknown>> {
     const user = await this.getUserById(userId);
     const packageData: { packages: Array<Record<string, unknown>>; logo?: string } = {
       packages: [],
@@ -399,18 +380,18 @@ export class CommerceService {
       return packageData;
     }
 
-    const resolvedCourseId = courseId > 0 ? courseId : toInteger(user.course_id);
-    if (resolvedCourseId <= 0) {
+    const resolvedCourseId = courseId || user.course_id;
+    if (!resolvedCourseId) {
       return packageData;
     }
 
-    const packageRows = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM package
-      WHERE course_id = ${resolvedCourseId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const packageRows = await this.prisma.course_package.findMany({
+      where: {
+        course_id: resolvedCourseId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
 
     if (packageRows.length === 0) {
       return packageData;
@@ -425,25 +406,26 @@ export class CommerceService {
         continue;
       }
 
-      packageData.packages.push(await this.formatPackageData(packageRow, user));
+      packageData.packages.push(
+        await this.formatPackageData(packageRow as Parameters<typeof this.formatPackageData>[0], user),
+      );
     }
 
     packageData.logo = this.toFileUrl('uploads/logo/logo.png');
     return packageData;
   }
 
-  async generatePaymentLink(userId: number, input: GeneratePaymentLinkInput): Promise<string> {
-    if (userId <= 0 || input.packageId <= 0) {
+  async generatePaymentLink(userId: string, input: GeneratePaymentLinkInput): Promise<string> {
+    if (!userId || !input.packageId) {
       return '';
     }
 
-    const packageRow = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM package
-      WHERE id = ${input.packageId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const packageRow = await this.prisma.course_package.findFirst({
+      where: {
+        id: input.packageId,
+        deleted_at: null,
+      },
+    });
 
     if (!packageRow) {
       return '';
@@ -454,13 +436,18 @@ export class CommerceService {
 
     let amount = toDbNumber(packageRow.amount) - toDbNumber(packageRow.discount);
     if (subjectIds.length > 0) {
-      const subjectRows = await this.queryMany(Prisma.sql`
-        SELECT id, amount, discount
-        FROM subject_package
-        WHERE package_id = ${input.packageId}
-          AND id IN (${Prisma.join(subjectIds)})
-          AND deleted_at IS NULL
-      `);
+      const subjectRows = await this.prisma.subject_package.findMany({
+        where: {
+          package_id: input.packageId,
+          id: { in: subjectIds },
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          amount: true,
+          discount: true,
+        },
+      });
 
       amount = subjectRows.reduce((total, subjectRow) => {
         return total + (toDbNumber(subjectRow.amount) - toDbNumber(subjectRow.discount));
@@ -475,7 +462,7 @@ export class CommerceService {
       package_id: String(input.packageId),
       package_name: toStringValue(packageRow.title),
       user_id: String(userId),
-      course_id: String(toInteger(packageRow.course_id)),
+      course_id: String(packageRow.course_id ?? ''),
       name: toStringValue(user?.name),
       phone: toStringValue(user?.phone),
       email: toStringValue(user?.user_email) || 'php.trogon@gmail.com',
@@ -488,14 +475,17 @@ export class CommerceService {
     return `${EASEBUZZ_PAYMENT_URL}?${paymentQuery.toString()}`;
   }
 
-  async createOrder(userId: number, input: CreateOrderInput): Promise<Record<string, unknown>> {
-    const course = await this.queryOne(Prisma.sql`
-      SELECT id, sale_price
-      FROM course
-      WHERE id = ${input.courseId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async createOrder(userId: string, input: CreateOrderInput): Promise<Record<string, unknown>> {
+    const course = await this.prisma.course.findFirst({
+      where: {
+        id: input.courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        sale_price: true,
+      },
+    });
 
     if (!course) {
       throw new Error('Course not found');
@@ -515,30 +505,21 @@ export class CommerceService {
       },
     });
 
-    const now = new Date().toISOString();
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO create_order (
-        order_id,
-        amount,
-        user_id,
-        course_id,
-        order_status,
-        notes,
-        created_by,
-        created_at,
-        datetime
-      ) VALUES (
-        ${createdOrder.orderId},
-        ${createdOrder.amountMinor / 100},
-        ${userId},
-        ${input.courseId},
-        ${'pending'},
-        ${JSON.stringify(createdOrder.providerPayload?.notes ?? createdOrder.providerPayload ?? {})},
-        ${userId},
-        ${now},
-        ${now}
-      )
-    `);
+    const now = new Date();
+
+    await this.prisma.create_order.create({
+      data: {
+        order_id: createdOrder.orderId,
+        amount: createdOrder.amountMinor / 100,
+        user_id: userId,
+        course_id: input.courseId,
+        order_status: 'pending',
+        notes: JSON.stringify(createdOrder.providerPayload?.notes ?? createdOrder.providerPayload ?? {}),
+        created_by: userId,
+        created_at: now,
+        datetime: now,
+      },
+    });
 
     return {
       order_id: createdOrder.orderId,
@@ -548,22 +529,24 @@ export class CommerceService {
     };
   }
 
-  async completeOrder(userId: number, input: CompleteOrderInput): Promise<boolean> {
-    const course = await this.queryOne(Prisma.sql`
-      SELECT id, sale_price
-      FROM course
-      WHERE id = ${input.courseId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async completeOrder(userId: string, input: CompleteOrderInput): Promise<boolean> {
+    const course = await this.prisma.course.findFirst({
+      where: {
+        id: input.courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        sale_price: true,
+      },
+    });
 
-    const orderDetails = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM create_order
-      WHERE order_id = ${input.razorpayOrderId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const orderDetails = await this.prisma.create_order.findFirst({
+      where: {
+        order_id: input.razorpayOrderId,
+        deleted_at: null,
+      },
+    });
 
     const user = await this.getUserById(userId);
 
@@ -571,7 +554,12 @@ export class CommerceService {
       throw new Error('Unable to verify payment context');
     }
 
-    if (!isValidOrderBinding(orderDetails, userId, input.courseId)) {
+    // Validate order binding
+    if (
+      orderDetails.user_id !== userId ||
+      orderDetails.course_id !== input.courseId ||
+      orderDetails.order_status !== 'pending'
+    ) {
       throw new Error('Payment order verification failed');
     }
 
@@ -586,67 +574,55 @@ export class CommerceService {
     }
 
     const completed = await this.prisma.$transaction(async (tx) => {
-      const duplicatePayment = await tx.$queryRaw<Array<{ count: number | bigint }>>(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM payment_info
-        WHERE razorpay_payment_id = ${input.razorpayPaymentId}
-          AND deleted_at IS NULL
-      `);
+      const duplicatePayment = await tx.payment_info.count({
+        where: {
+          razorpay_payment_id: input.razorpayPaymentId,
+          deleted_at: null,
+        },
+      });
 
-      if (toDbNumber(duplicatePayment[0]?.count) > 0) {
+      if (duplicatePayment > 0) {
         return false;
       }
 
-      const now = new Date().toISOString();
+      const now = new Date();
       const amountPaid = toDbNumber(orderDetails.amount) > 0 ? toDbNumber(orderDetails.amount) : toDbNumber(course.sale_price);
       const userEmail = toNullableString(user.user_email) ?? toNullableString(user.email) ?? '';
 
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO payment_info (
-          user_id,
-          amount_paid,
-          coupon_id,
-          course_id,
-          razorpay_payment_id,
-          user_phone,
-          user_email,
-          razorpay_order_id,
-          razorpay_signature,
-          payment_date,
-          created_at,
-          updated_at,
-          created_by,
-          updated_by
-        ) VALUES (
-          ${userId},
-          ${amountPaid},
-          0,
-          ${input.courseId},
-          ${input.razorpayPaymentId},
-          ${toNullableString(user.phone)},
-          ${userEmail},
-          ${input.razorpayOrderId},
-          ${input.razorpaySignature},
-          ${now},
-          ${now},
-          ${now},
-          ${userId},
-          ${userId}
-        )
-      `);
+      await tx.payment_info.create({
+        data: {
+          user_id: userId,
+          amount_paid: amountPaid,
+          coupon_id: null,
+          course_id: input.courseId,
+          razorpay_payment_id: input.razorpayPaymentId,
+          user_phone: toNullableString(user.phone),
+          user_email: userEmail,
+          razorpay_order_id: input.razorpayOrderId,
+          razorpay_signature: input.razorpaySignature,
+          payment_date: now,
+          created_at: now,
+          updated_at: now,
+          created_by: userId,
+          updated_by: userId,
+        },
+      });
 
-      const updatedOrderCount = await tx.$executeRaw(Prisma.sql`
-        UPDATE create_order
-        SET order_status = ${'completed'},
-            payment_id_raz = ${input.razorpayPaymentId},
-            updated_by = ${userId},
-            updated_at = ${now}
-        WHERE order_id = ${input.razorpayOrderId}
-          AND order_status = ${'pending'}
-          AND deleted_at IS NULL
-      `);
+      const updatedOrder = await tx.create_order.updateMany({
+        where: {
+          order_id: input.razorpayOrderId,
+          order_status: 'pending',
+          deleted_at: null,
+        },
+        data: {
+          order_status: 'completed',
+          payment_id_raz: input.razorpayPaymentId,
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
 
-      if (updatedOrderCount <= 0) {
+      if (updatedOrder.count <= 0) {
         return false;
       }
 
@@ -657,7 +633,7 @@ export class CommerceService {
     return completed;
   }
 
-  async applyCoupon(userId: number, input: ApplyCouponInput): Promise<Record<string, unknown>> {
+  async applyCoupon(userId: string, input: ApplyCouponInput): Promise<Record<string, unknown>> {
     const invalidCoupon = {
       is_free: 0,
       valid: 0,
@@ -670,50 +646,60 @@ export class CommerceService {
       message: 'Coupon Code Expired!',
     };
 
-    const packageRows = input.packageId > 0
-      ? await this.queryMany(Prisma.sql`
-          SELECT *
-          FROM package
-          WHERE id = ${input.packageId}
-            AND deleted_at IS NULL
-          ORDER BY id ASC
-        `)
-      : await this.queryMany(Prisma.sql`
-          SELECT *
-          FROM package
-          WHERE course_id = ${input.courseId}
-            AND deleted_at IS NULL
-          ORDER BY id ASC
-        `);
+    const packageRows = input.packageId
+      ? await this.prisma.course_package.findMany({
+          where: {
+            id: input.packageId,
+            deleted_at: null,
+          },
+          orderBy: { id: 'asc' },
+        })
+      : await this.prisma.course_package.findMany({
+          where: {
+            course_id: input.courseId,
+            deleted_at: null,
+          },
+          orderBy: { id: 'asc' },
+        });
 
     if (packageRows.length === 0) {
       return invalidCoupon;
     }
 
     const packageIds = packageRows
-      .map((packageRow) => toInteger(packageRow.id))
-      .filter((packageId) => packageId > 0);
-    packageIds.push(0);
+      .map((packageRow) => packageRow.id)
+      .filter((id) => !!id);
 
-    const coupon = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM coupon_code
-      WHERE code = ${input.couponCode}
-        AND package_id IN (${Prisma.join(packageIds)})
-        AND user_id IN (${Prisma.join([userId, 0])})
-        AND validity = 1
-        AND start_date <= ${toDateOnlyString(new Date())}
-        AND end_date >= ${toDateOnlyString(new Date())}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const today = new Date(toDateOnlyString(new Date()));
+
+    const coupon = await this.prisma.coupon_code.findFirst({
+      where: {
+        code: input.couponCode,
+        OR: [
+          { package_id: { in: packageIds } },
+          { package_id: null },
+        ],
+        AND: [
+          {
+            OR: [
+              { user_id: userId },
+              { user_id: null },
+            ],
+          },
+        ],
+        validity: 1,
+        start_date: { lte: today },
+        end_date: { gte: today },
+        deleted_at: null,
+      },
+    });
 
     if (!coupon) {
       return invalidCoupon;
     }
 
     const packageData = packageRows[0];
-    const couponId = toInteger(coupon.id);
+    const couponId = coupon.id;
     const totalAppliedCount = await this.couponAppliedCount(couponId);
     const userAppliedCount = await this.couponAppliedCount(couponId, userId);
     const totalAllowed = toInteger(coupon.total_no);
@@ -727,64 +713,45 @@ export class CommerceService {
     const discountPercentage = toInteger(coupon.discount_perc);
 
     if (discountPercentage === 100) {
-      const packageId = input.packageId > 0 ? input.packageId : toInteger(packageData?.id);
+      const packageId = input.packageId || packageData?.id || null;
       const packageDuration = toInteger(packageData?.duration) > 0 ? toInteger(packageData?.duration) : 10;
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + packageDuration);
-      const expiryDateString = toDateOnlyString(expiryDate);
 
       const user = await this.getUserById(userId);
-      const courseId = toInteger(packageData?.course_id);
+      const courseId = packageData?.course_id ?? '';
       const userEmail = toNullableString(user?.user_email) ?? toNullableString(user?.email) ?? '';
       const userPhone = toNullableString(user?.phone);
-      const now = new Date().toISOString();
+      const now = new Date();
 
       await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO payment_info (
-            user_id,
-            package_id,
-            amount_paid,
-            coupon_id,
-            discount,
-            course_id,
-            razorpay_payment_id,
-            user_phone,
-            user_email,
-            payment_date,
-            package_duration,
-            expiry_date,
-            code,
-            created_at,
-            updated_at,
-            created_by,
-            updated_by
-          ) VALUES (
-            ${userId},
-            ${packageId > 0 ? packageId : null},
-            0,
-            ${couponId},
-            ${toDbNumber(packageData?.discount)},
-            ${courseId},
-            ${''},
-            ${userPhone},
-            ${userEmail},
-            ${now},
-            ${packageDuration},
-            ${expiryDateString},
-            ${`${toStringValue(coupon.code)}[${discountPercentage}%]`},
-            ${now},
-            ${now},
-            ${userId},
-            ${userId}
-          )
-        `);
+        await tx.payment_info.create({
+          data: {
+            user_id: userId,
+            package_id: packageId,
+            amount_paid: 0,
+            coupon_id: couponId,
+            discount: toDbNumber(packageData?.discount),
+            course_id: courseId,
+            razorpay_payment_id: '',
+            user_phone: userPhone,
+            user_email: userEmail,
+            payment_date: now,
+            package_duration: packageDuration,
+            expiry_date: expiryDate,
+            code: `${toStringValue(coupon.code)}[${discountPercentage}%]`,
+            created_at: now,
+            updated_at: now,
+            created_by: userId,
+            updated_by: userId,
+          },
+        });
 
         await this.ensureEnrolment(
           tx,
           userId,
           courseId,
-          packageId > 0 ? packageId : null,
+          packageId,
           true,
         );
       });
@@ -810,37 +777,58 @@ export class CommerceService {
     };
   }
 
-  async getStudentCourses(userId: number): Promise<Array<Record<string, unknown>>> {
-    if (userId <= 0) {
+  async getStudentCourses(userId: string): Promise<Array<Record<string, unknown>>> {
+    if (!userId) {
       return [];
     }
 
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT
-        enrol.user_id,
-        enrol.course_id,
-        users.id,
-        course.title,
-        enrol.discount_perc,
-        course.total_amount,
-        enrol.created_at AS enroled_on
-      FROM enrol
-      LEFT JOIN users ON users.id = enrol.user_id
-      LEFT JOIN course ON course.id = enrol.course_id
-      WHERE enrol.user_id = ${userId}
-        AND course.deleted_at IS NULL
-        AND enrol.deleted_at IS NULL
-      ORDER BY enrol.id ASC
-    `);
+    // Fetch enrolments for this user
+    const enrolments = await this.prisma.enrol.findMany({
+      where: {
+        user_id: userId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    if (enrolments.length === 0) {
+      return [];
+    }
+
+    // Collect course IDs and batch-fetch courses
+    const courseIds = [...new Set(enrolments.map((e) => e.course_id))];
+    const courses = await this.prisma.course.findMany({
+      where: {
+        id: { in: courseIds },
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        total_amount: true,
+      },
+    });
+    const courseMap = new Map(courses.map((c) => [c.id, c]));
+
+    // Fetch the user record for id field
+    const userRecord = await this.prisma.users.findFirst({
+      where: { id: userId },
+      select: { id: true },
+    });
 
     const currentDate = toDateOnlyString(new Date());
     const output: Array<Record<string, unknown>> = [];
 
-    for (const row of rows) {
-      const courseId = toInteger(row.course_id);
+    for (const enrolRow of enrolments) {
+      const courseId = enrolRow.course_id;
+      const course = courseMap.get(courseId);
+      if (!course) {
+        continue; // Skip enrolments where the course has been deleted
+      }
+
       const installments = await this.getStudentFeeInstallments(userId, courseId);
-      const totalFee = toDbNumber(row.total_amount);
-      const discount = toDbNumber(row.discount_perc);
+      const totalFee = toDbNumber(course.total_amount);
+      const discount = toDbNumber(enrolRow.discount_perc);
       const discountedPrice = totalFee - (totalFee * (discount / 100));
 
       let amountPaid = 0;
@@ -868,11 +856,11 @@ export class CommerceService {
       }
 
       output.push({
-        user_id: toInteger(row.user_id),
+        user_id: enrolRow.user_id,
         course_id: courseId,
-        id: toInteger(row.id),
-        title: toStringValue(row.title),
-        enroled_on: toStringValue(row.enroled_on),
+        id: userRecord?.id ?? '',
+        title: toStringValue(course.title),
+        enroled_on: toStringValue(enrolRow.created_at),
         total_fee: discountedPrice,
         installments,
         amount_paid: amountPaid,
@@ -885,7 +873,7 @@ export class CommerceService {
     return output;
   }
 
-  async getPaymentDetails(userId: number, courseId: number): Promise<Record<string, unknown>> {
+  async getPaymentDetails(userId: string, courseId: string): Promise<Record<string, unknown>> {
     const installments = await this.getStudentFeeInstallments(userId, courseId);
 
     return {

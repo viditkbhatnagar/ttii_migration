@@ -114,16 +114,16 @@ export interface AddAdminCentreInput {
 }
 
 export interface AssignCentrePlanInput {
-  centreId: number;
-  courseId: number;
+  centreId: string;
+  courseId: string;
   assignedAmount: number;
   startDate: string;
   endDate: string;
 }
 
 export interface AddAdminResourceFileInput {
-  folderId: number;
-  centreId?: number;
+  folderId: string;
+  centreId?: string;
   name: string;
   type: string;
   size: number;
@@ -131,7 +131,7 @@ export interface AddAdminResourceFileInput {
 }
 
 export interface AddAdminLiveClassInput {
-  cohortId: number;
+  cohortId: string;
   zoomId: string;
   password: string;
   entries: Array<{
@@ -149,7 +149,7 @@ export interface ExportAdminReportInput {
   type: 'summary' | 'live_report';
   fromDate?: string;
   toDate?: string;
-  liveId?: number;
+  liveId?: string;
   date?: string;
 }
 
@@ -179,20 +179,20 @@ export interface AddExamInput {
   toDate?: string;
   fromTime?: string;
   toTime?: string;
-  courseId: number;
-  subjectId?: number;
-  lessonId?: number;
-  batchId?: number;
+  courseId: string;
+  subjectId?: string;
+  lessonId?: string;
+  batchId?: string;
   free?: string;
   publishResult?: number;
   isPractice?: number;
-  questionIds?: number[];
+  questionIds?: string[];
 }
 
 export interface AddQuestionInput {
-  courseId: number;
-  subjectId?: number;
-  lessonId?: number;
+  courseId: string;
+  subjectId?: string;
+  lessonId?: string;
   qType?: number;
   title: string;
   options?: string;
@@ -212,8 +212,8 @@ export interface AddAssignmentInput {
   toTime?: string;
   instructions?: string;
   file?: string;
-  courseId: number;
-  cohortId?: number;
+  courseId: string;
+  cohortId?: string;
 }
 
 export interface AddEntranceExamInput {
@@ -224,7 +224,7 @@ export interface AddEntranceExamInput {
   examDate?: string;
   fromTime?: string;
   toTime?: string;
-  courseId: number;
+  courseId: string;
   status?: string;
   questionIds?: string;
 }
@@ -234,10 +234,10 @@ export interface AddEntranceExamInput {
 export interface AddAdminCohortInput {
   title: string;
   cohortCode?: string;
-  courseId: number;
-  subjectId: number;
-  centreId: number;
-  instructorId: number;
+  courseId: string;
+  subjectId: string;
+  centreId: string;
+  instructorId: string;
   startDate: string;
   endDate: string;
 }
@@ -284,8 +284,8 @@ export class AdminPortalApi {
       fromDate?: string;
       toDate?: string;
       listBy?: string;
-      courseId?: number;
-      pipelineRoleId?: number;
+      courseId?: string;
+      pipelineRoleId?: string;
     } = {},
   ): Promise<AdminApplicationsSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/applications/index', authToken, {
@@ -304,9 +304,9 @@ export class AdminPortalApi {
     };
   }
 
-  async loadStudents(authToken: string, courseId = 0): Promise<Record<string, unknown>[]> {
+  async loadStudents(authToken: string, courseId = ''): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/students/index', authToken, {
-      ...(courseId > 0 ? { course_id: courseId } : {}),
+      ...(courseId ? { course_id: courseId } : {}),
     });
 
     return toRecords(payload.data);
@@ -349,7 +349,7 @@ export class AdminPortalApi {
     return toRecords(payload);
   }
 
-  async convertApplication(authToken: string, applicationId: number): Promise<Record<string, unknown>> {
+  async convertApplication(authToken: string, applicationId: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/convert', authToken, {
       application_id: applicationId,
     });
@@ -360,8 +360,8 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async loadSubjects(authToken: string, courseId: number): Promise<Record<string, unknown>[]> {
-    if (courseId <= 0) {
+  async loadSubjects(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    if (!courseId) {
       return [];
     }
 
@@ -372,8 +372,8 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async loadLessons(authToken: string, subjectId: number): Promise<Record<string, unknown>[]> {
-    if (subjectId <= 0) {
+  async loadLessons(authToken: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    if (!subjectId) {
       return [];
     }
 
@@ -384,10 +384,10 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async loadResources(authToken: string, folderId = 0, centreId = 0): Promise<Record<string, unknown>> {
+  async loadResources(authToken: string, folderId = '', centreId = ''): Promise<Record<string, unknown>> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/resources/index', authToken, {
-      folder_id: folderId,
-      ...(centreId > 0 ? { centre_id: centreId } : {}),
+      ...(folderId ? { folder_id: folderId } : {}),
+      ...(centreId ? { centre_id: centreId } : {}),
     });
 
     return asRecord(payload.data) ?? {};
@@ -395,21 +395,21 @@ export class AdminPortalApi {
 
   async addResourceFolder(
     authToken: string,
-    parentId: number,
+    parentId: string,
     name: string,
-    centreId?: number,
+    centreId?: string,
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/resources/add_folder', authToken, {
       parent_id: parentId,
       name,
-      ...(centreId && centreId > 0 ? { centre_id: centreId } : {}),
+      ...(centreId ? { centre_id: centreId } : {}),
     });
   }
 
   async addResourceFile(authToken: string, input: AddAdminResourceFileInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/resources/add_file', authToken, {
       folder_id: input.folderId,
-      ...(input.centreId && input.centreId > 0 ? { centre_id: input.centreId } : {}),
+      ...(input.centreId ? { centre_id: input.centreId } : {}),
       name: input.name,
       type: input.type,
       size: input.size,
@@ -442,21 +442,21 @@ export class AdminPortalApi {
   async loadAssessments(
     authToken: string,
     input: {
-      courseId?: number;
-      subjectId?: number;
-      lessonId?: number;
-      cohortId?: number;
+      courseId?: string;
+      subjectId?: string;
+      lessonId?: string;
+      cohortId?: string;
     } = {},
   ): Promise<AdminAssessmentSnapshot> {
     const [examsPayload, assignmentsPayload] = await Promise.all([
       this.get<LegacyEnvelope<Record<string, unknown>>>('/exams/index', authToken, {
-        ...(input.courseId && input.courseId > 0 ? { course_id: input.courseId } : {}),
-        ...(input.subjectId && input.subjectId > 0 ? { subject_id: input.subjectId } : {}),
-        ...(input.lessonId && input.lessonId > 0 ? { lesson_id: input.lessonId } : {}),
+        ...(input.courseId ? { course_id: input.courseId } : {}),
+        ...(input.subjectId ? { subject_id: input.subjectId } : {}),
+        ...(input.lessonId ? { lesson_id: input.lessonId } : {}),
       }),
       this.get<LegacyEnvelope<Record<string, unknown>>>('/assignment/index', authToken, {
-        ...(input.subjectId && input.subjectId > 0 ? { subject_id: input.subjectId } : {}),
-        ...(input.cohortId && input.cohortId > 0 ? { cohort_id: input.cohortId } : {}),
+        ...(input.subjectId ? { subject_id: input.subjectId } : {}),
+        ...(input.cohortId ? { cohort_id: input.cohortId } : {}),
       }),
     ]);
 
@@ -492,7 +492,7 @@ export class AdminPortalApi {
       type: input.type,
       ...(input.fromDate ? { from_date: input.fromDate } : {}),
       ...(input.toDate ? { to_date: input.toDate } : {}),
-      ...(input.liveId && input.liveId > 0 ? { live_id: input.liveId } : {}),
+      ...(input.liveId ? { live_id: input.liveId } : {}),
       ...(input.date ? { date: input.date } : {}),
     });
 
@@ -504,12 +504,12 @@ export class AdminPortalApi {
     };
   }
 
-  async loadLiveReport(authToken: string, liveId = 0, joinDate = ''): Promise<{
+  async loadLiveReport(authToken: string, liveId = '', joinDate = ''): Promise<{
     lives: Record<string, unknown>[];
     listItems: Record<string, unknown>[];
   }> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/live_report/index', authToken, {
-      ...(liveId > 0 ? { live_id: liveId } : {}),
+      ...(liveId ? { live_id: liveId } : {}),
       ...(joinDate.trim() !== '' ? { date: joinDate } : {}),
     });
 
@@ -609,16 +609,16 @@ export class AdminPortalApi {
     return asString(value);
   }
 
-  static firstCourseId(rows: Record<string, unknown>[]): number {
-    return asNumber(firstRecord(rows)?.id);
+  static firstCourseId(rows: Record<string, unknown>[]): string {
+    return asString(firstRecord(rows)?.id);
   }
 
-  static firstSubjectId(rows: Record<string, unknown>[]): number {
-    return asNumber(firstRecord(rows)?.id);
+  static firstSubjectId(rows: Record<string, unknown>[]): string {
+    return asString(firstRecord(rows)?.id);
   }
 
-  static firstLiveId(rows: Record<string, unknown>[]): number {
-    return asNumber(firstRecord(rows)?.id) || asNumber(firstRecord(rows)?.live_id);
+  static firstLiveId(rows: Record<string, unknown>[]): string {
+    return asString(firstRecord(rows)?.id) || asString(firstRecord(rows)?.live_id);
   }
 
   // ─── Phase 1: Admin Dashboard (dedicated endpoint) ────────────────────────
@@ -644,12 +644,12 @@ export class AdminPortalApi {
 
   async editBatch(
     authToken: string,
-    input: { id: number; title: string; description?: string; status?: string },
+    input: { id: string; title: string; description?: string; status?: string },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/batch/edit', authToken, input);
   }
 
-  async deleteBatch(authToken: string, id: number): Promise<Record<string, unknown>> {
+  async deleteBatch(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/batch/delete', authToken, { id });
   }
 
@@ -657,7 +657,7 @@ export class AdminPortalApi {
 
   async loadPayments(
     authToken: string,
-    input: { fromDate?: string; toDate?: string; courseId?: number } = {},
+    input: { fromDate?: string; toDate?: string; courseId?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/payments/index', authToken, {
       ...(input.fromDate ? { from_date: input.fromDate } : {}),
@@ -672,7 +672,7 @@ export class AdminPortalApi {
 
   async loadAdminCohorts(
     authToken: string,
-    input: { courseId?: number; subjectId?: number; centreId?: number; status?: string } = {},
+    input: { courseId?: string; subjectId?: string; centreId?: string; status?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/centres/cohorts', authToken, {
       ...(input.courseId ? { course_id: input.courseId } : {}),
@@ -708,7 +708,7 @@ export class AdminPortalApi {
 
   async loadAdminWalletStatus(
     authToken: string,
-    input: { centreId?: number; centreName?: string } = {},
+    input: { centreId?: string; centreName?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/wallet/index', authToken, {
       ...(input.centreId ? { centre_id: input.centreId } : {}),
@@ -734,7 +734,7 @@ export class AdminPortalApi {
 
   async addBanner(
     authToken: string,
-    input: { title?: string; image?: string; courseId?: number; status?: string },
+    input: { title?: string; image?: string; courseId?: string; status?: string },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/banners/add', authToken, {
       title: input.title,
@@ -773,7 +773,7 @@ export class AdminPortalApi {
 
   async loadQuestionBank(
     authToken: string,
-    filters: { courseId?: number; subjectId?: number; lessonId?: number; qType?: number } = {},
+    filters: { courseId?: string; subjectId?: string; lessonId?: string; qType?: number } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/question_bank/index', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
@@ -799,7 +799,7 @@ export class AdminPortalApi {
     });
   }
 
-  async editQuestion(authToken: string, id: number, input: AddQuestionInput): Promise<Record<string, unknown>> {
+  async editQuestion(authToken: string, id: string, input: AddQuestionInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/question_bank/edit', authToken, {
       id,
       course_id: input.courseId,
@@ -815,7 +815,7 @@ export class AdminPortalApi {
     });
   }
 
-  async deleteQuestion(authToken: string, id: number): Promise<Record<string, unknown>> {
+  async deleteQuestion(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/question_bank/delete', authToken, { id });
   }
 
@@ -823,7 +823,7 @@ export class AdminPortalApi {
 
   async loadAdminExams(
     authToken: string,
-    filters: { courseId?: number; subjectId?: number; batchId?: number; status?: string } = {},
+    filters: { courseId?: string; subjectId?: string; batchId?: string; status?: string } = {},
   ): Promise<AdminExamListSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/exam/index', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
@@ -867,7 +867,7 @@ export class AdminPortalApi {
     });
   }
 
-  async editExam(authToken: string, id: number, input: AddExamInput): Promise<Record<string, unknown>> {
+  async editExam(authToken: string, id: string, input: AddExamInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/edit', authToken, {
       id,
       title: input.title,
@@ -888,11 +888,11 @@ export class AdminPortalApi {
     });
   }
 
-  async deleteExam(authToken: string, id: number): Promise<Record<string, unknown>> {
+  async deleteExam(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/delete', authToken, { id });
   }
 
-  async publishExamResult(authToken: string, examId: number): Promise<Record<string, unknown>> {
+  async publishExamResult(authToken: string, examId: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/publish_result', authToken, { id: examId });
   }
 
@@ -900,7 +900,7 @@ export class AdminPortalApi {
 
   async loadAdminAssignments(
     authToken: string,
-    filters: { courseId?: number; cohortId?: number } = {},
+    filters: { courseId?: string; cohortId?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/index', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
@@ -925,7 +925,7 @@ export class AdminPortalApi {
     });
   }
 
-  async editAssignment(authToken: string, id: number, input: AddAssignmentInput): Promise<Record<string, unknown>> {
+  async editAssignment(authToken: string, id: string, input: AddAssignmentInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/assignment/edit', authToken, {
       id,
       title: input.title,
@@ -941,11 +941,11 @@ export class AdminPortalApi {
     });
   }
 
-  async deleteAssignment(authToken: string, id: number): Promise<Record<string, unknown>> {
+  async deleteAssignment(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/assignment/delete', authToken, { id });
   }
 
-  async loadAssignmentSubmissions(authToken: string, assignmentId: number): Promise<Record<string, unknown>[]> {
+  async loadAssignmentSubmissions(authToken: string, assignmentId: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/submissions', authToken, {
       assignment_id: assignmentId,
     });
@@ -954,7 +954,7 @@ export class AdminPortalApi {
 
   async evaluateSubmission(
     authToken: string,
-    submissionId: number,
+    submissionId: string,
     marks: string,
     remarks?: string,
   ): Promise<Record<string, unknown>> {
@@ -969,7 +969,7 @@ export class AdminPortalApi {
 
   async loadAdminExamResults(
     authToken: string,
-    filters: { examId?: number; courseId?: number; batchId?: number } = {},
+    filters: { examId?: string; courseId?: string; batchId?: string } = {},
   ): Promise<AdminExamResultSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/Exam_result/index', authToken, {
       ...(filters.examId ? { exam_id: filters.examId } : {}),
@@ -989,7 +989,7 @@ export class AdminPortalApi {
 
   async loadExamEvaluations(
     authToken: string,
-    filters: { examId?: number; courseId?: number } = {},
+    filters: { examId?: string; courseId?: string } = {},
   ): Promise<AdminExamEvaluationSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/Exam_evaluation/index', authToken, {
       ...(filters.examId ? { exam_id: filters.examId } : {}),
@@ -1004,7 +1004,7 @@ export class AdminPortalApi {
     };
   }
 
-  async evaluateExamAttempt(authToken: string, attemptId: number, score: number): Promise<Record<string, unknown>> {
+  async evaluateExamAttempt(authToken: string, attemptId: string, score: number): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/Exam_evaluation/evaluate', authToken, {
       attempt_id: attemptId,
       score,
@@ -1015,7 +1015,7 @@ export class AdminPortalApi {
 
   async loadReExams(
     authToken: string,
-    filters: { courseId?: number; batchId?: number } = {},
+    filters: { courseId?: string; batchId?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/Re_exam/index', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
@@ -1024,7 +1024,7 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async grantReExam(authToken: string, examId: number, userIds: number[]): Promise<Record<string, unknown>> {
+  async grantReExam(authToken: string, examId: string, userIds: string[]): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/Re_exam/grant', authToken, {
       exam_id: examId,
       user_ids: userIds,
@@ -1053,7 +1053,7 @@ export class AdminPortalApi {
     });
   }
 
-  async editEntranceExam(authToken: string, id: number, input: AddEntranceExamInput): Promise<Record<string, unknown>> {
+  async editEntranceExam(authToken: string, id: string, input: AddEntranceExamInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/entrance_exam/edit', authToken, {
       id,
       title: input.title,
@@ -1069,18 +1069,18 @@ export class AdminPortalApi {
     });
   }
 
-  async deleteEntranceExam(authToken: string, id: number): Promise<Record<string, unknown>> {
+  async deleteEntranceExam(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/entrance_exam/delete', authToken, { id });
   }
 
-  async loadEntranceExamRegistrations(authToken: string, examId?: number): Promise<Record<string, unknown>[]> {
+  async loadEntranceExamRegistrations(authToken: string, examId?: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/entrance_exam/registrations', authToken, {
       ...(examId ? { exam_id: examId } : {}),
     });
     return toRecords(payload.data);
   }
 
-  async loadEntranceExamResults(authToken: string, examId?: number): Promise<Record<string, unknown>[]> {
+  async loadEntranceExamResults(authToken: string, examId?: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/entrance_exam/results', authToken, {
       ...(examId ? { exam_id: examId } : {}),
     });
@@ -1122,7 +1122,7 @@ export class AdminPortalApi {
 
   async loadFeeInstallments(
     authToken: string,
-    filters: { courseId?: number; status?: string } = {},
+    filters: { courseId?: string; status?: string } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/installments', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
@@ -1133,7 +1133,7 @@ export class AdminPortalApi {
 
   async loadPaymentStatus(
     authToken: string,
-    filters: { fromDate?: string; toDate?: string; courseId?: number } = {},
+    filters: { fromDate?: string; toDate?: string; courseId?: string } = {},
   ): Promise<AdminPaymentStatusSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/payment_status', authToken, {
       ...(filters.fromDate ? { from_date: filters.fromDate } : {}),
@@ -1149,7 +1149,7 @@ export class AdminPortalApi {
     };
   }
 
-  async loadCohortAttendance(authToken: string, cohortId?: number): Promise<Record<string, unknown>[]> {
+  async loadCohortAttendance(authToken: string, cohortId?: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/cohorts/attendance', authToken, {
       ...(cohortId ? { cohort_id: cohortId } : {}),
     });
@@ -1252,6 +1252,48 @@ export class AdminPortalApi {
 
   async loadLanguages(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/language/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  // ── Phase 6: Additional pages ──────────────────────────────────
+
+  async loadRoles(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/roles/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadStudentPayments(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/student_payments/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadEnquiries(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/enquiries/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadBooks(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/books/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadReferrals(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/referrals/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadShortContent(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/short_content/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadTestimonials(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/testimonials/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async loadPackages(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/packages/index', authToken);
     return toRecords(payload.data);
   }
 }

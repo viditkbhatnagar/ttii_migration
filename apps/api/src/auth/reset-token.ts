@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 interface PasswordResetPayload {
-  uid: number;
+  uid: string;
   eh: string;
   iat: number;
   exp: number;
@@ -10,7 +10,7 @@ interface PasswordResetPayload {
 }
 
 interface CreateResetTokenInput {
-  userId: number;
+  userId: string;
   email: string;
   currentPasswordHash: string;
   signingKey: string;
@@ -19,7 +19,7 @@ interface CreateResetTokenInput {
 
 interface ValidateResetTokenInput {
   token: string;
-  expectedUserId: number;
+  expectedUserId: string;
   expectedEmail: string;
   currentPasswordHash: string;
   signingKey: string;

@@ -94,13 +94,13 @@ export interface StudentDashboardSnapshot {
 }
 
 export interface StudentProfileSnapshot {
-  userId: number;
+  userId: string;
   roleId: number;
   name: string;
   email: string;
   phone: string;
   studentId: string;
-  courseId: number;
+  courseId: string;
   image: string;
   academicYear: string;
   source: 'profile' | 'session';
@@ -111,9 +111,9 @@ export interface StudentLearningSnapshot {
   subjects: Record<string, unknown>[];
   lessons: Record<string, unknown>[];
   lessonFiles: Record<string, unknown>[];
-  selectedCourseId: number;
-  selectedSubjectId: number;
-  selectedLessonId: number;
+  selectedCourseId: string;
+  selectedSubjectId: string;
+  selectedLessonId: string;
   streakTotal: number;
   streakCurrent: number;
 }
@@ -129,16 +129,16 @@ export interface StudentAssessmentSnapshot {
     expired: Record<string, unknown>[];
   };
   examCalendar: Record<string, unknown>;
-  quizLessonFileId: number;
-  quizLessonId: number;
+  quizLessonFileId: string;
+  quizLessonId: string;
 }
 
 export interface StudentPaymentSnapshot {
   studentCourses: Record<string, unknown>[];
   packages: Record<string, unknown>[];
   paymentDetails: Record<string, unknown>;
-  selectedCourseId: number;
-  selectedPackageId: number;
+  selectedCourseId: string;
+  selectedPackageId: string;
 }
 
 export interface StudentNotificationsSnapshot {
@@ -164,8 +164,8 @@ export interface StudentPasswordUpdateInput {
 }
 
 export interface StudentCouponInput {
-  courseId: number;
-  packageId: number;
+  courseId: string;
+  packageId: string;
   couponCode: string;
 }
 
@@ -250,13 +250,13 @@ export class StudentPortalApi {
       const profile = asRecord(payload.data) ?? {};
 
       return {
-        userId: asNumber(profile.id) || session.userId,
+        userId: asString(profile.id) || String(session.userId),
         roleId: asNumber(profile.role_id) || session.roleId,
         name: asString(profile.name),
         email: asString(profile.user_email) || asString(profile.email),
         phone: asString(profile.phone),
         studentId: asString(profile.student_id),
-        courseId: asNumber(profile.course_id),
+        courseId: asString(profile.course_id),
         image: asString(profile.image),
         academicYear: asString(profile.academic_year),
         source: 'profile',
@@ -264,13 +264,13 @@ export class StudentPortalApi {
     } catch (error: unknown) {
       if (error instanceof ApiError && error.statusCode === 404) {
         return {
-          userId: session.userId,
+          userId: String(session.userId),
           roleId: session.roleId,
           name: '',
           email: '',
           phone: '',
           studentId: '',
-          courseId: 0,
+          courseId: '',
           image: '',
           academicYear: '',
           source: 'session',
@@ -307,9 +307,9 @@ export class StudentPortalApi {
       .map((entry) => asRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null);
 
-    const selectedCourseId = asNumber(firstRecord(courses)?.id);
+    const selectedCourseId = asString(firstRecord(courses)?.id);
 
-    const subjectsPayload = selectedCourseId > 0
+    const subjectsPayload = selectedCourseId
       ? await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, {
           course_id: selectedCourseId,
         })
@@ -319,9 +319,9 @@ export class StudentPortalApi {
       .map((entry) => asRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null);
 
-    const selectedSubjectId = asNumber(firstRecord(subjects)?.id);
+    const selectedSubjectId = asString(firstRecord(subjects)?.id);
 
-    const lessonsPayload = selectedSubjectId > 0
+    const lessonsPayload = selectedSubjectId
       ? await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons', authToken, {
           subject_id: selectedSubjectId,
         })
@@ -331,9 +331,9 @@ export class StudentPortalApi {
       .map((entry) => asRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null);
 
-    const selectedLessonId = asNumber(firstRecord(lessons)?.id);
+    const selectedLessonId = asString(firstRecord(lessons)?.id);
 
-    const lessonFilesPayload = selectedLessonId > 0
+    const lessonFilesPayload = selectedLessonId
       ? await this.get<LegacyEnvelope<unknown[]>>('/lesson_file/index', authToken, {
           lesson_id: selectedLessonId,
         })
@@ -364,7 +364,7 @@ export class StudentPortalApi {
 
   async saveVideoProgress(
     authToken: string,
-    input: { courseId: number; lessonFileId: number; lessonDuration: string; userProgress: string },
+    input: { courseId: string; lessonFileId: string; lessonDuration: string; userProgress: string },
   ): Promise<void> {
     await this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/save_video_progress', authToken, {
       course_id: input.courseId,
@@ -376,7 +376,7 @@ export class StudentPortalApi {
 
   async saveMaterialProgress(
     authToken: string,
-    input: { courseId: number; lessonFileId: number; attachmentType: string },
+    input: { courseId: string; lessonFileId: string; attachmentType: string },
   ): Promise<void> {
     await this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/save_material_progress', authToken, {
       course_id: input.courseId,
@@ -385,11 +385,11 @@ export class StudentPortalApi {
     });
   }
 
-  private async resolveQuizCandidate(authToken: string): Promise<{ lessonId: number; lessonFileId: number }> {
+  private async resolveQuizCandidate(authToken: string): Promise<{ lessonId: string; lessonFileId: string }> {
     const learning = await this.loadLearning(authToken);
 
     for (const lesson of learning.lessons) {
-      const lessonId = asNumber(lesson.id);
+      const lessonId = asString(lesson.id);
       const lessonFiles = asArray(lesson.lesson_files);
 
       for (const lessonFile of lessonFiles) {
@@ -402,15 +402,15 @@ export class StudentPortalApi {
         if (attachmentType === 'quiz') {
           return {
             lessonId,
-            lessonFileId: asNumber(file.id),
+            lessonFileId: asString(file.id),
           };
         }
       }
     }
 
     return {
-      lessonId: 0,
-      lessonFileId: 0,
+      lessonId: '',
+      lessonFileId: '',
     };
   }
 
@@ -441,45 +441,45 @@ export class StudentPortalApi {
     };
   }
 
-  async toggleSavedAssignment(authToken: string, assignmentId: number): Promise<void> {
+  async toggleSavedAssignment(authToken: string, assignmentId: string): Promise<void> {
     await this.get<LegacyEnvelope<Record<string, unknown>>>('/assignment/save_assignment', authToken, {
       assignment_id: assignmentId,
     });
   }
 
-  async submitAssignment(authToken: string, assignmentId: number, answerFiles: unknown): Promise<void> {
+  async submitAssignment(authToken: string, assignmentId: string, answerFiles: unknown): Promise<void> {
     await this.post<LegacyEnvelope<Record<string, unknown>>>('/assignment/submit_assignment', authToken, {
       assignment_id: assignmentId,
       answer_file: toAnswerFiles(answerFiles),
     });
   }
 
-  async startExamAttempt(authToken: string, examId: number): Promise<number> {
+  async startExamAttempt(authToken: string, examId: string): Promise<string> {
     const payload = await this.post<Record<string, unknown>>('/exams/exam_save_start', authToken, {
       exam_id: examId,
     });
 
-    return asNumber(payload.attempt_id);
+    return asString(payload.attempt_id);
   }
 
-  async submitExamAttempt(authToken: string, attemptId: number, userAnswers: unknown[] = []): Promise<void> {
+  async submitExamAttempt(authToken: string, attemptId: string, userAnswers: unknown[] = []): Promise<void> {
     await this.post<LegacyEnvelope<Record<string, unknown>>>('/exams/exam_save_result', authToken, {
       attempt_id: attemptId,
       user_answers: userAnswers,
     });
   }
 
-  async startQuizAttempt(authToken: string, lessonFileId: number): Promise<number> {
+  async startQuizAttempt(authToken: string, lessonFileId: string): Promise<string> {
     const payload = await this.post<Record<string, unknown>>('/quiz/start_quiz', authToken, {
       exam_id: lessonFileId,
     });
 
-    return asNumber(payload.attempt_id);
+    return asString(payload.attempt_id);
   }
 
   async submitQuizAttempt(
     authToken: string,
-    input: { attemptId: number; lessonFileId: number; userAnswers?: unknown[] },
+    input: { attemptId: string; lessonFileId: string; userAnswers?: unknown[] },
   ): Promise<void> {
     await this.post<LegacyEnvelope<Record<string, unknown>>>('/quiz/save_quiz_result', authToken, {
       attempt_id: input.attemptId,
@@ -490,8 +490,8 @@ export class StudentPortalApi {
 
   async startPracticeAttempt(
     authToken: string,
-    input: { lessonId: number; lessonFileId: number; questionNo?: number },
-  ): Promise<number> {
+    input: { lessonId: string; lessonFileId: string; questionNo?: number },
+  ): Promise<string> {
     const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>('/practice/start_practice', authToken, {
       lesson_id: input.lessonId,
       lesson_file_id: input.lessonFileId,
@@ -499,31 +499,31 @@ export class StudentPortalApi {
     });
 
     const data = asRecord(payload.data) ?? {};
-    return asNumber(data.attempt_id);
+    return asString(data.attempt_id);
   }
 
-  async submitPracticeAttempt(authToken: string, attemptId: number, userAnswers: unknown[] = []): Promise<void> {
+  async submitPracticeAttempt(authToken: string, attemptId: string, userAnswers: unknown[] = []): Promise<void> {
     await this.post<LegacyEnvelope<Record<string, unknown>>>('/practice/save_practice_result', authToken, {
       attempt_id: attemptId,
       user_answers: userAnswers,
     });
   }
 
-  async loadPayments(authToken: string, preferredCourseId = 0): Promise<StudentPaymentSnapshot> {
+  async loadPayments(authToken: string, preferredCourseId = ''): Promise<StudentPaymentSnapshot> {
     const studentCoursesPayload = await this.get<LegacyEnvelope<unknown[]>>('/payment/get_student_courses', authToken);
     const studentCourses = asArray(studentCoursesPayload.data)
       .map((entry) => asRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null);
 
-    const firstCourse = preferredCourseId > 0 ? preferredCourseId : asNumber(firstRecord(studentCourses)?.course_id);
+    const firstCourse = preferredCourseId || asString(firstRecord(studentCourses)?.course_id);
 
     const [packagesPayload, paymentDetailsPayload] = await Promise.all([
-      firstCourse > 0
+      firstCourse
         ? this.get<LegacyEnvelope<Record<string, unknown>>>('/packages/index', authToken, {
             course_id: firstCourse,
           })
         : Promise.resolve({ data: { packages: [] } as Record<string, unknown> }),
-      firstCourse > 0
+      firstCourse
         ? this.get<LegacyEnvelope<Record<string, unknown>>>('/payment/get_payment_details', authToken, {
             course_id: firstCourse,
           })
@@ -540,7 +540,7 @@ export class StudentPortalApi {
       packages,
       paymentDetails: asRecord(paymentDetailsPayload.data) ?? {},
       selectedCourseId: firstCourse,
-      selectedPackageId: asNumber(firstRecord(packages)?.id),
+      selectedPackageId: asString(firstRecord(packages)?.id),
     };
   }
 
@@ -554,7 +554,7 @@ export class StudentPortalApi {
     return response;
   }
 
-  async createOrder(authToken: string, courseId: number): Promise<Record<string, unknown>> {
+  async createOrder(authToken: string, courseId: string): Promise<Record<string, unknown>> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/payment/create_order', authToken, {
       course_id: courseId,
     });
@@ -582,7 +582,7 @@ export class StudentPortalApi {
     };
   }
 
-  async markNotificationAsRead(authToken: string, notificationId: number): Promise<void> {
+  async markNotificationAsRead(authToken: string, notificationId: string): Promise<void> {
     await this.get<LegacyEnvelope<Record<string, unknown>>>('/home/mark_notification_as_read', authToken, {
       notification_id: notificationId,
     });

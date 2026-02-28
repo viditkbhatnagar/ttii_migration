@@ -83,15 +83,15 @@ export interface RegisterInput extends RequestMeta {
 }
 
 export interface VerifyOtpInput extends RequestMeta {
-  userId: number;
+  userId: string;
   otp: string;
   deviceId?: string | undefined;
   purpose?: string | undefined;
 }
 
 interface OtpIssueResult {
-  userId: number;
-  challengeId: number;
+  userId: string;
+  challengeId: string;
   otp?: string | undefined;
 }
 
@@ -410,7 +410,7 @@ export class AuthService {
     return env.NODE_ENV === 'production' ? {} : { token: generated.token };
   }
 
-  async validatePasswordResetToken(userId: number, token: string): Promise<{ email: string }> {
+  async validatePasswordResetToken(userId: string, token: string): Promise<{ email: string }> {
     const state = await this.getValidPasswordResetState(userId, token);
     return {
       email: state.canonicalEmail,
@@ -418,7 +418,7 @@ export class AuthService {
   }
 
   async updatePasswordWithResetToken(input: {
-    userId: number;
+    userId: string;
     email: string;
     token: string;
     password: string;
@@ -491,7 +491,7 @@ export class AuthService {
   }
 
   async registerStudent(input: RegisterInput): Promise<{
-    userId: number;
+    userId: string;
     studentId: string;
     otp?: string | undefined;
   }> {
@@ -568,7 +568,7 @@ export class AuthService {
     });
 
     const response: {
-      userId: number;
+      userId: string;
       studentId: string;
       otp?: string | undefined;
     } = {
@@ -640,7 +640,7 @@ export class AuthService {
     return this.issueOtpForUser(user, purpose, input.requestMeta);
   }
 
-  async resendOtpForUser(userId: number, requestMeta: RequestMeta): Promise<OtpIssueResult> {
+  async resendOtpForUser(userId: string, requestMeta: RequestMeta): Promise<OtpIssueResult> {
     const user = await this.prisma.users.findFirst({
       where: {
         id: userId,
@@ -659,7 +659,7 @@ export class AuthService {
     const purpose = input.purpose?.trim() || 'login';
     const normalizedOtp = input.otp.trim();
 
-    if (!Number.isInteger(input.userId) || input.userId <= 0 || !isTruthyString(normalizedOtp)) {
+    if (!isTruthyString(input.userId) || !isTruthyString(normalizedOtp)) {
       throw new AuthErrorClass(400, 'Invalid OTP request.', 'VALIDATION_ERROR');
     }
 
@@ -797,7 +797,7 @@ export class AuthService {
   }
 
   async logRbacDenied(input: {
-    userId: number | null;
+    userId: string | null;
     requiredRoles: readonly number[];
     requestMeta: RequestMeta;
     path: string;
@@ -857,7 +857,7 @@ export class AuthService {
     });
   }
 
-  private async createSession(userId: number, requestMeta: RequestMeta): Promise<{ token: string; expiresAt: Date }> {
+  private async createSession(userId: string, requestMeta: RequestMeta): Promise<{ token: string; expiresAt: Date }> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + env.AUTH_SESSION_TTL_SECONDS * 1000);
     const token = generateOpaqueAuthToken();
@@ -869,6 +869,7 @@ export class AuthService {
         created_at: now,
         updated_at: now,
         expires_at: expiresAt,
+        revoked_at: null,
         ip_address: requestMeta.ipAddress ?? null,
         user_agent: requestMeta.userAgent ?? null,
       },
@@ -912,9 +913,9 @@ export class AuthService {
   }
 
   private async getValidPasswordResetState(
-    userId: number,
+    userId: string,
     token: string,
-  ): Promise<{ user: users; tokenRecord: { id: number }; canonicalEmail: string }> {
+  ): Promise<{ user: users; tokenRecord: { id: string }; canonicalEmail: string }> {
     if (!isTruthyString(token)) {
       throw toLegacyPasswordResetError();
     }
@@ -1095,13 +1096,13 @@ export class AuthService {
     return otp;
   }
 
-  private hashOtp(userId: number, purpose: string, otp: string): string {
+  private hashOtp(userId: string, purpose: string, otp: string): string {
     return createHmac('sha256', env.OTP_SIGNING_KEY)
       .update(`${userId}:${purpose}:${otp}`)
       .digest('hex');
   }
 
-  private buildPasswordResetUrl(userId: number, token: string): string {
+  private buildPasswordResetUrl(userId: string, token: string): string {
     const baseUrl = env.APP_BASE_URL.replace(/\/+$/, '');
     const encodedToken = encodeURIComponent(token);
     return `${baseUrl}/api/login/reset_password/${userId}?token=${encodedToken}`;
@@ -1110,7 +1111,7 @@ export class AuthService {
   private async writeAuditLog(input: {
     event: string;
     success: boolean;
-    userId: number | null;
+    userId: string | null;
     identifier: string | null;
     requestMeta: RequestMeta;
     details?: Record<string, unknown>;

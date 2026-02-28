@@ -473,9 +473,9 @@ function StudentLearningSection({ api, session }: { api: StudentPortalApi; sessi
     }
 
     const firstFile = firstRecord(data.lessonFiles);
-    const lessonFileId = asNumber(firstFile?.id);
+    const lessonFileId = asString(firstFile?.id);
 
-    if (lessonFileId <= 0 || data.selectedCourseId <= 0) {
+    if (!lessonFileId || !data.selectedCourseId) {
       setActionState({ pending: false, message: '', error: 'No lesson file available for progress update.' });
       return;
     }
@@ -631,8 +631,8 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
 
   const toggleFirstSavedAssignment = async (): Promise<void> => {
     const first = firstRecord(snapshot?.assignments.current ?? []);
-    const assignmentId = asNumber(first?.id);
-    if (assignmentId <= 0) {
+    const assignmentId = asString(first?.id);
+    if (!assignmentId) {
       setActionState({ pending: false, message: '', error: 'No current assignment to toggle.' });
       return;
     }
@@ -644,8 +644,8 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
 
   const submitFirstAssignment = async (): Promise<void> => {
     const first = firstRecord(snapshot?.assignments.current ?? []);
-    const assignmentId = asNumber(first?.id);
-    if (assignmentId <= 0) {
+    const assignmentId = asString(first?.id);
+    if (!assignmentId) {
       setActionState({ pending: false, message: '', error: 'No current assignment to submit.' });
       return;
     }
@@ -657,16 +657,16 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
 
   const submitFirstExam = async (): Promise<void> => {
     const first = firstRecord(snapshot?.exams.expired ?? snapshot?.exams.upcoming ?? []);
-    const examId = asNumber(first?.id);
+    const examId = asString(first?.id);
 
-    if (examId <= 0) {
+    if (!examId) {
       setActionState({ pending: false, message: '', error: 'No exam available to submit.' });
       return;
     }
 
     await runAction(async () => {
       const attemptId = await api.startExamAttempt(session.token, examId);
-      if (attemptId > 0) {
+      if (attemptId) {
         await api.submitExamAttempt(session.token, attemptId, []);
       }
     }, 'Exam attempt lifecycle executed.');
@@ -674,14 +674,14 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
 
   const submitQuizAndPractice = async (): Promise<void> => {
     const data = snapshot;
-    if (!data || data.quizLessonFileId <= 0) {
+    if (!data || !data.quizLessonFileId) {
       setActionState({ pending: false, message: '', error: 'No quiz lesson file discovered.' });
       return;
     }
 
     await runAction(async () => {
       const quizAttemptId = await api.startQuizAttempt(session.token, data.quizLessonFileId);
-      if (quizAttemptId > 0) {
+      if (quizAttemptId) {
         await api.submitQuizAttempt(session.token, {
           attemptId: quizAttemptId,
           lessonFileId: data.quizLessonFileId,
@@ -695,7 +695,7 @@ function StudentAssessmentsSection({ api, session }: { api: StudentPortalApi; se
         questionNo: 1,
       });
 
-      if (practiceAttemptId > 0) {
+      if (practiceAttemptId) {
         await api.submitPracticeAttempt(session.token, practiceAttemptId, []);
       }
     }, 'Quiz and practice workflows executed.');
@@ -842,7 +842,7 @@ function StudentPaymentsSection({ api, session }: { api: StudentPortalApi; sessi
 
   const applyCoupon = async (): Promise<void> => {
     const data = snapshot;
-    if (!data || data.selectedCourseId <= 0 || data.selectedPackageId <= 0 || couponCode.trim() === '') {
+    if (!data || !data.selectedCourseId || !data.selectedPackageId || couponCode.trim() === '') {
       setActionState({ pending: false, message: '', error: 'Coupon input requires course, package, and code.' });
       return;
     }
@@ -865,7 +865,7 @@ function StudentPaymentsSection({ api, session }: { api: StudentPortalApi; sessi
 
   const createOrder = async (): Promise<void> => {
     const data = snapshot;
-    if (!data || data.selectedCourseId <= 0) {
+    if (!data || !data.selectedCourseId) {
       setActionState({ pending: false, message: '', error: 'No course available for order creation.' });
       return;
     }
@@ -1011,9 +1011,9 @@ function StudentNotificationsSection({ api, session }: { api: StudentPortalApi; 
 
   const markFirstRead = async (): Promise<void> => {
     const first = firstRecord(snapshot?.notifications ?? []);
-    const notificationId = asNumber(first?.id);
+    const notificationId = asString(first?.id);
 
-    if (notificationId <= 0) {
+    if (!notificationId) {
       setActionState({ pending: false, message: '', error: 'No notification to mark as read.' });
       return;
     }

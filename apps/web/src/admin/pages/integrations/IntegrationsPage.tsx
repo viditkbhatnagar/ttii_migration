@@ -51,13 +51,13 @@ export default function IntegrationsPage({ api, session }: AdminPageProps) {
       let placed = false;
       for (const g of SETTING_GROUPS) {
         if (g.keywords.length > 0 && g.keywords.some((kw) => lk.includes(kw))) {
-          groups[g.title].push({ key, value });
+          groups[g.title]?.push({ key, value });
           placed = true;
           break;
         }
       }
       if (!placed) {
-        groups['Other'].push({ key, value });
+        groups['Other']?.push({ key, value });
       }
     }
 

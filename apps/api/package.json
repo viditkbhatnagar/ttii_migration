@@ -4,28 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "test": "npm run db:prepare:test && DATABASE_URL='file:./prisma/test.db' vitest run --dir tests --no-file-parallelism",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:bootstrap": "rm -f prisma/dev.db && sqlite3 prisma/dev.db < prisma/core-schema.sql",
-    "db:introspect": "npm run db:bootstrap && DATABASE_URL='file:./dev.db' prisma db pull --schema prisma/schema.prisma && HOME='/tmp/prisma-home' DATABASE_URL='file:./dev.db' prisma generate --schema prisma/schema.prisma",
-    "db:prepare:test": "rm -f prisma/test.db && sqlite3 prisma/test.db < prisma/core-schema.sql",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:push": "prisma db push --schema prisma/schema.prisma",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed-from-sql": "tsx prisma/seed-from-sql.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
-    "@prisma/adapter-better-sqlite3": "^6.16.2",
     "@prisma/client": "^6.16.2",
-    "better-sqlite3": "^12.6.2",
+    "bcryptjs": "^3.0.3",
     "fastify": "^5.6.1",
     "mysql2": "^3.17.4",
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "prisma": "^6.16.2",
     "tsx": "^4.20.6"
   }

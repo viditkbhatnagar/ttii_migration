@@ -1,7 +1,7 @@
 import type { users } from '@prisma/client';
 
 export interface AuthContext {
-  sessionId: number;
+  sessionId: string;
   tokenHash: string;
   user: users;
 }
@@ -12,11 +12,11 @@ export interface RequestMeta {
 }
 
 export interface LegacyUserData {
-  user_id: number;
+  user_id: string;
   student_id: string;
   user_name: string;
   role_id: number | '';
-  course_id: number | '';
+  course_id: string | '';
   auth_token: string;
   user_email: string;
   user_phone: string;

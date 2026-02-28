@@ -1,11 +1,9 @@
-import { Prisma, type PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
 import type { EmailProvider, IntegrationRegistry } from '../integrations/contracts.js';
-
-type SqlRow = Record<string, unknown>;
 
 function toDbNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -257,8 +255,8 @@ function arraysEqual(left: string[], right: string[]): boolean {
   return left.every((entry, index) => entry === right[index]);
 }
 
-function parseAnswerMap(userAnswers: unknown): Map<number, unknown> {
-  const answerMap = new Map<number, unknown>();
+function parseAnswerMap(userAnswers: unknown): Map<string, unknown> {
+  const answerMap = new Map<string, unknown>();
   if (!Array.isArray(userAnswers)) {
     return answerMap;
   }
@@ -269,8 +267,8 @@ function parseAnswerMap(userAnswers: unknown): Map<number, unknown> {
     }
 
     const record = row as Record<string, unknown>;
-    const questionId = toInteger(record.question_id);
-    if (questionId <= 0) {
+    const questionId = toStringValue(record.question_id).trim();
+    if (questionId === '') {
       continue;
     }
 
@@ -286,37 +284,37 @@ interface AssessmentServiceDependencies {
 }
 
 export interface ExamFilterInput {
-  courseId?: number;
-  subjectId?: number;
-  lessonId?: number;
+  courseId?: string;
+  subjectId?: string;
+  lessonId?: string;
 }
 
 export interface StartExamAttemptInput {
-  examId: number;
+  examId: string;
 }
 
 export interface SubmitAttemptInput {
-  attemptId: number;
+  attemptId: string;
   userAnswers: unknown;
 }
 
 export interface StartQuizAttemptInput {
-  examId: number;
+  examId: string;
 }
 
 export interface StartPracticeAttemptInput {
-  lessonId?: number;
-  lessonFileId?: number;
+  lessonId?: string;
+  lessonFileId?: string;
   questionNo?: number;
 }
 
 export interface AssignmentFilterInput {
-  subjectId?: number;
-  cohortId?: number;
+  subjectId?: string;
+  cohortId?: string;
 }
 
 export interface SubmitAssignmentInput {
-  assignmentId: number;
+  assignmentId: string;
   answerFiles?: unknown;
 }
 
@@ -340,20 +338,6 @@ export class AssessmentService {
 
   private readonly prisma: PrismaClient;
 
-  private async queryMany(sql: Prisma.Sql): Promise<SqlRow[]> {
-    return this.prisma.$queryRaw<SqlRow[]>(sql);
-  }
-
-  private async queryOne(sql: Prisma.Sql): Promise<SqlRow | null> {
-    const rows = await this.queryMany(sql);
-    return rows[0] ?? null;
-  }
-
-  private async count(sql: Prisma.Sql): Promise<number> {
-    const row = await this.queryOne(sql);
-    return toDbNumber(row?.count);
-  }
-
   private toFileUrl(path: unknown): string {
     const normalized = toNullableString(path);
     if (!normalized) {
@@ -367,22 +351,32 @@ export class AssessmentService {
     return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
   }
 
-  private async getUserById(userId: number): Promise<SqlRow | null> {
-    if (userId <= 0) {
+  private async getUserById(userId: string): Promise<Record<string, unknown> | null> {
+    if (!userId) {
       return null;
     }
 
-    return this.queryOne(Prisma.sql`
-      SELECT id, name, email, user_email, role_id, course_id, premium
-      FROM users
-      WHERE id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const user = await this.prisma.users.findFirst({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        user_email: true,
+        role_id: true,
+        course_id: true,
+        premium: true,
+      },
+    });
+
+    return user as Record<string, unknown> | null;
   }
 
-  private async userPurchaseStatus(userId: number, courseId: number): Promise<'on' | 'off'> {
-    if (userId <= 0 || courseId <= 0) {
+  private async userPurchaseStatus(userId: string, courseId: string): Promise<'on' | 'off'> {
+    if (!userId || !courseId) {
       return 'off';
     }
 
@@ -398,51 +392,55 @@ export class AssessmentService {
       return 'on';
     }
 
-    const course = await this.queryOne(Prisma.sql`
-      SELECT is_free_course
-      FROM course
-      WHERE id = ${courseId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const course = await this.prisma.course.findFirst({
+      where: {
+        id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        is_free_course: true,
+      },
+    });
 
     if (toInteger(course?.is_free_course) === 1) {
       return 'on';
     }
 
-    const today = toDateOnlyString(new Date());
-    const payments = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM payment_info
-      WHERE user_id = ${userId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-        AND expiry_date IS NOT NULL
-        AND expiry_date >= ${today}
-    `);
+    const now = new Date();
+    const payments = await this.prisma.payment_info.count({
+      where: {
+        user_id: userId,
+        course_id: courseId,
+        deleted_at: null,
+        expiry_date: {
+          not: null,
+          gte: now,
+        },
+      },
+    });
 
     return payments > 0 ? 'on' : 'off';
   }
 
-  private async toExamData(exam: SqlRow, userId: number): Promise<Record<string, unknown>> {
-    const examId = toInteger(exam.id);
-    const courseId = toInteger(exam.course_id);
+  private async toExamData(exam: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+    const examId = toStringValue(exam.id);
+    const courseId = toStringValue(exam.course_id);
 
     const [questionCount, isAttempted, purchaseStatus] = await Promise.all([
-      this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM exam_questions
-        WHERE exam_id = ${examId}
-          AND deleted_at IS NULL
-      `),
-      this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM exam_attempt
-        WHERE exam_id = ${examId}
-          AND user_id = ${userId}
-          AND submit_status = 1
-          AND deleted_at IS NULL
-      `),
+      this.prisma.exam_questions.count({
+        where: {
+          exam_id: examId,
+          deleted_at: null,
+        },
+      }),
+      this.prisma.exam_attempt.count({
+        where: {
+          exam_id: examId,
+          user_id: userId,
+          submit_status: 1,
+          deleted_at: null,
+        },
+      }),
       this.userPurchaseStatus(userId, courseId),
     ]);
 
@@ -460,7 +458,7 @@ export class AssessmentService {
     };
   }
 
-  async listExams(userId: number, filter: ExamFilterInput): Promise<Record<string, unknown>> {
+  async listExams(userId: string, filter: ExamFilterInput): Promise<Record<string, unknown>> {
     const user = await this.getUserById(userId);
     if (!user) {
       return {
@@ -469,31 +467,38 @@ export class AssessmentService {
       };
     }
 
-    const resolvedCourseId = (filter.courseId ?? 0) > 0 ? filter.courseId ?? 0 : toInteger(user.course_id);
-    if (resolvedCourseId <= 0) {
+    const resolvedCourseId = filter.courseId || toStringValue(user.course_id);
+    if (!resolvedCourseId) {
       return {
         upcoming_exams: [],
         expired_exams: [],
       };
     }
 
-    let sql = 'SELECT * FROM exam WHERE course_id = ? AND deleted_at IS NULL';
-    const params: number[] = [resolvedCourseId];
+    const whereClause: Record<string, unknown> = {
+      course_id: resolvedCourseId,
+      deleted_at: null,
+    };
 
-    if ((filter.subjectId ?? 0) > 0) {
-      sql += ' AND subject_id = ?';
-      params.push(filter.subjectId ?? 0);
+    if (filter.subjectId) {
+      whereClause.subject_id = filter.subjectId;
     }
 
-    if ((filter.lessonId ?? 0) > 0) {
-      sql += ' AND lesson_id = ?';
-      params.push(filter.lessonId ?? 0);
+    if (filter.lessonId) {
+      whereClause.lesson_id = filter.lessonId;
     }
 
-    sql += ' ORDER BY from_date ASC, from_time ASC';
-    const exams = await this.prisma.$queryRawUnsafe<SqlRow[]>(sql, ...params);
+    const exams = await this.prisma.exam.findMany({
+      where: whereClause,
+      orderBy: [
+        { from_date: 'asc' },
+        { from_time: 'asc' },
+      ],
+    });
 
-    const examData = await Promise.all(exams.map((exam) => this.toExamData(exam, userId)));
+    const examData = await Promise.all(
+      exams.map((exam) => this.toExamData(exam as unknown as Record<string, unknown>, userId)),
+    );
 
     const now = Date.now();
     const upcomingExams: Record<string, unknown>[] = [];
@@ -520,21 +525,28 @@ export class AssessmentService {
     };
   }
 
-  async getExamCalendar(userId: number, courseId?: number): Promise<Record<string, unknown>> {
+  async getExamCalendar(userId: string, courseId?: string): Promise<Record<string, unknown>> {
     const user = await this.getUserById(userId);
-    const resolvedCourseId = (courseId ?? 0) > 0 ? courseId ?? 0 : toInteger(user?.course_id);
+    const resolvedCourseId = courseId || toStringValue(user?.course_id);
 
-    if (resolvedCourseId <= 0) {
+    if (!resolvedCourseId) {
       return this.getEmptyExamCalendar();
     }
 
-    const exams = await this.queryMany(Prisma.sql`
-      SELECT id, from_date
-      FROM exam
-      WHERE course_id = ${resolvedCourseId}
-        AND deleted_at IS NULL
-      ORDER BY from_date ASC, id ASC
-    `);
+    const exams = await this.prisma.exam.findMany({
+      where: {
+        course_id: resolvedCourseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        from_date: true,
+      },
+      orderBy: [
+        { from_date: 'asc' },
+        { id: 'asc' },
+      ],
+    });
 
     if (exams.length === 0) {
       return this.getEmptyExamCalendar();
@@ -563,9 +575,18 @@ export class AssessmentService {
     let completedExams = 0;
     let todayStatus = 0;
 
+    // Build a set of exam date strings for efficient lookup
+    const examDateSet = new Set<string>();
+    for (const exam of exams) {
+      const d = parseDate(exam.from_date);
+      if (d) {
+        examDateSet.add(toDateOnlyString(d));
+      }
+    }
+
     while (currentDate.getTime() <= normalizedEndDate.getTime()) {
       const dayKey = toDateOnlyString(currentDate);
-      const hasExam = exams.some((exam) => toNullableString(exam.from_date) === dayKey);
+      const hasExam = examDateSet.has(dayKey);
 
       let status = '0';
       if (hasExam) {
@@ -628,84 +649,83 @@ export class AssessmentService {
     };
   }
 
-  async startExamAttempt(userId: number, input: StartExamAttemptInput): Promise<{ attemptId: number; questionNo: number }> {
-    if (input.examId <= 0 || userId <= 0) {
-      return { attemptId: 0, questionNo: 0 };
+  async startExamAttempt(userId: string, input: StartExamAttemptInput): Promise<{ attemptId: string; questionNo: number }> {
+    if (!input.examId || !userId) {
+      return { attemptId: '', questionNo: 0 };
     }
 
-    const questions = await this.queryMany(Prisma.sql`
-      SELECT question_id
-      FROM exam_questions
-      WHERE exam_id = ${input.examId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE(question_no, id) ASC, id ASC
-    `);
+    const questions = await this.prisma.exam_questions.findMany({
+      where: {
+        exam_id: input.examId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        question_id: true,
+        question_no: true,
+      },
+      orderBy: [
+        { question_no: 'asc' },
+        { id: 'asc' },
+      ],
+    });
 
-    const questionIds = questions.map((question) => toInteger(question.question_id)).filter((id) => id > 0);
-    const now = new Date().toISOString();
+    const questionIds = questions
+      .map((q) => toStringValue(q.question_id).trim())
+      .filter((id) => id !== '');
 
-    const inserted = await this.prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-      INSERT INTO exam_attempt (
-        user_id,
-        exam_id,
-        question_no,
-        question_id,
-        start_time,
-        submit_status,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${input.examId},
-        ${questionIds.length},
-        ${JSON.stringify(questionIds)},
-        ${now},
-        0,
-        ${userId},
-        ${now}
-      )
-      RETURNING id
-    `);
+    const now = new Date();
+
+    const created = await this.prisma.exam_attempt.create({
+      data: {
+        user_id: userId,
+        exam_id: input.examId,
+        question_no: questionIds.length,
+        question_id: JSON.stringify(questionIds),
+        start_time: now,
+        submit_status: 0,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
     return {
-      attemptId: toInteger(inserted[0]?.id),
+      attemptId: created.id,
       questionNo: questionIds.length,
     };
   }
 
   private async finalizeExamAttempt(
-    attempt: SqlRow,
-    userId: number,
+    attemptId: string,
+    userId: string,
     scored: ScoredAttemptSummary,
   ): Promise<void> {
-    const attemptId = toInteger(attempt.id);
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      UPDATE exam_attempt
-      SET
-        end_time = ${now},
-        time_taken = ${scored.timeTaken},
-        correct = ${scored.correct},
-        incorrect = ${scored.incorrect},
-        skip = ${scored.skip},
-        score = ${scored.score},
-        submit_status = 1,
-        updated_by = ${userId},
-        updated_at = ${now}
-      WHERE id = ${attemptId}
-    `);
+    await this.prisma.exam_attempt.update({
+      where: { id: attemptId },
+      data: {
+        end_time: now,
+        time_taken: scored.timeTaken,
+        correct: scored.correct,
+        incorrect: scored.incorrect,
+        skip: scored.skip,
+        score: scored.score,
+        submit_status: 1,
+        updated_by: userId,
+        updated_at: now,
+      },
+    });
   }
 
-  async submitExamAttempt(userId: number, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
-    const attempt = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM exam_attempt
-      WHERE id = ${input.attemptId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async submitExamAttempt(userId: string, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
+    const attempt = await this.prisma.exam_attempt.findFirst({
+      where: {
+        id: input.attemptId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     if (!attempt) {
       return {
@@ -717,46 +737,71 @@ export class AssessmentService {
       };
     }
 
-    const examId = toInteger(attempt.exam_id);
+    const examId = attempt.exam_id;
     const questionIds = toNormalizedStringArray(attempt.question_id)
-      .map((id) => toInteger(id))
-      .filter((id) => id > 0);
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
 
     const userAnswerMap = parseAnswerMap(input.userAnswers);
 
-    const questions =
-      questionIds.length > 0
-        ? await this.queryMany(Prisma.sql`
-            SELECT
-              exam_questions.question_id,
-              exam_questions.mark,
-              exam_questions.negative_mark,
-              question_bank.correct_answers
-            FROM exam_questions
-            JOIN question_bank ON question_bank.id = exam_questions.question_id
-            WHERE exam_questions.exam_id = ${examId}
-              AND exam_questions.question_id IN (${Prisma.join(questionIds)})
-              AND exam_questions.deleted_at IS NULL
-              AND question_bank.deleted_at IS NULL
-            ORDER BY COALESCE(exam_questions.question_no, exam_questions.id) ASC, exam_questions.id ASC
-          `)
-        : [];
+    // Fetch exam_questions and question_bank separately (no JOIN in MongoDB)
+    let examQuestions: Array<{ question_id: string; mark: number | null; negative_mark: number | null }> = [];
+    if (questionIds.length > 0) {
+      examQuestions = await this.prisma.exam_questions.findMany({
+        where: {
+          exam_id: examId,
+          question_id: { in: questionIds },
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          question_id: true,
+          question_no: true,
+          mark: true,
+          negative_mark: true,
+        },
+        orderBy: [
+          { question_no: 'asc' },
+          { id: 'asc' },
+        ],
+      });
+    }
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      DELETE FROM exam_answer
-      WHERE attempt_id = ${toInteger(attempt.id)}
-    `);
+    // Fetch correct answers from question_bank
+    const qbIds = examQuestions.map((eq) => eq.question_id);
+    const questionBankRows = qbIds.length > 0
+      ? await this.prisma.question_bank.findMany({
+          where: {
+            id: { in: qbIds },
+            deleted_at: null,
+          },
+          select: {
+            id: true,
+            correct_answers: true,
+          },
+        })
+      : [];
+
+    const qbMap = new Map<string, string | null>();
+    for (const qb of questionBankRows) {
+      qbMap.set(qb.id, qb.correct_answers);
+    }
+
+    // Delete old answers for this attempt
+    await this.prisma.exam_answer.deleteMany({
+      where: { attempt_id: attempt.id },
+    });
 
     let correct = 0;
     let incorrect = 0;
     let skip = 0;
     let score = 0;
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    for (const question of questions) {
-      const questionId = toInteger(question.question_id);
-      const rawCorrect = toNormalizedStringArray(question.correct_answers);
+    for (const eqRow of examQuestions) {
+      const questionId = eqRow.question_id;
+      const rawCorrect = toNormalizedStringArray(qbMap.get(questionId));
       const normalizedCorrect = sortedCopy(rawCorrect);
 
       const hasAnswer = userAnswerMap.has(questionId);
@@ -775,38 +820,28 @@ export class AssessmentService {
 
       if (status === 1) {
         correct += 1;
-        score += toDbNumber(question.mark) || 4;
+        score += toDbNumber(eqRow.mark) || 4;
       } else if (status === 2) {
         incorrect += 1;
-        const negativeMark = toDbNumber(question.negative_mark);
+        const negativeMark = toDbNumber(eqRow.negative_mark);
         score -= negativeMark > 0 ? negativeMark : 1;
       } else {
         skip += 1;
       }
 
-      await this.prisma.$executeRaw(Prisma.sql`
-        INSERT INTO exam_answer (
-          user_id,
-          exam_id,
-          attempt_id,
-          question_id,
-          answer_correct,
-          answer_submitted,
-          answer_status,
-          created_by,
-          created_at
-        ) VALUES (
-          ${userId},
-          ${examId},
-          ${toInteger(attempt.id)},
-          ${questionId},
-          ${JSON.stringify(normalizedCorrect)},
-          ${JSON.stringify(submittedAnswers)},
-          ${status},
-          ${userId},
-          ${now}
-        )
-      `);
+      await this.prisma.exam_answer.create({
+        data: {
+          user_id: userId,
+          exam_id: examId,
+          attempt_id: attempt.id,
+          question_id: questionId,
+          answer_correct: JSON.stringify(normalizedCorrect),
+          answer_submitted: JSON.stringify(submittedAnswers),
+          answer_status: status,
+          created_by: userId,
+          created_at: now,
+        },
+      });
     }
 
     const startedAt = parseDate(attempt.start_time);
@@ -820,64 +855,56 @@ export class AssessmentService {
       timeTaken: formatDurationFromSeconds(elapsedSeconds),
     };
 
-    await this.finalizeExamAttempt(attempt, userId, summary);
+    await this.finalizeExamAttempt(attempt.id, userId, summary);
     return summary;
   }
 
-  async startQuizAttempt(userId: number, input: StartQuizAttemptInput): Promise<{ attemptId: number; questionNo: number }> {
-    if (input.examId <= 0 || userId <= 0) {
-      return { attemptId: 0, questionNo: 0 };
+  async startQuizAttempt(userId: string, input: StartQuizAttemptInput): Promise<{ attemptId: string; questionNo: number }> {
+    if (!input.examId || !userId) {
+      return { attemptId: '', questionNo: 0 };
     }
 
-    const questions = await this.queryMany(Prisma.sql`
-      SELECT id
-      FROM quiz
-      WHERE lesson_file_id = ${input.examId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const questions = await this.prisma.quiz.findMany({
+      where: {
+        lesson_file_id: input.examId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+      },
+      orderBy: { id: 'asc' },
+    });
 
-    const questionIds = questions.map((question) => toInteger(question.id)).filter((id) => id > 0);
-    const now = new Date().toISOString();
+    const questionIds = questions.map((q) => q.id);
+    const now = new Date();
 
-    const inserted = await this.prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-      INSERT INTO exam_attempt (
-        user_id,
-        exam_id,
-        question_no,
-        question_id,
-        start_time,
-        submit_status,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${input.examId},
-        ${questionIds.length},
-        ${JSON.stringify(questionIds)},
-        ${now},
-        0,
-        ${userId},
-        ${now}
-      )
-      RETURNING id
-    `);
+    const created = await this.prisma.exam_attempt.create({
+      data: {
+        user_id: userId,
+        exam_id: input.examId,
+        question_no: questionIds.length,
+        question_id: JSON.stringify(questionIds),
+        start_time: now,
+        submit_status: 0,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
     return {
-      attemptId: toInteger(inserted[0]?.id),
+      attemptId: created.id,
       questionNo: questionIds.length,
     };
   }
 
-  async submitQuizAttempt(userId: number, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
-    const attempt = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM exam_attempt
-      WHERE id = ${input.attemptId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async submitQuizAttempt(userId: string, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
+    const attempt = await this.prisma.exam_attempt.findFirst({
+      where: {
+        id: input.attemptId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     if (!attempt) {
       return {
@@ -889,38 +916,44 @@ export class AssessmentService {
       };
     }
 
-    const quizId = toInteger(attempt.exam_id);
+    const quizId = attempt.exam_id;
     const questionIds = toNormalizedStringArray(attempt.question_id)
-      .map((id) => toInteger(id))
-      .filter((id) => id > 0);
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
 
     const questions =
       questionIds.length > 0
-        ? await this.queryMany(Prisma.sql`
-            SELECT id, question_type, answer_id, answer_ids
-            FROM quiz
-            WHERE id IN (${Prisma.join(questionIds)})
-              AND lesson_file_id = ${quizId}
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-          `)
+        ? await this.prisma.quiz.findMany({
+            where: {
+              id: { in: questionIds },
+              lesson_file_id: quizId,
+              deleted_at: null,
+            },
+            select: {
+              id: true,
+              question_type: true,
+              answer_id: true,
+              answer_ids: true,
+            },
+            orderBy: { id: 'asc' },
+          })
         : [];
 
     const userAnswerMap = parseAnswerMap(input.userAnswers);
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      DELETE FROM exam_answer
-      WHERE attempt_id = ${toInteger(attempt.id)}
-    `);
+    // Delete old answers for this attempt
+    await this.prisma.exam_answer.deleteMany({
+      where: { attempt_id: attempt.id },
+    });
 
     let correct = 0;
     let incorrect = 0;
     let skip = 0;
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     for (const question of questions) {
-      const questionId = toInteger(question.id);
+      const questionId = question.id;
       const questionType = toInteger(question.question_type);
 
       const correctAnswers =
@@ -956,29 +989,19 @@ export class AssessmentService {
         skip += 1;
       }
 
-      await this.prisma.$executeRaw(Prisma.sql`
-        INSERT INTO exam_answer (
-          user_id,
-          exam_id,
-          attempt_id,
-          question_id,
-          answer_correct,
-          answer_submitted,
-          answer_status,
-          created_by,
-          created_at
-        ) VALUES (
-          ${userId},
-          ${quizId},
-          ${toInteger(attempt.id)},
-          ${questionId},
-          ${JSON.stringify(correctAnswers)},
-          ${JSON.stringify(submittedAnswers)},
-          ${status},
-          ${userId},
-          ${now}
-        )
-      `);
+      await this.prisma.exam_answer.create({
+        data: {
+          user_id: userId,
+          exam_id: quizId,
+          attempt_id: attempt.id,
+          question_id: questionId,
+          answer_correct: JSON.stringify(correctAnswers),
+          answer_submitted: JSON.stringify(submittedAnswers),
+          answer_status: status,
+          created_by: userId,
+          created_at: now,
+        },
+      });
     }
 
     const startedAt = parseDate(attempt.start_time);
@@ -992,107 +1015,107 @@ export class AssessmentService {
       timeTaken: formatDurationFromSeconds(elapsedSeconds),
     };
 
-    await this.finalizeExamAttempt(attempt, userId, summary);
+    await this.finalizeExamAttempt(attempt.id, userId, summary);
     return summary;
   }
 
   async startPracticeAttempt(
-    userId: number,
+    userId: string,
     input: StartPracticeAttemptInput,
-  ): Promise<{ attemptId: number; questionNo: number }> {
-    if (userId <= 0) {
-      return { attemptId: 0, questionNo: 0 };
+  ): Promise<{ attemptId: string; questionNo: number }> {
+    if (!userId) {
+      return { attemptId: '', questionNo: 0 };
     }
 
-    const lessonFileId = input.lessonFileId ?? 0;
-    const lessonId = input.lessonId ?? 0;
+    const lessonFileId = input.lessonFileId ?? '';
+    const lessonId = input.lessonId ?? '';
 
-    let questionRows: SqlRow[] = [];
-    let lessonIds: number[] = [];
+    let questionRows: Array<{ id: string }> = [];
+    let lessonIds: string[] = [];
 
-    if (lessonFileId > 0) {
-      questionRows = await this.queryMany(Prisma.sql`
-        SELECT id
-        FROM quiz
-        WHERE lesson_file_id = ${lessonFileId}
-          AND deleted_at IS NULL
-        ORDER BY id ASC
-      `);
+    if (lessonFileId) {
+      questionRows = await this.prisma.quiz.findMany({
+        where: {
+          lesson_file_id: lessonFileId,
+          deleted_at: null,
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
 
-      const lessonFile = await this.queryOne(Prisma.sql`
-        SELECT lesson_id
-        FROM lesson_files
-        WHERE id = ${lessonFileId}
-          AND deleted_at IS NULL
-        LIMIT 1
-      `);
+      const lessonFile = await this.prisma.lesson_files.findFirst({
+        where: {
+          id: lessonFileId,
+          deleted_at: null,
+        },
+        select: { lesson_id: true },
+      });
 
-      const resolvedLessonId = toInteger(lessonFile?.lesson_id);
-      if (resolvedLessonId > 0) {
+      const resolvedLessonId = toStringValue(lessonFile?.lesson_id).trim();
+      if (resolvedLessonId) {
         lessonIds = [resolvedLessonId];
       }
-    } else if (lessonId > 0) {
-      questionRows = await this.queryMany(Prisma.sql`
-        SELECT quiz.id
-        FROM quiz
-        JOIN lesson_files ON lesson_files.id = quiz.lesson_file_id
-        WHERE lesson_files.lesson_id = ${lessonId}
-          AND quiz.deleted_at IS NULL
-          AND lesson_files.deleted_at IS NULL
-        ORDER BY quiz.id ASC
-      `);
+    } else if (lessonId) {
+      // Find all lesson_files for this lesson, then find quizzes
+      const lessonFiles = await this.prisma.lesson_files.findMany({
+        where: {
+          lesson_id: lessonId,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+
+      const lessonFileIds = lessonFiles.map((lf) => lf.id);
+      if (lessonFileIds.length > 0) {
+        questionRows = await this.prisma.quiz.findMany({
+          where: {
+            lesson_file_id: { in: lessonFileIds },
+            deleted_at: null,
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+      }
       lessonIds = [lessonId];
     }
 
-    let questionIds = questionRows.map((question) => toInteger(question.id)).filter((id) => id > 0);
+    let questionIds = questionRows.map((q) => q.id);
 
     const questionNo = input.questionNo ?? 0;
     if (questionNo > 0 && questionNo < questionIds.length) {
       questionIds = questionIds.slice(0, questionNo);
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-      INSERT INTO practice_attempt (
-        user_id,
-        lesson_id,
-        lesson_file_id,
-        question_no,
-        question_id,
-        start_time,
-        submit_status,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${JSON.stringify(lessonIds)},
-        ${lessonFileId > 0 ? lessonFileId : null},
-        ${questionIds.length},
-        ${JSON.stringify(questionIds)},
-        ${now},
-        0,
-        ${userId},
-        ${now}
-      )
-      RETURNING id
-    `);
+    const created = await this.prisma.practice_attempt.create({
+      data: {
+        user_id: userId,
+        lesson_id: JSON.stringify(lessonIds),
+        lesson_file_id: lessonFileId || null,
+        question_no: questionIds.length,
+        question_id: JSON.stringify(questionIds),
+        start_time: now,
+        submit_status: 0,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
     return {
-      attemptId: toInteger(inserted[0]?.id),
+      attemptId: created.id,
       questionNo: questionIds.length,
     };
   }
 
-  async submitPracticeAttempt(userId: number, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
-    const attempt = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM practice_attempt
-      WHERE id = ${input.attemptId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async submitPracticeAttempt(userId: string, input: SubmitAttemptInput): Promise<ScoredAttemptSummary> {
+    const attempt = await this.prisma.practice_attempt.findFirst({
+      where: {
+        id: input.attemptId,
+        user_id: userId,
+        deleted_at: null,
+      },
+    });
 
     if (!attempt) {
       return {
@@ -1105,35 +1128,40 @@ export class AssessmentService {
     }
 
     const questionIds = toNormalizedStringArray(attempt.question_id)
-      .map((id) => toInteger(id))
-      .filter((id) => id > 0);
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
 
     const questions =
       questionIds.length > 0
-        ? await this.queryMany(Prisma.sql`
-            SELECT id, answer_id, answer_ids
-            FROM quiz
-            WHERE id IN (${Prisma.join(questionIds)})
-              AND deleted_at IS NULL
-            ORDER BY id ASC
-          `)
+        ? await this.prisma.quiz.findMany({
+            where: {
+              id: { in: questionIds },
+              deleted_at: null,
+            },
+            select: {
+              id: true,
+              answer_id: true,
+              answer_ids: true,
+            },
+            orderBy: { id: 'asc' },
+          })
         : [];
 
     const userAnswerMap = parseAnswerMap(input.userAnswers);
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      DELETE FROM practice_answer
-      WHERE attempt_id = ${toInteger(attempt.id)}
-    `);
+    // Delete old answers for this attempt
+    await this.prisma.practice_answer.deleteMany({
+      where: { attempt_id: attempt.id },
+    });
 
     let correct = 0;
     let incorrect = 0;
     let skip = 0;
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
     for (const question of questions) {
-      const questionId = toInteger(question.id);
+      const questionId = question.id;
       const parsedAnswerIds = sortedCopy(toNormalizedStringArray(question.answer_ids));
       const correctAnswers = parsedAnswerIds.length > 0 ? parsedAnswerIds : toNormalizedStringArray([question.answer_id]);
 
@@ -1165,27 +1193,18 @@ export class AssessmentService {
         skip += 1;
       }
 
-      await this.prisma.$executeRaw(Prisma.sql`
-        INSERT INTO practice_answer (
-          user_id,
-          attempt_id,
-          question_id,
-          answer_correct,
-          answer_submitted,
-          answer_status,
-          created_by,
-          created_at
-        ) VALUES (
-          ${userId},
-          ${toInteger(attempt.id)},
-          ${questionId},
-          ${JSON.stringify(sortedCopy(correctAnswers))},
-          ${JSON.stringify(submittedAnswers)},
-          ${status},
-          ${userId},
-          ${now}
-        )
-      `);
+      await this.prisma.practice_answer.create({
+        data: {
+          user_id: userId,
+          attempt_id: attempt.id,
+          question_id: questionId,
+          answer_correct: JSON.stringify(sortedCopy(correctAnswers)),
+          answer_submitted: JSON.stringify(submittedAnswers),
+          answer_status: status,
+          created_by: userId,
+          created_at: now,
+        },
+      });
     }
 
     const startedAt = parseDate(attempt.start_time);
@@ -1201,67 +1220,78 @@ export class AssessmentService {
       timeTaken: formatDurationFromSeconds(elapsedSeconds),
     };
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      UPDATE practice_attempt
-      SET
-        end_time = ${now},
-        time_taken = ${summary.timeTaken},
-        correct = ${correct},
-        incorrect = ${incorrect},
-        skip = ${skip},
-        score = ${score},
-        submit_status = 1,
-        updated_by = ${userId},
-        updated_at = ${now}
-      WHERE id = ${toInteger(attempt.id)}
-    `);
+    await this.prisma.practice_attempt.update({
+      where: { id: attempt.id },
+      data: {
+        end_time: now,
+        time_taken: summary.timeTaken,
+        correct,
+        incorrect,
+        skip,
+        score,
+        submit_status: 1,
+        updated_by: userId,
+        updated_at: now,
+      },
+    });
 
     return summary;
   }
 
-  private async getAssignmentsForCohort(cohortId: number, userId: number): Promise<Record<string, unknown>[]> {
-    const assignments = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM assignment
-      WHERE cohort_id = ${cohortId}
-        AND deleted_at IS NULL
-      ORDER BY due_date ASC, from_time ASC, id ASC
-    `);
+  private async getAssignmentsForCohort(cohortId: string, userId: string): Promise<Record<string, unknown>[]> {
+    const assignments = await this.prisma.assignment.findMany({
+      where: {
+        cohort_id: cohortId,
+        deleted_at: null,
+      },
+      orderBy: [
+        { due_date: 'asc' },
+        { from_time: 'asc' },
+        { id: 'asc' },
+      ],
+    });
 
     const assignmentData = await Promise.all(
-      assignments.map((assignment) => this.toAssignmentData(assignment, userId)),
+      assignments.map((assignment) =>
+        this.toAssignmentData(assignment as unknown as Record<string, unknown>, userId),
+      ),
     );
 
     return assignmentData;
   }
 
-  private async toAssignmentData(assignment: SqlRow, userId: number): Promise<Record<string, unknown>> {
-    const assignmentId = toInteger(assignment.id);
+  private async toAssignmentData(assignment: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+    const assignmentId = toStringValue(assignment.id);
 
     const [savedCount, submissionCount, submission] = await Promise.all([
-      this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM saved_assignments
-        WHERE user_id = ${userId}
-          AND assignment_id = ${assignmentId}
-          AND deleted_at IS NULL
-      `),
-      this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM assignment_submissions
-        WHERE user_id = ${userId}
-          AND assignment_id = ${assignmentId}
-          AND deleted_at IS NULL
-      `),
-      this.queryOne(Prisma.sql`
-        SELECT assignment_files, marks, remarks, created_at
-        FROM assignment_submissions
-        WHERE user_id = ${userId}
-          AND assignment_id = ${assignmentId}
-          AND deleted_at IS NULL
-        ORDER BY id DESC
-        LIMIT 1
-      `),
+      this.prisma.saved_assignments.count({
+        where: {
+          user_id: userId,
+          assignment_id: assignmentId,
+          deleted_at: null,
+        },
+      }),
+      this.prisma.assignment_submissions.count({
+        where: {
+          user_id: userId,
+          assignment_id: assignmentId,
+          deleted_at: null,
+        },
+      }),
+      this.prisma.assignment_submissions.findFirst({
+        where: {
+          user_id: userId,
+          assignment_id: assignmentId,
+          deleted_at: null,
+        },
+        select: {
+          assignment_files: true,
+          marks: true,
+          remarks: true,
+          created_at: true,
+        },
+        orderBy: { id: 'desc' },
+      }),
     ]);
 
     const status = submissionCount > 0 ? 'Completed' : 'Current';
@@ -1300,13 +1330,13 @@ export class AssessmentService {
     };
   }
 
-  async listAssignments(userId: number, filter: AssignmentFilterInput): Promise<Record<string, unknown>> {
+  async listAssignments(userId: string, filter: AssignmentFilterInput): Promise<Record<string, unknown>> {
     const current: Record<string, unknown>[] = [];
     const upcoming: Record<string, unknown>[] = [];
     const completed: Record<string, unknown>[] = [];
 
-    if ((filter.cohortId ?? 0) > 0) {
-      const assignments = await this.getAssignmentsForCohort(filter.cohortId ?? 0, userId);
+    if (filter.cohortId) {
+      const assignments = await this.getAssignmentsForCohort(filter.cohortId, userId);
       for (const assignment of assignments) {
         const status = toStringValue(assignment.status);
         if (status.includes('Current')) {
@@ -1325,39 +1355,57 @@ export class AssessmentService {
       };
     }
 
-    let cohorts = await this.queryMany(Prisma.sql`
-      SELECT
-        cohort_students.cohort_id AS cohort_id,
-        cohorts.title AS cohort_title,
-        cohorts.cohort_id AS cohort_code,
-        cohorts.start_date AS cohort_start_date,
-        cohorts.end_date AS cohort_end_date,
-        cohorts.subject_id AS subject_id
-      FROM cohort_students
-      JOIN cohorts ON cohorts.id = cohort_students.cohort_id
-      WHERE cohort_students.user_id = ${userId}
-        AND cohort_students.deleted_at IS NULL
-        AND cohorts.deleted_at IS NULL
-    `);
+    // Fetch cohort_students joined with cohorts (separate queries for MongoDB)
+    const cohortStudents = await this.prisma.cohort_students.findMany({
+      where: {
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: {
+        cohort_id: true,
+      },
+    });
 
-    if ((filter.subjectId ?? 0) > 0) {
-      const subject = await this.queryOne(Prisma.sql`
-        SELECT id, master_subject_id
-        FROM subject
-        WHERE id = ${filter.subjectId ?? 0}
-          AND deleted_at IS NULL
-        LIMIT 1
-      `);
+    const cohortIds = cohortStudents.map((cs) => cs.cohort_id);
 
-      const masterSubjectId = toInteger(subject?.master_subject_id);
-      const realSubjectId = masterSubjectId > 0 ? masterSubjectId : filter.subjectId ?? 0;
+    let cohortRows = cohortIds.length > 0
+      ? await this.prisma.cohorts.findMany({
+          where: {
+            id: { in: cohortIds },
+            deleted_at: null,
+          },
+          select: {
+            id: true,
+            title: true,
+            cohort_id: true,
+            start_date: true,
+            end_date: true,
+            subject_id: true,
+          },
+        })
+      : [];
 
-      cohorts = cohorts.filter((cohort) => toInteger(cohort.subject_id) === realSubjectId);
+    if (filter.subjectId) {
+      const subjectRow = await this.prisma.subject.findFirst({
+        where: {
+          id: filter.subjectId,
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          master_subject_id: true,
+        },
+      });
+
+      const masterSubjectId = toStringValue(subjectRow?.master_subject_id).trim();
+      const realSubjectId = masterSubjectId || filter.subjectId;
+
+      cohortRows = cohortRows.filter((cohort) => toStringValue(cohort.subject_id) === realSubjectId);
     }
 
-    for (const cohort of cohorts) {
-      const cohortId = toInteger(cohort.cohort_id);
-      if (cohortId <= 0) {
+    for (const cohort of cohortRows) {
+      const cohortId = cohort.id;
+      if (!cohortId) {
         continue;
       }
 
@@ -1381,24 +1429,23 @@ export class AssessmentService {
     };
   }
 
-  async getAssignmentDetails(userId: number, assignmentId: number): Promise<Record<string, unknown> | null> {
-    if (assignmentId <= 0) {
+  async getAssignmentDetails(userId: string, assignmentId: string): Promise<Record<string, unknown> | null> {
+    if (!assignmentId) {
       return null;
     }
 
-    const assignment = await this.queryOne(Prisma.sql`
-      SELECT *
-      FROM assignment
-      WHERE id = ${assignmentId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const assignment = await this.prisma.assignment.findFirst({
+      where: {
+        id: assignmentId,
+        deleted_at: null,
+      },
+    });
 
     if (!assignment) {
       return null;
     }
 
-    return this.toAssignmentData(assignment, userId);
+    return this.toAssignmentData(assignment as unknown as Record<string, unknown>, userId);
   }
 
   private normalizeSubmittedAssignmentFiles(value: unknown): string[] {
@@ -1432,8 +1479,8 @@ export class AssessmentService {
   }
 
   private async sendAssignmentSubmissionEmails(
-    userId: number,
-    assignmentId: number,
+    userId: string,
+    assignmentId: string,
     assignmentTitle: string,
     courseTitle: string,
   ): Promise<void> {
@@ -1442,16 +1489,16 @@ export class AssessmentService {
       return;
     }
 
-    const assignment = await this.queryOne(Prisma.sql`
-      SELECT created_by
-      FROM assignment
-      WHERE id = ${assignmentId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const assignment = await this.prisma.assignment.findFirst({
+      where: {
+        id: assignmentId,
+        deleted_at: null,
+      },
+      select: { created_by: true },
+    });
 
-    const instructorId = toInteger(assignment?.created_by);
-    const instructor = instructorId > 0 ? await this.getUserById(instructorId) : null;
+    const instructorId = toStringValue(assignment?.created_by).trim();
+    const instructor = instructorId ? await this.getUserById(instructorId) : null;
 
     const studentTo = toNullableString(student.user_email) ?? toNullableString(student.email);
     if (studentTo) {
@@ -1480,8 +1527,8 @@ export class AssessmentService {
     }
   }
 
-  async submitAssignment(userId: number, input: SubmitAssignmentInput): Promise<Record<string, unknown>> {
-    if (input.assignmentId <= 0) {
+  async submitAssignment(userId: string, input: SubmitAssignmentInput): Promise<Record<string, unknown>> {
+    if (!input.assignmentId) {
       return {
         status: 0,
         message: 'Missing Assignment id.',
@@ -1489,13 +1536,13 @@ export class AssessmentService {
       };
     }
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM assignment_submissions
-      WHERE user_id = ${userId}
-        AND assignment_id = ${input.assignmentId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.assignment_submissions.count({
+      where: {
+        user_id: userId,
+        assignment_id: input.assignmentId,
+        deleted_at: null,
+      },
+    });
 
     if (existing > 0) {
       return {
@@ -1505,13 +1552,18 @@ export class AssessmentService {
       };
     }
 
-    const assignment = await this.queryOne(Prisma.sql`
-      SELECT id, cohort_id, course_id, title
-      FROM assignment
-      WHERE id = ${input.assignmentId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const assignment = await this.prisma.assignment.findFirst({
+      where: {
+        id: input.assignmentId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        cohort_id: true,
+        course_id: true,
+        title: true,
+      },
+    });
 
     if (!assignment) {
       return {
@@ -1521,11 +1573,11 @@ export class AssessmentService {
       };
     }
 
-    const assignmentId = toInteger(assignment.id);
-    const cohortId = toInteger(assignment.cohort_id);
-    const courseId = toInteger(assignment.course_id);
+    const assignmentId = assignment.id;
+    const cohortId = assignment.cohort_id;
+    const courseId = assignment.course_id;
 
-    if (assignmentId <= 0 || userId <= 0) {
+    if (!assignmentId || !userId) {
       return {
         status: 0,
         message: 'Missing required fields.',
@@ -1534,31 +1586,21 @@ export class AssessmentService {
     }
 
     const files = this.normalizeSubmittedAssignmentFiles(input.answerFiles);
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const inserted = await this.prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-      INSERT INTO assignment_submissions (
-        user_id,
-        cohort_id,
-        assignment_id,
-        course_id,
-        assignment_files,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${cohortId > 0 ? cohortId : null},
-        ${assignmentId},
-        ${courseId > 0 ? courseId : null},
-        ${files.length > 0 ? JSON.stringify(files) : null},
-        ${userId},
-        ${now}
-      )
-      RETURNING id
-    `);
+    const created = await this.prisma.assignment_submissions.create({
+      data: {
+        user_id: userId,
+        cohort_id: cohortId || null,
+        assignment_id: assignmentId,
+        course_id: courseId || null,
+        assignment_files: files.length > 0 ? JSON.stringify(files) : null,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
-    const submissionId = toInteger(inserted[0]?.id);
-    if (submissionId <= 0) {
+    if (!created.id) {
       return {
         status: false,
         message: 'Something Went Wrong',
@@ -1566,19 +1608,23 @@ export class AssessmentService {
       };
     }
 
-    const course = await this.queryOne(Prisma.sql`
-      SELECT title
-      FROM course
-      WHERE id = ${courseId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    let courseTitle = '';
+    if (courseId) {
+      const course = await this.prisma.course.findFirst({
+        where: {
+          id: courseId,
+          deleted_at: null,
+        },
+        select: { title: true },
+      });
+      courseTitle = toStringValue(course?.title);
+    }
 
     await this.sendAssignmentSubmissionEmails(
       userId,
       assignmentId,
       toStringValue(assignment.title),
-      toStringValue(course?.title),
+      courseTitle,
     );
 
     return {
@@ -1588,30 +1634,32 @@ export class AssessmentService {
     };
   }
 
-  async toggleSavedAssignment(userId: number, assignmentId: number): Promise<Record<string, unknown>> {
-    if (assignmentId <= 0) {
+  async toggleSavedAssignment(userId: string, assignmentId: string): Promise<Record<string, unknown>> {
+    if (!assignmentId) {
       return {
         status: 'Successfully Saved',
         data: [],
       };
     }
 
-    const existing = await this.queryOne(Prisma.sql`
-      SELECT id
-      FROM saved_assignments
-      WHERE user_id = ${userId}
-        AND assignment_id = ${assignmentId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+    const existing = await this.prisma.saved_assignments.findFirst({
+      where: {
+        user_id: userId,
+        assignment_id: assignmentId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
 
     if (existing) {
-      const now = new Date().toISOString();
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE saved_assignments
-        SET deleted_at = ${now}, deleted_by = ${userId}
-        WHERE id = ${toInteger(existing.id)}
-      `);
+      const now = new Date();
+      await this.prisma.saved_assignments.update({
+        where: { id: existing.id },
+        data: {
+          deleted_at: now,
+          deleted_by: userId,
+        },
+      });
 
       return {
         status: 'Successfully Removed from saved Assignments',
@@ -1619,20 +1667,15 @@ export class AssessmentService {
       };
     }
 
-    const now = new Date().toISOString();
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO saved_assignments (
-        user_id,
-        assignment_id,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${assignmentId},
-        ${userId},
-        ${now}
-      )
-    `);
+    const now = new Date();
+    await this.prisma.saved_assignments.create({
+      data: {
+        user_id: userId,
+        assignment_id: assignmentId,
+        created_by: userId,
+        created_at: now,
+      },
+    });
 
     return {
       status: 'Successfully Saved',

@@ -1,9 +1,7 @@
-import { Prisma, type PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
-
-type SqlRow = Record<string, unknown>;
 
 const DEFAULT_COURSE_BENEFITS = [
   {
@@ -39,15 +37,6 @@ function toDbNumber(value: unknown): number {
   }
 
   return 0;
-}
-
-function toNullableInteger(value: unknown): number | null {
-  const numberValue = toDbNumber(value);
-  if (!Number.isFinite(numberValue) || numberValue === 0) {
-    return null;
-  }
-
-  return Math.trunc(numberValue);
 }
 
 function toStringValue(value: unknown): string {
@@ -151,8 +140,10 @@ function toDateStringOrFallback(value: string | undefined, fallback: string): st
   return parsed.toISOString().slice(0, 10);
 }
 
-function toRatingDistribution(rows: SqlRow[]): Record<string, number> {
-  const distribution = {
+type RatingRow = { rating: number; rating_count: number };
+
+function toRatingDistribution(rows: RatingRow[]): Record<string, number> {
+  const distribution: Record<string, number> = {
     '5_star': 0,
     '4_star': 0,
     '3_star': 0,
@@ -160,14 +151,14 @@ function toRatingDistribution(rows: SqlRow[]): Record<string, number> {
     '1_star': 0,
   };
 
-  const totalReviews = rows.reduce((acc, row) => acc + toDbNumber(row.rating_count), 0);
+  const totalReviews = rows.reduce((acc, row) => acc + row.rating_count, 0);
   if (totalReviews <= 0) {
     return distribution;
   }
 
   for (const row of rows) {
-    const rating = Math.trunc(toDbNumber(row.rating));
-    const count = toDbNumber(row.rating_count);
+    const rating = Math.trunc(row.rating);
+    const count = row.rating_count;
     const percentage = Math.round((count / totalReviews) * 100);
 
     switch (rating) {
@@ -235,22 +226,22 @@ function parseWhoShouldEnrol(features: string): unknown[] {
 }
 
 export interface SaveVideoProgressInput {
-  courseId?: number;
-  lessonFileId: number;
+  courseId?: string;
+  lessonFileId: string;
   lessonDuration: string;
   userProgress: string;
 }
 
 export interface SaveMaterialProgressInput {
-  courseId: number;
-  lessonFileId: number;
+  courseId: string;
+  lessonFileId: string;
   attachmentType: string;
 }
 
 export interface LessonMaterialFilter {
-  lessonId?: number;
-  subjectId?: number;
-  courseId?: number;
+  lessonId?: string;
+  subjectId?: string;
+  courseId?: string;
 }
 
 export class ContentService {
@@ -271,142 +262,158 @@ export class ContentService {
     return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
   }
 
-  private async queryMany(sql: Prisma.Sql): Promise<SqlRow[]> {
-    const rows = await this.prisma.$queryRaw<SqlRow[]>(sql);
-    return rows;
+  private async getUserById(userId: string) {
+    return this.prisma.users.findFirst({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        student_id: true,
+        name: true,
+        email: true,
+        user_email: true,
+        phone: true,
+        role_id: true,
+        course_id: true,
+        status: true,
+        device_id: true,
+        image: true,
+        premium: true,
+      },
+    });
   }
 
-  private async queryOne(sql: Prisma.Sql): Promise<SqlRow | null> {
-    const rows = await this.queryMany(sql);
-    return rows[0] ?? null;
+  private async getCourseById(courseId: string) {
+    return this.prisma.course.findFirst({
+      where: {
+        id: courseId,
+        deleted_at: null,
+      },
+    });
   }
 
-  private async count(sql: Prisma.Sql): Promise<number> {
-    const row = await this.queryOne(sql);
-    return toDbNumber(row?.count);
-  }
-
-  private async getUserById(userId: number): Promise<SqlRow | null> {
-    return this.queryOne(Prisma.sql`
-      SELECT id, student_id, name, email, user_email, phone, role_id, course_id, status, device_id, image, premium
-      FROM users
-      WHERE id = ${userId} AND deleted_at IS NULL
-      LIMIT 1
-    `);
-  }
-
-  private async getCourseById(courseId: number): Promise<SqlRow | null> {
-    return this.queryOne(Prisma.sql`
-      SELECT *
-      FROM course
-      WHERE id = ${courseId} AND deleted_at IS NULL
-      LIMIT 1
-    `);
-  }
-
-  private async isUserEnrolled(userId: number, courseId: number): Promise<boolean> {
-    const total = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM enrol
-      WHERE user_id = ${userId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+  private async isUserEnrolled(userId: string, courseId: string): Promise<boolean> {
+    const total = await this.prisma.enrol.count({
+      where: {
+        user_id: userId,
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
 
     return total > 0;
   }
 
-  private async averageRatingByCourse(courseId: number): Promise<string> {
-    const row = await this.queryOne(Prisma.sql`
-      SELECT AVG(rating) AS average_rating
-      FROM review
-      WHERE course_id = ${courseId}
-        AND rating IS NOT NULL
-        AND deleted_at IS NULL
-    `);
+  private async averageRatingByCourse(courseId: string): Promise<string> {
+    const result = await this.prisma.review.aggregate({
+      where: {
+        course_id: courseId,
+        rating: { not: null },
+        deleted_at: null,
+      },
+      _avg: {
+        rating: true,
+      },
+    });
 
-    const average = toDbNumber(row?.average_rating);
+    const average = result._avg.rating ?? 0;
     return average.toFixed(2);
   }
 
-  private async totalReviewsByCourse(courseId: number): Promise<number> {
-    return this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM review
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+  private async totalReviewsByCourse(courseId: string): Promise<number> {
+    return this.prisma.review.count({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
   }
 
-  private async ratingDistributionByCourse(courseId: number): Promise<Record<string, number>> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT rating, COUNT(*) AS rating_count
-      FROM review
-      WHERE course_id = ${courseId}
-        AND rating IS NOT NULL
-        AND deleted_at IS NULL
-      GROUP BY rating
-    `);
+  private async ratingDistributionByCourse(courseId: string): Promise<Record<string, number>> {
+    const groups = await this.prisma.review.groupBy({
+      by: ['rating'],
+      where: {
+        course_id: courseId,
+        rating: { not: null },
+        deleted_at: null,
+      },
+      _count: {
+        rating: true,
+      },
+    });
+
+    const rows: RatingRow[] = groups.map((g) => ({
+      rating: g.rating ?? 0,
+      rating_count: g._count.rating,
+    }));
 
     return toRatingDistribution(rows);
   }
 
-  private async getCourseLessonIds(courseId: number): Promise<number[]> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id
-      FROM lesson
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+  private async getCourseLessonIds(courseId: string): Promise<string[]> {
+    const rows = await this.prisma.lesson.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
 
-    return rows.map((row) => Math.trunc(toDbNumber(row.id))).filter((id) => id > 0);
+    return rows.map((row) => row.id);
   }
 
-  private async getSubjectLessonIds(subjectId: number): Promise<number[]> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id
-      FROM lesson
-      WHERE subject_id = ${subjectId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+  private async getSubjectLessonIds(subjectId: string): Promise<string[]> {
+    const rows = await this.prisma.lesson.findMany({
+      where: {
+        subject_id: subjectId,
+        deleted_at: null,
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
 
-    return rows.map((row) => Math.trunc(toDbNumber(row.id))).filter((id) => id > 0);
+    return rows.map((row) => row.id);
   }
 
-  private async getLessonFilesForLesson(lessonId: number): Promise<SqlRow[]> {
-    return this.queryMany(Prisma.sql`
-      SELECT *
-      FROM lesson_files
-      WHERE lesson_id = ${lessonId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+  private async getLessonFilesForLesson(lessonId: string) {
+    return this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: lessonId,
+        deleted_at: null,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
   }
 
-  private async getFileProgress(userId: number, lessonFileId: number, lessonType: string): Promise<number> {
+  private async getFileProgress(userId: string, lessonFileId: string, lessonType: string): Promise<number> {
     if (lessonType === 'youtube_video' || lessonType === 'vimeo_video' || lessonType === 'audio') {
-      const progressRow = await this.queryOne(Prisma.sql`
-        SELECT total_duration, user_progress, status
-        FROM video_progress_status
-        WHERE user_id = ${userId}
-          AND lesson_file_id = ${lessonFileId}
-          AND deleted_at IS NULL
-        ORDER BY id DESC
-        LIMIT 1
-      `);
+      const progressRow = await this.prisma.video_progress_status.findFirst({
+        where: {
+          user_id: userId,
+          lesson_file_id: lessonFileId,
+          deleted_at: null,
+        },
+        select: {
+          total_duration: true,
+          user_progress: true,
+          status: true,
+        },
+        orderBy: { id: 'desc' },
+      });
 
       if (!progressRow) {
         return 0;
       }
 
-      if (toDbNumber(progressRow.status) === 1) {
+      if (progressRow.status === 1) {
         return 100;
       }
 
-      const totalDuration = parseTimeToSeconds(toStringValue(progressRow.total_duration));
-      const userProgress = parseTimeToSeconds(toStringValue(progressRow.user_progress));
+      const totalDuration = parseTimeToSeconds(progressRow.total_duration ?? '');
+      const userProgress = parseTimeToSeconds(progressRow.user_progress ?? '');
       if (totalDuration <= 0) {
         return 0;
       }
@@ -415,25 +422,25 @@ export class ContentService {
     }
 
     if (lessonType === 'document' || lessonType === 'article') {
-      const completed = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM material_progress
-        WHERE user_id = ${userId}
-          AND lesson_file_id = ${lessonFileId}
-          AND deleted_at IS NULL
-      `);
+      const completed = await this.prisma.material_progress.count({
+        where: {
+          user_id: userId,
+          lesson_file_id: lessonFileId,
+          deleted_at: null,
+        },
+      });
       return completed > 0 ? 100 : 0;
     }
 
     if (lessonType === 'quiz') {
-      const completed = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM practice_attempt
-        WHERE user_id = ${userId}
-          AND lesson_file_id = ${lessonFileId}
-          AND submit_status = 1
-          AND deleted_at IS NULL
-      `);
+      const completed = await this.prisma.practice_attempt.count({
+        where: {
+          user_id: userId,
+          lesson_file_id: lessonFileId,
+          submit_status: 1,
+          deleted_at: null,
+        },
+      });
 
       return completed > 0 ? 100 : 0;
     }
@@ -442,90 +449,94 @@ export class ContentService {
   }
 
   private async getCompletedFilesForLesson(
-    lessonId: number,
-    userId: number,
-    courseId?: number,
+    lessonId: string,
+    userId: string,
+    courseId?: string,
   ): Promise<number> {
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
     if (lessonFiles.length === 0) {
       return 0;
     }
 
-    const videoIds: number[] = [];
-    const materialIds: number[] = [];
-    const quizIds: number[] = [];
+    const videoIds: string[] = [];
+    const materialIds: string[] = [];
+    const quizIds: string[] = [];
 
     for (const file of lessonFiles) {
-      const fileId = Math.trunc(toDbNumber(file.id));
-      const attachmentType = toStringValue(file.attachment_type).trim().toLowerCase();
+      const attachmentType = (file.attachment_type ?? '').trim().toLowerCase();
 
       if (attachmentType === 'url' || attachmentType === 'audio') {
-        videoIds.push(fileId);
+        videoIds.push(file.id);
       }
 
       if (attachmentType === 'pdf' || attachmentType === 'article') {
-        materialIds.push(fileId);
+        materialIds.push(file.id);
       }
 
       if (attachmentType === 'quiz') {
-        quizIds.push(fileId);
+        quizIds.push(file.id);
       }
     }
 
     let videoCompleted = 0;
     if (videoIds.length > 0) {
-      const courseFilter = typeof courseId === 'number' && courseId > 0
-        ? Prisma.sql`AND course_id = ${courseId}`
-        : Prisma.empty;
-
-      videoCompleted = await this.count(Prisma.sql`
-        SELECT COUNT(DISTINCT lesson_file_id) AS count
-        FROM video_progress_status
-        WHERE user_id = ${userId}
-          AND status = 1
-          AND lesson_file_id IN (${Prisma.join(videoIds)})
-          ${courseFilter}
-          AND deleted_at IS NULL
-      `);
+      const videoProgressRows = await this.prisma.video_progress_status.findMany({
+        where: {
+          user_id: userId,
+          status: 1,
+          lesson_file_id: { in: videoIds },
+          ...(courseId ? { course_id: courseId } : {}),
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      videoCompleted = videoProgressRows.length;
     }
 
     let materialCompleted = 0;
     if (materialIds.length > 0) {
-      materialCompleted = await this.count(Prisma.sql`
-        SELECT COUNT(DISTINCT lesson_file_id) AS count
-        FROM material_progress
-        WHERE user_id = ${userId}
-          AND lesson_file_id IN (${Prisma.join(materialIds)})
-          AND deleted_at IS NULL
-      `);
+      const materialProgressRows = await this.prisma.material_progress.findMany({
+        where: {
+          user_id: userId,
+          lesson_file_id: { in: materialIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      materialCompleted = materialProgressRows.length;
     }
 
     let quizCompleted = 0;
     if (quizIds.length > 0) {
-      quizCompleted = await this.count(Prisma.sql`
-        SELECT COUNT(DISTINCT lesson_file_id) AS count
-        FROM practice_attempt
-        WHERE user_id = ${userId}
-          AND submit_status = 1
-          AND lesson_file_id IN (${Prisma.join(quizIds)})
-          AND deleted_at IS NULL
-      `);
+      const quizAttemptRows = await this.prisma.practice_attempt.findMany({
+        where: {
+          user_id: userId,
+          submit_status: 1,
+          lesson_file_id: { in: quizIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      quizCompleted = quizAttemptRows.length;
     }
 
     return videoCompleted + materialCompleted + quizCompleted;
   }
 
-  private async getUserPurchaseStatus(userId: number, courseId: number): Promise<'on' | 'off'> {
+  private async getUserPurchaseStatus(userId: string, courseId: string): Promise<'on' | 'off'> {
     const user = await this.getUserById(userId);
     if (!user) {
       return 'off';
     }
 
-    if (toDbNumber(user.role_id) === 3) {
+    if (user.role_id === 3) {
       return 'on';
     }
 
-    if (toDbNumber(user.premium) === 1) {
+    if (user.premium === 1) {
       return 'on';
     }
 
@@ -534,25 +545,27 @@ export class ContentService {
       return 'off';
     }
 
-    if (toDbNumber(course.is_free_course) === 1) {
+    if (course.is_free_course === 1) {
       return 'on';
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const activePaymentCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM payment_info
-      WHERE user_id = ${userId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-        AND expiry_date IS NOT NULL
-        AND date(expiry_date) >= ${today}
-    `);
+    const now = new Date();
+    const activePaymentCount = await this.prisma.payment_info.count({
+      where: {
+        user_id: userId,
+        course_id: courseId,
+        deleted_at: null,
+        expiry_date: {
+          not: null,
+          gte: now,
+        },
+      },
+    });
 
     return activePaymentCount > 0 ? 'on' : 'off';
   }
 
-  private resolveLessonType(file: SqlRow): string {
+  private resolveLessonType(file: Record<string, unknown>): string {
     const lessonType = toStringValue(file.lesson_type).trim().toLowerCase();
     const lessonProvider = toStringValue(file.lesson_provider).trim().toLowerCase();
     const attachmentType = toStringValue(file.attachment_type).trim().toLowerCase();
@@ -585,29 +598,43 @@ export class ContentService {
   }
 
   private async buildLessonFileData(
-    file: SqlRow,
-    lessonId: number,
-    userId: number,
-    courseId: number,
+    file: Record<string, unknown>,
+    lessonId: string,
+    userId: string,
+    courseId: string,
   ): Promise<Record<string, unknown>> {
-    const fileId = Math.trunc(toDbNumber(file.id));
+    const fileId = toStringValue(file.id);
     const resolvedType = this.resolveLessonType(file);
     const progress = await this.getFileProgress(userId, fileId, resolvedType);
 
-    const quizCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM quiz
-      WHERE lesson_file_id = ${fileId}
-        AND deleted_at IS NULL
-    `);
+    const quizCount = await this.prisma.quiz.count({
+      where: {
+        lesson_file_id: fileId,
+        deleted_at: null,
+      },
+    });
 
-    const videoFiles = await this.queryMany(Prisma.sql`
-      SELECT id, quality, rendition, height, width, type, link, fps, size, public_name, size_short, download_link
-      FROM vimeo_videolinks
-      WHERE lesson_file_id = ${fileId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const videoFiles = await this.prisma.vimeo_videolinks.findMany({
+      where: {
+        lesson_file_id: fileId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        quality: true,
+        rendition: true,
+        height: true,
+        width: true,
+        type: true,
+        link: true,
+        fps: true,
+        size: true,
+        public_name: true,
+        size_short: true,
+        download_link: true,
+      },
+      orderBy: { id: 'asc' },
+    });
 
     const downloadUrl = toNullableString(file.download_url);
     const attachmentType = toStringValue(file.attachment_type);
@@ -617,7 +644,7 @@ export class ContentService {
       sub_title: toStringValue(file.sub_title),
       title: toStringValue(file.title),
       lesson_id: lessonId,
-      parent_file_id: toDbNumber(file.parent_file_id),
+      parent_file_id: toStringValue(file.parent_file_id),
       description: toStringValue(file.summary),
       duration: toStringValue(file.duration),
       lesson_provider: toStringValue(file.lesson_provider),
@@ -646,9 +673,9 @@ export class ContentService {
   }
 
   private async calculateUserProgress(
-    userId: number,
-    courseId = 0,
-    subjectId = 0,
+    userId: string,
+    courseId = '',
+    subjectId = '',
   ): Promise<{
     progress: number;
     totalVideos: number;
@@ -658,7 +685,7 @@ export class ContentService {
     totalPractice: number;
     attemptedPractices: number;
   }> {
-    const lessonIds = subjectId > 0 ? await this.getSubjectLessonIds(subjectId) : await this.getCourseLessonIds(courseId);
+    const lessonIds = subjectId !== '' ? await this.getSubjectLessonIds(subjectId) : await this.getCourseLessonIds(courseId);
 
     if (lessonIds.length === 0) {
       return {
@@ -672,70 +699,85 @@ export class ContentService {
       };
     }
 
-    const lessonFiles = await this.queryMany(Prisma.sql`
-      SELECT id, lesson_type, attachment_type
-      FROM lesson_files
-      WHERE lesson_id IN (${Prisma.join(lessonIds)})
-        AND deleted_at IS NULL
-    `);
+    const lessonFiles = await this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: { in: lessonIds },
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        lesson_type: true,
+        attachment_type: true,
+      },
+    });
 
-    const videoIds: number[] = [];
-    const materialIds: number[] = [];
+    const videoIds: string[] = [];
+    const materialIds: string[] = [];
 
     for (const lessonFile of lessonFiles) {
-      const fileId = Math.trunc(toDbNumber(lessonFile.id));
-      const attachmentType = toStringValue(lessonFile.attachment_type).trim().toLowerCase();
-      const lessonType = toStringValue(lessonFile.lesson_type).trim().toLowerCase();
+      const attachmentType = (lessonFile.attachment_type ?? '').trim().toLowerCase();
+      const lessonType = (lessonFile.lesson_type ?? '').trim().toLowerCase();
 
       if (lessonType === 'video') {
-        videoIds.push(fileId);
+        videoIds.push(lessonFile.id);
       }
 
       if (attachmentType === 'pdf' || attachmentType === 'article') {
-        materialIds.push(fileId);
+        materialIds.push(lessonFile.id);
       }
     }
 
     const totalVideos = videoIds.length;
     const totalMaterials = materialIds.length;
 
-    const completedVideos = videoIds.length === 0
-      ? 0
-      : await this.count(Prisma.sql`
-          SELECT COUNT(DISTINCT lesson_file_id) AS count
-          FROM video_progress_status
-          WHERE user_id = ${userId}
-            AND status = 1
-            AND lesson_file_id IN (${Prisma.join(videoIds)})
-            AND deleted_at IS NULL
-        `);
+    let completedVideos = 0;
+    if (videoIds.length > 0) {
+      const completedVideoRows = await this.prisma.video_progress_status.findMany({
+        where: {
+          user_id: userId,
+          status: 1,
+          lesson_file_id: { in: videoIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      completedVideos = completedVideoRows.length;
+    }
 
-    const completedMaterials = materialIds.length === 0
-      ? 0
-      : await this.count(Prisma.sql`
-          SELECT COUNT(DISTINCT lesson_file_id) AS count
-          FROM material_progress
-          WHERE user_id = ${userId}
-            AND lesson_file_id IN (${Prisma.join(materialIds)})
-            AND deleted_at IS NULL
-        `);
+    let completedMaterials = 0;
+    if (materialIds.length > 0) {
+      const completedMaterialRows = await this.prisma.material_progress.findMany({
+        where: {
+          user_id: userId,
+          lesson_file_id: { in: materialIds },
+          deleted_at: null,
+        },
+        select: { lesson_file_id: true },
+        distinct: ['lesson_file_id'],
+      });
+      completedMaterials = completedMaterialRows.length;
+    }
 
-    const totalPractice = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM practice_attempt
-      WHERE user_id = ${userId}
-        AND lesson_id IN (${Prisma.join(lessonIds)})
-        AND deleted_at IS NULL
-    `);
+    const totalPractice = await this.prisma.practice_attempt.count({
+      where: {
+        user_id: userId,
+        lesson_id: { in: lessonIds },
+        deleted_at: null,
+      },
+    });
 
-    const attemptedPractices = await this.count(Prisma.sql`
-      SELECT COUNT(DISTINCT id) AS count
-      FROM practice_attempt
-      WHERE user_id = ${userId}
-        AND lesson_id IN (${Prisma.join(lessonIds)})
-        AND submit_status = 1
-        AND deleted_at IS NULL
-    `);
+    const attemptedPracticeRows = await this.prisma.practice_attempt.findMany({
+      where: {
+        user_id: userId,
+        lesson_id: { in: lessonIds },
+        submit_status: 1,
+        deleted_at: null,
+      },
+      select: { id: true },
+      distinct: ['id'],
+    });
+    const attemptedPractices = attemptedPracticeRows.length;
 
     const totalActivities = totalVideos + totalMaterials + totalPractice;
     const completedActivities = completedVideos + completedMaterials + attemptedPractices;
@@ -752,30 +794,30 @@ export class ContentService {
     };
   }
 
-  private async buildCourseData(course: SqlRow, userId: number): Promise<Record<string, unknown>> {
-    const courseId = Math.trunc(toDbNumber(course.id));
+  private async buildCourseData(course: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+    const courseId = toStringValue(course.id);
     const description = stripHtml(toStringValue(course.description));
 
-    const enrolments = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM enrol
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+    const enrolments = await this.prisma.enrol.count({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
 
-    const lessonsCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM lesson
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+    const lessonsCount = await this.prisma.lesson.count({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
 
-    const subjectCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM subject
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-    `);
+    const subjectCount = await this.prisma.subject.count({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+    });
 
     const totalReviews = await this.totalReviewsByCourse(courseId);
     const totalRating = await this.averageRatingByCourse(courseId);
@@ -807,197 +849,260 @@ export class ContentService {
   }
 
   async listCategories(): Promise<Record<string, unknown>[]> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT id, code, name, parent, slug, description, short_description, video_type, video_url, font_awesome_class, thumbnail, category_icon
-      FROM category
-      WHERE deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const rows = await this.prisma.category.findMany({
+      where: {
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        parent: true,
+        slug: true,
+        description: true,
+        short_description: true,
+        video_type: true,
+        video_url: true,
+        font_awesome_class: true,
+        thumbnail: true,
+        category_icon: true,
+      },
+      orderBy: { id: 'asc' },
+    });
 
     return rows.map((row) => ({
-      id: Math.trunc(toDbNumber(row.id)),
-      code: toStringValue(row.code),
-      name: toStringValue(row.name),
-      parent: toStringValue(row.parent),
-      slug: toStringValue(row.slug),
-      description: toStringValue(row.description),
-      short_description: toStringValue(row.short_description),
-      video_type: toStringValue(row.video_type),
-      video_url: toStringValue(row.video_url),
-      font_awesome_class: toStringValue(row.font_awesome_class),
+      id: row.id,
+      code: row.code ?? '',
+      name: row.name ?? '',
+      parent: row.parent ?? '',
+      slug: row.slug ?? '',
+      description: row.description ?? '',
+      short_description: row.short_description ?? '',
+      video_type: row.video_type ?? '',
+      video_url: row.video_url ?? '',
+      font_awesome_class: row.font_awesome_class ?? '',
       thumbnail: this.toFileUrl(row.thumbnail),
       icon: this.toFileUrl(row.category_icon),
     }));
   }
 
-  async getCategoryDetails(categoryId: number): Promise<Record<string, unknown> | null> {
-    const category = await this.queryOne(Prisma.sql`
-      SELECT id, name, description, thumbnail, video_url
-      FROM category
-      WHERE id = ${categoryId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async getCategoryDetails(categoryId: string): Promise<Record<string, unknown> | null> {
+    const category = await this.prisma.category.findFirst({
+      where: {
+        id: categoryId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        thumbnail: true,
+        video_url: true,
+      },
+    });
 
     if (!category) {
       return null;
     }
 
-    const courses = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM course
-      WHERE category_id = ${categoryId}
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+    const courses = await this.prisma.course.findMany({
+      where: {
+        category_id: categoryId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
 
     let enrolCount = 0;
     const courseData: Record<string, unknown>[] = [];
 
     for (const course of courses) {
-      const courseRow = { ...course };
-      const courseId = Math.trunc(toDbNumber(courseRow.id));
-      const courseEnrolCount = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM enrol
-        WHERE course_id = ${courseId}
-          AND deleted_at IS NULL
-      `);
+      const courseEnrolCount = await this.prisma.enrol.count({
+        where: {
+          course_id: course.id,
+          deleted_at: null,
+        },
+      });
       enrolCount += courseEnrolCount;
 
       courseData.push({
-        ...courseRow,
-        thumbnail: this.toFileUrl(courseRow.thumbnail),
-        course_icon: this.toFileUrl(courseRow.course_icon),
-        total_reviews: await this.totalReviewsByCourse(courseId),
-        total_rating: await this.averageRatingByCourse(courseId),
+        ...course,
+        thumbnail: this.toFileUrl(course.thumbnail),
+        course_icon: this.toFileUrl(course.course_icon),
+        total_reviews: await this.totalReviewsByCourse(course.id),
+        total_rating: await this.averageRatingByCourse(course.id),
       });
     }
 
     return {
-      category_name: toStringValue(category.name),
-      category_description: toStringValue(category.description),
+      category_name: category.name ?? '',
+      category_description: category.description ?? '',
       thumbnail: this.toFileUrl(category.thumbnail),
-      video_url: toStringValue(category.video_url),
+      video_url: category.video_url ?? '',
       enroll_count: enrolCount,
       courses: courseData,
     };
   }
 
-  async listCourses(userId: number): Promise<Record<string, unknown>[]> {
-    const rows = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM course
-      WHERE deleted_at IS NULL
-      ORDER BY id ASC
-    `);
+  async listCourses(userId: string): Promise<Record<string, unknown>[]> {
+    const rows = await this.prisma.course.findMany({
+      where: {
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
 
     const result: Record<string, unknown>[] = [];
     for (const row of rows) {
-      result.push(await this.buildCourseData(row, userId));
+      result.push(await this.buildCourseData(row as unknown as Record<string, unknown>, userId));
     }
 
     return result;
   }
 
-  async getCourseDetails(userId: number, courseId: number): Promise<Record<string, unknown> | null> {
+  async getCourseDetails(userId: string, courseId: string): Promise<Record<string, unknown> | null> {
     const course = await this.getCourseById(courseId);
     if (!course) {
       return null;
     }
 
     const user = await this.getUserById(userId);
-    const courseData = await this.buildCourseData(course, userId);
+    const courseData = await this.buildCourseData(course as unknown as Record<string, unknown>, userId);
 
-    const subjects = await this.queryMany(Prisma.sql`
-      SELECT id, title, thumbnail
-      FROM subject
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+    const subjects = await this.prisma.subject.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        thumbnail: true,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const subjectData = subjects.map((subject) => ({
-      id: Math.trunc(toDbNumber(subject.id)),
-      title: toStringValue(subject.title),
+      id: subject.id,
+      title: subject.title,
       thumbnail: this.toFileUrl(subject.thumbnail),
     }));
 
-    const demoVideos = await this.queryMany(Prisma.sql`
-      SELECT id, title, video_type, video_url, thumbnail
-      FROM demo_video
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+    const demoVideos = await this.prisma.demo_video.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        video_type: true,
+        video_url: true,
+        thumbnail: true,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const demoVideoData = demoVideos.map((video) => ({
-      id: Math.trunc(toDbNumber(video.id)),
-      title: toStringValue(video.title),
-      video_type: toStringValue(video.video_type),
-      video_url: toStringValue(video.video_url),
+      id: video.id,
+      title: video.title ?? '',
+      video_type: video.video_type ?? '',
+      video_url: video.video_url ?? '',
       thumbnail: this.toFileUrl(video.thumbnail),
     }));
 
-    const reviews = await this.queryMany(Prisma.sql`
-      SELECT review.id, review.rating, review.user_id, review.course_id, review.review, review.created_at AS date, course.title AS course, users.name AS user, users.image AS image
-      FROM review
-      LEFT JOIN course ON course.id = review.course_id
-      LEFT JOIN users ON users.id = review.user_id
-      WHERE review.course_id = ${courseId}
-        AND review.deleted_at IS NULL
-      ORDER BY review.id ASC
-    `);
+    // Reviews: separate queries instead of JOIN
+    const reviewRows = await this.prisma.review.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    // Batch fetch related courses and users for reviews
+    const reviewCourseIds = [...new Set(reviewRows.map((r) => r.course_id).filter(Boolean))] as string[];
+    const reviewUserIds = [...new Set(reviewRows.map((r) => r.user_id).filter(Boolean))] as string[];
+
+    const [reviewCourses, reviewUsers] = await Promise.all([
+      reviewCourseIds.length > 0
+        ? this.prisma.course.findMany({
+            where: { id: { in: reviewCourseIds } },
+            select: { id: true, title: true },
+          })
+        : [],
+      reviewUserIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: reviewUserIds } },
+            select: { id: true, name: true, image: true },
+          })
+        : [],
+    ]);
+
+    const courseMap = new Map(reviewCourses.map((c) => [c.id, c]));
+    const userMap = new Map(reviewUsers.map((u) => [u.id, u]));
 
     const reviewData: Record<string, unknown>[] = [];
-    for (const review of reviews) {
-      const reviewId = Math.trunc(toDbNumber(review.id));
-      const reviewLikeCount = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM review_like
-        WHERE review_id = ${reviewId}
-          AND deleted_at IS NULL
-      `);
+    for (const review of reviewRows) {
+      const reviewLikeCount = await this.prisma.review_like.count({
+        where: {
+          review_id: review.id,
+          deleted_at: null,
+        },
+      });
 
-      const isLikedByUser = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM review_like
-        WHERE review_id = ${reviewId}
-          AND user_id = ${userId}
-          AND deleted_at IS NULL
-      `);
+      const isLikedByUser = await this.prisma.review_like.count({
+        where: {
+          review_id: review.id,
+          user_id: userId,
+          deleted_at: null,
+        },
+      });
+
+      const reviewCourse = review.course_id ? courseMap.get(review.course_id) : null;
+      const reviewUser = review.user_id ? userMap.get(review.user_id) : null;
 
       reviewData.push({
-        id: reviewId,
-        rating: toDbNumber(review.rating),
-        user_id: Math.trunc(toDbNumber(review.user_id)),
-        course_id: Math.trunc(toDbNumber(review.course_id)),
-        review: toStringValue(review.review),
-        date: formatLegacyDate(review.date),
-        course: toStringValue(review.course),
-        user: toStringValue(review.user),
+        id: review.id,
+        rating: review.rating ?? 0,
+        user_id: review.user_id ?? '',
+        course_id: review.course_id ?? '',
+        review: review.review ?? '',
+        date: formatLegacyDate(review.created_at),
+        course: reviewCourse?.title ?? '',
+        user: reviewUser?.name ?? '',
         like_count: reviewLikeCount,
         is_liked: isLikedByUser > 0 ? 1 : 0,
-        image: this.toFileUrl(review.image) || `${this.appBaseUrl}/uploads/dummy_user.jpg`,
+        image: this.toFileUrl(reviewUser?.image) || `${this.appBaseUrl}/uploads/dummy_user.jpg`,
       });
     }
 
-    const instructor = await this.queryOne(Prisma.sql`
-      SELECT users.id AS instructor_id, users.name, users.image
-      FROM users
-      JOIN instructor_enrol ON instructor_enrol.instructor_id = users.id
-      WHERE instructor_enrol.course_id = ${courseId}
-        AND instructor_enrol.deleted_at IS NULL
-      LIMIT 1
-    `);
+    // Instructor: separate queries instead of JOIN
+    const instructorEnrol = await this.prisma.instructor_enrol.findFirst({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        instructor_id: true,
+      },
+    });
 
-    const instructorData = instructor
-      ? {
-          id: Math.trunc(toDbNumber(instructor.instructor_id)),
-          name: toStringValue(instructor.name),
-          image: this.toFileUrl(instructor.image) || `${this.appBaseUrl}/uploads/dummy_user.jpg`,
-        }
-      : {};
+    let instructorData: Record<string, unknown> = {};
+    if (instructorEnrol) {
+      const instructorUser = await this.prisma.users.findFirst({
+        where: { id: instructorEnrol.instructor_id },
+        select: { id: true, name: true, image: true },
+      });
+
+      if (instructorUser) {
+        instructorData = {
+          id: instructorUser.id,
+          name: instructorUser.name ?? '',
+          image: this.toFileUrl(instructorUser.image) || `${this.appBaseUrl}/uploads/dummy_user.jpg`,
+        };
+      }
+    }
 
     const isEnrolled = await this.isUserEnrolled(userId, courseId);
     const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
@@ -1005,14 +1110,14 @@ export class ContentService {
     return {
       user_data: {
         user_id: userId,
-        student_id: toStringValue(user?.student_id),
-        user_name: toStringValue(user?.name),
-        role_id: toDbNumber(user?.role_id),
-        course_id: toDbNumber(user?.course_id),
-        user_email: toStringValue(user?.user_email || user?.email),
-        user_phone: toStringValue(user?.phone),
-        device_id: toStringValue(user?.device_id),
-        status: toDbNumber(user?.status),
+        student_id: user?.student_id ?? '',
+        user_name: user?.name ?? '',
+        role_id: user?.role_id ?? 0,
+        course_id: user?.course_id ?? '',
+        user_email: user?.user_email || user?.email || '',
+        user_phone: user?.phone ?? '',
+        device_id: user?.device_id ?? '',
+        status: user?.status ?? 0,
         user_image: this.toFileUrl(user?.image),
       },
       course: courseData,
@@ -1031,52 +1136,98 @@ export class ContentService {
     };
   }
 
-  private async getCohortIdForSubject(userId: number, subject: SqlRow): Promise<number | null> {
-    const masterSubjectId = toNullableInteger(subject.master_subject_id) ?? Math.trunc(toDbNumber(subject.id));
+  private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
+    const masterSubjectId = toNullableString(subject.master_subject_id) ?? toStringValue(subject.id);
 
-    const cohortRow = await this.queryOne(Prisma.sql`
-      SELECT cs.cohort_id
-      FROM cohort_students cs
-      JOIN cohorts c ON c.id = cs.cohort_id AND c.deleted_at IS NULL
-      JOIN subject s ON s.id = c.subject_id AND s.deleted_at IS NULL
-      WHERE cs.user_id = ${userId}
-        AND cs.deleted_at IS NULL
-        AND COALESCE(s.master_subject_id, s.id) = ${masterSubjectId}
-      LIMIT 1
-    `);
+    // Find cohort_students for this user
+    const cohortStudents = await this.prisma.cohort_students.findMany({
+      where: {
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: { cohort_id: true },
+    });
 
-    const cohortId = toNullableInteger(cohortRow?.cohort_id);
-    return cohortId;
+    if (cohortStudents.length === 0) {
+      return null;
+    }
+
+    const cohortIds = cohortStudents.map((cs) => cs.cohort_id);
+
+    // Find cohorts that are active and have a subject matching the master_subject_id
+    const cohorts = await this.prisma.cohorts.findMany({
+      where: {
+        id: { in: cohortIds },
+        deleted_at: null,
+        subject_id: { not: null },
+      },
+      select: { id: true, subject_id: true },
+    });
+
+    if (cohorts.length === 0) {
+      return null;
+    }
+
+    // Get the subjects for these cohorts to check master_subject_id
+    const cohortSubjectIds = cohorts.map((c) => c.subject_id).filter(Boolean) as string[];
+    const subjects = await this.prisma.subject.findMany({
+      where: {
+        id: { in: cohortSubjectIds },
+        deleted_at: null,
+      },
+      select: { id: true, master_subject_id: true },
+    });
+
+    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+
+    for (const cohort of cohorts) {
+      if (!cohort.subject_id) continue;
+      const subjectRow = subjectMap.get(cohort.subject_id);
+      if (!subjectRow) continue;
+
+      const effectiveSubjectId = subjectRow.master_subject_id ?? subjectRow.id;
+      if (effectiveSubjectId === masterSubjectId) {
+        return cohort.id;
+      }
+    }
+
+    return null;
   }
 
-  async getSubjects(userId: number, courseId: number): Promise<Record<string, unknown>[]> {
-    const subjects = await this.queryMany(Prisma.sql`
-      SELECT id, master_subject_id, title, description, thumbnail
-      FROM subject
-      WHERE course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+  async getSubjects(userId: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const subjects = await this.prisma.subject.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        master_subject_id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const subjectData: Record<string, unknown>[] = [];
 
     for (const subject of subjects) {
-      const subjectId = Math.trunc(toDbNumber(subject.id));
-      const masterSubjectId = toNullableInteger(subject.master_subject_id) ?? subjectId;
-      const cohortId = await this.getCohortIdForSubject(userId, subject);
-      const totalLessons = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM lesson
-        WHERE subject_id = ${masterSubjectId}
-          AND deleted_at IS NULL
-      `);
+      const masterSubjectId = subject.master_subject_id ?? subject.id;
+      const cohortId = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
+      const totalLessons = await this.prisma.lesson.count({
+        where: {
+          subject_id: masterSubjectId,
+          deleted_at: null,
+        },
+      });
       const progress = await this.calculateUserProgress(userId, courseId, masterSubjectId);
 
       subjectData.push({
-        id: subjectId,
+        id: subject.id,
         master_subject_id: masterSubjectId,
-        title: toStringValue(subject.title),
-        description: toStringValue(subject.description),
+        title: subject.title,
+        description: subject.description ?? '',
         thumbnail: this.toFileUrl(subject.thumbnail),
         total_lessons: totalLessons,
         progress: Math.round(progress.progress),
@@ -1089,18 +1240,18 @@ export class ContentService {
   }
 
   private async buildLessonData(
-    lesson: SqlRow,
-    userId: number,
+    lesson: Record<string, unknown>,
+    userId: string,
     purchaseStatus: 'on' | 'off',
     lessonIndex: number,
-    courseId: number,
+    courseId: string,
   ): Promise<Record<string, unknown>> {
-    const lessonId = Math.trunc(toDbNumber(lesson.id));
+    const lessonId = toStringValue(lesson.id);
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
 
     const lessonFileData: Record<string, unknown>[] = [];
     for (const lessonFile of lessonFiles) {
-      lessonFileData.push(await this.buildLessonFileData(lessonFile, lessonId, userId, courseId));
+      lessonFileData.push(await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId));
     }
 
     const totalLessonFiles = lessonFiles.length;
@@ -1113,24 +1264,26 @@ export class ContentService {
       ? completedLessonFiles >= totalLessonFiles
       : lessonIndex === 0;
 
-    const videoCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM lesson_files
-      WHERE lesson_id = ${lessonId}
-        AND lesson_type = 'video'
-        AND deleted_at IS NULL
-    `);
+    const videoCount = await this.prisma.lesson_files.count({
+      where: {
+        lesson_id: lessonId,
+        lesson_type: 'video',
+        deleted_at: null,
+      },
+    });
+
+    const lessonCourseId = toStringValue(lesson.course_id);
 
     return {
       id: lessonId,
       title: toStringValue(lesson.title),
-      course_id: Math.trunc(toDbNumber(lesson.course_id)),
-      subject_id: Math.trunc(toDbNumber(lesson.subject_id)),
+      course_id: lessonCourseId,
+      subject_id: toStringValue(lesson.subject_id),
       summary: toStringValue(lesson.summary),
       free: toStringValue(lesson.free) === 'on' ? 'on' : purchaseStatus,
       thumbnail: this.toFileUrl(lesson.thumbnail),
       video_count: videoCount,
-      practice_link: `${this.appBaseUrl}/exam/practice_web_view/${userId}/${Math.trunc(toDbNumber(lesson.course_id))}`,
+      practice_link: `${this.appBaseUrl}/exam/practice_web_view/${userId}/${lessonCourseId}`,
       lesson_files_count: totalLessonFiles,
       completed_lesson_files: completedLessonFiles,
       completed_percentage: completedPercentage,
@@ -1141,29 +1294,33 @@ export class ContentService {
     };
   }
 
-  async getLessons(userId: number, subjectId: number): Promise<Record<string, unknown>[]> {
-    const subject = await this.queryOne(Prisma.sql`
-      SELECT id, course_id, master_subject_id
-      FROM subject
-      WHERE id = ${subjectId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async getLessons(userId: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    const subject = await this.prisma.subject.findFirst({
+      where: {
+        id: subjectId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        course_id: true,
+        master_subject_id: true,
+      },
+    });
 
     if (!subject) {
       return [];
     }
 
-    const courseId = Math.trunc(toDbNumber(subject.course_id));
-    const lessonSubjectId = toNullableInteger(subject.master_subject_id) ?? subjectId;
+    const courseId = subject.course_id;
+    const lessonSubjectId = subject.master_subject_id ?? subjectId;
 
-    const lessons = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM lesson
-      WHERE subject_id = ${lessonSubjectId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+    const lessons = await this.prisma.lesson.findMany({
+      where: {
+        subject_id: lessonSubjectId,
+        deleted_at: null,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const lessonsData: Record<string, unknown>[] = [];
 
@@ -1173,9 +1330,9 @@ export class ContentService {
         continue;
       }
 
-      const lessonCourseId = Math.trunc(toDbNumber(lesson.course_id));
+      const lessonCourseId = lesson.course_id;
       const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
-      lessonsData.push(await this.buildLessonData(lesson, userId, purchaseStatus, index, courseId));
+      lessonsData.push(await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId));
     }
 
     let previousLessonCompleted = true;
@@ -1213,14 +1370,14 @@ export class ContentService {
     return lessonsData;
   }
 
-  async getLessonIndex(userId: number, subjectId: number): Promise<Record<string, unknown>[]> {
-    const lessons = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM lesson
-      WHERE subject_id = ${subjectId}
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+  async getLessonIndex(userId: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    const lessons = await this.prisma.lesson.findMany({
+      where: {
+        subject_id: subjectId,
+        deleted_at: null,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const lessonData: Record<string, unknown>[] = [];
 
@@ -1230,14 +1387,14 @@ export class ContentService {
         continue;
       }
 
-      const purchaseStatus = await this.getUserPurchaseStatus(userId, Math.trunc(toDbNumber(lesson.course_id)));
+      const purchaseStatus = await this.getUserPurchaseStatus(userId, lesson.course_id);
       lessonData.push(
         await this.buildLessonData(
-          lesson,
+          lesson as unknown as Record<string, unknown>,
           userId,
           purchaseStatus,
           index,
-          Math.trunc(toDbNumber(lesson.course_id)),
+          lesson.course_id,
         ),
       );
     }
@@ -1245,40 +1402,43 @@ export class ContentService {
     return lessonData;
   }
 
-  async getLessonFileGroupedIndex(userId: number, lessonId: number): Promise<Record<string, unknown>[]> {
-    const lesson = await this.queryOne(Prisma.sql`
-      SELECT id, course_id
-      FROM lesson
-      WHERE id = ${lessonId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  async getLessonFileGroupedIndex(userId: string, lessonId: string): Promise<Record<string, unknown>[]> {
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        course_id: true,
+      },
+    });
 
     if (!lesson) {
       return [];
     }
 
-    const courseId = Math.trunc(toDbNumber(lesson.course_id));
+    const courseId = lesson.course_id;
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
-    const videosById = new Map<number, Record<string, unknown>>();
-    const pendingRelatedFiles: SqlRow[] = [];
+    const videosById = new Map<string, Record<string, unknown>>();
+    const pendingRelatedFiles: Record<string, unknown>[] = [];
 
     for (const lessonFile of lessonFiles) {
-      const fileId = Math.trunc(toDbNumber(lessonFile.id));
-      const attachmentType = normalizeAttachmentType(toStringValue(lessonFile.attachment_type).toLowerCase());
+      const fileId = lessonFile.id;
+      const attachmentType = normalizeAttachmentType((lessonFile.attachment_type ?? '').toLowerCase());
 
       if (attachmentType === 'video') {
-        const fileData = await this.buildLessonFileData(lessonFile, lessonId, userId, courseId);
+        const fileData = await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId);
         fileData.sub_title = 'Video';
         fileData.related_files = [];
         videosById.set(fileId, fileData);
       } else {
-        pendingRelatedFiles.push(lessonFile);
+        pendingRelatedFiles.push(lessonFile as unknown as Record<string, unknown>);
       }
     }
 
     for (const relatedFile of pendingRelatedFiles) {
-      const parentFileId = toNullableInteger(relatedFile.parent_file_id);
+      const parentFileId = toNullableString(relatedFile.parent_file_id);
       if (!parentFileId) {
         continue;
       }
@@ -1302,76 +1462,86 @@ export class ContentService {
     return [...videosById.values()];
   }
 
-  private async buildLessonVideoData(video: SqlRow, userId: number): Promise<Record<string, unknown>> {
-    const lessonId = Math.trunc(toDbNumber(video.lesson_id));
-    const lesson = await this.queryOne(Prisma.sql`
-      SELECT id, course_id
-      FROM lesson
-      WHERE id = ${lessonId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  private async buildLessonVideoData(video: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+    const lessonId = toStringValue(video.lesson_id);
+
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        course_id: true,
+      },
+    });
 
     if (!lesson) {
       return {};
     }
 
-    const courseId = Math.trunc(toDbNumber(lesson.course_id));
+    const courseId = lesson.course_id;
     const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
 
-    const videos = await this.queryMany(Prisma.sql`
-      SELECT id
-      FROM lesson_files
-      WHERE lesson_id = ${lessonId}
-        AND attachment_type = 'url'
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+    const videos = await this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: lessonId,
+        attachment_type: 'url',
+        deleted_at: null,
+      },
+      select: { id: true },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
-    const orderedVideoIds = videos.map((entry) => Math.trunc(toDbNumber(entry.id)));
-    const currentVideoId = Math.trunc(toDbNumber(video.id));
+    const orderedVideoIds = videos.map((entry) => entry.id);
+    const currentVideoId = toStringValue(video.id);
     const currentVideoIndex = orderedVideoIds.indexOf(currentVideoId);
 
     let free = purchaseStatus;
     let lockMessage = '';
 
     if (currentVideoIndex > 0) {
-      const previousVideoId = orderedVideoIds[currentVideoIndex - 1] ?? 0;
-      const previousReportCount = await this.count(Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM lesson_files_report
-        WHERE lesson_file_id = ${previousVideoId}
-          AND user_id = ${userId}
-          AND deleted_at IS NULL
-      `);
+      const previousVideoId = orderedVideoIds[currentVideoIndex - 1] ?? '';
+      if (previousVideoId) {
+        const previousReportCount = await this.prisma.lesson_files_report.count({
+          where: {
+            lesson_file_id: previousVideoId,
+            user_id: userId,
+            deleted_at: null,
+          },
+        });
 
-      if (previousReportCount > 0) {
-        free = 'on';
-      } else {
-        free = 'off';
-        lockMessage = 'Please upload report';
+        if (previousReportCount > 0) {
+          free = 'on';
+        } else {
+          free = 'off';
+          lockMessage = 'Please upload report';
+        }
       }
     }
 
-    const attachment = await this.queryOne(Prisma.sql`
-      SELECT attachment
-      FROM lesson_files
-      WHERE lesson_id = ${lessonId}
-        AND attachment_type = 'pdf'
-        AND deleted_at IS NULL
-      ORDER BY id ASC
-      LIMIT 1
-    `);
+    const attachment = await this.prisma.lesson_files.findFirst({
+      where: {
+        lesson_id: lessonId,
+        attachment_type: 'pdf',
+        deleted_at: null,
+      },
+      select: { attachment: true },
+      orderBy: { id: 'asc' },
+    });
 
-    const report = await this.queryOne(Prisma.sql`
-      SELECT report_file, file_type
-      FROM lesson_files_report
-      WHERE lesson_file_id = ${currentVideoId}
-        AND user_id = ${userId}
-        AND deleted_at IS NULL
-      ORDER BY id DESC
-      LIMIT 1
-    `);
+    const report = await this.prisma.lesson_files_report.findFirst({
+      where: {
+        lesson_file_id: currentVideoId,
+        user_id: userId,
+        deleted_at: null,
+      },
+      select: {
+        report_file: true,
+        file_type: true,
+      },
+      orderBy: { id: 'desc' },
+    });
 
     return {
       id: currentVideoId,
@@ -1390,44 +1560,45 @@ export class ContentService {
       vimeo_access_token: '',
       is_submitted: report ? '1' : '0',
       report_file: this.toFileUrl(report?.report_file),
-      file_type: toStringValue(report?.file_type),
+      file_type: report?.file_type ?? '',
       lock_message: lockMessage,
     };
   }
 
-  async getLessonVideos(userId: number, lessonId: number): Promise<Record<string, unknown>[]> {
-    const videos = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM lesson_files
-      WHERE lesson_id = ${lessonId}
-        AND attachment_type = 'url'
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+  async getLessonVideos(userId: string, lessonId: string): Promise<Record<string, unknown>[]> {
+    const videos = await this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: lessonId,
+        attachment_type: 'url',
+        deleted_at: null,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const response: Record<string, unknown>[] = [];
     for (const video of videos) {
-      response.push(await this.buildLessonVideoData(video, userId));
+      response.push(await this.buildLessonVideoData(video as unknown as Record<string, unknown>, userId));
     }
 
     return response;
   }
 
-  private async buildLessonMaterialData(material: SqlRow, userId: number): Promise<Record<string, unknown>> {
-    const lessonId = Math.trunc(toDbNumber(material.lesson_id));
-    const lesson = await this.queryOne(Prisma.sql`
-      SELECT course_id
-      FROM lesson
-      WHERE id = ${lessonId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  private async buildLessonMaterialData(material: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+    const lessonId = toStringValue(material.lesson_id);
 
-    const courseId = Math.trunc(toDbNumber(lesson?.course_id));
-    const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        deleted_at: null,
+      },
+      select: { course_id: true },
+    });
+
+    const courseId = lesson?.course_id ?? '';
+    const purchaseStatus = courseId ? await this.getUserPurchaseStatus(userId, courseId) : 'off';
 
     return {
-      id: Math.trunc(toDbNumber(material.id)),
+      id: toStringValue(material.id),
       title: toStringValue(material.title),
       lesson_id: lessonId,
       attachment: this.toFileUrl(material.attachment),
@@ -1438,17 +1609,17 @@ export class ContentService {
     };
   }
 
-  async getLessonMaterials(userId: number, filter: LessonMaterialFilter): Promise<Record<string, unknown>[]> {
-    const lessonId = filter.lessonId ?? 0;
-    const subjectId = filter.subjectId ?? 0;
-    const courseId = filter.courseId ?? 0;
+  async getLessonMaterials(userId: string, filter: LessonMaterialFilter): Promise<Record<string, unknown>[]> {
+    const lessonId = filter.lessonId ?? '';
+    const subjectId = filter.subjectId ?? '';
+    const courseId = filter.courseId ?? '';
 
-    let lessonIds: number[] = [];
-    if (lessonId > 0) {
+    let lessonIds: string[] = [];
+    if (lessonId !== '') {
       lessonIds = [lessonId];
-    } else if (subjectId > 0) {
+    } else if (subjectId !== '') {
       lessonIds = await this.getSubjectLessonIds(subjectId);
-    } else if (courseId > 0) {
+    } else if (courseId !== '') {
       lessonIds = await this.getCourseLessonIds(courseId);
     }
 
@@ -1456,66 +1627,78 @@ export class ContentService {
       return [];
     }
 
-    const materials = await this.queryMany(Prisma.sql`
-      SELECT *
-      FROM lesson_files
-      WHERE lesson_id IN (${Prisma.join(lessonIds)})
-        AND attachment_type = 'pdf'
-        AND deleted_at IS NULL
-      ORDER BY COALESCE("order", 0) ASC, id ASC
-    `);
+    const materials = await this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: { in: lessonIds },
+        attachment_type: 'pdf',
+        deleted_at: null,
+      },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
 
     const materialData: Record<string, unknown>[] = [];
     for (const material of materials) {
-      materialData.push(await this.buildLessonMaterialData(material, userId));
+      materialData.push(await this.buildLessonMaterialData(material as unknown as Record<string, unknown>, userId));
     }
 
     return materialData;
   }
 
-  private async resolveCourseIdForLessonFile(lessonFileId: number): Promise<number | null> {
-    const row = await this.queryOne(Prisma.sql`
-      SELECT lesson.course_id
-      FROM lesson_files
-      JOIN lesson ON lesson.id = lesson_files.lesson_id
-      WHERE lesson_files.id = ${lessonFileId}
-        AND lesson_files.deleted_at IS NULL
-        AND lesson.deleted_at IS NULL
-      LIMIT 1
-    `);
+  private async resolveCourseIdForLessonFile(lessonFileId: string): Promise<string | null> {
+    const lessonFile = await this.prisma.lesson_files.findFirst({
+      where: {
+        id: lessonFileId,
+        deleted_at: null,
+      },
+      select: { lesson_id: true },
+    });
 
-    const courseId = toNullableInteger(row?.course_id);
-    return courseId;
+    if (!lessonFile) {
+      return null;
+    }
+
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        id: lessonFile.lesson_id,
+        deleted_at: null,
+      },
+      select: { course_id: true },
+    });
+
+    return lesson?.course_id ?? null;
   }
 
-  async saveVideoProgress(userId: number, input: SaveVideoProgressInput): Promise<void> {
+  async saveVideoProgress(userId: string, input: SaveVideoProgressInput): Promise<void> {
     const lessonFileId = input.lessonFileId;
-    if (lessonFileId <= 0) {
+    if (!lessonFileId) {
       return;
     }
 
-    let courseId = input.courseId ?? 0;
-    if (courseId <= 0) {
+    let courseId = input.courseId ?? '';
+    if (!courseId) {
       const resolvedCourseId = await this.resolveCourseIdForLessonFile(lessonFileId);
-      courseId = resolvedCourseId ?? 0;
+      courseId = resolvedCourseId ?? '';
     }
 
-    if (courseId <= 0) {
+    if (!courseId) {
       return;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const existingProgress = await this.queryOne(Prisma.sql`
-      SELECT id, user_progress
-      FROM video_progress_status
-      WHERE user_id = ${userId}
-        AND lesson_file_id = ${lessonFileId}
-        AND course_id = ${courseId}
-        AND deleted_at IS NULL
-      ORDER BY id DESC
-      LIMIT 1
-    `);
+    const existingProgress = await this.prisma.video_progress_status.findFirst({
+      where: {
+        user_id: userId,
+        lesson_file_id: lessonFileId,
+        course_id: courseId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        user_progress: true,
+      },
+      orderBy: { id: 'desc' },
+    });
 
     const requestedProgressSeconds = parseTimeToSeconds(input.userProgress);
     const totalDurationSeconds = parseTimeToSeconds(input.lessonDuration);
@@ -1523,92 +1706,77 @@ export class ContentService {
     const completed = requestedProgressSeconds + graceSeconds >= totalDurationSeconds;
 
     if (existingProgress) {
-      const existingProgressSeconds = parseTimeToSeconds(toStringValue(existingProgress.user_progress));
+      const existingProgressSeconds = parseTimeToSeconds(existingProgress.user_progress ?? '');
       if (requestedProgressSeconds + graceSeconds > existingProgressSeconds) {
-        await this.prisma.$executeRaw(Prisma.sql`
-          UPDATE video_progress_status
-          SET total_duration = ${input.lessonDuration},
-              user_progress = ${input.userProgress},
-              status = ${completed ? 1 : 0},
-              updated_by = ${userId},
-              updated_at = ${now}
-          WHERE id = ${Math.trunc(toDbNumber(existingProgress.id))}
-        `);
+        await this.prisma.video_progress_status.update({
+          where: { id: existingProgress.id },
+          data: {
+            total_duration: input.lessonDuration,
+            user_progress: input.userProgress,
+            status: completed ? 1 : 0,
+            updated_by: userId,
+            updated_at: now,
+          },
+        });
       }
 
       return;
     }
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO video_progress_status (
-        user_id,
-        course_id,
-        lesson_file_id,
-        total_duration,
-        user_progress,
-        status,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${courseId},
-        ${lessonFileId},
-        ${input.lessonDuration},
-        ${input.userProgress},
-        ${completed ? 1 : 0},
-        ${userId},
-        ${now}
-      )
-    `);
+    await this.prisma.video_progress_status.create({
+      data: {
+        user_id: userId,
+        course_id: courseId,
+        lesson_file_id: lessonFileId,
+        total_duration: input.lessonDuration,
+        user_progress: input.userProgress,
+        status: completed ? 1 : 0,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async saveMaterialProgress(userId: number, input: SaveMaterialProgressInput): Promise<void> {
-    if (input.lessonFileId <= 0 || input.courseId <= 0) {
+  async saveMaterialProgress(userId: string, input: SaveMaterialProgressInput): Promise<void> {
+    if (!input.lessonFileId || !input.courseId) {
       return;
     }
 
-    const existing = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM material_progress
-      WHERE user_id = ${userId}
-        AND lesson_file_id = ${input.lessonFileId}
-        AND course_id = ${input.courseId}
-        AND deleted_at IS NULL
-    `);
+    const existing = await this.prisma.material_progress.count({
+      where: {
+        user_id: userId,
+        lesson_file_id: input.lessonFileId,
+        course_id: input.courseId,
+        deleted_at: null,
+      },
+    });
 
     if (existing > 0) {
       return;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO material_progress (
-        user_id,
-        course_id,
-        lesson_file_id,
-        attachment_type,
-        created_by,
-        created_at
-      ) VALUES (
-        ${userId},
-        ${input.courseId},
-        ${input.lessonFileId},
-        ${input.attachmentType},
-        ${userId},
-        ${now}
-      )
-    `);
+    await this.prisma.material_progress.create({
+      data: {
+        user_id: userId,
+        course_id: input.courseId,
+        lesson_file_id: input.lessonFileId,
+        attachment_type: input.attachmentType,
+        created_by: userId,
+        created_at: now,
+      },
+    });
   }
 
-  async getStreakData(userId: number, fromDate?: string, toDate?: string): Promise<Record<string, number> | null> {
+  async getStreakData(userId: string, fromDate?: string, toDate?: string): Promise<Record<string, number> | null> {
     const user = await this.getUserById(userId);
     if (!user) {
       return null;
     }
 
-    const courseId = Math.trunc(toDbNumber(user.course_id));
-    if (courseId <= 0) {
+    const courseId = user.course_id;
+    if (!courseId) {
       return {
         total_streak: 0,
         current_streak: 0,
@@ -1623,17 +1791,16 @@ export class ContentService {
       };
     }
 
-    const lessonVideoRows = await this.queryMany(Prisma.sql`
-      SELECT id
-      FROM lesson_files
-      WHERE lesson_id IN (${Prisma.join(lessonIds)})
-        AND attachment_type = 'url'
-        AND deleted_at IS NULL
-    `);
+    const lessonVideoRows = await this.prisma.lesson_files.findMany({
+      where: {
+        lesson_id: { in: lessonIds },
+        attachment_type: 'url',
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
 
-    const lessonVideoIds = lessonVideoRows
-      .map((row) => Math.trunc(toDbNumber(row.id)))
-      .filter((id) => id > 0);
+    const lessonVideoIds = lessonVideoRows.map((row) => row.id);
 
     if (lessonVideoIds.length === 0) {
       return {
@@ -1644,32 +1811,60 @@ export class ContentService {
 
     const from = toDateStringOrFallback(fromDate, DATE_FLOOR);
     const to = toDateStringOrFallback(toDate, DATE_FLOOR);
-    const today = new Date().toISOString().slice(0, 10);
+    const fromDateObj = new Date(from);
+    const toDateObj = new Date(`${to}T23:59:59.999Z`);
+    const todayStart = new Date(new Date().toISOString().slice(0, 10));
+    const todayEnd = new Date(`${new Date().toISOString().slice(0, 10)}T23:59:59.999Z`);
 
-    const totalStreakCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM video_progress_status
-      WHERE lesson_file_id IN (${Prisma.join(lessonVideoIds)})
-        AND status = 1
-        AND deleted_at IS NULL
-        AND (
-          (date(created_at) >= ${from} OR date(updated_at) >= ${from})
-          AND
-          (date(created_at) <= ${to} OR date(updated_at) <= ${to})
-        )
-    `);
+    // Total streak: completed videos within the date range
+    const totalStreakRows = await this.prisma.video_progress_status.findMany({
+      where: {
+        lesson_file_id: { in: lessonVideoIds },
+        status: 1,
+        deleted_at: null,
+        OR: [
+          {
+            created_at: {
+              gte: fromDateObj,
+              lte: toDateObj,
+            },
+          },
+          {
+            updated_at: {
+              gte: fromDateObj,
+              lte: toDateObj,
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    const totalStreakCount = totalStreakRows.length;
 
-    const currentStreakCount = await this.count(Prisma.sql`
-      SELECT COUNT(*) AS count
-      FROM video_progress_status
-      WHERE lesson_file_id IN (${Prisma.join(lessonVideoIds)})
-        AND status = 1
-        AND deleted_at IS NULL
-        AND (
-          date(created_at) = ${today}
-          OR date(updated_at) = ${today}
-        )
-    `);
+    // Current streak: completed videos today
+    const currentStreakRows = await this.prisma.video_progress_status.findMany({
+      where: {
+        lesson_file_id: { in: lessonVideoIds },
+        status: 1,
+        deleted_at: null,
+        OR: [
+          {
+            created_at: {
+              gte: todayStart,
+              lte: todayEnd,
+            },
+          },
+          {
+            updated_at: {
+              gte: todayStart,
+              lte: todayEnd,
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    const currentStreakCount = currentStreakRows.length;
 
     return {
       total_streak: totalStreakCount * 10,

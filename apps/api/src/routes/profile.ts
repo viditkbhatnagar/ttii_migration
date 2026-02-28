@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
@@ -31,8 +30,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
   return {};
 }
 
-function requestUserId(request: FastifyRequest): number {
-  return request.authContext?.user.id ?? 0;
+function requestUserId(request: FastifyRequest): string {
+  return request.authContext?.user.id ?? '';
 }
 
 function sendProfileError(reply: FastifyReply, error: unknown): void {
@@ -70,27 +69,28 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
   const requireAuth = requireLegacyAuth(authService);
   const prisma = getPrismaClient();
 
-  const readProfile = async (userId: number): Promise<Record<string, unknown> | null> => {
-    const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-      SELECT
-        id,
-        student_id,
-        name,
-        email,
-        user_email,
-        phone,
-        country_code,
-        role_id,
-        course_id,
-        image,
-        academic_year
-      FROM users
-      WHERE id = ${userId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `);
+  const readProfile = async (userId: string): Promise<Record<string, unknown> | null> => {
+    const user = await prisma.users.findFirst({
+      where: {
+        id: userId,
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        student_id: true,
+        name: true,
+        email: true,
+        user_email: true,
+        phone: true,
+        country_code: true,
+        role_id: true,
+        course_id: true,
+        image: true,
+        academic_year: true,
+      },
+    });
 
-    return rows[0] ?? null;
+    return user ?? null;
   };
 
   app.get('/profile/index', { preHandler: [requireAuth] }, async (request, reply) => {
@@ -112,23 +112,34 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
     try {
       const userId = requestUserId(request);
       const payload = requestPayload(request);
-      const now = new Date().toISOString();
+      const now = new Date();
 
-      await prisma.$executeRaw(Prisma.sql`
-        UPDATE users
-        SET
-          name = ${toStringValue(payload.name)},
-          email = ${toStringValue(payload.email)},
-          user_email = ${toStringValue(payload.user_email) || toStringValue(payload.email)},
-          phone = ${toStringValue(payload.phone)},
-          country_code = ${toStringValue(payload.country_code)},
-          academic_year = ${toStringValue(payload.academic_year)},
-          image = CASE WHEN ${toStringValue(payload.image)} = '' THEN image ELSE ${toStringValue(payload.image)} END,
-          updated_by = ${userId},
-          updated_at = ${now}
-        WHERE id = ${userId}
-          AND deleted_at IS NULL
-      `);
+      const imageValue = toStringValue(payload.image);
+
+      // If image is empty, we need to preserve the existing value.
+      // Fetch current image first when needed.
+      let imageToSet: string | undefined;
+      if (imageValue !== '') {
+        imageToSet = imageValue;
+      }
+
+      await prisma.users.updateMany({
+        where: {
+          id: userId,
+          deleted_at: null,
+        },
+        data: {
+          name: toStringValue(payload.name),
+          email: toStringValue(payload.email),
+          user_email: toStringValue(payload.user_email) || toStringValue(payload.email),
+          phone: toStringValue(payload.phone),
+          country_code: toStringValue(payload.country_code),
+          academic_year: toStringValue(payload.academic_year),
+          ...(imageToSet !== undefined ? { image: imageToSet } : {}),
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
 
       const profile = await readProfile(userId);
 
@@ -146,7 +157,7 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
     try {
       const userId = requestUserId(request);
       const payload = requestPayload(request);
-      const now = new Date().toISOString();
+      const now = new Date();
       const image = toStringValue(payload.image);
 
       if (image === '') {
@@ -158,14 +169,17 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         return;
       }
 
-      await prisma.$executeRaw(Prisma.sql`
-        UPDATE users
-        SET image = ${image},
-            updated_by = ${userId},
-            updated_at = ${now}
-        WHERE id = ${userId}
-          AND deleted_at IS NULL
-      `);
+      await prisma.users.updateMany({
+        where: {
+          id: userId,
+          deleted_at: null,
+        },
+        data: {
+          image,
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
 
       const profile = await readProfile(userId);
 
@@ -205,16 +219,19 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
       }
 
       const passwordHash = await hashPassword(password);
-      const now = new Date().toISOString();
+      const now = new Date();
 
-      await prisma.$executeRaw(Prisma.sql`
-        UPDATE users
-        SET password = ${passwordHash},
-            updated_by = ${userId},
-            updated_at = ${now}
-        WHERE id = ${userId}
-          AND deleted_at IS NULL
-      `);
+      await prisma.users.updateMany({
+        where: {
+          id: userId,
+          deleted_at: null,
+        },
+        data: {
+          password: passwordHash,
+          updated_by: userId,
+          updated_at: now,
+        },
+      });
 
       reply.code(200).send({
         status: 1,

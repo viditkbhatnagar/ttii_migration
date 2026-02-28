@@ -26,7 +26,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'applications', label: 'Applications', href: '/admin/applications/index' },
       { id: 'students', label: 'Students', href: '/admin/students/index' },
-      { id: 'student-referrals', label: 'Student Referrals', href: '/admin/students/index' },
+      { id: 'student-referrals', label: 'Student Referrals', href: '/admin/referrals/index' },
       { id: 'assignments-lm', label: 'Assignments', href: '/admin/assignment/index' },
       { id: 'intake', label: 'Intake', href: '/admin/batch/index' },
       { id: 'payments-lm', label: 'Payments', href: '/admin/payments/index' },
@@ -53,6 +53,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'course-directory', label: 'Course Directory', href: '/admin/course/index' },
       { id: 'add-lesson', label: 'Add Lesson', href: '/admin/course_new/index' },
+      { id: 'packages', label: 'Packages', href: '/admin/packages/index' },
     ],
   },
   {
@@ -77,6 +78,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'fee-installments', label: 'Fee Installments', href: '/admin/fee_management/installments' },
       { id: 'payment-status', label: 'Payment Status', href: '/admin/fee_management/payment_status' },
       { id: 'scholarships', label: 'Scholarships', href: '/admin/scholarships/index' },
+      { id: 'student-payments', label: 'Student Payments', href: '/admin/student_payments/index' },
     ],
   },
   {
@@ -94,6 +96,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'super-admin', label: 'Super Admin', href: '/admin/admin/index' },
       { id: 'admin', label: 'Admin', href: '/admin/sub_admin/index' },
+      { id: 'roles-permissions', label: 'Roles & Permissions', href: '/admin/roles/index' },
     ],
   },
   {
@@ -112,6 +115,23 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'associates-directory', label: 'Associates Directory', href: '/admin/associates/index' },
       { id: 'associate-target', label: 'Associate Target', href: '/admin/associates_target/index' },
+    ],
+  },
+  {
+    id: 'crm',
+    label: 'CRM',
+    icon: 'Users',
+    children: [
+      { id: 'enquiries', label: 'Enquiries', href: '/admin/enquiries/index' },
+    ],
+  },
+  {
+    id: 'content-library',
+    label: 'Content Library',
+    icon: 'Library',
+    children: [
+      { id: 'books-library', label: 'Books Library', href: '/admin/books/index' },
+      { id: 'short-content', label: 'Short Content', href: '/admin/short_content/index' },
     ],
   },
   {
@@ -169,6 +189,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'feeds', label: 'Feeds', href: '/admin/feed/index' },
       { id: 'integrations', label: 'Integrations', href: '/admin/integration/index' },
       { id: 'user-feedbacks', label: 'User Feedbacks', href: '/admin/review/index' },
+      { id: 'testimonials', label: 'Testimonials', href: '/admin/testimonials/index' },
       { id: 'faqs', label: 'FAQs', href: '/admin/faq/index' },
       { id: 'language', label: 'Language', href: '/admin/language/index' },
       { id: 'app-version', label: 'App Version', href: '/admin/settings/app_version' },

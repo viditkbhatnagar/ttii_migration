@@ -15,7 +15,7 @@ export default function WalletStatusPage({ api, session }: AdminPageProps) {
   const [appliedCentreName, setAppliedCentreName] = useState('');
 
   const filters = useMemo(() => ({
-    ...(appliedCentreId ? { centreId: asNumber(appliedCentreId) } : {}),
+    ...(appliedCentreId ? { centreId: appliedCentreId } : {}),
     ...(appliedCentreName ? { centreName: appliedCentreName } : {}),
   }), [appliedCentreId, appliedCentreName]);
 

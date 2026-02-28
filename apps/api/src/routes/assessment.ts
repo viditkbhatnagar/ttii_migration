@@ -15,6 +15,18 @@ interface RegisterAssessmentRoutesOptions {
   [key: string]: unknown;
 }
 
+function toStringId(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return String(value);
+  }
+
+  return '';
+}
+
 function toInteger(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -42,8 +54,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
   return {};
 }
 
-function requestUserId(request: FastifyRequest): number {
-  return request.authContext?.user.id ?? 0;
+function requestUserId(request: FastifyRequest): string {
+  return request.authContext?.user.id ?? '';
 }
 
 function sendAssessmentError(reply: FastifyReply, error: unknown): void {
@@ -68,9 +80,9 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const filter: ExamFilterInput = {
-        courseId: toInteger(payload.course_id),
-        subjectId: toInteger(payload.subject_id),
-        lessonId: toInteger(payload.lesson_id),
+        courseId: toStringId(payload.course_id),
+        subjectId: toStringId(payload.subject_id),
+        lessonId: toStringId(payload.lesson_id),
       };
 
       const exams = await assessmentService.listExams(requestUserId(request), filter);
@@ -89,7 +101,7 @@ export function registerAssessmentRoutes(
       const payload = requestPayload(request);
       const calendar = await assessmentService.getExamCalendar(
         requestUserId(request),
-        toInteger(payload.course_id),
+        toStringId(payload.course_id),
       );
 
       reply.code(200).send({
@@ -106,7 +118,7 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const startedAttempt = await assessmentService.startExamAttempt(requestUserId(request), {
-        examId: toInteger(payload.exam_id),
+        examId: toStringId(payload.exam_id),
       });
 
       reply.code(200).send({
@@ -123,7 +135,7 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       await assessmentService.submitExamAttempt(requestUserId(request), {
-        attemptId: toInteger(payload.attempt_id),
+        attemptId: toStringId(payload.attempt_id),
         userAnswers: payload.user_answers,
       });
 
@@ -141,7 +153,7 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const startedAttempt = await assessmentService.startQuizAttempt(requestUserId(request), {
-        examId: toInteger(payload.exam_id),
+        examId: toStringId(payload.exam_id),
       });
 
       reply.code(200).send({
@@ -158,8 +170,8 @@ export function registerAssessmentRoutes(
   app.post('/quiz/save_quiz_result', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const attemptId = toInteger(payload.attempt_id);
-      const examId = toInteger(payload.exam_id);
+      const attemptId = toStringId(payload.attempt_id);
+      const examId = toStringId(payload.exam_id);
 
       await assessmentService.submitQuizAttempt(requestUserId(request), {
         attemptId,
@@ -182,8 +194,8 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const input: StartPracticeAttemptInput = {
-        lessonId: toInteger(payload.lesson_id),
-        lessonFileId: toInteger(payload.lesson_file_id),
+        lessonId: toStringId(payload.lesson_id),
+        lessonFileId: toStringId(payload.lesson_file_id),
         questionNo: toInteger(payload.question_no),
       };
 
@@ -206,7 +218,7 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       await assessmentService.submitPracticeAttempt(requestUserId(request), {
-        attemptId: toInteger(payload.attempt_id),
+        attemptId: toStringId(payload.attempt_id),
         userAnswers: payload.user_answers,
       });
 
@@ -224,8 +236,8 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const filter: AssignmentFilterInput = {
-        subjectId: toInteger(payload.subject_id),
-        cohortId: toInteger(payload.cohort_id),
+        subjectId: toStringId(payload.subject_id),
+        cohortId: toStringId(payload.cohort_id),
       };
 
       const assignments = await assessmentService.listAssignments(requestUserId(request), filter);
@@ -242,7 +254,7 @@ export function registerAssessmentRoutes(
   app.get('/assignment/get_assignment_details', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const assignmentId = toInteger(payload.assignment_id);
+      const assignmentId = toStringId(payload.assignment_id);
 
       const assignment = await assessmentService.getAssignmentDetails(requestUserId(request), assignmentId);
       if (!assignment) {
@@ -265,7 +277,7 @@ export function registerAssessmentRoutes(
   app.get('/assignment/get_assignment_evaluation', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const assignmentId = toInteger(payload.assignment_id);
+      const assignmentId = toStringId(payload.assignment_id);
 
       const assignment = await assessmentService.getAssignmentDetails(requestUserId(request), assignmentId);
       if (!assignment) {
@@ -294,7 +306,7 @@ export function registerAssessmentRoutes(
     try {
       const payload = requestPayload(request);
       const submission = await assessmentService.submitAssignment(requestUserId(request), {
-        assignmentId: toInteger(payload.assignment_id),
+        assignmentId: toStringId(payload.assignment_id),
         answerFiles: payload.answer_file,
       });
 
@@ -309,7 +321,7 @@ export function registerAssessmentRoutes(
       const payload = requestPayload(request);
       const result = await assessmentService.toggleSavedAssignment(
         requestUserId(request),
-        toInteger(payload.assignment_id),
+        toStringId(payload.assignment_id),
       );
 
       reply.code(200).send(result);

@@ -53,8 +53,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
   return {};
 }
 
-function requestUserId(request: FastifyRequest): number {
-  return request.authContext?.user.id ?? 0;
+function requestUserId(request: FastifyRequest): string {
+  return request.authContext?.user.id ?? '';
 }
 
 function sendCommerceError(reply: FastifyReply, error: unknown): void {
@@ -79,7 +79,7 @@ export function registerCommerceRoutes(
   app.get('/packages/index', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const packageData = await commerceService.listPackages(requestUserId(request), toInteger(payload.course_id));
+      const packageData = await commerceService.listPackages(requestUserId(request), toStringValue(payload.course_id));
       reply.code(200).send({
         status: 1,
         message: 'succesfully',
@@ -94,7 +94,7 @@ export function registerCommerceRoutes(
     try {
       const payload = requestPayload(request);
       const input: GeneratePaymentLinkInput = {
-        packageId: toInteger(payload.package_id),
+        packageId: toStringValue(payload.package_id),
         subjects: payload.subjects,
         platform: 'app',
       };
@@ -113,12 +113,12 @@ export function registerCommerceRoutes(
     try {
       const payload = requestPayload(request);
       const input: CreateOrderInput = {
-        courseId: toInteger(payload.course_id),
+        courseId: toStringValue(payload.course_id),
         receipt: toStringValue(payload.receipt) || `receipt_${Date.now()}`,
         currency: toStringValue(payload.currency) || 'INR',
       };
 
-      if (input.courseId <= 0) {
+      if (!input.courseId) {
         reply.code(200).send({
           status: 0,
           message: 'Course ID is required',
@@ -145,14 +145,14 @@ export function registerCommerceRoutes(
   app.get('/payment/complete_order', { preHandler: [requireAuth] }, async (request, reply) => {
     const payload = requestPayload(request);
     const input: CompleteOrderInput = {
-      courseId: toInteger(payload.course_id),
+      courseId: toStringValue(payload.course_id),
       razorpayOrderId: toStringValue(payload.razorpay_order_id),
       razorpayPaymentId: toStringValue(payload.razorpay_payment_id),
       razorpaySignature: toStringValue(payload.razorpay_signature),
     };
 
     if (
-      input.courseId <= 0 ||
+      !input.courseId ||
       input.razorpayOrderId === '' ||
       input.razorpayPaymentId === '' ||
       input.razorpaySignature === ''
@@ -194,8 +194,8 @@ export function registerCommerceRoutes(
     try {
       const payload = requestPayload(request);
       const input: ApplyCouponInput = {
-        courseId: toInteger(payload.course_id),
-        packageId: toInteger(payload.package_id),
+        courseId: toStringValue(payload.course_id),
+        packageId: toStringValue(payload.package_id),
         couponCode: toStringValue(payload.coupon_code),
       };
 
@@ -225,7 +225,7 @@ export function registerCommerceRoutes(
   app.get('/payment/get_payment_details', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const data = await commerceService.getPaymentDetails(requestUserId(request), toInteger(payload.course_id));
+      const data = await commerceService.getPaymentDetails(requestUserId(request), toStringValue(payload.course_id));
       reply.code(200).send({
         status: 1,
         message: 'Payment success!',

@@ -85,6 +85,16 @@ const IntegrationsPage = lazy(() => import('../pages/integrations/IntegrationsPa
 const UserFeedbacksPage = lazy(() => import('../pages/reviews/UserFeedbacksPage.js'));
 const LanguagePage = lazy(() => import('../pages/language/LanguagePage.js'));
 
+// Phase 6: Additional pages
+const RolesPermissionsPage = lazy(() => import('../pages/roles/RolesPermissionsPage.js'));
+const StudentPaymentsPage = lazy(() => import('../pages/student_payments/StudentPaymentsPage.js'));
+const EnquiriesPage = lazy(() => import('../pages/enquiries/EnquiriesPage.js'));
+const BooksLibraryPage = lazy(() => import('../pages/books/BooksLibraryPage.js'));
+const ReferralsPage = lazy(() => import('../pages/referrals/ReferralsPage.js'));
+const ShortContentPage = lazy(() => import('../pages/short_content/ShortContentPage.js'));
+const TestimonialsPage = lazy(() => import('../pages/testimonials/TestimonialsPage.js'));
+const PackagesPage = lazy(() => import('../pages/packages/PackagesPage.js'));
+
 export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Dashboard
   { path: '/admin/dashboard/index', aliases: ['/admin', '/admin/', '/admin/dashboard'], pageComponent: DashboardPage, title: 'Dashboard' },
@@ -179,6 +189,16 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/settings/system_settings', pageComponent: SystemSettingsPage, title: 'System Settings' },
   { path: '/admin/settings/contact_settings', pageComponent: ContactSettingsPage, title: 'Contact Settings' },
   { path: '/admin/settings/website_settings', pageComponent: WebsiteSettingsPage, title: 'Website Settings' },
+
+  // Phase 6: Additional pages
+  { path: '/admin/roles/index', aliases: ['/admin/roles'], pageComponent: RolesPermissionsPage, title: 'Roles & Permissions' },
+  { path: '/admin/student_payments/index', aliases: ['/admin/student_payments'], pageComponent: StudentPaymentsPage, title: 'Student Payments' },
+  { path: '/admin/enquiries/index', aliases: ['/admin/enquiries'], pageComponent: EnquiriesPage, title: 'Enquiries' },
+  { path: '/admin/books/index', aliases: ['/admin/books'], pageComponent: BooksLibraryPage, title: 'Books Library' },
+  { path: '/admin/referrals/index', aliases: ['/admin/referrals'], pageComponent: ReferralsPage, title: 'Student Referrals' },
+  { path: '/admin/short_content/index', aliases: ['/admin/short_content'], pageComponent: ShortContentPage, title: 'Short Content' },
+  { path: '/admin/testimonials/index', aliases: ['/admin/testimonials'], pageComponent: TestimonialsPage, title: 'Testimonials' },
+  { path: '/admin/packages/index', aliases: ['/admin/packages'], pageComponent: PackagesPage, title: 'Packages' },
 ];
 
 export function resolveAdminRoute(pathname: string): AdminRouteConfig | null {

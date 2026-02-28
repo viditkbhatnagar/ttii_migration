@@ -20,8 +20,8 @@ export default function ExamResultPage({ api, session }: AdminPageProps) {
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadAdminExamResults(session.token, {
-      ...(examFilter ? { examId: Number(examFilter) } : {}),
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
+      ...(examFilter ? { examId: examFilter } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
     }),
     [examFilter, courseFilter],
   );
@@ -50,13 +50,13 @@ export default function ExamResultPage({ api, session }: AdminPageProps) {
     {
       key: 'course', label: 'Course', type: 'select' as const, value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
       key: 'exam', label: 'Exam', type: 'select' as const, value: examFilter,
       placeholder: 'Select Exam',
-      options: exams.map((e) => ({ label: asString(e.title), value: String(asNumber(e.id)) })),
+      options: exams.map((e) => ({ label: asString(e.title), value: asString(e.id) })),
       onChange: setExamFilter,
     },
   ], [courseFilter, examFilter, courses, exams]);

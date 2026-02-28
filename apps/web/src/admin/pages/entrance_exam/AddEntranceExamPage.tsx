@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
-import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 
 export default function AddEntranceExamPage({ api, session, onNavigate }: AdminPageProps) {
@@ -33,7 +33,7 @@ export default function AddEntranceExamPage({ api, session, onNavigate }: AdminP
       await api.addEntranceExam(session.token, {
         title,
         description,
-        courseId: Number(courseId) || 0,
+        courseId,
         examDate,
         fromTime,
         toTime,
@@ -74,7 +74,7 @@ export default function AddEntranceExamPage({ api, session, onNavigate }: AdminP
               >
                 <option value="">Select Course</option>
                 {courses.map((c) => (
-                  <option key={asNumber(c.id)} value={String(asNumber(c.id))}>{asString(c.title)}</option>
+                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
                 ))}
               </select>
             </div>

@@ -1,12 +1,16 @@
 /**
  * Seed script: creates demo users for each role so the app is usable after bootstrap.
  *
+ * Uses $runCommandRaw to bypass Prisma's implicit transactions (which require
+ * replica-set support that some Atlas tiers may not expose to Prisma).
+ *
  * Usage:  cd apps/api && npx tsx prisma/seed.ts
  */
+import { randomBytes } from 'node:crypto';
 import { hashPassword } from '../src/auth/password.js';
 import { createPrismaClient } from '../src/data/prisma-client.js';
 
-const DATABASE_URL = process.env.DATABASE_URL ?? 'file:./prisma/dev.db';
+const DATABASE_URL = process.env.DATABASE_URL ?? 'mongodb://localhost:27017/ttii_lms';
 const prisma = createPrismaClient(DATABASE_URL);
 
 interface SeedUser {
@@ -52,20 +56,26 @@ async function seed(): Promise<void> {
     }
 
     const passwordHash = await hashPassword(user.plainPassword);
+    const now = new Date();
 
-    await prisma.users.create({
-      data: {
-        name: user.name,
-        email: user.email,
-        user_email: user.email,
-        phone: user.phone,
-        country_code: '+91',
-        role_id: user.role_id,
-        password: passwordHash,
-        status: 1,
-        created_at: new Date(),
-        updated_at: new Date(),
-      },
+    await prisma.$runCommandRaw({
+      insert: 'users',
+      documents: [
+        {
+          _id: { $oid: randomBytes(12).toString('hex') },
+          name: user.name,
+          email: user.email,
+          user_email: user.email,
+          phone: user.phone,
+          country_code: '+91',
+          role_id: user.role_id,
+          password: passwordHash,
+          status: 1,
+          deleted_at: null,
+          created_at: { $date: now.toISOString() },
+          updated_at: { $date: now.toISOString() },
+        },
+      ],
     });
 
     console.log(`  [created] ${user.email} (role_id: ${user.role_id})`);

@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -18,12 +18,12 @@ export default function EntranceExamRegistrationsPage({ api, session }: AdminPag
   );
 
   const examOptions = useMemo(() =>
-    toRecords(examsData).map((e) => ({ label: asString(e.title), value: String(asNumber(e.id)) })),
+    toRecords(examsData).map((e) => ({ label: asString(e.title), value: asString(e.id) })),
     [examsData],
   );
 
   const { data, loading, error } = useAdminPageData(
-    () => api.loadEntranceExamRegistrations(session.token, Number(examFilter) || undefined),
+    () => api.loadEntranceExamRegistrations(session.token, examFilter || undefined),
     [examFilter],
   );
 

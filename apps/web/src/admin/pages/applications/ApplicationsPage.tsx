@@ -22,8 +22,8 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
       api.loadApplications(session.token, {
         ...(fromDate ? { fromDate } : {}),
         ...(toDate ? { toDate } : {}),
-        ...(courseId ? { courseId: asNumber(courseId) } : {}),
-        ...(pipelineRoleId ? { pipelineRoleId: asNumber(pipelineRoleId) } : {}),
+        ...(courseId ? { courseId } : {}),
+        ...(pipelineRoleId ? { pipelineRoleId } : {}),
         ...(listBy ? { listBy } : {}),
       }),
     [fromDate, toDate, courseId, pipelineRoleId, listBy],

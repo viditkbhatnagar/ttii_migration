@@ -21,7 +21,7 @@ export interface EmailProvider {
 }
 
 export interface OtpDispatchRequest {
-  userId: number;
+  userId: string;
   target: string;
   otp: string;
   purpose: string;

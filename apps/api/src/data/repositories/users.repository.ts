@@ -33,7 +33,7 @@ export class UsersRepository {
     }
   }
 
-  async findById(id: number, includeDeleted = false): Promise<users | null> {
+  async findById(id: string, includeDeleted = false): Promise<users | null> {
     try {
       return await this.usersModel.findFirst({
         where: activeUsersWhere({ id }, includeDeleted),
@@ -70,7 +70,7 @@ export class UsersRepository {
     }
   }
 
-  async softDelete(where: Prisma.usersWhereInput, deletedBy: number | null = null): Promise<number> {
+  async softDelete(where: Prisma.usersWhereInput, deletedBy: string | null = null): Promise<number> {
     try {
       const result = await this.usersModel.updateMany({
         where: activeUsersWhere(where, false),
@@ -85,7 +85,7 @@ export class UsersRepository {
     }
   }
 
-  async restore(id: number): Promise<boolean> {
+  async restore(id: string): Promise<boolean> {
     try {
       const result = await this.usersModel.updateMany({
         where: { id },

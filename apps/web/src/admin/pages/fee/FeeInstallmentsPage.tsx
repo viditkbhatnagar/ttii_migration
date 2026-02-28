@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate, formatCurrency } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords, formatDate, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -22,7 +22,7 @@ export default function FeeInstallmentsPage({ api, session }: AdminPageProps) {
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadFeeInstallments(session.token, {
-      ...(courseFilter ? { courseId: Number(courseFilter) } : {}),
+      ...(courseFilter ? { courseId: courseFilter } : {}),
       ...(statusFilter ? { status: statusFilter } : {}),
     }),
     [courseFilter, statusFilter],
@@ -68,7 +68,7 @@ export default function FeeInstallmentsPage({ api, session }: AdminPageProps) {
       type: 'select' as const,
       value: courseFilter,
       placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: String(asNumber(c.id)) })),
+      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
