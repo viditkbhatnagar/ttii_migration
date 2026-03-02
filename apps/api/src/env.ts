@@ -29,6 +29,11 @@ const optionalUrlFromEnv = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
+// Render injects PORT; map it to API_PORT so the rest of the app reads one variable.
+if (process.env.PORT && !process.env.API_PORT) {
+  process.env.API_PORT = process.env.PORT;
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().default('0.0.0.0'),

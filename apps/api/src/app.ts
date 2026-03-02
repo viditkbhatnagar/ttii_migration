@@ -1,5 +1,9 @@
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 
 import { AuthService } from './auth/auth-service.js';
@@ -13,6 +17,9 @@ import { registerCommerceRoutes } from './routes/commerce.js';
 import { registerEngagementRoutes } from './routes/engagement.js';
 import { registerOperationsRoutes } from './routes/operations.js';
 import { registerProfileRoutes } from './routes/profile.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface BuildAppOptions {
   integrations?: IntegrationRegistry;
@@ -36,7 +43,10 @@ export function buildApp(options: BuildAppOptions = {}) {
 
   app.register(helmet, {
     global: true,
+    contentSecurityPolicy: false,
   });
+
+  // --- API routes ---
 
   app.register(registerHealthRoutes, {
     prefix: '/api',
@@ -79,6 +89,24 @@ export function buildApp(options: BuildAppOptions = {}) {
     prefix: '/api',
     authService,
   });
+
+  // --- Static file serving (production) ---
+  // Serves the built Vite frontend from apps/web/dist/
+  const webDistPath = path.resolve(__dirname, '../../web/dist');
+  if (fs.existsSync(webDistPath)) {
+    app.register(fastifyStatic, {
+      root: webDistPath,
+      wildcard: false,
+    });
+
+    // SPA fallback: any non-API route that doesn't match a static file → index.html
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api')) {
+        return reply.status(404).send({ status: 0, message: 'Not found' });
+      }
+      return reply.sendFile('index.html');
+    });
+  }
 
   return app;
 }

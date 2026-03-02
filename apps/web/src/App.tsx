@@ -151,7 +151,9 @@ function resolveApiBaseUrl(): string {
     return value;
   }
 
-  return 'http://localhost:4000/api';
+  // In production (single-service deploy), derive from current origin.
+  // In dev, set VITE_API_BASE_URL=http://localhost:4000/api in .env
+  return `${window.location.origin}/api`;
 }
 
 function createDefaultAuthApi(baseUrl = resolveApiBaseUrl()): AuthApi {
