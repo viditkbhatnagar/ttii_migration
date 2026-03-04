@@ -31,8 +31,8 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   }, [api, session.token, reload]);
 
   const tabs = [
-    { id: 'inbox' as const, label: 'Inbox', count: data?.notifications.length },
-    { id: 'system' as const, label: 'System Notifications', count: data?.notificationList.length },
+    { id: 'inbox' as const, label: 'Inbox', count: data?.notifications.length ?? 0 },
+    { id: 'system' as const, label: 'System Notifications', count: data?.notificationList.length ?? 0 },
   ];
 
   if (loading) {

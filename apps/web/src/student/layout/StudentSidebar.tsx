@@ -75,8 +75,7 @@ export function StudentSidebar({ pathname, session, onNavigate }: StudentSidebar
   const { sidebarCollapsed } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
 
-  const studentName = (session as Record<string, unknown>).name as string | undefined;
-  const displayName = studentName || 'Student';
+  const displayName = 'Student';
 
   return (
     <aside

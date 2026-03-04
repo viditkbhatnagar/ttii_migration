@@ -20,8 +20,7 @@ interface StudentNavbarProps {
 export function StudentNavbar({ session, onNavigate, onLogout }: StudentNavbarProps) {
   const { toggleSidebar } = useStudentLayout();
 
-  const studentName = (session as Record<string, unknown>).name as string | undefined;
-  const displayName = studentName || 'Student';
+  const displayName = 'Student';
   const initials = displayName
     .split(' ')
     .slice(0, 2)

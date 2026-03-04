@@ -56,7 +56,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     [api, session.token],
   );
 
-  const dashboardData = useMemo(() => (data as Record<string, unknown>) ?? {}, [data]);
+  const dashboardData = useMemo(() => (data as unknown as Record<string, unknown>) ?? {}, [data]);
 
   if (loading) {
     return (

@@ -76,14 +76,14 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   ];
 
   const assignmentSubTabs = [
-    { id: 'current' as const, label: 'Current', count: data?.assignments.current.length },
-    { id: 'upcoming' as const, label: 'Upcoming', count: data?.assignments.upcoming.length },
-    { id: 'completed' as const, label: 'Completed', count: data?.assignments.completed.length },
+    { id: 'current' as const, label: 'Current', count: data?.assignments.current.length ?? 0 },
+    { id: 'upcoming' as const, label: 'Upcoming', count: data?.assignments.upcoming.length ?? 0 },
+    { id: 'completed' as const, label: 'Completed', count: data?.assignments.completed.length ?? 0 },
   ];
 
   const examSubTabs = [
-    { id: 'upcoming' as const, label: 'Upcoming', count: data?.exams.upcoming.length },
-    { id: 'expired' as const, label: 'Past', count: data?.exams.expired.length },
+    { id: 'upcoming' as const, label: 'Upcoming', count: data?.exams.upcoming.length ?? 0 },
+    { id: 'expired' as const, label: 'Past', count: data?.exams.expired.length ?? 0 },
   ];
 
   const currentAssignments =
