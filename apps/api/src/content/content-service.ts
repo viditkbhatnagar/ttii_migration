@@ -238,6 +238,49 @@ export interface SaveMaterialProgressInput {
   attachmentType: string;
 }
 
+export type AdminCourseInput = {
+  title: string;
+  short_name?: string | undefined;
+  category_id?: string | undefined;
+  description?: string | undefined;
+  duration?: string | undefined;
+  thumbnail?: string | undefined;
+  is_free_course?: boolean | undefined;
+  price?: number | undefined;
+  sale_price?: number | undefined;
+  features?: string | undefined;
+  label?: string | undefined;
+  status?: string | undefined;
+};
+
+export type AdminSubjectInput = {
+  course_id: string;
+  title: string;
+  description?: string | undefined;
+  order?: number | undefined;
+};
+
+export type AdminLessonInput = {
+  course_id: string;
+  subject_id: string;
+  title: string;
+  summary?: string | undefined;
+  free?: boolean | undefined;
+  order?: number | undefined;
+};
+
+export type AdminLessonFileInput = {
+  lesson_id: string;
+  title?: string | undefined;
+  summary?: string | undefined;
+  duration?: string | undefined;
+  lesson_type?: string | undefined;
+  video_url?: string | undefined;
+  attachment?: string | undefined;
+  audio_file?: string | undefined;
+  free?: boolean | undefined;
+};
+
 export interface LessonMaterialFilter {
   lessonId?: string;
   subjectId?: string;
@@ -1870,5 +1913,393 @@ export class ContentService {
       total_streak: totalStreakCount * 10,
       current_streak: currentStreakCount * 10,
     };
+  }
+
+  // ── Admin Course CRUD ─────────────────────────────────────────────
+
+  async listCoursesAdmin(): Promise<Record<string, unknown>[]> {
+    const courses = await this.prisma.course.findMany({
+      where: { deleted_at: null },
+      orderBy: { created_at: 'desc' },
+    });
+
+    const courseIds = courses.map((c) => c.id);
+
+    // Batch counts: subjects per course
+    const subjectCounts = await this.prisma.subject.groupBy({
+      by: ['course_id'],
+      where: { course_id: { in: courseIds }, deleted_at: null },
+      _count: { id: true },
+    });
+    const subjectCountMap = new Map(subjectCounts.map((s) => [s.course_id, s._count.id]));
+
+    // Batch counts: enrolled students per course
+    const enrolCounts = await this.prisma.enrol.groupBy({
+      by: ['course_id'],
+      where: { course_id: { in: courseIds }, deleted_at: null },
+      _count: { id: true },
+    });
+    const enrolCountMap = new Map(enrolCounts.map((e) => [e.course_id, e._count.id]));
+
+    // Batch fetch categories
+    const categoryIds = [...new Set(courses.map((c) => c.category_id).filter(Boolean))] as string[];
+    const categories = categoryIds.length > 0
+      ? await this.prisma.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true } })
+      : [];
+    const categoryMap = new Map(categories.map((c) => [c.id, c.name ?? '']));
+
+    return courses.map((course) => ({
+      id: course.id,
+      title: course.title,
+      short_name: course.short_name ?? '',
+      category_id: course.category_id ?? '',
+      category_name: categoryMap.get(course.category_id ?? '') ?? '',
+      status: course.status ?? 'active',
+      price: course.price ?? 0,
+      sale_price: course.sale_price ?? 0,
+      duration: course.duration ?? '',
+      is_free_course: course.is_free_course,
+      thumbnail: this.toFileUrl(course.thumbnail),
+      subject_count: subjectCountMap.get(course.id) ?? 0,
+      enrolled_students: enrolCountMap.get(course.id) ?? 0,
+      created_at: course.created_at?.toISOString() ?? '',
+    }));
+  }
+
+  async getCourseAdmin(courseId: string): Promise<Record<string, unknown> | null> {
+    const course = await this.prisma.course.findFirst({
+      where: { id: courseId, deleted_at: null },
+    });
+
+    if (!course) {
+      return null;
+    }
+
+    return {
+      id: course.id,
+      title: course.title,
+      short_name: course.short_name ?? '',
+      label: course.label ?? '',
+      category_id: course.category_id ?? '',
+      status: course.status ?? 'active',
+      price: course.price ?? 0,
+      sale_price: course.sale_price ?? 0,
+      total_amount: course.total_amount ?? 0,
+      description: course.description ?? '',
+      duration: course.duration ?? '',
+      thumbnail: this.toFileUrl(course.thumbnail),
+      course_icon: this.toFileUrl(course.course_icon),
+      features: course.features ?? '',
+      is_free_course: course.is_free_course,
+    };
+  }
+
+  async createCourse(actorUserId: string, input: AdminCourseInput): Promise<Record<string, unknown>> {
+    const course = await this.prisma.course.create({
+      data: {
+        title: input.title,
+        short_name: toNullableString(input.short_name),
+        category_id: toNullableString(input.category_id),
+        description: toNullableString(input.description),
+        duration: toNullableString(input.duration),
+        thumbnail: toNullableString(input.thumbnail),
+        is_free_course: input.is_free_course ? 1 : 0,
+        price: input.price ?? null,
+        sale_price: input.sale_price ?? null,
+        features: toNullableString(input.features),
+        label: toNullableString(input.label),
+        status: input.status ?? 'active',
+        created_by: actorUserId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    return { id: course.id };
+  }
+
+  async updateCourse(actorUserId: string, courseId: string, input: AdminCourseInput): Promise<Record<string, unknown>> {
+    await this.prisma.course.update({
+      where: { id: courseId },
+      data: {
+        title: input.title,
+        short_name: toNullableString(input.short_name),
+        category_id: toNullableString(input.category_id),
+        description: toNullableString(input.description),
+        duration: toNullableString(input.duration),
+        thumbnail: toNullableString(input.thumbnail),
+        is_free_course: input.is_free_course ? 1 : 0,
+        price: input.price ?? null,
+        sale_price: input.sale_price ?? null,
+        features: toNullableString(input.features),
+        label: toNullableString(input.label),
+        status: input.status ?? 'active',
+        updated_by: actorUserId,
+        updated_at: new Date(),
+      },
+    });
+
+    return { id: courseId };
+  }
+
+  async archiveCourse(actorUserId: string, courseId: string): Promise<void> {
+    await this.prisma.course.update({
+      where: { id: courseId },
+      data: {
+        status: 'archived',
+        updated_by: actorUserId,
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  // ── Admin Subject CRUD ────────────────────────────────────────────
+
+  async listCourseSubjectsAdmin(courseId: string): Promise<Record<string, unknown>[]> {
+    const subjects = await this.prisma.subject.findMany({
+      where: { course_id: courseId, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+
+    const subjectIds = subjects.map((s) => s.id);
+    const lessonCounts = await this.prisma.lesson.groupBy({
+      by: ['subject_id'],
+      where: { subject_id: { in: subjectIds }, deleted_at: null },
+      _count: { id: true },
+    });
+    const lessonCountMap = new Map(lessonCounts.map((l) => [l.subject_id, l._count.id]));
+
+    return subjects.map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? '',
+      thumbnail: this.toFileUrl(s.thumbnail),
+      order: s.order ?? 0,
+      lesson_count: lessonCountMap.get(s.id) ?? 0,
+    }));
+  }
+
+  async listAllSubjects(): Promise<Record<string, unknown>[]> {
+    const subjects = await this.prisma.subject.findMany({
+      where: { deleted_at: null },
+      select: { id: true, title: true, description: true, course_id: true },
+      orderBy: { title: 'asc' },
+    });
+
+    return subjects.map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? '',
+      course_id: s.course_id,
+    }));
+  }
+
+  async addSubjectAdmin(actorUserId: string, input: AdminSubjectInput): Promise<Record<string, unknown>> {
+    const maxOrder = await this.prisma.subject.aggregate({
+      where: { course_id: input.course_id, deleted_at: null },
+      _max: { order: true },
+    });
+
+    const subject = await this.prisma.subject.create({
+      data: {
+        course_id: input.course_id,
+        title: input.title,
+        description: toNullableString(input.description),
+        order: (maxOrder._max.order ?? 0) + 1,
+        created_by: actorUserId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    return { id: subject.id };
+  }
+
+  async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
+    await this.prisma.subject.update({
+      where: { id: subjectId },
+      data: {
+        title: input.title,
+        description: toNullableString(input.description),
+        ...(input.order != null ? { order: input.order } : {}),
+        updated_by: actorUserId,
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async deleteSubjectAdmin(actorUserId: string, subjectId: string): Promise<void> {
+    await this.prisma.subject.update({
+      where: { id: subjectId },
+      data: {
+        deleted_by: actorUserId,
+        deleted_at: new Date(),
+      },
+    });
+  }
+
+  // ── Admin Lesson CRUD ─────────────────────────────────────────────
+
+  async listLessonsAdmin(subjectId: string): Promise<Record<string, unknown>[]> {
+    const lessons = await this.prisma.lesson.findMany({
+      where: { subject_id: subjectId, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+
+    const lessonIds = lessons.map((l) => l.id);
+    const fileCounts = await this.prisma.lesson_files.groupBy({
+      by: ['lesson_id'],
+      where: { lesson_id: { in: lessonIds }, deleted_at: null },
+      _count: { id: true },
+    });
+    const fileCountMap = new Map(fileCounts.map((f) => [f.lesson_id, f._count.id]));
+
+    return lessons.map((l) => ({
+      id: l.id,
+      title: l.title,
+      summary: l.summary ?? '',
+      free: l.free ?? 'off',
+      thumbnail: this.toFileUrl(l.thumbnail),
+      order: l.order ?? 0,
+      course_id: l.course_id,
+      subject_id: l.subject_id,
+      files_count: fileCountMap.get(l.id) ?? 0,
+    }));
+  }
+
+  async addLessonAdmin(actorUserId: string, input: AdminLessonInput): Promise<Record<string, unknown>> {
+    const maxOrder = await this.prisma.lesson.aggregate({
+      where: { subject_id: input.subject_id, deleted_at: null },
+      _max: { order: true },
+    });
+
+    const lesson = await this.prisma.lesson.create({
+      data: {
+        course_id: input.course_id,
+        subject_id: input.subject_id,
+        title: input.title,
+        summary: toNullableString(input.summary),
+        free: input.free ? 'on' : 'off',
+        order: (maxOrder._max.order ?? 0) + 1,
+        created_by: actorUserId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    return { id: lesson.id };
+  }
+
+  async editLessonAdmin(actorUserId: string, lessonId: string, input: AdminLessonInput): Promise<void> {
+    await this.prisma.lesson.update({
+      where: { id: lessonId },
+      data: {
+        title: input.title,
+        summary: toNullableString(input.summary),
+        free: input.free ? 'on' : 'off',
+        ...(input.order != null ? { order: input.order } : {}),
+        updated_by: actorUserId,
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async deleteLessonAdmin(actorUserId: string, lessonId: string): Promise<void> {
+    await this.prisma.lesson.update({
+      where: { id: lessonId },
+      data: {
+        deleted_by: actorUserId,
+        deleted_at: new Date(),
+      },
+    });
+  }
+
+  async reorderLessonsAdmin(lessonIds: string[]): Promise<void> {
+    const updates = lessonIds.map((id, index) =>
+      this.prisma.lesson.update({
+        where: { id },
+        data: { order: index + 1, updated_at: new Date() },
+      }),
+    );
+    await this.prisma.$transaction(updates);
+  }
+
+  // ── Admin Lesson File CRUD ────────────────────────────────────────
+
+  async listLessonFilesAdmin(lessonId: string): Promise<Record<string, unknown>[]> {
+    const files = await this.prisma.lesson_files.findMany({
+      where: { lesson_id: lessonId, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+
+    return files.map((f) => ({
+      id: f.id,
+      lesson_id: f.lesson_id,
+      title: f.title ?? '',
+      summary: f.summary ?? '',
+      duration: f.duration ?? '',
+      lesson_type: f.lesson_type ?? '',
+      video_url: f.video_url ?? '',
+      attachment: f.attachment ?? '',
+      audio_file: f.audio_file ?? '',
+      free: f.free ?? 'off',
+      order: f.order ?? 0,
+      attachment_type: f.attachment_type ?? '',
+    }));
+  }
+
+  async addLessonFileAdmin(actorUserId: string, input: AdminLessonFileInput): Promise<Record<string, unknown>> {
+    const maxOrder = await this.prisma.lesson_files.aggregate({
+      where: { lesson_id: input.lesson_id, deleted_at: null },
+      _max: { order: true },
+    });
+
+    const file = await this.prisma.lesson_files.create({
+      data: {
+        lesson_id: input.lesson_id,
+        title: input.title ?? null,
+        summary: toNullableString(input.summary),
+        duration: toNullableString(input.duration),
+        lesson_type: input.lesson_type ?? null,
+        video_url: toNullableString(input.video_url),
+        attachment: toNullableString(input.attachment),
+        audio_file: toNullableString(input.audio_file),
+        free: input.free ? 'on' : 'off',
+        order: (maxOrder._max.order ?? 0) + 1,
+        created_by: actorUserId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    return { id: file.id };
+  }
+
+  async editLessonFileAdmin(actorUserId: string, fileId: string, input: AdminLessonFileInput): Promise<void> {
+    await this.prisma.lesson_files.update({
+      where: { id: fileId },
+      data: {
+        title: input.title ?? null,
+        summary: toNullableString(input.summary),
+        duration: toNullableString(input.duration),
+        lesson_type: input.lesson_type ?? null,
+        video_url: toNullableString(input.video_url),
+        attachment: toNullableString(input.attachment),
+        audio_file: toNullableString(input.audio_file),
+        free: input.free ? 'on' : 'off',
+        updated_by: actorUserId,
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async deleteLessonFileAdmin(actorUserId: string, fileId: string): Promise<void> {
+    await this.prisma.lesson_files.update({
+      where: { id: fileId },
+      data: {
+        deleted_by: actorUserId,
+        deleted_at: new Date(),
+      },
+    });
   }
 }

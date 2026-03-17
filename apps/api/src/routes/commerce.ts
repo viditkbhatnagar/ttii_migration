@@ -235,4 +235,32 @@ export function registerCommerceRoutes(
       sendCommerceError(reply, error);
     }
   });
+
+  app.get('/payment/get_payment_history', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await commerceService.getPaymentHistory(requestUserId(request), toStringValue(payload.course_id) || undefined);
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data,
+      });
+    } catch (error: unknown) {
+      sendCommerceError(reply, error);
+    }
+  });
+
+  app.get('/payment/get_installments', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await commerceService.getStudentInstallments(requestUserId(request), toStringValue(payload.course_id) || undefined);
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data,
+      });
+    } catch (error: unknown) {
+      sendCommerceError(reply, error);
+    }
+  });
 }

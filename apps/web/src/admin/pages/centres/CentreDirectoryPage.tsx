@@ -1,22 +1,40 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 
-export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+];
+
+export default function CentreDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
   const [filterName, setFilterName] = useState('');
   const [filterContact, setFilterContact] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterState, setFilterState] = useState('');
+  const [filterCity, setFilterCity] = useState('');
   const [appliedName, setAppliedName] = useState('');
   const [appliedContact, setAppliedContact] = useState('');
   const [appliedStatus, setAppliedStatus] = useState('');
+  const [appliedState, setAppliedState] = useState('');
+  const [appliedCity, setAppliedCity] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadCentres(session.token),
     [],
   );
@@ -27,9 +45,11 @@ export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
       if (appliedName && !asString(row.centre_name).toLowerCase().includes(appliedName.toLowerCase())) return false;
       if (appliedContact && !asString(row.contact_person).toLowerCase().includes(appliedContact.toLowerCase())) return false;
       if (appliedStatus && asString(row.status).toLowerCase() !== appliedStatus.toLowerCase()) return false;
+      if (appliedState && asString(row.state).toLowerCase() !== appliedState.toLowerCase()) return false;
+      if (appliedCity && !asString(row.city).toLowerCase().includes(appliedCity.toLowerCase())) return false;
       return true;
     });
-  }, [data, appliedName, appliedContact, appliedStatus]);
+  }, [data, appliedName, appliedContact, appliedStatus, appliedState, appliedCity]);
 
   const filters: FilterField[] = [
     {
@@ -49,6 +69,22 @@ export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
       onChange: setFilterContact,
     },
     {
+      key: 'state',
+      label: 'State',
+      type: 'select',
+      value: filterState,
+      options: INDIAN_STATES.map((s) => ({ label: s, value: s })),
+      onChange: setFilterState,
+    },
+    {
+      key: 'city',
+      label: 'City',
+      type: 'text',
+      value: filterCity,
+      placeholder: 'Search by city',
+      onChange: setFilterCity,
+    },
+    {
       key: 'status',
       label: 'Status',
       type: 'select',
@@ -62,10 +98,34 @@ export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
   ];
 
   const columns: DataTableColumn[] = [
-    { key: 'centre_name', label: 'Centre Name', sortable: true },
+    {
+      key: 'centre_name',
+      label: 'Centre Name',
+      sortable: true,
+      render: (value, row) => (
+        <button
+          type="button"
+          className="text-left font-medium text-blue-600 hover:underline"
+          onClick={() => onNavigate('/admin/centres/view/' + asString(row.id))}
+        >
+          {asString(value)}
+        </button>
+      ),
+    },
     { key: 'contact_person', label: 'Contact Person' },
     { key: 'phone', label: 'Contact No' },
     { key: 'email', label: 'Email' },
+    {
+      key: 'students_count',
+      label: 'Total Students',
+      sortable: true,
+      render: (value) => (value != null ? String(value) : '0'),
+    },
+    {
+      key: 'fund_request_count',
+      label: 'Fund Requests',
+      render: (value) => (value != null ? String(value) : '-'),
+    },
     {
       key: 'wallet_balance',
       label: 'Wallet Balance',
@@ -74,25 +134,56 @@ export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
     },
   ];
 
-  const actions = [
-    { label: 'View', onClick: () => {} },
-    { label: 'Edit', onClick: () => {} },
+  const actions: DataTableAction[] = [
+    {
+      label: 'View',
+      onClick: (row) => onNavigate('/admin/centres/view/' + asString(row.id)),
+    },
+    {
+      label: 'Edit',
+      onClick: (row) => onNavigate('/admin/centres/edit/' + asString(row.id)),
+    },
+    {
+      label: 'Delete',
+      variant: 'destructive',
+      onClick: (row) => setDeleteTarget(row),
+    },
   ];
 
   const handleApply = () => {
     setAppliedName(filterName);
     setAppliedContact(filterContact);
     setAppliedStatus(filterStatus);
+    setAppliedState(filterState);
+    setAppliedCity(filterCity);
   };
 
   const handleClear = () => {
     setFilterName('');
     setFilterContact('');
     setFilterStatus('');
+    setFilterState('');
+    setFilterCity('');
     setAppliedName('');
     setAppliedContact('');
     setAppliedStatus('');
+    setAppliedState('');
+    setAppliedCity('');
   };
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteCentre(session.token, asString(deleteTarget.id));
+      setDeleteTarget(null);
+      reload();
+    } catch {
+      // silently handle error
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, api, session.token, reload]);
 
   if (loading) {
     return (
@@ -116,9 +207,26 @@ export default function CentreDirectoryPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Centre Directory" addLabel="+ Add Centre" onAdd={() => {}} />
+      <AdminPageHeader title="Centre Directory" addLabel="+ Add Centre" onAdd={() => onNavigate('/admin/centres/add')} />
       <AdminFilterBar filters={filters} onApply={handleApply} onClear={handleClear} />
       <AdminDataTable columns={columns} rows={rows} actions={actions} />
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Centre</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Are you sure you want to delete <strong>{deleteTarget ? asString(deleteTarget.centre_name) : ''}</strong>? This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

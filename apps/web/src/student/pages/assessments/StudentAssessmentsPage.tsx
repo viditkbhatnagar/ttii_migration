@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -13,11 +15,37 @@ type MainTab = 'assignments' | 'exams';
 type AssignmentSubTab = 'current' | 'upcoming' | 'completed';
 type ExamSubTab = 'upcoming' | 'expired';
 
+function parseSubmittedFiles(value: unknown): Array<{ file: string; date: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'object' && entry !== null) {
+        const record = entry as Record<string, unknown>;
+        return {
+          file: typeof record.file === 'string' ? record.file : '',
+          date: typeof record.date === 'string' ? record.date : '',
+        };
+      }
+      return { file: '', date: '' };
+    })
+    .filter((entry) => entry.file !== '');
+}
+
+function getFileName(url: string): string {
+  try {
+    const parts = url.split('/');
+    return parts[parts.length - 1] || 'File';
+  } catch {
+    return 'File';
+  }
+}
+
 export default function StudentAssessmentsPage({ api, session }: StudentPageProps) {
   const [mainTab, setMainTab] = useState<MainTab>('assignments');
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('current');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('upcoming');
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssessments(session.token),
@@ -132,46 +160,124 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                 const id = asString(assignment.id);
                 const title = asString(assignment.title) || `Assignment ${id}`;
                 const status = asString(assignment.status) || assignmentSubTab;
-                const dueDate = asString(assignment.due_date) || asString(assignment.end_date);
-                const marks = asNumber(assignment.marks) || asNumber(assignment.total_marks);
+                const dueDate = asString(assignment.date) || asString(assignment.due_date) || asString(assignment.end_date);
+                const totalMarks = asString(assignment.total_marks);
+                const marks = asString(assignment.marks);
                 const isSaved = asNumber(assignment.is_saved) === 1;
+                const isSubmitted = asNumber(assignment.is_submitted) > 0;
+                const isReviewed = asNumber(assignment.is_reviewed) === 1;
+                const remarks = asString(assignment.remarks);
+                const submittedFiles = parseSubmittedFiles(assignment.submitted_file);
+                const isExpanded = expandedSubmission === id;
+                const isCompleted = assignmentSubTab === 'completed';
 
                 return (
                   <Card key={id} className="bg-white">
-                    <CardContent className="flex items-center gap-4 p-4">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-                        <ClipboardList className="size-4 text-orange-600" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900">{title}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                          {dueDate ? (
-                            <span className="flex items-center gap-1">
-                              <Calendar className="size-3" />
-                              {formatDate(dueDate)}
-                            </span>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-orange-100">
+                          <ClipboardList className="size-4 text-orange-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-gray-900">{title}</p>
+                          <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                            {dueDate ? (
+                              <span className="flex items-center gap-1">
+                                <Calendar className="size-3" />
+                                {formatDate(dueDate)}
+                              </span>
+                            ) : null}
+                            {totalMarks ? <span>{totalMarks} marks</span> : null}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <AdminStatusBadge status={status} />
+                          {isCompleted && isSubmitted ? (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => setExpandedSubmission(isExpanded ? null : id)}
+                              title="View Submission"
+                            >
+                              <Eye className="size-4 text-ttii-primary" />
+                            </Button>
                           ) : null}
-                          {marks > 0 ? <span>{marks} marks</span> : null}
+                          {assignmentSubTab === 'current' ? (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              disabled={actionPending === id}
+                              onClick={() => void handleToggleSaved(id)}
+                              title={isSaved ? 'Unsave' : 'Save'}
+                            >
+                              {isSaved ? (
+                                <BookmarkCheck className="size-4 text-ttii-primary" />
+                              ) : (
+                                <Bookmark className="size-4 text-gray-400" />
+                              )}
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <AdminStatusBadge status={status} />
-                        {assignmentSubTab === 'current' ? (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            disabled={actionPending === id}
-                            onClick={() => void handleToggleSaved(id)}
-                            title={isSaved ? 'Unsave' : 'Save'}
-                          >
-                            {isSaved ? (
-                              <BookmarkCheck className="size-4 text-ttii-primary" />
-                            ) : (
-                              <Bookmark className="size-4 text-gray-400" />
-                            )}
-                          </Button>
-                        ) : null}
-                      </div>
+
+                      {/* Submission Details (expanded for completed assignments) */}
+                      {isExpanded && isCompleted ? (
+                        <>
+                          <Separator className="my-3" />
+                          <div className="space-y-3 rounded-lg bg-gray-50 p-3">
+                            <h4 className="text-sm font-medium text-gray-700">Submission Details</h4>
+
+                            {/* Score & Review */}
+                            {isReviewed ? (
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                  <Award className="size-4 text-amber-500" />
+                                  <span className="text-sm font-semibold text-gray-900">Score: {marks}</span>
+                                </div>
+                                <Badge variant="default">Reviewed</Badge>
+                              </div>
+                            ) : isSubmitted ? (
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary">Pending Review</Badge>
+                              </div>
+                            ) : null}
+
+                            {/* Remarks */}
+                            {remarks ? (
+                              <div className="flex items-start gap-2">
+                                <MessageSquare className="mt-0.5 size-4 text-gray-400" />
+                                <div>
+                                  <p className="text-xs font-medium text-gray-500">Instructor Remarks</p>
+                                  <p className="text-sm text-gray-700">{remarks}</p>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {/* Submitted Files */}
+                            {submittedFiles.length > 0 ? (
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-medium text-gray-500">Submitted Files</p>
+                                {submittedFiles.map((sf, idx) => (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <Link2 className="size-3.5 text-blue-500" />
+                                    <a
+                                      href={sf.file}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm text-blue-600 hover:underline"
+                                    >
+                                      {getFileName(sf.file)}
+                                    </a>
+                                    {sf.date ? (
+                                      <span className="text-xs text-gray-400">{formatDate(sf.date)}</span>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
                     </CardContent>
                   </Card>
                 );

@@ -16,6 +16,7 @@ import type { PortalSurface } from '@ttii/shared-types';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
 import { useEffect, useMemo, useState } from 'react';
 
+import { detectPortalFromSubdomain, getSubdomainRedirectPath } from './lib/subdomain.js';
 import { AdminPortal, normalizeAdminPath } from './admin/admin-portal.js';
 import { AdminPortalApi } from './admin/admin-portal-api.js';
 import { CentrePortal, normalizeCentrePath } from './centre/centre-portal.js';
@@ -549,9 +550,14 @@ function LoginHome() {
               onChange={(event) => setRoleId(event.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
             >
+              <option value="1">Super Admin (role_id 1)</option>
               <option value="2">Student (role_id 2)</option>
+              <option value="3">Instructor (role_id 3)</option>
+              <option value="4">Team Lead (role_id 4)</option>
               <option value="7">Centre (role_id 7)</option>
-              <option value="1">Admin (role_id 1)</option>
+              <option value="8">Sub Admin (role_id 8)</option>
+              <option value="9">Counsellor (role_id 9)</option>
+              <option value="10">Associate (role_id 10)</option>
             </select>
           </label>
 
@@ -591,9 +597,24 @@ function PortalRouter({
   adminPortalApi: AdminPortalApi;
 }) {
   const pathname = usePathname(initialPath);
+  const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
 
-  if (pathname === '/') {
+  // On subdomain, redirect root or wrong-portal paths to the correct portal
+  useEffect(() => {
+    if (!subdomainPortal) return;
+    const redirect = getSubdomainRedirectPath(subdomainPortal, pathname);
+    if (redirect) {
+      navigateTo(redirect);
+    }
+  }, [subdomainPortal, pathname]);
+
+  if (pathname === '/' && !subdomainPortal) {
     return <LoginHome />;
+  }
+
+  // Still loading redirect on subdomain
+  if (pathname === '/' && subdomainPortal) {
+    return null;
   }
 
   const route = findPortalRoute(pathname);

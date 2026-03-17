@@ -61,6 +61,13 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     course_id: row.course_id,
     image: row.image,
     academic_year: row.academic_year,
+    username: row.username,
+    date_of_birth: row.date_of_birth,
+    gender: row.gender,
+    address_line_1: row.address_line_1,
+    city: row.city,
+    state: row.state,
+    pincode: row.pincode,
   };
 }
 
@@ -87,6 +94,13 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         course_id: true,
         image: true,
         academic_year: true,
+        username: true,
+        date_of_birth: true,
+        gender: true,
+        address_line_1: true,
+        city: true,
+        state: true,
+        pincode: true,
       },
     });
 
@@ -123,6 +137,9 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         imageToSet = imageValue;
       }
 
+      const dobValue = toStringValue(payload.date_of_birth);
+      const dateOfBirth = dobValue !== '' ? new Date(dobValue) : undefined;
+
       await prisma.users.updateMany({
         where: {
           id: userId,
@@ -136,6 +153,12 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
           country_code: toStringValue(payload.country_code),
           academic_year: toStringValue(payload.academic_year),
           ...(imageToSet !== undefined ? { image: imageToSet } : {}),
+          ...(dateOfBirth !== undefined && !Number.isNaN(dateOfBirth.getTime()) ? { date_of_birth: dateOfBirth } : {}),
+          ...(payload.gender !== undefined ? { gender: toStringValue(payload.gender) } : {}),
+          ...(payload.address_line_1 !== undefined ? { address_line_1: toStringValue(payload.address_line_1) } : {}),
+          ...(payload.city !== undefined ? { city: toStringValue(payload.city) } : {}),
+          ...(payload.state !== undefined ? { state: toStringValue(payload.state) } : {}),
+          ...(payload.pincode !== undefined ? { pincode: toStringValue(payload.pincode) } : {}),
           updated_by: userId,
           updated_at: now,
         },

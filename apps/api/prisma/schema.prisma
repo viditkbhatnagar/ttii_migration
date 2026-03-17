@@ -32,6 +32,12 @@ model users {
   profile_picture      String?
   image                String?
   academic_year        String?
+  date_of_birth        DateTime?
+  gender               String?
+  address_line_1       String?
+  city                 String?
+  state                String?
+  pincode              String?
   premium              Int                    @default(0)
   created_by           String?                @db.ObjectId
   updated_by           String?                @db.ObjectId

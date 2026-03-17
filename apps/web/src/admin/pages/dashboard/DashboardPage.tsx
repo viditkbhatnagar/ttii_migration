@@ -19,12 +19,12 @@ interface StatCardDef {
   format?: (value: unknown) => string;
 }
 
-const STAT_CARDS: StatCardDef[] = [
-  { label: 'Total Courses', key: 'courses_count', icon: GraduationCap },
-  { label: 'Total Centres', key: 'centres_count', icon: Building2 },
-  { label: 'Total Students', key: 'students_count', icon: Users },
-  { label: 'Total Enrolments', key: 'enrolments_count', icon: BookOpen },
-  { label: 'Total Payments', key: 'payments_total', icon: IndianRupee, format: formatCurrency },
+const STAT_CARDS: (StatCardDef & { borderColor: string })[] = [
+  { label: 'Total Courses', key: 'courses_count', icon: GraduationCap, borderColor: 'border-blue-500' },
+  { label: 'Total Centres', key: 'centres_count', icon: Building2, borderColor: 'border-green-500' },
+  { label: 'Total Students', key: 'students_count', icon: Users, borderColor: 'border-purple-500' },
+  { label: 'Total Enrolments', key: 'enrolments_count', icon: BookOpen, borderColor: 'border-orange-500' },
+  { label: 'Total Payments', key: 'payments_total', icon: IndianRupee, format: formatCurrency, borderColor: 'border-teal-500' },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -144,7 +144,7 @@ export default function DashboardPage({ api, session }: AdminPageProps) {
           const displayValue = stat.format ? stat.format(raw) : String(asNumber(raw));
 
           return (
-            <Card key={stat.key} className="bg-white">
+            <Card key={stat.key} className={`bg-white border-l-4 ${stat.borderColor}`}>
               <CardContent className="flex items-center gap-4 p-5">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-primary/10">
                   <Icon className="size-5 text-ttii-primary" />

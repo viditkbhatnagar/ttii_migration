@@ -21,7 +21,7 @@ function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: Admi
 
   return (
     <div className="flex h-screen overflow-hidden bg-ttii-page-bg">
-      <AdminSidebar pathname={pathname} onNavigate={onNavigate} />
+      <AdminSidebar pathname={pathname} roleId={session.roleId} onNavigate={onNavigate} />
       <div
         className={cn(
           'flex min-h-screen flex-1 flex-col transition-all duration-200',

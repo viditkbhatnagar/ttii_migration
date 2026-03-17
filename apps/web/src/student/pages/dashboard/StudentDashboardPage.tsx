@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { BookOpen, ClipboardList, FileText, Bell, Flame, CheckCircle } from 'lucide-react';
+import { BookOpen, ClipboardList, FileText, Bell, Flame, CheckCircle, CreditCard, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
+import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 interface StatCardDef {
@@ -96,6 +97,10 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     );
   }
 
+  const courseProgress = data?.courseProgress ?? 0;
+  const recentPaymentAmount = data?.recentPaymentAmount ?? 0;
+  const recentPaymentDate = data?.recentPaymentDate ?? '';
+
   return (
     <div className="space-y-6">
       {/* Welcome header */}
@@ -125,6 +130,68 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
             </Card>
           );
         })}
+      </div>
+
+      {/* Course Progress + Recent Payment */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Course Progress */}
+        {data?.primaryCourseTitle ? (
+          <Card className="bg-white">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-primary/10">
+                  <BookOpen className="size-5 text-ttii-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-gray-900">Course Progress</h3>
+                  <p className="truncate text-sm text-gray-500">{data.primaryCourseTitle}</p>
+                </div>
+                <span className="text-2xl font-bold text-ttii-primary">{courseProgress}%</span>
+              </div>
+              <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-ttii-primary transition-all"
+                  style={{ width: `${Math.min(courseProgress, 100)}%` }}
+                />
+              </div>
+              <Button
+                variant="link"
+                className="mt-2 h-auto p-0 text-sm text-ttii-primary"
+                onClick={() => onNavigate('/student/learning')}
+              >
+                Continue Learning
+                <ArrowRight className="ml-1 size-3.5" />
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Recent Payment */}
+        <Card className="bg-white">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                <CreditCard className="size-5 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Recent Payment</h3>
+                <p className="text-sm text-gray-500">
+                  {recentPaymentAmount > 0
+                    ? `${formatCurrency(recentPaymentAmount)} on ${recentPaymentDate ? formatDate(recentPaymentDate) : 'N/A'}`
+                    : 'No payments yet'}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="link"
+              className="mt-3 h-auto p-0 text-sm text-ttii-primary"
+              onClick={() => onNavigate('/student/payments')}
+            >
+              View All Payments
+              <ArrowRight className="ml-1 size-3.5" />
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Streak + Tasks */}
@@ -174,23 +241,56 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         </Card>
       </div>
 
-      {/* Continue Learning CTA */}
-      {data?.primaryCourseTitle ? (
-        <Card className="border-ttii-primary/20 bg-gradient-to-r from-ttii-primary/5 to-transparent">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <h3 className="font-semibold text-gray-900">Continue Learning</h3>
-              <p className="mt-1 text-sm text-gray-600">{data.primaryCourseTitle}</p>
+      {/* Quick Links */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <Card
+          className="cursor-pointer bg-white transition-shadow hover:shadow-md"
+          onClick={() => onNavigate('/student/assessments')}
+        >
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-orange-100">
+              <ClipboardList className="size-4 text-orange-600" />
             </div>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => onNavigate('/student/learning')}
-            >
-              Go to Course
-            </Button>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">View All Assignments</p>
+              <p className="text-xs text-gray-500">{data?.currentAssignments ?? 0} current</p>
+            </div>
+            <ArrowRight className="size-4 text-gray-400" />
           </CardContent>
         </Card>
-      ) : null}
+
+        <Card
+          className="cursor-pointer bg-white transition-shadow hover:shadow-md"
+          onClick={() => onNavigate('/student/assessments')}
+        >
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-red-100">
+              <FileText className="size-4 text-red-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">View All Exams</p>
+              <p className="text-xs text-gray-500">{data?.upcomingExams ?? 0} upcoming</p>
+            </div>
+            <ArrowRight className="size-4 text-gray-400" />
+          </CardContent>
+        </Card>
+
+        <Card
+          className="cursor-pointer bg-white transition-shadow hover:shadow-md"
+          onClick={() => onNavigate('/student/learning')}
+        >
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-100">
+              <BookOpen className="size-4 text-blue-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">My Courses</p>
+              <p className="text-xs text-gray-500">{data?.coursesCount ?? 0} enrolled</p>
+            </div>
+            <ArrowRight className="size-4 text-gray-400" />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

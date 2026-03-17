@@ -1,52 +1,121 @@
-import { useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Play, Pencil, Trash2, Video } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+
+const CATEGORIES = ['Live', 'Lecture', 'Tutorial'];
+
+interface VideoFormState {
+  title: string;
+  category: string;
+  videoUrl: string;
+  thumbnail: string;
+  description: string;
+}
+
+const emptyForm: VideoFormState = { title: '', category: '', videoUrl: '', thumbnail: '', description: '' };
 
 export default function TrainingVideosPage({ api, session }: AdminPageProps) {
-  const { data, loading, error } = useAdminPageData(
+  const [activeTab, setActiveTab] = useState('All');
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState('');
+  const [form, setForm] = useState<VideoFormState>(emptyForm);
+  const [deleteId, setDeleteId] = useState('');
+  const [deleteTitle, setDeleteTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadTrainingVideos(session.token),
     [],
   );
 
   const allVideos = useMemo(() => toRecords(data), [data]);
 
-  const categoryBreakdown = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const row of allVideos) {
-      const cat = asString(row.category) || 'Uncategorised';
-      counts[cat] = (counts[cat] ?? 0) + 1;
+  const filteredVideos = useMemo(() => {
+    if (activeTab === 'All') return allVideos;
+    return allVideos.filter((v) => asString(v.category).toLowerCase() === activeTab.toLowerCase());
+  }, [allVideos, activeTab]);
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: allVideos.length };
+    for (const cat of CATEGORIES) {
+      counts[cat] = allVideos.filter((v) => asString(v.category).toLowerCase() === cat.toLowerCase()).length;
     }
     return counts;
   }, [allVideos]);
 
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      { key: 'title', label: 'Title', sortable: true },
-      { key: 'category', label: 'Category', render: (v) => asString(v) || 'Uncategorised' },
-      {
-        key: 'video_type',
-        label: 'Type',
-        render: (v) => <AdminStatusBadge status={asString(v) || 'default'} />,
-      },
-      { key: 'created_at', label: 'Created', render: (v) => formatDate(v) },
-    ],
-    [],
-  );
+  const handleOpenAdd = useCallback(() => {
+    setEditId('');
+    setForm(emptyForm);
+    setShowForm(true);
+  }, []);
+
+  const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
+    setEditId(asString(row.id));
+    setForm({
+      title: asString(row.title),
+      category: asString(row.category),
+      videoUrl: asString(row.video_url),
+      thumbnail: asString(row.thumbnail),
+      description: asString(row.description),
+    });
+    setShowForm(true);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    try {
+      const input = {
+        title: form.title.trim(),
+        category: form.category,
+        video_type: form.category,
+        video_url: form.videoUrl,
+        thumbnail: form.thumbnail,
+        description: form.description,
+      };
+      if (editId) {
+        await api.editTrainingVideo(session.token, editId, input);
+      } else {
+        await api.addTrainingVideo(session.token, input);
+      }
+      setShowForm(false);
+      setForm(emptyForm);
+      setEditId('');
+      reload();
+    } catch { /* ignore */ } finally { setSaving(false); }
+  }, [api, session.token, editId, form, reload]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteId) return;
+    setSaving(true);
+    try {
+      await api.deleteTrainingVideo(session.token, deleteId);
+      setDeleteId('');
+      setDeleteTitle('');
+      reload();
+    } catch { /* ignore */ } finally { setSaving(false); }
+  }, [api, session.token, deleteId, reload]);
+
+  const updateField = useCallback((field: keyof VideoFormState, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }, []);
 
   if (loading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-48 w-full" />)}
         </div>
-        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -54,37 +123,164 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
-          {error}
-        </CardContent>
+        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
 
-  const categoryCards = Object.entries(categoryBreakdown);
-
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Training Videos" />
+      <AdminPageHeader title="Training Videos" addLabel="+ Add Video" onAdd={handleOpenAdd} />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-500">Total Videos</p>
-            <p className="text-2xl font-semibold text-gray-900">{allVideos.length}</p>
-          </CardContent>
-        </Card>
-        {categoryCards.slice(0, 3).map(([cat, count]) => (
-          <Card key={cat}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{cat}</p>
-              <p className="text-2xl font-semibold text-gray-900">{count}</p>
-            </CardContent>
-          </Card>
+      {/* Filter Tabs */}
+      <div className="flex gap-2 border-b border-gray-200 pb-2">
+        {['All', ...CATEGORIES].map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={`px-4 py-2 text-sm font-medium rounded-t-md transition-colors ${
+              activeTab === tab
+                ? 'bg-white border border-b-white border-gray-200 text-ttii-primary -mb-px'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab} ({tabCounts[tab] ?? 0})
+          </button>
         ))}
       </div>
 
-      <AdminDataTable columns={columns} rows={allVideos} />
+      {/* Video Cards Grid */}
+      {filteredVideos.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-gray-400">
+            No videos found.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {filteredVideos.map((video) => (
+            <Card key={asString(video.id)} className="overflow-hidden transition-shadow hover:shadow-md">
+              <div className="relative aspect-video bg-gray-100 flex items-center justify-center">
+                {asString(video.thumbnail) ? (
+                  <img
+                    src={asString(video.thumbnail)}
+                    alt={asString(video.title)}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <Video className="h-12 w-12 text-gray-300" />
+                )}
+                {asString(video.video_url) && (
+                  <a
+                    href={asString(video.video_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity"
+                  >
+                    <Play className="h-10 w-10 text-white" />
+                  </a>
+                )}
+              </div>
+              <CardContent className="p-3 space-y-2">
+                <h3 className="text-sm font-semibold text-gray-900 line-clamp-2">
+                  {asString(video.title) || 'Untitled'}
+                </h3>
+                <div className="flex items-center gap-2">
+                  {asString(video.category) && (
+                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                      {asString(video.category)}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-400">{formatDate(video.created_at)}</span>
+                </div>
+                <div className="flex items-center gap-1 pt-1">
+                  {asString(video.video_url) && (
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+                      <a href={asString(video.video_url)} target="_blank" rel="noopener noreferrer">
+                        <Play className="h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleOpenEdit(video)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => { setDeleteId(asString(video.id)); setDeleteTitle(asString(video.title)); }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Edit Video Dialog */}
+      <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editId ? 'Edit Video' : 'Add Video'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Title *</Label>
+              <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="Video title" />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={form.category}
+                onChange={(e) => updateField('category', e.target.value)}
+              >
+                <option value="">Select category</option>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Video URL</Label>
+              <Input value={form.videoUrl} onChange={(e) => updateField('videoUrl', e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Thumbnail URL</Label>
+              <Input value={form.thumbnail} onChange={(e) => updateField('thumbnail', e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Description</Label>
+              <textarea
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={form.description}
+                onChange={(e) => updateField('description', e.target.value)}
+                placeholder="Video description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>
+              {saving ? 'Saving...' : editId ? 'Update Video' : 'Add Video'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) { setDeleteId(''); setDeleteTitle(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Video</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Are you sure you want to delete <strong>{deleteTitle}</strong>? This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteId(''); setDeleteTitle(''); }} disabled={saving}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+              {saving ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

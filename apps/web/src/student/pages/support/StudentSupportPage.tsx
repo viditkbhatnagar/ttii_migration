@@ -1,11 +1,38 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Send, MessageCircle } from 'lucide-react';
+import { Send, MessageCircle, RefreshCw, Headphones } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+
+function formatChatTimestamp(dateStr: string): string {
+  if (!dateStr) return '';
+
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+
+  const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  if (isToday) return `Today ${timeStr}`;
+  if (isYesterday) return `Yesterday ${timeStr}`;
+
+  return `${date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ${timeStr}`;
+}
 
 export default function StudentSupportPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
@@ -16,6 +43,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,6 +52,19 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   useEffect(() => {
     scrollToBottom();
   }, [data?.messages.length, scrollToBottom]);
+
+  // Auto-refresh every 15 seconds
+  useEffect(() => {
+    refreshIntervalRef.current = setInterval(() => {
+      reload();
+    }, 15000);
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [reload]);
 
   const handleSend = useCallback(async () => {
     if (!message.trim()) return;
@@ -64,7 +105,13 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Support Chat</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-gray-900">Support Chat</h1>
+        <Button variant="outline" size="sm" onClick={reload}>
+          <RefreshCw className="mr-2 size-3.5" />
+          Refresh
+        </Button>
+      </div>
 
       <Card className="bg-white">
         <CardHeader className="pb-3">
@@ -75,11 +122,18 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Message thread */}
-          <div className="max-h-[500px] min-h-[300px] space-y-3 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+          <div className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/50 p-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                <MessageCircle className="size-10 text-gray-300" />
-                <p className="text-sm text-gray-500">No messages yet. Start the conversation!</p>
+              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <div className="flex size-16 items-center justify-center rounded-full bg-ttii-primary/10">
+                  <Headphones className="size-8 text-ttii-primary" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900">Need help?</p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Start a conversation with our support team. We're here to help!
+                  </p>
+                </div>
               </div>
             ) : (
               messages.map((msg) => {
@@ -94,20 +148,22 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                     key={id}
                     className={`flex ${isStudent ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div
-                      className={`max-w-[75%] rounded-xl px-4 py-2.5 ${
-                        isStudent
-                          ? 'bg-ttii-primary text-white'
-                          : 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                      }`}
-                    >
+                    <div className={`max-w-[75%] ${isStudent ? 'order-2' : 'order-1'}`}>
                       {!isStudent ? (
-                        <p className="mb-1 text-xs font-medium text-ttii-primary">Support Agent</p>
+                        <p className="mb-1 ml-1 text-xs font-medium text-ttii-primary">Support Agent</p>
                       ) : null}
-                      <p className="text-sm leading-relaxed">{text}</p>
+                      <div
+                        className={`rounded-2xl px-4 py-2.5 ${
+                          isStudent
+                            ? 'rounded-br-md bg-blue-600 text-white'
+                            : 'rounded-bl-md border border-gray-200 bg-white text-gray-900 shadow-sm'
+                        }`}
+                      >
+                        <p className="text-sm leading-relaxed">{text}</p>
+                      </div>
                       {createdAt ? (
-                        <p className={`mt-1.5 text-[10px] ${isStudent ? 'text-white/60' : 'text-gray-400'}`}>
-                          {createdAt}
+                        <p className={`mt-1 text-[10px] ${isStudent ? 'text-right text-gray-400' : 'ml-1 text-gray-400'}`}>
+                          {formatChatTimestamp(createdAt)}
                         </p>
                       ) : null}
                     </div>
@@ -143,6 +199,11 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
               {sending ? 'Sending...' : 'Send'}
             </Button>
           </div>
+
+          {/* Auto-refresh indicator */}
+          <p className="text-center text-[10px] text-gray-400">
+            Messages auto-refresh every 15 seconds
+          </p>
         </CardContent>
       </Card>
     </div>

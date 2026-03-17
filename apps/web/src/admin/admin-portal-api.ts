@@ -85,6 +85,9 @@ export interface AdminDashboardSnapshot {
 export interface AdminApplicationsSnapshot {
   items: Record<string, unknown>[];
   rejectedCount: number;
+  pendingCount: number;
+  courses: { id: string; title: string }[];
+  centres: { id: string; centre_name: string }[];
 }
 
 export interface AdminAssessmentSnapshot {
@@ -243,8 +246,8 @@ export interface AddAdminCohortInput {
 }
 
 export interface AdminPaymentStatusSnapshot {
-  summary: Record<string, unknown>;
-  payments: Record<string, unknown>[];
+  counts: Record<string, number>;
+  installments: Record<string, unknown>[];
 }
 
 export class AdminPortalApi {
@@ -286,6 +289,9 @@ export class AdminPortalApi {
       listBy?: string;
       courseId?: string;
       pipelineRoleId?: string;
+      centreId?: string;
+      search?: string;
+      status?: string;
     } = {},
   ): Promise<AdminApplicationsSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/applications/index', authToken, {
@@ -294,6 +300,9 @@ export class AdminPortalApi {
       ...(input.listBy ? { list_by: input.listBy } : {}),
       ...(input.courseId ? { course: input.courseId } : {}),
       ...(input.pipelineRoleId ? { filter_pipeline: input.pipelineRoleId } : {}),
+      ...(input.centreId ? { centre_id: input.centreId } : {}),
+      ...(input.search ? { search: input.search } : {}),
+      ...(input.status ? { status: input.status } : {}),
     });
 
     const data = asRecord(payload.data) ?? {};
@@ -301,14 +310,24 @@ export class AdminPortalApi {
     return {
       items: toRecords(data.students),
       rejectedCount: asNumber(data.rejected_count),
+      pendingCount: asNumber(data.pending_count),
+      courses: toRecords(data.courses).map(c => ({ id: asString(c.id), title: asString(c.title) })),
+      centres: toRecords(data.centres).map(c => ({ id: asString(c.id), centre_name: asString(c.centre_name) })),
     };
   }
 
-  async loadStudents(authToken: string, courseId = ''): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/students/index', authToken, {
-      ...(courseId ? { course_id: courseId } : {}),
-    });
+  async loadStudents(
+    authToken: string,
+    filters: { courseId?: string; centreId?: string; batchId?: string; search?: string; status?: string } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const params: Record<string, QueryValue> = {};
+    if (filters.courseId) params.course_id = filters.courseId;
+    if (filters.centreId) params.centre_id = filters.centreId;
+    if (filters.batchId) params.batch_id = filters.batchId;
+    if (filters.search) params.search = filters.search;
+    if (filters.status) params.status = filters.status;
 
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/students/index', authToken, params);
     return toRecords(payload.data);
   }
 
@@ -1122,30 +1141,47 @@ export class AdminPortalApi {
 
   async loadFeeInstallments(
     authToken: string,
-    filters: { courseId?: string; status?: string } = {},
-  ): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/installments', authToken, {
+    filters: { courseId?: string; status?: string; search?: string; centreId?: string } = {},
+  ): Promise<{ counts: Record<string, number>; items: Record<string, unknown>[] }> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/installments', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.search ? { search: filters.search } : {}),
+      ...(filters.centreId ? { centre_id: filters.centreId } : {}),
     });
-    return toRecords(payload.data);
+    const data = asRecord(payload.data) ?? {};
+    const countsRaw = asRecord(data.counts) ?? {};
+    return {
+      counts: {
+        fully_added: asNumber(countsRaw.fully_added),
+        partially_added: asNumber(countsRaw.partially_added),
+        not_added: asNumber(countsRaw.not_added),
+      },
+      items: toRecords(data.items),
+    };
   }
 
   async loadPaymentStatus(
     authToken: string,
-    filters: { fromDate?: string; toDate?: string; courseId?: string } = {},
+    filters: { courseId?: string; centreId?: string; search?: string } = {},
   ): Promise<AdminPaymentStatusSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/payment_status', authToken, {
-      ...(filters.fromDate ? { from_date: filters.fromDate } : {}),
-      ...(filters.toDate ? { to_date: filters.toDate } : {}),
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.centreId ? { centre_id: filters.centreId } : {}),
+      ...(filters.search ? { search: filters.search } : {}),
     });
 
     const data = asRecord(payload.data) ?? {};
+    const countsRaw = asRecord(data.counts) ?? {};
 
     return {
-      summary: asRecord(data.summary) ?? { total_payments: 0, unique_students: 0, total_collected: 0, avg_payment: 0 },
-      payments: toRecords(data.payments),
+      counts: {
+        overdue: asNumber(countsRaw.overdue),
+        due: asNumber(countsRaw.due),
+        upcoming: asNumber(countsRaw.upcoming),
+        paid: asNumber(countsRaw.paid),
+      },
+      installments: toRecords(data.installments),
     };
   }
 
@@ -1225,6 +1261,22 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async loadChatConversations(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/chat_support/conversations', authToken);
+    const data = asRecord(payload.data) ?? {};
+    return toRecords(data.conversations);
+  }
+
+  async loadChatMessages(authToken: string, chatId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/chat_support/messages', authToken, { chat_id: chatId });
+    const data = asRecord(payload.data) ?? {};
+    return toRecords(data.messages);
+  }
+
+  async sendChatMessage(authToken: string, chatId: string, message: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/chat_support/send', authToken, { chat_id: chatId, message });
+  }
+
   async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/training_videos', authToken);
     return toRecords(payload.data);
@@ -1295,5 +1347,279 @@ export class AdminPortalApi {
   async loadPackages(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/packages/index', authToken);
     return toRecords(payload.data);
+  }
+
+  // ─── Phase A: CRUD methods ───────────────────────────────────────────────
+
+  async addInstructor(authToken: string, input: { name: string; email: string; phone?: string | undefined; bio?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/instructor/add', authToken, input);
+  }
+
+  async editInstructor(authToken: string, id: string, input: { name: string; email: string; phone?: string | undefined; bio?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/instructor/edit', authToken, { id, ...input });
+  }
+
+  async deleteInstructor(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/instructor/delete', authToken, { id });
+  }
+
+  async addUser(authToken: string, input: { name: string; email: string; phone?: string | undefined; password: string; role_id: number }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/user/add', authToken, input);
+  }
+
+  async editUser(authToken: string, id: string, input: { name: string; phone?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/user/edit', authToken, { id, ...input });
+  }
+
+  async deleteUserAccount(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/user/delete', authToken, { id });
+  }
+
+  async addAssociate(authToken: string, input: { name: string; email: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates/add', authToken, input);
+  }
+
+  async editAssociate(authToken: string, id: string, input: { name: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates/edit', authToken, { id, ...input });
+  }
+
+  async deleteAssociate(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates/delete', authToken, { id });
+  }
+
+  async addCounsellor(authToken: string, input: { name: string; email: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor/add', authToken, input);
+  }
+
+  async editCounsellor(authToken: string, id: string, input: { name: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor/edit', authToken, { id, ...input });
+  }
+
+  async deleteCounsellor(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor/delete', authToken, { id });
+  }
+
+  async addCounsellorTarget(authToken: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor_target/add', authToken, input);
+  }
+
+  async editCounsellorTarget(authToken: string, id: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor_target/edit', authToken, { id, ...input });
+  }
+
+  async deleteCounsellorTarget(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/counsellor_target/delete', authToken, { id });
+  }
+
+  async addAssociateTarget(authToken: string, id: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates_target/add', authToken, input);
+  }
+
+  async editAssociateTarget(authToken: string, id: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates_target/edit', authToken, { id, ...input });
+  }
+
+  async deleteAssociateTarget(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/associates_target/delete', authToken, { id });
+  }
+
+  // ── Applications Phase B ────────────────────────────────────────────────────
+
+  async getApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/applications/get', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
+  async createApplication(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/add', authToken, input);
+  }
+
+  async deleteApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/delete', authToken, { id });
+  }
+
+  async updateApplicationStatus(authToken: string, id: string, status: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/update_status', authToken, { id, status });
+  }
+
+  // ─── Phase C: Student Detail & Actions ────────────────────────────────────
+
+  async getStudentDetail(authToken: string, studentId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<Record<string, unknown>>('/admin/students/view', authToken, { id: studentId });
+    return payload;
+  }
+
+  async changeStudentUsername(authToken: string, studentId: string, username: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/change_username', authToken, { id: studentId, username });
+  }
+
+  async changeStudentPassword(authToken: string, studentId: string, password: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/change_password', authToken, { id: studentId, password });
+  }
+
+  async editStudentEnrollmentId(authToken: string, studentId: string, enrollmentId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/edit_enrollment_id', authToken, { id: studentId, enrollment_id: enrollmentId });
+  }
+
+  async editStudentInfo(authToken: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
+  }
+
+  async loadBatchStudents(authToken: string, batchId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/batch/students', authToken, { batch_id: batchId });
+    return toRecords(payload.data);
+  }
+
+  // ─── Phase D: Centres Feature ─────────────────────────────────────────────
+
+  async getCentre(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<Record<string, unknown>>('/admin/centres/get', authToken, { id });
+    return payload;
+  }
+
+  async editCentre(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/centres/edit', authToken, { id, ...input });
+  }
+
+  async deleteCentre(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/centres/delete', authToken, { id });
+  }
+
+  async approveFundRequest(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/centres/fund_request/approve', authToken, { id });
+  }
+
+  async rejectFundRequest(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/centres/fund_request/reject', authToken, { id });
+  }
+
+  async getCohortDetail(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<Record<string, unknown>>('/admin/cohorts/view', authToken, { id });
+    return payload;
+  }
+
+  async deleteResource(authToken: string, id: string, type: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/resources/delete', authToken, { id, type });
+  }
+
+  async renameResource(authToken: string, id: string, type: string, name: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/resources/rename', authToken, { id, type, name });
+  }
+
+  async addTrainingVideo(authToken: string, input: { title: string; category?: string | undefined; video_type?: string | undefined; video_url?: string | undefined; thumbnail?: string | undefined; description?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/training_videos/add', authToken, input);
+  }
+
+  async editTrainingVideo(authToken: string, id: string, input: { title: string; category?: string | undefined; video_type?: string | undefined; video_url?: string | undefined; thumbnail?: string | undefined; description?: string | undefined }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/training_videos/edit', authToken, { id, ...input });
+  }
+
+  async deleteTrainingVideo(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/training_videos/delete', authToken, { id });
+  }
+
+  // ── Course Admin CRUD ─────────────────────────────────────────────
+
+  async listCoursesAdmin(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  async getCourse(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/course/get', authToken, { id });
+    return asRecord(payload.data);
+  }
+
+  async createCourse(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/add', authToken, input);
+  }
+
+  async updateCourse(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/edit', authToken, { id, ...input });
+  }
+
+  async archiveCourse(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/archive', authToken, { id });
+  }
+
+  async loadCategories(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/category/index', authToken);
+    return toRecords(payload.data);
+  }
+
+  // ── Subject Admin CRUD ────────────────────────────────────────────
+
+  async listCourseSubjects(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/subjects', authToken, { course_id: courseId });
+    return toRecords(payload.data);
+  }
+
+  async listAllSubjects(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/subjects/all', authToken);
+    return toRecords(payload.data);
+  }
+
+  async addSubject(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/add', authToken, input);
+  }
+
+  async editSubject(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/edit', authToken, { id, ...input });
+  }
+
+  async deleteSubject(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/delete', authToken, { id });
+  }
+
+  // ── Lesson Admin CRUD ─────────────────────────────────────────────
+
+  async listLessonsAdmin(authToken: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lessons', authToken, { subject_id: subjectId });
+    return toRecords(payload.data);
+  }
+
+  async addLesson(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lessons/add', authToken, input);
+  }
+
+  async editLesson(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lessons/edit', authToken, { id, ...input });
+  }
+
+  async deleteLesson(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lessons/delete', authToken, { id });
+  }
+
+  async reorderLessons(authToken: string, lessonIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lessons/reorder', authToken, { lesson_ids: lessonIds });
+  }
+
+  // ── Lesson File Admin CRUD ────────────────────────────────────────
+
+  async listLessonFiles(authToken: string, lessonId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lesson_files', authToken, { lesson_id: lessonId });
+    return toRecords(payload.data);
+  }
+
+  async addLessonFile(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/add', authToken, input);
+  }
+
+  async editLessonFile(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/edit', authToken, { id, ...input });
+  }
+
+  async deleteLessonFile(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/delete', authToken, { id });
+  }
+
+  // ── Phase F: Payment Actions ──────────────────────────────────
+
+  async markInstallmentPaid(authToken: string, installmentId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/fee_management/mark_paid', authToken, { installment_id: installmentId });
+  }
+
+  async sendPaymentReminder(authToken: string, installmentId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/fee_management/send_reminder', authToken, { installment_id: installmentId });
   }
 }

@@ -1,40 +1,49 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
+import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
-export default function ApplicationsPage({ api, session }: AdminPageProps) {
+export default function ApplicationsPage({ api, session, onNavigate }: AdminPageProps) {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [courseId, setCourseId] = useState('');
   const [pipelineRoleId, setPipelineRoleId] = useState('');
-  const [listBy, setListBy] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [centreId, setCentreId] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () =>
       api.loadApplications(session.token, {
         ...(fromDate ? { fromDate } : {}),
         ...(toDate ? { toDate } : {}),
         ...(courseId ? { courseId } : {}),
         ...(pipelineRoleId ? { pipelineRoleId } : {}),
-        ...(listBy ? { listBy } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(centreId ? { centreId } : {}),
       }),
-    [fromDate, toDate, courseId, pipelineRoleId, listBy],
+    [fromDate, toDate, courseId, pipelineRoleId, statusFilter, centreId],
   );
 
-  const items = useMemo(() => (data ? toRecords(data.items) : []), [data]);
+  const items = useMemo(() => (data ? data.items : []), [data]);
   const rejectedCount = data?.rejectedCount ?? 0;
+  const pendingCount = data?.pendingCount ?? 0;
+  const courseOptions = useMemo(() => (data?.courses ?? []).map(c => ({ label: c.title, value: c.id })), [data]);
+  const centreOptions = useMemo(() => (data?.centres ?? []).map(c => ({ label: c.centre_name, value: c.id })), [data]);
 
   const displayedItems = useMemo(() => {
     if (activeTab === 'rejected') {
       return items.filter((row) => asString(row.status).toLowerCase() === 'rejected');
+    }
+    if (activeTab === 'pending') {
+      return items.filter((row) => asString(row.status).toLowerCase() === 'pending');
     }
     return items;
   }, [items, activeTab]);
@@ -42,9 +51,10 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
   const tabs: AdminTab[] = useMemo(
     () => [
       { id: 'all', label: 'All', count: items.length },
+      { id: 'pending', label: 'Pending', count: pendingCount },
       { id: 'rejected', label: 'Rejected', count: rejectedCount },
     ],
-    [items.length, rejectedCount],
+    [items.length, pendingCount, rejectedCount],
   );
 
   const filters: FilterField[] = useMemo(
@@ -69,8 +79,30 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
         type: 'select',
         value: courseId,
         placeholder: 'All Courses',
-        options: [],
+        options: courseOptions,
         onChange: setCourseId,
+      },
+      {
+        key: 'centreId',
+        label: 'Centre',
+        type: 'select',
+        value: centreId,
+        placeholder: 'All Centres',
+        options: centreOptions,
+        onChange: setCentreId,
+      },
+      {
+        key: 'statusFilter',
+        label: 'Status',
+        type: 'select',
+        value: statusFilter,
+        placeholder: 'All Status',
+        options: [
+          { label: 'Pending', value: 'pending' },
+          { label: 'Approved', value: 'approved' },
+          { label: 'Rejected', value: 'rejected' },
+        ],
+        onChange: setStatusFilter,
       },
       {
         key: 'pipelineRoleId',
@@ -78,34 +110,98 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
         type: 'select',
         value: pipelineRoleId,
         placeholder: 'All Pipelines',
-        options: [],
+        options: [
+          { label: 'Counsellor', value: '9' },
+          { label: 'Associate', value: '10' },
+        ],
         onChange: setPipelineRoleId,
       },
     ],
-    [fromDate, toDate, courseId, pipelineRoleId],
+    [fromDate, toDate, courseId, pipelineRoleId, statusFilter, centreId, courseOptions, centreOptions],
   );
+
+  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row._id || row.id);
+    if (!window.confirm(`Are you sure you want to delete application "${asString(row.name)}"?`)) return;
+    try {
+      await api.deleteApplication(session.token, id);
+      reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete application');
+    }
+  }, [api, session.token, reload]);
 
   const columns: DataTableColumn[] = useMemo(
     () => [
-      { key: 'application_id', label: 'Application ID' },
+      {
+        key: 'name',
+        label: 'Applicant Name',
+        sortable: true,
+        render: (value, row) => (
+          <button
+            type="button"
+            className="text-left font-medium text-blue-600 hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate('/admin/applications/view/' + asString(row._id || row.id));
+            }}
+          >
+            {asString(value) || '-'}
+          </button>
+        ),
+      },
+      { key: 'phone', label: 'Phone' },
+      { key: 'user_email', label: 'Email', render: (v) => asString(v) || asString(v) || '-' },
+      { key: 'course_title', label: 'Course' },
+      { key: 'centre_name', label: 'Centre' },
       {
         key: 'created_at',
-        label: 'Date',
+        label: 'Applied Date',
+        sortable: true,
         render: (value) => formatDate(value),
       },
-      { key: 'name', label: 'Name' },
-      { key: 'course_title', label: 'Course' },
-      { key: 'phone', label: 'Phone' },
-      { key: 'email', label: 'Email' },
-      { key: 'pipeline', label: 'Pipeline' },
-      { key: 'centre_name', label: 'Centre' },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (value) => {
+          const status = asString(value) || 'pending';
+          return <AdminStatusBadge status={status} />;
+        },
+      },
     ],
-    [],
+    [onNavigate],
+  );
+
+  const actions: DataTableAction[] = useMemo(
+    () => [
+      {
+        label: 'View',
+        onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
+      },
+      {
+        label: 'Convert',
+        onClick: async (row) => {
+          const id = asString(row._id || row.id);
+          if (!window.confirm(`Convert application "${asString(row.name)}" to student?`)) return;
+          try {
+            await api.convertApplication(session.token, id);
+            reload();
+          } catch (err) {
+            alert(err instanceof Error ? err.message : 'Failed to convert application');
+          }
+        },
+      },
+      {
+        label: 'Delete',
+        variant: 'destructive',
+        onClick: (row) => { void handleDelete(row); },
+      },
+    ],
+    [onNavigate, api, session.token, reload, handleDelete],
   );
 
   const handleApplyFilters = () => {
-    // Filters are reactive via deps in useAdminPageData, so this is a no-op.
-    // Kept for AdminFilterBar's onApply contract.
+    // Filters are reactive via deps in useAdminPageData
   };
 
   const handleClearFilters = () => {
@@ -113,7 +209,8 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
     setToDate('');
     setCourseId('');
     setPipelineRoleId('');
-    setListBy('');
+    setStatusFilter('');
+    setCentreId('');
   };
 
   if (loading) {
@@ -139,7 +236,11 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
 
   return (
     <div>
-      <AdminPageHeader title="Applications" />
+      <AdminPageHeader
+        title="Applications"
+        addLabel="+ Add Application"
+        onAdd={() => onNavigate('/admin/applications/add')}
+      />
 
       <AdminFilterBar
         filters={filters}
@@ -152,10 +253,7 @@ export default function ApplicationsPage({ api, session }: AdminPageProps) {
       <AdminDataTable
         columns={columns}
         rows={displayedItems}
-        actions={[
-          { label: 'View', onClick: () => {} },
-          { label: 'Convert', onClick: () => {} },
-        ]}
+        actions={actions}
       />
     </div>
   );

@@ -91,6 +91,9 @@ export interface StudentDashboardSnapshot {
   streakTotal: number;
   streakCurrent: number;
   primaryCourseTitle: string;
+  courseProgress: number;
+  recentPaymentAmount: number;
+  recentPaymentDate: string;
 }
 
 export interface StudentProfileSnapshot {
@@ -103,6 +106,13 @@ export interface StudentProfileSnapshot {
   courseId: string;
   image: string;
   academicYear: string;
+  username: string;
+  dateOfBirth: string;
+  gender: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  pincode: string;
   source: 'profile' | 'session';
 }
 
@@ -150,12 +160,38 @@ export interface StudentSupportSnapshot {
   messages: Record<string, unknown>[];
 }
 
+export interface StudentPaymentHistoryItem {
+  id: string;
+  amount: number;
+  paymentDate: string;
+  paymentMode: string;
+  status: string;
+  courseTitle: string;
+}
+
+export interface StudentInstallmentItem {
+  id: string;
+  installmentNo: number;
+  installmentDetails: string;
+  amount: number;
+  dueDate: string;
+  paidDate: string;
+  paymentMode: string;
+  status: string;
+}
+
 export interface StudentProfileUpdateInput {
   name: string;
   email: string;
   phone: string;
-  academicYear?: string;
-  image?: string;
+  academicYear?: string | undefined;
+  image?: string | undefined;
+  dateOfBirth?: string | undefined;
+  gender?: string | undefined;
+  addressLine1?: string | undefined;
+  city?: string | undefined;
+  state?: string | undefined;
+  pincode?: string | undefined;
 }
 
 export interface StudentPasswordUpdateInput {
@@ -201,7 +237,7 @@ export class StudentPortalApi {
   }
 
   async loadDashboard(authToken: string): Promise<StudentDashboardSnapshot> {
-    const [coursesPayload, assignmentsPayload, examsPayload, notificationsPayload, tasksPayload, streakPayload] =
+    const [coursesPayload, assignmentsPayload, examsPayload, notificationsPayload, tasksPayload, streakPayload, studentCoursesPayload, paymentHistoryPayload] =
       await Promise.all([
         this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),
         this.get<LegacyEnvelope<Record<string, unknown>>>('/assignment/index', authToken),
@@ -214,6 +250,8 @@ export class StudentPortalApi {
           from_date: dayOffset(-30),
           to_date: toDateOnly(new Date()),
         }),
+        this.get<LegacyEnvelope<unknown[]>>('/payment/get_student_courses', authToken),
+        this.get<LegacyEnvelope<unknown[]>>('/payment/get_payment_history', authToken),
       ]);
 
     const courseRows = asArray(coursesPayload.data);
@@ -228,6 +266,13 @@ export class StudentPortalApi {
     const scheduledTasks = asArray(scheduledData.live_classes).length + asArray(scheduledData.assignments).length;
     const overdueTasks = asArray(overdueData.live_classes).length + asArray(overdueData.assignments).length;
 
+    const studentCourses = asArray(studentCoursesPayload.data);
+    const firstStudentCourse = asRecord(studentCourses[0]) ?? {};
+    const courseProgress = asNumber(firstStudentCourse.payment_percentage);
+
+    const paymentHistory = asArray(paymentHistoryPayload.data);
+    const recentPayment = asRecord(paymentHistory[0]) ?? {};
+
     return {
       coursesCount: courseRows.length,
       currentAssignments: asArray(assignmentData.current).length,
@@ -241,6 +286,9 @@ export class StudentPortalApi {
       streakTotal: asNumber(streakData.total_streak),
       streakCurrent: asNumber(streakData.current_streak),
       primaryCourseTitle: asString(firstRecord(courseRows)?.title),
+      courseProgress,
+      recentPaymentAmount: asNumber(recentPayment.amount),
+      recentPaymentDate: asString(recentPayment.payment_date),
     };
   }
 
@@ -248,6 +296,9 @@ export class StudentPortalApi {
     try {
       const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/profile/index', authToken);
       const profile = asRecord(payload.data) ?? {};
+
+      const dobRaw = asString(profile.date_of_birth);
+      const dobFormatted = dobRaw ? dobRaw.slice(0, 10) : '';
 
       return {
         userId: asString(profile.id) || String(session.userId),
@@ -259,6 +310,13 @@ export class StudentPortalApi {
         courseId: asString(profile.course_id),
         image: asString(profile.image),
         academicYear: asString(profile.academic_year),
+        username: asString(profile.username),
+        dateOfBirth: dobFormatted,
+        gender: asString(profile.gender),
+        addressLine1: asString(profile.address_line_1),
+        city: asString(profile.city),
+        state: asString(profile.state),
+        pincode: asString(profile.pincode),
         source: 'profile',
       };
     } catch (error: unknown) {
@@ -273,6 +331,13 @@ export class StudentPortalApi {
           courseId: '',
           image: '',
           academicYear: '',
+          username: '',
+          dateOfBirth: '',
+          gender: '',
+          addressLine1: '',
+          city: '',
+          state: '',
+          pincode: '',
           source: 'session',
         };
       }
@@ -289,6 +354,12 @@ export class StudentPortalApi {
       phone: input.phone,
       academic_year: input.academicYear ?? '',
       image: input.image ?? '',
+      date_of_birth: input.dateOfBirth ?? '',
+      gender: input.gender ?? '',
+      address_line_1: input.addressLine1 ?? '',
+      city: input.city ?? '',
+      state: input.state ?? '',
+      pincode: input.pincode ?? '',
     });
 
     return this.loadProfile(authToken, session);
@@ -542,6 +613,52 @@ export class StudentPortalApi {
       selectedCourseId: firstCourse,
       selectedPackageId: asString(firstRecord(packages)?.id),
     };
+  }
+
+  async loadPaymentHistory(authToken: string, courseId?: string | undefined): Promise<StudentPaymentHistoryItem[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/payment/get_payment_history', authToken, {
+      ...(courseId ? { course_id: courseId } : {}),
+    });
+
+    return asArray(payload.data).map((entry) => {
+      const row = asRecord(entry) ?? {};
+      return {
+        id: asString(row.id),
+        amount: asNumber(row.amount),
+        paymentDate: asString(row.payment_date),
+        paymentMode: asString(row.payment_mode),
+        status: asString(row.status) || 'Success',
+        courseTitle: asString(row.course_title),
+      };
+    });
+  }
+
+  async loadInstallments(authToken: string, courseId?: string | undefined): Promise<StudentInstallmentItem[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/payment/get_installments', authToken, {
+      ...(courseId ? { course_id: courseId } : {}),
+    });
+
+    return asArray(payload.data).map((entry) => {
+      const row = asRecord(entry) ?? {};
+      return {
+        id: asString(row.id),
+        installmentNo: asNumber(row.installment_no),
+        installmentDetails: asString(row.installment_details),
+        amount: asNumber(row.amount),
+        dueDate: asString(row.due_date),
+        paidDate: asString(row.paid_date),
+        paymentMode: asString(row.payment_mode),
+        status: asString(row.status),
+      };
+    });
+  }
+
+  async loadAssignmentEvaluation(authToken: string, assignmentId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/assignment/get_assignment_evaluation', authToken, {
+      assignment_id: assignmentId,
+    });
+
+    return asRecord(payload.data) ?? {};
   }
 
   async applyCoupon(authToken: string, input: StudentCouponInput): Promise<Record<string, unknown>> {

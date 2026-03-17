@@ -37,6 +37,10 @@ const adminPortalRoles = new Set<number>([
   LEGACY_ROLE_ID.SUBADMIN,
   LEGACY_ROLE_ID.INSTRUCTOR,
   LEGACY_ROLE_ID.COUNSELLOR,
+]);
+
+const centrePortalRoles = new Set<number>([
+  LEGACY_ROLE_ID.CENTRE,
   LEGACY_ROLE_ID.ASSOCIATE,
 ]);
 
@@ -154,7 +158,7 @@ export class LegacyAuthApi implements AuthApi {
 }
 
 export function resolvePortalSurfaceForRole(roleId: number): PortalSurface {
-  if (roleId === LEGACY_ROLE_ID.CENTRE) {
+  if (centrePortalRoles.has(roleId)) {
     return 'centre';
   }
 

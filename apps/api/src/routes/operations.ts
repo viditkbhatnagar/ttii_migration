@@ -2,11 +2,16 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
 import {
   OperationsService,
+  type AddAssociateInput,
   type AddCentreFundRequestInput,
+  type AddInstructorInput,
   type AddLiveClassInput,
+  type AddTargetInput,
+  type AddUserInput,
+  type AdminApplicationInput,
   type AdminAssignmentFilters,
   type AdminCohortInput,
   type AdminExamEvaluationFilters,
@@ -25,6 +30,8 @@ import {
   type FaqInput,
   type QuestionBankFilters,
   type QuestionBankInput,
+  type TrainingVideoInput,
+  type UpdateCentreInput,
   type UpdateSettingsInput,
 } from '../operations/operations-service.js';
 
@@ -176,7 +183,7 @@ export function registerOperationsRoutes(
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
-  const requireCentreRole = requireLegacyRoles(authService, [LEGACY_ROLE.CENTRE]);
+  const requireCentreRole = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
 
   app.get('/admin/applications/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
@@ -187,6 +194,9 @@ export function registerOperationsRoutes(
         pipelineRoleId: toInteger(payload.filter_pipeline),
         courseId: toStringValue(payload.course),
         listBy: toStringValue(payload.list_by),
+        centreId: toStringValue(payload.centre_id),
+        search: toStringValue(payload.search),
+        status: toStringValue(payload.status),
       });
 
       reply.code(200).send({
@@ -425,6 +435,10 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const students = await operationsService.listStudents('admin', requestUserId(request), {
         courseId: toStringValue(payload.course_id),
+        centreId: toStringValue(payload.centre_id),
+        batchId: toStringValue(payload.batch_id),
+        search: toStringValue(payload.search),
+        status: toStringValue(payload.status),
       });
 
       reply.code(200).send({
@@ -1613,6 +1627,8 @@ export function registerOperationsRoutes(
       const data = await operationsService.listFeeInstallments({
         courseId: toStringValue(payload.course_id),
         status: toStringValue(payload.status),
+        search: toStringValue(payload.search),
+        centreId: toStringValue(payload.centre_id),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1630,6 +1646,8 @@ export function registerOperationsRoutes(
         fromDate: toStringValue(payload.from_date),
         toDate: toStringValue(payload.to_date),
         courseId: toStringValue(payload.course_id),
+        centreId: toStringValue(payload.centre_id),
+        search: toStringValue(payload.search),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1828,5 +1846,528 @@ export function registerOperationsRoutes(
     } catch (error: unknown) {
       sendOperationsError(reply, error);
     }
+  });
+
+  // ─── Phase A: CRUD routes ─────────────────────────────────────────────────
+
+  app.post('/admin/instructor/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddInstructorInput = {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        bio: toStringValue(payload.bio),
+        status: toInteger(payload.status),
+      };
+      const result = await operationsService.addInstructor(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/instructor/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddInstructorInput = {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        bio: toStringValue(payload.bio),
+        status: toInteger(payload.status),
+      };
+      const result = await operationsService.editInstructor(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/instructor/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteInstructor(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/user/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddUserInput = {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        password: toStringValue(payload.password),
+        roleId: toInteger(payload.role_id),
+      };
+      const result = await operationsService.addUser(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/user/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editUser(
+        requestUserId(request),
+        toStringValue(payload.id),
+        { name: toStringValue(payload.name), phone: toStringValue(payload.phone) },
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/user/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteUser(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddAssociateInput = {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        status: toInteger(payload.status),
+      };
+      const result = await operationsService.addAssociate(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/counsellor_target/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddTargetInput = {
+        userId: toStringValue(payload.user_id),
+        targetType: toStringValue(payload.target_type) || 'applications',
+        targetValue: toInteger(payload.target_value),
+        periodFrom: toStringValue(payload.period_from),
+        periodTo: toStringValue(payload.period_to),
+        remarks: toStringValue(payload.remarks),
+      };
+      const result = await operationsService.addCounsellorTarget(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/counsellor_target/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddTargetInput = {
+        userId: toStringValue(payload.user_id),
+        targetType: toStringValue(payload.target_type) || 'applications',
+        targetValue: toInteger(payload.target_value),
+        periodFrom: toStringValue(payload.period_from),
+        periodTo: toStringValue(payload.period_to),
+        remarks: toStringValue(payload.remarks),
+      };
+      const result = await operationsService.editCounsellorTarget(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/counsellor_target/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteCounsellorTarget(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates_target/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddTargetInput = {
+        userId: toStringValue(payload.user_id),
+        targetType: toStringValue(payload.target_type) || 'applications',
+        targetValue: toInteger(payload.target_value),
+        periodFrom: toStringValue(payload.period_from),
+        periodTo: toStringValue(payload.period_to),
+        remarks: toStringValue(payload.remarks),
+      };
+      const result = await operationsService.addAssociateTarget(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates_target/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddTargetInput = {
+        userId: toStringValue(payload.user_id),
+        targetType: toStringValue(payload.target_type) || 'applications',
+        targetValue: toInteger(payload.target_value),
+        periodFrom: toStringValue(payload.period_from),
+        periodTo: toStringValue(payload.period_to),
+        remarks: toStringValue(payload.remarks),
+      };
+      const result = await operationsService.editAssociateTarget(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates_target/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteAssociateTarget(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Applications Phase B ────────────────────────────────────────────────────
+
+  app.get('/admin/applications/get', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.getApplication(toStringValue(payload.id));
+      reply.code(200).send({ status: 1, message: 'success', data: result });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/applications/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AdminApplicationInput = {
+        firstName: toStringValue(payload.first_name),
+        lastName: toStringValue(payload.last_name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        alternatePhone: toStringValue(payload.alternate_phone),
+        dateOfBirth: toStringValue(payload.date_of_birth),
+        gender: toStringValue(payload.gender),
+        addressLine1: toStringValue(payload.address_line_1),
+        addressLine2: toStringValue(payload.address_line_2),
+        city: toStringValue(payload.city),
+        state: toStringValue(payload.state),
+        pincode: toStringValue(payload.pincode),
+        country: toStringValue(payload.country),
+        highestQualification: toStringValue(payload.highest_qualification),
+        specialization: toStringValue(payload.specialization),
+        institutionName: toStringValue(payload.institution_name),
+        yearOfPassing: toStringValue(payload.year_of_passing),
+        percentageOrCgpa: toStringValue(payload.percentage_or_cgpa),
+        workExperience: toStringValue(payload.work_experience),
+        currentOccupation: toStringValue(payload.current_occupation),
+        courseId: toStringValue(payload.course_id),
+        centreId: toStringValue(payload.centre_id),
+        batchId: toStringValue(payload.batch_id),
+        enrollmentDate: toStringValue(payload.enrollment_date),
+        feePlan: toStringValue(payload.fee_plan),
+        discount: toStringValue(payload.discount),
+        referralCode: toStringValue(payload.referral_code),
+        leadSource: toStringValue(payload.lead_source),
+        assignedCounsellor: toStringValue(payload.assigned_counsellor),
+        applicationStatus: toStringValue(payload.application_status) || 'pending',
+        notes: toStringValue(payload.notes),
+        crmTags: toStringValue(payload.crm_tags),
+      };
+      const result = await operationsService.createApplication(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/applications/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteApplication(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/applications/update_status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.updateApplicationStatus(requestUserId(request), toStringValue(payload.id), toStringValue(payload.status));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ─── Phase C: Student Detail & Actions ──────────────────────────────────────
+
+  app.get('/admin/students/view', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getStudentDetail(toStringValue(payload.id));
+      reply.code(200).send(data);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/students/change_username', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.changeStudentUsername(requestUserId(request), toStringValue(payload.id), toStringValue(payload.username));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/students/change_password', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.changeStudentPassword(requestUserId(request), toStringValue(payload.id), toStringValue(payload.password));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/students/edit_enrollment_id', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editStudentEnrollmentId(requestUserId(request), toStringValue(payload.id), toStringValue(payload.enrollment_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/students/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editStudentInfo(requestUserId(request), toStringValue(payload.id), toStringValue(payload.name), toStringValue(payload.phone));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/batch/students', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listBatchStudents(toStringValue(payload.batch_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ─── Phase D: Centres Feature ───────────────────────────────────────────────
+
+  app.get('/admin/centres/get', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.getCentre(toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/centres/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: UpdateCentreInput = {
+        centreName: toStringValue(payload.centre_name),
+        contactPerson: toStringValue(payload.contact_person),
+        phone: toStringValue(payload.phone),
+        email: toStringValue(payload.email),
+        address: toStringValue(payload.address),
+        city: toStringValue(payload.city),
+        state: toStringValue(payload.state),
+        pincode: toStringValue(payload.pincode),
+        googleMapsLink: toStringValue(payload.google_maps_link),
+        affiliationNumber: toStringValue(payload.affiliation_number),
+        affiliationDate: toStringValue(payload.affiliation_date),
+        affiliationDocument: toStringValue(payload.affiliation_document),
+        recognitionStatus: toStringValue(payload.recognition_status),
+        description: toStringValue(payload.description),
+        status: toStringValue(payload.status),
+        logo: toStringValue(payload.logo),
+        establishedDate: toStringValue(payload.established_date),
+        registrationDate: toStringValue(payload.date_of_registration),
+        expiryDate: toStringValue(payload.date_of_expiry),
+      };
+      const result = await operationsService.updateCentre(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/centres/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteCentre(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/centres/fund_request/approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.approveFundRequest(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/centres/fund_request/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.rejectFundRequest(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/cohorts/view', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.getCohortDetail(toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/resources/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const resourceType = toStringValue(payload.type) === 'folder' ? 'folder' as const : 'file' as const;
+      const result = await operationsService.deleteResource(requestUserId(request), toStringValue(payload.id), resourceType);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/resources/rename', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const resourceType = toStringValue(payload.type) === 'folder' ? 'folder' as const : 'file' as const;
+      const result = await operationsService.renameResource(requestUserId(request), toStringValue(payload.id), resourceType, toStringValue(payload.name));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/training_videos/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: TrainingVideoInput = {
+        title: toStringValue(payload.title),
+        category: toStringValue(payload.category),
+        videoType: toStringValue(payload.video_type),
+        videoUrl: toStringValue(payload.video_url),
+        thumbnail: toStringValue(payload.thumbnail),
+        description: toStringValue(payload.description),
+        status: toStringValue(payload.status),
+      };
+      const result = await operationsService.addTrainingVideo(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/training_videos/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: TrainingVideoInput = {
+        title: toStringValue(payload.title),
+        category: toStringValue(payload.category),
+        videoType: toStringValue(payload.video_type),
+        videoUrl: toStringValue(payload.video_url),
+        thumbnail: toStringValue(payload.thumbnail),
+        description: toStringValue(payload.description),
+        status: toStringValue(payload.status),
+      };
+      const result = await operationsService.editTrainingVideo(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/training_videos/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteTrainingVideo(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Phase F: Payment Actions ──────────────────────────────────
+
+  app.post('/admin/fee_management/mark_paid', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.markInstallmentPaid(requestUserId(request), toStringValue(payload.installment_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/fee_management/send_reminder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.sendPaymentReminder(requestUserId(request), toStringValue(payload.installment_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Phase F: Chat Support ─────────────────────────────────────
+
+  app.get('/admin/chat_support/conversations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listAdminConversations();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/chat_support/messages', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getConversationMessages(toStringValue(payload.chat_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/chat_support/send', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.sendAdminMessage(
+        requestUserId(request),
+        toStringValue(payload.chat_id),
+        toStringValue(payload.message),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Counsellor CRUD ─────────────────────────────────────────────
+
+  app.post('/admin/counsellor/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: AddAssociateInput = {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        status: toInteger(payload.status),
+      };
+      const result = await operationsService.addCounsellor(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/counsellor/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editCounsellor(
+        requestUserId(request),
+        toStringValue(payload.id),
+        { name: toStringValue(payload.name), phone: toStringValue(payload.phone), status: toInteger(payload.status) },
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/counsellor/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteCounsellor(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Associate Edit/Delete ───────────────────────────────────────
+
+  app.post('/admin/associates/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editAssociate(
+        requestUserId(request),
+        toStringValue(payload.id),
+        { name: toStringValue(payload.name), phone: toStringValue(payload.phone), status: toInteger(payload.status) },
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteAssociate(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 }

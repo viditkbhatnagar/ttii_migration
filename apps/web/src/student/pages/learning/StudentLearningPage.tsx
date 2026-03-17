@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { BookOpen, Flame, Lock, FileText, Video, FileQuestion } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { BookOpen, Flame, Lock, FileText, Video, FileQuestion, BarChart3 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,6 +24,54 @@ function getFileTypeBadge(type: string): { label: string; variant: 'default' | '
   return { label: type || 'File', variant: 'outline' };
 }
 
+interface SubjectProgress {
+  id: string;
+  title: string;
+  totalLessons: number;
+  completedLessons: number;
+  averageCompletion: number;
+}
+
+function computeSubjectProgress(
+  subjects: Record<string, unknown>[],
+  lessons: Record<string, unknown>[],
+): SubjectProgress[] {
+  const subjectMap = new Map<string, { title: string; completions: number[]; total: number; completed: number }>();
+
+  for (const subject of subjects) {
+    const id = asString(subject.id);
+    subjectMap.set(id, {
+      title: asString(subject.title) || `Subject ${id}`,
+      completions: [],
+      total: 0,
+      completed: 0,
+    });
+  }
+
+  for (const lesson of lessons) {
+    const subjectId = asString(lesson.subject_id);
+    const completion = asNumber(lesson.completed_percentage);
+    const entry = subjectMap.get(subjectId);
+    if (entry) {
+      entry.completions.push(completion);
+      entry.total += 1;
+      if (completion === 100) {
+        entry.completed += 1;
+      }
+    }
+  }
+
+  return Array.from(subjectMap.entries()).map(([id, entry]) => ({
+    id,
+    title: entry.title,
+    totalLessons: entry.total,
+    completedLessons: entry.completed,
+    averageCompletion: entry.completions.length > 0
+      ? Math.round(entry.completions.reduce((a, b) => a + b, 0) / entry.completions.length)
+      : 0,
+  }));
+}
+
 export default function StudentLearningPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
@@ -34,6 +82,14 @@ export default function StudentLearningPage({ api, session }: StudentPageProps) 
   const subjects = useMemo(() => data?.subjects ?? [], [data]);
   const lessons = useMemo(() => data?.lessons ?? [], [data]);
   const lessonFiles = useMemo(() => data?.lessonFiles ?? [], [data]);
+
+  const subjectProgress = useMemo(() => computeSubjectProgress(subjects, lessons), [subjects, lessons]);
+
+  const overallCompletion = useMemo(() => {
+    if (lessons.length === 0) return 0;
+    const totalCompletion = lessons.reduce((sum, lesson) => sum + asNumber(lesson.completed_percentage), 0);
+    return Math.round(totalCompletion / lessons.length);
+  }, [lessons]);
 
   if (loading) {
     return (
@@ -80,8 +136,8 @@ export default function StudentLearningPage({ api, session }: StudentPageProps) 
         </div>
       </div>
 
-      {/* Course overview cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {/* Overview cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card className="bg-white">
           <CardContent className="flex items-center gap-4 p-5">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100">
@@ -115,7 +171,69 @@ export default function StudentLearningPage({ api, session }: StudentPageProps) 
             </div>
           </CardContent>
         </Card>
+        <Card className="bg-white">
+          <CardContent className="flex items-center gap-4 p-5">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-primary/10">
+              <BarChart3 className="size-5 text-ttii-primary" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-ttii-primary">{overallCompletion}%</p>
+              <p className="text-sm text-gray-500">Overall Progress</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Overall course completion bar */}
+      {courses.length > 0 ? (
+        <Card className="bg-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  {asString(courses[0]?.title) || 'Course Progress'}
+                </h3>
+                <p className="mt-0.5 text-sm text-gray-500">{overallCompletion}% complete</p>
+              </div>
+              <span className="text-2xl font-bold text-ttii-primary">{overallCompletion}%</span>
+            </div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-ttii-primary transition-all"
+                style={{ width: `${Math.min(overallCompletion, 100)}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Subject progress */}
+      {subjectProgress.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-gray-900">Subject Progress</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {subjectProgress.map((sp) => (
+              <Card key={sp.id} className="bg-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-gray-900">{sp.title}</h3>
+                    <span className="text-sm font-semibold text-ttii-primary">{sp.averageCompletion}%</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-ttii-primary transition-all"
+                      style={{ width: `${Math.min(sp.averageCompletion, 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    {sp.completedLessons}/{sp.totalLessons} lessons completed
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Enrolled courses */}
       {courses.length > 0 ? (

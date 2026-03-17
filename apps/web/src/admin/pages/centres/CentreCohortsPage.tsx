@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
+import { Eye } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -9,7 +11,7 @@ import { AdminDataTable, type DataTableColumn } from '../../shared/components/Ad
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 
-export default function CentreCohortsPage({ api, session }: AdminPageProps) {
+export default function CentreCohortsPage({ api, session, onNavigate }: AdminPageProps) {
   const [filterCourse, setFilterCourse] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -30,6 +32,36 @@ export default function CentreCohortsPage({ api, session }: AdminPageProps) {
   );
 
   const allRows = useMemo(() => toRecords(data), [data]);
+
+  const courseOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of allRows) {
+      const id = asString(row.course_id);
+      const title = asString(row.course_title);
+      if (id && title && !seen.has(id)) seen.set(id, title);
+    }
+    return [...seen.entries()].map(([value, label]) => ({ label, value }));
+  }, [allRows]);
+
+  const subjectOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of allRows) {
+      const id = asString(row.subject_id);
+      const title = asString(row.subject_title);
+      if (id && title && !seen.has(id)) seen.set(id, title);
+    }
+    return [...seen.entries()].map(([value, label]) => ({ label, value }));
+  }, [allRows]);
+
+  const centreOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of allRows) {
+      const id = asString(row.centre_id);
+      const name = asString(row.centre_name);
+      if (id && name && !seen.has(id)) seen.set(id, name);
+    }
+    return [...seen.entries()].map(([value, label]) => ({ label, value }));
+  }, [allRows]);
 
   const rows = useMemo(() => {
     if (activeTab === 'all') return allRows;
@@ -73,7 +105,7 @@ export default function CentreCohortsPage({ api, session }: AdminPageProps) {
       label: 'Course',
       type: 'select',
       value: filterCourse,
-      options: [],
+      options: courseOptions,
       onChange: setFilterCourse,
     },
     {
@@ -81,7 +113,7 @@ export default function CentreCohortsPage({ api, session }: AdminPageProps) {
       label: 'Subject',
       type: 'select',
       value: filterSubject,
-      options: [],
+      options: subjectOptions,
       onChange: setFilterSubject,
     },
     {
@@ -114,6 +146,15 @@ export default function CentreCohortsPage({ api, session }: AdminPageProps) {
       key: 'end_date',
       label: 'End Date',
       render: (value) => formatDate(value),
+    },
+    {
+      key: '_actions',
+      label: 'Actions',
+      render: (_value, row) => (
+        <Button variant="ghost" size="sm" onClick={() => onNavigate('/admin/cohorts/view/' + asString(row.id))}>
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
     },
   ];
 

@@ -1,25 +1,33 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 
-export default function AssignmentsPage({ api, session }: AdminPageProps) {
+export default function AssignmentsPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
 
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editRow, setEditRow] = useState<Record<string, unknown> | null>(null);
+  const [editForm, setEditForm] = useState({ title: '', description: '', totalMarks: '', dueDate: '', instructions: '' });
+
   useEffect(() => {
     api.loadCourses(session.token).then(setCourses).catch(() => {});
   }, [api, session.token]);
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAdminAssignments(session.token, {
       ...(courseFilter ? { courseId: courseFilter } : {}),
     }),
@@ -70,8 +78,20 @@ export default function AssignmentsPage({ api, session }: AdminPageProps) {
     { key: 'total_marks', label: 'Marks', sortable: true },
     { key: 'added_date', label: 'Added', render: (v) => formatDate(v) },
     { key: 'due_date', label: 'Due Date', render: (v) => formatDate(v) },
-    { key: 'submission_count', label: 'Submissions' },
-  ], []);
+    {
+      key: 'submission_count',
+      label: 'Submissions',
+      render: (value, row) => (
+        <button
+          type="button"
+          className="text-blue-600 hover:underline font-medium"
+          onClick={(e) => { e.stopPropagation(); onNavigate('/admin/assignment/submissions/' + asString(row.id)); }}
+        >
+          {asNumber(value)}
+        </button>
+      ),
+    },
+  ], [onNavigate]);
 
   const filters: FilterField[] = useMemo(() => [
     {
@@ -81,6 +101,49 @@ export default function AssignmentsPage({ api, session }: AdminPageProps) {
       onChange: setCourseFilter,
     },
   ], [courseFilter, courses]);
+
+  const handleEditClick = (row: Record<string, unknown>) => {
+    setEditRow(row);
+    setEditForm({
+      title: asString(row.title),
+      description: asString(row.description),
+      totalMarks: String(asNumber(row.total_marks)),
+      dueDate: asString(row.due_date).slice(0, 10),
+      instructions: asString(row.instructions),
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!editRow) return;
+    try {
+      await api.editAssignment(session.token, asString(editRow.id), {
+        title: editForm.title,
+        description: editForm.description,
+        totalMarks: Number(editForm.totalMarks),
+        dueDate: editForm.dueDate,
+        instructions: editForm.instructions,
+        courseId: asString(editRow.course_id),
+        cohortId: asString(editRow.cohort_id),
+      });
+      setEditDialogOpen(false);
+      setEditRow(null);
+      reload();
+    } catch {
+      // silently handle
+    }
+  };
+
+  const handleDelete = async (row: Record<string, unknown>) => {
+    const confirmed = window.confirm(`Are you sure you want to delete "${asString(row.title)}"?`);
+    if (!confirmed) return;
+    try {
+      await api.deleteAssignment(session.token, asString(row.id));
+      reload();
+    } catch {
+      // silently handle
+    }
+  };
 
   if (loading) {
     return (
@@ -117,12 +180,50 @@ export default function AssignmentsPage({ api, session }: AdminPageProps) {
         rows={filteredAssignments}
         actions={[
           {
+            label: 'Edit',
+            onClick: (row) => handleEditClick(row),
+          },
+          {
             label: 'Delete',
-            onClick: (row) => { api.deleteAssignment(session.token, asString(row.id)); },
+            onClick: (row) => { void handleDelete(row); },
             variant: 'destructive',
           },
         ]}
       />
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Assignment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input id="edit-title" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-description">Description</Label>
+              <Input id="edit-description" value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-marks">Total Marks</Label>
+              <Input id="edit-marks" type="number" value={editForm.totalMarks} onChange={(e) => setEditForm((f) => ({ ...f, totalMarks: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-due">Due Date</Label>
+              <Input id="edit-due" type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-instructions">Instructions</Label>
+              <Input id="edit-instructions" value={editForm.instructions} onChange={(e) => setEditForm((f) => ({ ...f, instructions: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => { void handleEditSave(); }}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

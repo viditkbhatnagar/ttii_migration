@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { extractAuthToken, requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
 import { AuthError, type RequestMeta } from '../auth/types.js';
 
 interface RegisterAuthRoutesOptions {
@@ -343,7 +343,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
   app.get(
     '/auth/portal/centre',
     {
-      preHandler: [requireAuth, requireLegacyRoles(authService, [LEGACY_ROLE.CENTRE])],
+      preHandler: [requireAuth, requireLegacyRoles(authService, CENTRE_PORTAL_ROLES)],
     },
     async (_request, reply) => {
       reply.code(200).send({

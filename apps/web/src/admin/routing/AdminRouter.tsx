@@ -1,8 +1,10 @@
-import { Suspense, useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { resolveAdminRoute, type AdminPageProps } from './admin-routes.js';
 import type { AdminPortalApi } from '../admin-portal-api.js';
 import type { AuthSession } from '@ttii/frontend-core';
+
+const CounsellorDashboardPage = lazy(() => import('../pages/dashboard/CounsellorDashboardPage.js'));
 
 function AdminPageSkeleton() {
   return (
@@ -49,7 +51,8 @@ export function AdminRouter({ pathname, api, session, onNavigate }: AdminRouterP
     return <AdminNotFoundPage pathname={pathname} onNavigate={onNavigate} />;
   }
 
-  const PageComponent = route.pageComponent;
+  const isCounsellorDashboard = session.roleId === 9 && route.title === 'Dashboard';
+  const PageComponent = isCounsellorDashboard ? CounsellorDashboardPage : route.pageComponent;
   const pageProps: AdminPageProps = { api, session, onNavigate };
 
   return (

@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 
-export default function CourseFeePage({ api, session }: AdminPageProps) {
+export default function CourseFeePage({ api, session, onNavigate }: AdminPageProps) {
   const { data, loading, error } = useAdminPageData(
     () => api.loadCourseFees(session.token),
     [],
@@ -33,7 +34,20 @@ export default function CourseFeePage({ api, session }: AdminPageProps) {
     { key: 'total_collected', label: 'Collected', render: (v) => formatCurrency(v) },
     { key: 'pending_amount', label: 'Pending', render: (v) => formatCurrency(v) },
     { key: 'payments_count', label: 'Payments' },
-  ], []);
+    {
+      key: 'course_id',
+      label: 'Action',
+      render: (v) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onNavigate(`/admin/fee_management/payment_status?course_id=${asString(v)}`)}
+        >
+          View Payments
+        </Button>
+      ),
+    },
+  ], [onNavigate]);
 
   if (loading) {
     return (

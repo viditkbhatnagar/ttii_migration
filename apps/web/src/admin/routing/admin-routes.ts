@@ -30,15 +30,23 @@ const AddEntranceExamPage = lazy(() => import('../pages/entrance_exam/AddEntranc
 const EntranceExamRegistrationsPage = lazy(() => import('../pages/entrance_exam/EntranceExamRegistrationsPage.js'));
 const EntranceExamResultsPage = lazy(() => import('../pages/entrance_exam/EntranceExamResultsPage.js'));
 const ApplicationsPage = lazy(() => import('../pages/applications/ApplicationsPage.js'));
+const AddApplicationPage = lazy(() => import('../pages/applications/AddApplicationPage.js'));
+const ViewApplicationPage = lazy(() => import('../pages/applications/ViewApplicationPage.js'));
 const StudentsPage = lazy(() => import('../pages/students/StudentsPage.js'));
+const ViewStudentPage = lazy(() => import('../pages/students/ViewStudentPage.js'));
 const IntakePage = lazy(() => import('../pages/batch/IntakePage.js'));
+const ViewSubmissionsPage = lazy(() => import('../pages/assignment/ViewSubmissionsPage.js'));
 const PaymentsPage = lazy(() => import('../pages/payments/PaymentsPage.js'));
 const CentreDirectoryPage = lazy(() => import('../pages/centres/CentreDirectoryPage.js'));
+const AddCentrePage = lazy(() => import('../pages/centres/AddCentrePage.js'));
+const ViewCentrePage = lazy(() => import('../pages/centres/ViewCentrePage.js'));
 const CentreCohortsPage = lazy(() => import('../pages/centres/CentreCohortsPage.js'));
 const CentrePaymentsPage = lazy(() => import('../pages/centres/CentrePaymentsPage.js'));
 const WalletStatusPage = lazy(() => import('../pages/wallet/WalletStatusPage.js'));
 const ResourcesPage = lazy(() => import('../pages/resources/ResourcesPage.js'));
 const CourseDirectoryPage = lazy(() => import('../pages/course/CourseDirectoryPage.js'));
+const AddCoursePage = lazy(() => import('../pages/course/AddCoursePage.js'));
+const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
 const AddLessonPage = lazy(() => import('../pages/course_new/AddLessonPage.js'));
 const AppVersionPage = lazy(() => import('../pages/settings/AppVersionPage.js'));
 const SystemSettingsPage = lazy(() => import('../pages/settings/SystemSettingsPage.js'));
@@ -65,6 +73,7 @@ const MentorshipHistoryPage = lazy(() => import('../pages/mentorship/MentorshipH
 const MentorshipAnalysisPage = lazy(() => import('../pages/mentorship/MentorshipAnalysisPage.js'));
 const GlobalCalendarPage = lazy(() => import('../pages/calendar/GlobalCalendarPage.js'));
 const AddCohortPage = lazy(() => import('../pages/cohorts/AddCohortPage.js'));
+const ViewCohortPage = lazy(() => import('../pages/cohorts/ViewCohortPage.js'));
 const LiveClassPage = lazy(() => import('../pages/live_class/LiveClassPage.js'));
 const AttendancePage = lazy(() => import('../pages/cohorts/AttendancePage.js'));
 const SessionFeedbacksPage = lazy(() => import('../pages/cohorts/SessionFeedbacksPage.js'));
@@ -101,13 +110,20 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Learner Management
   { path: '/admin/applications/index', aliases: ['/admin/applications'], pageComponent: ApplicationsPage, title: 'Applications' },
+  { path: '/admin/applications/add', pageComponent: AddApplicationPage, title: 'Add Application' },
+  { path: '/admin/applications/view/:id', pageComponent: ViewApplicationPage, title: 'View Application' },
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },
+  { path: '/admin/students/view/:id', pageComponent: ViewStudentPage, title: 'View Student' },
   { path: '/admin/assignment/index', aliases: ['/admin/assignment'], pageComponent: AssignmentsPage, title: 'Assignments' },
+  { path: '/admin/assignment/submissions/:id', pageComponent: ViewSubmissionsPage, title: 'Assignment Submissions' },
   { path: '/admin/batch/index', aliases: ['/admin/batch'], pageComponent: IntakePage, title: 'Intake' },
   { path: '/admin/payments/index', aliases: ['/admin/payments'], pageComponent: PaymentsPage, title: 'Payments' },
 
   // Centres
   { path: '/admin/centres/index', aliases: ['/admin/centres'], pageComponent: CentreDirectoryPage, title: 'Centre Directory' },
+  { path: '/admin/centres/add', pageComponent: AddCentrePage, title: 'Add Centre' },
+  { path: '/admin/centres/edit/:id', pageComponent: AddCentrePage, title: 'Edit Centre' },
+  { path: '/admin/centres/view/:id', pageComponent: ViewCentrePage, title: 'View Centre' },
   { path: '/admin/centres/cohorts', pageComponent: CentreCohortsPage, title: 'Centre Cohorts' },
   { path: '/admin/centres/centre_payments', pageComponent: CentrePaymentsPage, title: 'Centre Payments' },
   { path: '/admin/wallet/index', aliases: ['/admin/wallet'], pageComponent: WalletStatusPage, title: 'Wallet Status' },
@@ -117,11 +133,15 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Courses
   { path: '/admin/course/index', aliases: ['/admin/course'], pageComponent: CourseDirectoryPage, title: 'Course Directory' },
+  { path: '/admin/course/add', pageComponent: AddCoursePage, title: 'Add Course' },
+  { path: '/admin/course/edit/:id', pageComponent: AddCoursePage, title: 'Edit Course' },
+  { path: '/admin/course/subjects/:id', pageComponent: CourseSubjectsPage, title: 'Course Subjects' },
   { path: '/admin/course_new/index', aliases: ['/admin/course_new'], pageComponent: AddLessonPage, title: 'Add Lesson' },
 
   // Cohorts Management
   { path: '/admin/cohorts/index', aliases: ['/admin/cohorts'], pageComponent: CohortsPage, title: 'Cohorts' },
   { path: '/admin/cohorts/add', pageComponent: AddCohortPage, title: 'Add Cohorts' },
+  { path: '/admin/cohorts/view/:id', pageComponent: ViewCohortPage, title: 'View Cohort' },
   { path: '/admin/live_class/index', aliases: ['/admin/live_class'], pageComponent: LiveClassPage, title: 'Live Sessions' },
   { path: '/admin/cohorts/attendance', pageComponent: AttendancePage, title: 'Attendance Management' },
   { path: '/admin/cohorts/sessions', pageComponent: SessionFeedbacksPage, title: 'Sessions Feedbacks' },
@@ -209,6 +229,16 @@ export function resolveAdminRoute(pathname: string): AdminRouteConfig | null {
 
   const aliased = ADMIN_ROUTES.find((r) => r.aliases?.includes(normalized));
   if (aliased) return aliased;
+
+  // Dynamic route matching (e.g. /admin/applications/view/:id)
+  for (const route of ADMIN_ROUTES) {
+    if (!route.path.includes(':')) continue;
+    const routeParts = route.path.split('/');
+    const pathParts = normalized.split('/');
+    if (routeParts.length !== pathParts.length) continue;
+    const matches = routeParts.every((part, i) => part.startsWith(':') || part === pathParts[i]);
+    if (matches) return route;
+  }
 
   return null;
 }

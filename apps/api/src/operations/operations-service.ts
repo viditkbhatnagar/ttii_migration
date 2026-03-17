@@ -106,6 +106,44 @@ export type AdminApplicationFilters = {
   pipelineRoleId?: number;
   courseId?: string;
   listBy?: string;
+  centreId?: string;
+  search?: string;
+  status?: string;
+};
+
+export type AdminApplicationInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  alternatePhone?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  highestQualification?: string;
+  specialization?: string;
+  institutionName?: string;
+  yearOfPassing?: string;
+  percentageOrCgpa?: string;
+  workExperience?: string;
+  currentOccupation?: string;
+  courseId?: string;
+  centreId?: string;
+  batchId?: string;
+  enrollmentDate?: string;
+  feePlan?: string;
+  discount?: string;
+  referralCode?: string;
+  leadSource?: string;
+  assignedCounsellor?: string;
+  applicationStatus?: string;
+  notes?: string;
+  crmTags?: string;
 };
 
 export type CentreApplicationInput = {
@@ -122,6 +160,10 @@ export type CentreApplicationInput = {
 
 export type StudentFilters = {
   courseId?: string;
+  centreId?: string;
+  batchId?: string;
+  search?: string;
+  status?: string;
 };
 
 export type CentreInput = {
@@ -271,6 +313,42 @@ export type AdminWalletFilters = {
   centreName?: string;
 };
 
+// ─── Phase D: Centres Feature Input Types ────────────────────────────────────
+
+export type UpdateCentreInput = {
+  centreName?: string;
+  centreCode?: string;
+  centreType?: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  googleMapsLink?: string;
+  affiliationNumber?: string;
+  affiliationDate?: string;
+  affiliationDocument?: string;
+  recognitionStatus?: string;
+  description?: string;
+  status?: string;
+  logo?: string;
+  establishedDate?: string;
+  registrationDate?: string;
+  expiryDate?: string;
+};
+
+export type TrainingVideoInput = {
+  title: string;
+  category?: string;
+  videoType?: string;
+  videoUrl?: string;
+  thumbnail?: string;
+  description?: string;
+  status?: string;
+};
+
 // ─── Phase 3: Operations & People Input Types ────────────────────────────────
 
 export type AdminCohortInput = {
@@ -397,6 +475,38 @@ export type EntranceExamInput = {
   questionIds?: string;
 };
 
+export type AddInstructorInput = {
+  name: string;
+  email: string;
+  phone?: string;
+  bio?: string;
+  status?: number;
+};
+
+export type AddUserInput = {
+  name: string;
+  email: string;
+  phone?: string;
+  password: string;
+  roleId: number;
+};
+
+export type AddTargetInput = {
+  userId: string;
+  targetType: string;
+  targetValue: number;
+  periodFrom: string;
+  periodTo: string;
+  remarks?: string;
+};
+
+export type AddAssociateInput = {
+  name: string;
+  email: string;
+  phone?: string;
+  status?: number;
+};
+
 function normalizeSqlRow(row: SqlRow): SqlRow {
   const normalized: SqlRow = {};
 
@@ -493,6 +603,22 @@ export class OperationsService {
     if ((filters.listBy ?? '').trim() !== '') {
       where.status = filters.listBy;
     }
+    if ((filters.status ?? '').trim() !== '') {
+      where.status = filters.status;
+    }
+    if (filters.centreId) {
+      where.added_under_centre = Number(filters.centreId);
+    }
+    if ((filters.search ?? '').trim() !== '') {
+      const q = filters.search!.trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { user_email: { contains: q, mode: 'insensitive' } },
+        { application_id: { contains: q, mode: 'insensitive' } },
+      ];
+    }
 
     const apps = await this.prisma.applications.findMany({
       where: where as any,
@@ -504,10 +630,12 @@ export class OperationsService {
     const pipelineUserIds = [...new Set(apps.map(a => a.pipeline_user).filter(Boolean))] as string[];
     const centreIds = [...new Set(apps.map(a => a.added_under_centre).filter(Boolean))].map(String);
 
-    const [courses, pipelineUsers, centres] = await Promise.all([
+    const [courses, pipelineUsers, centres, allCourses, allCentres] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } } }) : [],
       pipelineUserIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: pipelineUserIds } }, select: { id: true, name: true } }) : [],
       centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
+      this.prisma.course.findMany({ where: { deleted_at: null }, select: { id: true, title: true }, orderBy: { title: 'asc' } }),
+      this.prisma.centres.findMany({ where: { deleted_at: null }, select: { id: true, centre_name: true }, orderBy: { centre_name: 'asc' } }),
     ]);
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
@@ -522,10 +650,14 @@ export class OperationsService {
     }));
 
     const rejectedCount = applications.filter((item) => toStringValue(item.status) === 'rejected').length;
+    const pendingCount = applications.filter((item) => toStringValue(item.status) === 'pending').length;
 
     return {
       students: applications,
       rejected_count: rejectedCount,
+      pending_count: pendingCount,
+      courses: allCourses,
+      centres: allCentres,
     };
   }
 
@@ -1044,10 +1176,28 @@ export class OperationsService {
     if (scope === 'centre') {
       where.added_under_centre = Number(centreId);
     }
+    if (filters.centreId) {
+      where.added_under_centre = Number(filters.centreId);
+    }
+    if (filters.status) {
+      const statusNum = filters.status === 'Active' ? 1 : filters.status === 'Inactive' ? 0 : filters.status === 'Graduated' ? 2 : filters.status === 'Dropped' ? 3 : undefined;
+      if (statusNum !== undefined) {
+        where.status = statusNum;
+      }
+    }
+    if (filters.search) {
+      const q = filters.search.trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { user_email: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q } },
+        { student_id: { contains: q, mode: 'insensitive' } },
+      ];
+    }
 
     const users = await this.prisma.users.findMany({
       where: where as any,
-      select: { id: true, student_id: true, name: true, user_email: true, phone: true, course_id: true, added_under_centre: true },
+      select: { id: true, student_id: true, name: true, user_email: true, phone: true, course_id: true, added_under_centre: true, status: true, profile_picture: true, email: true },
       orderBy: { id: 'desc' },
     });
 
@@ -1058,6 +1208,12 @@ export class OperationsService {
       select: { user_id: true, course_id: true, enrollment_status: true, enrollment_id: true, batch_id: true },
     }) : [];
 
+    // If batch filter, restrict to users who have enrolment in that batch
+    let filteredUserIds: Set<string> | null = null;
+    if (filters.batchId) {
+      filteredUserIds = new Set(enrolments.filter(e => e.batch_id === filters.batchId).map(e => e.user_id));
+    }
+
     const courseIds = [...new Set([
       ...users.map(u => u.course_id).filter(Boolean),
       ...enrolments.map(e => e.course_id).filter(Boolean),
@@ -1065,16 +1221,32 @@ export class OperationsService {
     const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
     const courseMap = new Map(courses.map(c => [c.id, c]));
 
-    return users.map(u => {
-      const enrol = enrolments.find(e => e.user_id === u.id && e.course_id === u.course_id);
-      return {
-        ...u,
-        course_enrol_status: enrol?.enrollment_status ?? null,
-        enrollment_id: enrol?.enrollment_id ?? null,
-        batch_id: enrol?.batch_id ?? null,
-        course_title: enrol?.course_id ? courseMap.get(enrol.course_id)?.title ?? null : null,
-      };
-    }) as unknown as SqlRow[];
+    // Fetch centres for display
+    const centreNums = [...new Set(users.map(u => u.added_under_centre).filter(Boolean))] as number[];
+    const centres = centreNums.length > 0 ? await this.prisma.centres.findMany({ where: { deleted_at: null }, select: { id: true, centre_name: true } }) : [];
+
+    // Fetch batches for display
+    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter(Boolean))] as string[];
+    const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
+    const batchMap = new Map(batches.map(b => [b.id, b]));
+
+    const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
+
+    return users
+      .filter(u => filteredUserIds === null || filteredUserIds.has(u.id))
+      .map(u => {
+        const enrol = enrolments.find(e => e.user_id === u.id && e.course_id === u.course_id);
+        return {
+          ...u,
+          course_enrol_status: enrol?.enrollment_status ?? null,
+          enrollment_id: enrol?.enrollment_id ?? null,
+          batch_id: enrol?.batch_id ?? null,
+          batch_title: enrol?.batch_id ? batchMap.get(enrol.batch_id)?.title ?? null : null,
+          course_title: enrol?.course_id ? courseMap.get(enrol.course_id)?.title ?? null : null,
+          centre_name: centres.find(c => String(u.added_under_centre) === c.id)?.centre_name ?? null,
+          status_label: statusLabels[u.status] ?? 'Unknown',
+        };
+      }) as unknown as SqlRow[];
   }
 
   async listCentres(): Promise<SqlRow[]> {
@@ -2982,89 +3154,150 @@ export class OperationsService {
     }) as unknown as SqlRow[];
   }
 
-  async listFeeInstallments(filters: FeeInstallmentFilters): Promise<SqlRow[]> {
-    const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = filters.courseId;
-    if (filters.status) where.status = filters.status;
+  async listFeeInstallments(filters: FeeInstallmentFilters & { search?: string; centreId?: string }): Promise<Record<string, unknown>> {
+    const studentWhere: Record<string, unknown> = { deleted_at: null };
+    if (filters.courseId) studentWhere.course_id = filters.courseId;
 
-    const fees = await this.prisma.student_fee.findMany({
-      where: where as any,
-      orderBy: [{ due_date: 'desc' }, { id: 'desc' }],
+    const allStudents = await this.prisma.students.findMany({
+      where: studentWhere as any,
+      select: { id: true, user_id: true, course_id: true, enrollment_id: true, total_fee: true },
     });
 
-    const userIds = [...new Set(fees.map(f => f.user_id))];
-    const courseIds = [...new Set(fees.map(f => f.course_id))];
+    const userIds = [...new Set(allStudents.map(s => s.user_id))];
+    const courseIds = [...new Set(allStudents.map(s => s.course_id).filter(Boolean))] as string[];
 
-    const [users, courses] = await Promise.all([
+    const [users, courses, fees] = await Promise.all([
       userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, student_id: true, phone: true } }) : [],
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+      userIds.length > 0 ? this.prisma.student_fee.findMany({ where: { user_id: { in: userIds }, deleted_at: null } }) : [],
     ]);
-    const userMap = new Map(users.map(u => [u.id, u]));
-    const courseMap = new Map(courses.map(c => [c.id, c]));
 
-    return fees.map(f => ({
-      ...f,
-      student_name: userMap.get(f.user_id)?.name ?? null,
-      student_id: userMap.get(f.user_id)?.student_id ?? null,
-      phone: userMap.get(f.user_id)?.phone ?? null,
-      course_title: courseMap.get(f.course_id)?.title ?? null,
-    })) as unknown as SqlRow[];
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+
+    // Group fees by user_id+course_id
+    const feeCountMap = new Map<string, number>();
+    const feeSumMap = new Map<string, number>();
+    for (const f of fees) {
+      const key = `${f.user_id}|${f.course_id}`;
+      feeCountMap.set(key, (feeCountMap.get(key) ?? 0) + 1);
+      feeSumMap.set(key, (feeSumMap.get(key) ?? 0) + f.amount);
+    }
+
+    let items = allStudents.map(s => {
+      const key = `${s.user_id}|${s.course_id ?? ''}`;
+      const installments_added = feeCountMap.get(key) ?? 0;
+      const instalments_sum = feeSumMap.get(key) ?? 0;
+      const totalFee = s.total_fee ?? 0;
+
+      let fee_plan_status = 'not_added';
+      if (installments_added > 0) {
+        fee_plan_status = totalFee > 0 && instalments_sum >= totalFee ? 'fully_added' : 'partially_added';
+      }
+
+      return {
+        student_record_id: s.id,
+        user_id: s.user_id,
+        course_id: s.course_id,
+        enrollment_id: s.enrollment_id,
+        student_name: userMap.get(s.user_id)?.name ?? null,
+        student_id: userMap.get(s.user_id)?.student_id ?? null,
+        phone: userMap.get(s.user_id)?.phone ?? null,
+        course_title: s.course_id ? courseMap.get(s.course_id) ?? null : null,
+        total_fee: totalFee,
+        installments_added,
+        fee_plan_status,
+      };
+    });
+
+    // Filter by status tab
+    if (filters.status && filters.status !== 'all') {
+      items = items.filter(i => i.fee_plan_status === filters.status);
+    }
+
+    // Filter by search
+    if (filters.search) {
+      const sl = filters.search.toLowerCase();
+      items = items.filter(i => {
+        const name = toStringValue(i.student_name).toLowerCase();
+        const sid = toStringValue(i.student_id).toLowerCase();
+        return name.includes(sl) || sid.includes(sl);
+      });
+    }
+
+    const counts = { fully_added: 0, partially_added: 0, not_added: 0 };
+    for (const i of items) {
+      const s = i.fee_plan_status as keyof typeof counts;
+      if (s in counts) counts[s]++;
+    }
+
+    return { counts, items };
   }
 
-  async listPaymentStatus(filters: AdminPaymentFilters): Promise<Record<string, unknown>> {
-    const range = normalizeReportRange(filters.fromDate, filters.toDate);
-
+  async listPaymentStatus(filters: AdminPaymentFilters & { centreId?: string; search?: string }): Promise<Record<string, unknown>> {
     const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.fromDate || filters.toDate) {
-      const dateFilter: Record<string, unknown> = {};
-      if (filters.fromDate) dateFilter.gte = new Date(`${range.fromDate}T00:00:00Z`);
-      if (filters.toDate) dateFilter.lte = new Date(`${range.toDate}T23:59:59Z`);
-      where.payment_date = dateFilter;
-    }
     if (filters.courseId) where.course_id = filters.courseId;
 
-    const [agg, payments] = await Promise.all([
-      this.prisma.payment_info.aggregate({
-        where: where as any,
-        _count: { id: true },
-        _sum: { amount_paid: true },
-        _avg: { amount_paid: true },
-      }),
-      this.prisma.payment_info.findMany({
-        where: where as any,
-        orderBy: { id: 'desc' },
-      }),
-    ]);
+    const installments = await this.prisma.student_payments.findMany({
+      where: where as any,
+      orderBy: [{ due_date: 'asc' }, { id: 'desc' }],
+    });
 
-    // Count distinct users
-    const uniqueUserIds = new Set(payments.map(p => p.user_id));
-
-    const userIds = [...uniqueUserIds];
-    const courseIds = [...new Set(payments.map(p => p.course_id))];
+    const userIds = [...new Set(installments.map(i => i.user_id))];
+    const courseIds = [...new Set(installments.map(i => i.course_id).filter(Boolean))] as string[];
 
     const [users, courses] = await Promise.all([
-      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, student_id: true } }) : [],
+      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
     ]);
     const userMap = new Map(users.map(u => [u.id, u]));
-    const courseMap = new Map(courses.map(c => [c.id, c]));
+    const courseMap = new Map(courses.map(c => [c.id, c.title]));
 
-    const enrichedPayments = payments.map(p => ({
-      ...p,
-      user_name: userMap.get(p.user_id)?.name ?? null,
-      student_id: userMap.get(p.user_id)?.student_id ?? null,
-      course_title: courseMap.get(p.course_id)?.title ?? null,
-    }));
+    // Compute status for each installment
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sevenDaysLater = new Date(today);
+    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
 
-    return {
-      summary: {
-        total_payments: agg._count.id,
-        unique_students: uniqueUserIds.size,
-        total_collected: agg._sum.amount_paid ?? 0,
-        avg_payment: agg._avg.amount_paid ?? 0,
-      },
-      payments: enrichedPayments,
-    };
+    let enriched = installments.map(inst => {
+      const isPaid = inst.status === 'Paid' || inst.paid_date != null;
+      let computed_status = 'upcoming';
+      if (isPaid) {
+        computed_status = 'paid';
+      } else if (inst.due_date) {
+        const dueDate = new Date(inst.due_date);
+        dueDate.setHours(0, 0, 0, 0);
+        if (dueDate < today) {
+          computed_status = 'overdue';
+        } else if (dueDate <= sevenDaysLater) {
+          computed_status = 'due';
+        }
+      }
+      return {
+        ...inst,
+        user_name: userMap.get(inst.user_id)?.name ?? null,
+        course_title: inst.course_id ? courseMap.get(inst.course_id) ?? null : null,
+        computed_status,
+      };
+    });
+
+    // Filter by search text (user name)
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      enriched = enriched.filter(r => {
+        const name = toStringValue(r.user_name).toLowerCase();
+        return name.includes(searchLower);
+      });
+    }
+
+    // Count by status
+    const counts = { overdue: 0, due: 0, upcoming: 0, paid: 0 };
+    for (const r of enriched) {
+      const s = r.computed_status as keyof typeof counts;
+      if (s in counts) counts[s]++;
+    }
+
+    return { counts, installments: enriched };
   }
 
   async listCohortAttendance(filters: CohortAttendanceFilters): Promise<SqlRow[]> {
@@ -3598,5 +3831,993 @@ export class OperationsService {
       select: { id: true, title: true, code: true, status: true, created_at: true },
     });
     return languages as unknown as SqlRow[];
+  }
+
+  // ─── Phase A: CRUD for Instructors, Users, Counsellors, Associates, Targets ──
+
+  async addInstructor(actorUserId: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
+
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
+    if (existing) return { status: 0, message: 'Email already exists.' };
+
+    const now = new Date();
+    await this.prisma.users.create({
+      data: {
+        name: input.name.trim(),
+        user_email: input.email.trim(),
+        email: input.email.trim(),
+        phone: input.phone?.trim() || null,
+        role_id: 3,
+        status: input.status ?? 1,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Instructor added successfully.' };
+  }
+
+  async editInstructor(actorUserId: string, id: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id, deleted_at: null },
+      data: {
+        name: input.name.trim(),
+        phone: input.phone?.trim() || null,
+        status: input.status ?? 1,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Instructor updated successfully.' };
+  }
+
+  async deleteInstructor(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'Instructor deleted successfully.' };
+  }
+
+  async addUser(actorUserId: string, input: AddUserInput): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
+    if (!input.password.trim()) return { status: 0, message: 'Password is required.' };
+
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
+    if (existing) return { status: 0, message: 'Email already exists.' };
+
+    const now = new Date();
+    await this.prisma.users.create({
+      data: {
+        name: input.name.trim(),
+        user_email: input.email.trim(),
+        email: input.email.trim(),
+        phone: input.phone?.trim() || null,
+        password: input.password,
+        role_id: input.roleId,
+        status: 1,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'User created successfully.' };
+  }
+
+  async editUser(actorUserId: string, id: string, input: { name: string; phone?: string }): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id, deleted_at: null },
+      data: { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now },
+    });
+    return { status: 1, message: 'User updated successfully.' };
+  }
+
+  async deleteUser(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'User deleted successfully.' };
+  }
+
+  async addAssociate(actorUserId: string, input: AddAssociateInput): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
+
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
+    if (existing) return { status: 0, message: 'Email already exists.' };
+
+    const now = new Date();
+    await this.prisma.users.create({
+      data: {
+        name: input.name.trim(),
+        user_email: input.email.trim(),
+        email: input.email.trim(),
+        phone: input.phone?.trim() || null,
+        role_id: 10,
+        status: input.status ?? 1,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Associate added successfully.' };
+  }
+
+  async addCounsellorTarget(actorUserId: string, input: AddTargetInput): Promise<Record<string, unknown>> {
+    if (!input.userId) return { status: 0, message: 'Counsellor is required.' };
+    const now = new Date();
+    const period = `${input.periodFrom} to ${input.periodTo}`;
+    await this.prisma.counsellor_target.create({
+      data: {
+        user_id: input.userId,
+        period,
+        target_type: input.targetType || 'applications',
+        target_value: input.targetValue,
+        achieved_value: 0,
+        remarks: input.remarks?.trim() || null,
+        created_by: actorUserId,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Target added successfully.' };
+  }
+
+  async editCounsellorTarget(actorUserId: string, id: string, input: AddTargetInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const period = `${input.periodFrom} to ${input.periodTo}`;
+    await this.prisma.counsellor_target.updateMany({
+      where: { id, deleted_at: null },
+      data: {
+        user_id: input.userId,
+        period,
+        target_type: input.targetType || 'applications',
+        target_value: input.targetValue,
+        remarks: input.remarks?.trim() || null,
+        updated_by: actorUserId,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Target updated successfully.' };
+  }
+
+  async deleteCounsellorTarget(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.counsellor_target.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'Target deleted successfully.' };
+  }
+
+  async addAssociateTarget(actorUserId: string, input: AddTargetInput): Promise<Record<string, unknown>> {
+    if (!input.userId) return { status: 0, message: 'Associate is required.' };
+    const now = new Date();
+    const period = `${input.periodFrom} to ${input.periodTo}`;
+    await this.prisma.associate_target.create({
+      data: {
+        user_id: input.userId,
+        period,
+        target_type: input.targetType || 'applications',
+        target_value: input.targetValue,
+        achieved_value: 0,
+        remarks: input.remarks?.trim() || null,
+        created_by: actorUserId,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Target added successfully.' };
+  }
+
+  async editAssociateTarget(actorUserId: string, id: string, input: AddTargetInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const period = `${input.periodFrom} to ${input.periodTo}`;
+    await this.prisma.associate_target.updateMany({
+      where: { id, deleted_at: null },
+      data: {
+        user_id: input.userId,
+        period,
+        target_type: input.targetType || 'applications',
+        target_value: input.targetValue,
+        remarks: input.remarks?.trim() || null,
+        updated_by: actorUserId,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Target updated successfully.' };
+  }
+
+  async deleteAssociateTarget(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.associate_target.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'Target deleted successfully.' };
+  }
+
+  // ── Applications Phase B ────────────────────────────────────────────────────
+
+  async getApplication(id: string): Promise<Record<string, unknown>> {
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+
+    const app = await this.prisma.applications.findFirst({ where: { id, deleted_at: null } });
+    if (!app) return { status: 0, message: 'Application not found.' };
+
+    // Resolve related records
+    const [course, pipelineUser, centre, payments] = await Promise.all([
+      app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
+      app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
+      app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: String(app.added_under_centre) }, select: { id: true, centre_name: true } }) : null,
+      this.prisma.student_payments.findMany({ where: { user_id: id, deleted_at: null }, orderBy: { id: 'desc' } }),
+    ]);
+
+    // Resolve batch
+    const batch = app.batch_id ? await this.prisma.batch.findFirst({ where: { id: app.batch_id } }) : null;
+
+    return {
+      status: 1,
+      application: {
+        ...app,
+        course_title: course?.title ?? null,
+        pipeline_user_name: pipelineUser?.name ?? null,
+        centre_name: centre?.centre_name ?? null,
+        batch_title: batch?.title ?? null,
+      },
+      payments,
+    };
+  }
+
+  async createApplication(actorUserId: string, input: AdminApplicationInput): Promise<Record<string, unknown>> {
+    if (!input.firstName.trim()) return { status: 0, message: 'First name is required.' };
+    if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
+    if (!input.phone.trim()) return { status: 0, message: 'Phone is required.' };
+
+    const email = input.email.trim();
+    const phone = input.phone.trim();
+
+    const duplicate = await this.prisma.applications.findFirst({
+      where: {
+        deleted_at: null,
+        OR: [
+          { email: phone },
+          { user_email: email },
+          { phone },
+        ],
+      },
+    });
+    if (duplicate) return { status: 0, message: 'Application with same phone or email already exists.' };
+
+    const now = new Date();
+    const fullName = `${input.firstName.trim()} ${input.lastName?.trim() || ''}`.trim();
+
+    const created = await this.prisma.applications.create({
+      data: {
+        application_id: `APP-${Date.now()}`,
+        name: fullName,
+        phone,
+        email: phone,
+        user_email: email,
+        country_code: '+91',
+        date_of_birth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+        gender: input.gender || null,
+        state: input.state || null,
+        address: input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null,
+        district: input.city || null,
+        nationality: input.country || 'India',
+        second_phone: input.alternatePhone || null,
+        course_id: input.courseId || null,
+        batch_id: input.batchId || null,
+        enrollment_date: input.enrollmentDate ? new Date(input.enrollmentDate) : null,
+        mode_of_study: input.feePlan || null,
+        marketing_source: input.leadSource || null,
+        pipeline_user: input.assignedCounsellor || null,
+        pipeline: input.assignedCounsellor ? '9' : null,
+        status: input.applicationStatus || 'pending',
+        added_under_centre: input.centreId ? Number(input.centreId) : null,
+        created_by: actorUserId,
+        updated_by: actorUserId,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    // Store qualification if provided
+    if (input.highestQualification || input.institutionName) {
+      await this.prisma.qualification.create({
+        data: {
+          user_id: created.id,
+          qualification: input.highestQualification || null,
+          institution: input.institutionName || null,
+          year_of_passing: input.yearOfPassing || null,
+          percentage_or_grade: input.percentageOrCgpa || null,
+          created_by: actorUserId,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+    }
+
+    return { status: 1, message: 'Application created successfully.', application_id: created.id };
+  }
+
+  async deleteApplication(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    const now = new Date();
+    const result = await this.prisma.applications.updateMany({
+      where: { id, deleted_at: null },
+      data: { deleted_by: actorUserId, deleted_at: now },
+    });
+    if (result.count === 0) return { status: 0, message: 'Application not found.' };
+    return { status: 1, message: 'Application deleted successfully.' };
+  }
+
+  async updateApplicationStatus(actorUserId: string, id: string, status: string): Promise<Record<string, unknown>> {
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    if (!status) return { status: 0, message: 'Status is required.' };
+    const now = new Date();
+    const result = await this.prisma.applications.updateMany({
+      where: { id, deleted_at: null },
+      data: { status, updated_by: actorUserId, updated_at: now },
+    });
+    if (result.count === 0) return { status: 0, message: 'Application not found.' };
+    return { status: 1, message: `Application ${status} successfully.` };
+  }
+
+  // ─── Phase C: Student Detail & Actions ──────────────────────────────────────
+
+  async getStudentDetail(studentId: string): Promise<Record<string, unknown>> {
+    if (!studentId) return { status: 0, message: 'Student ID is required.' };
+
+    const user = await this.prisma.users.findFirst({
+      where: { id: studentId, role_id: 2, deleted_at: null },
+    });
+    if (!user) return { status: 0, message: 'Student not found.' };
+
+    const enrolments = await this.prisma.enrol.findMany({
+      where: { user_id: studentId, deleted_at: null },
+    });
+
+    const courseIds = [...new Set(enrolments.map(e => e.course_id).filter(Boolean))] as string[];
+    const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
+    const courseMap = new Map(courses.map(c => [c.id, c]));
+
+    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter(Boolean))] as string[];
+    const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
+    const batchMap = new Map(batches.map(b => [b.id, b]));
+
+    const payments = await this.prisma.payment_info.findMany({
+      where: { user_id: studentId, deleted_at: null },
+      orderBy: { payment_date: 'desc' },
+    });
+
+    const studentFees = await this.prisma.student_fee.findMany({
+      where: { user_id: studentId },
+      orderBy: { due_date: 'desc' },
+    });
+
+    // LMS progress
+    const videoProgress = await this.prisma.video_progress_status.findMany({
+      where: { user_id: studentId, deleted_at: null },
+    });
+    const materialProgress = await this.prisma.material_progress.findMany({
+      where: { user_id: studentId, deleted_at: null },
+    });
+    const assignmentSubs = await this.prisma.assignment_submissions.findMany({
+      where: { user_id: studentId, deleted_at: null },
+    });
+
+    // Profile completion calc
+    const profileFields = [user.name, user.user_email, user.phone, user.profile_picture];
+    const filled = profileFields.filter(Boolean).length;
+    const profileCompletion = Math.round((filled / profileFields.length) * 100);
+
+    const enrichedEnrolments = enrolments.map(e => ({
+      ...e,
+      course_title: e.course_id ? courseMap.get(e.course_id)?.title ?? null : null,
+      batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
+    }));
+
+    return {
+      status: 1,
+      message: 'success',
+      student: user,
+      enrolments: enrichedEnrolments,
+      payments,
+      studentFees,
+      videoProgress,
+      materialProgress,
+      assignmentSubmissions: assignmentSubs,
+      profileCompletion,
+    };
+  }
+
+  async changeStudentUsername(actorUserId: string, studentId: string, newUsername: string): Promise<Record<string, unknown>> {
+    if (!studentId) return { status: 0, message: 'Student ID is required.' };
+    if (!newUsername.trim()) return { status: 0, message: 'Username is required.' };
+
+    const existing = await this.prisma.users.findFirst({ where: { username: newUsername.trim(), deleted_at: null, id: { not: studentId } } });
+    if (existing) return { status: 0, message: 'Username already taken.' };
+
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id: studentId, deleted_at: null },
+      data: { username: newUsername.trim(), updated_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Username updated successfully.' };
+  }
+
+  async changeStudentPassword(actorUserId: string, studentId: string, newPassword: string): Promise<Record<string, unknown>> {
+    if (!studentId) return { status: 0, message: 'Student ID is required.' };
+    if (!newPassword || newPassword.length < 6) return { status: 0, message: 'Password must be at least 6 characters.' };
+
+    const hashed = await hashPassword(newPassword);
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id: studentId, deleted_at: null },
+      data: { password: hashed, updated_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Password updated successfully.' };
+  }
+
+  async editStudentEnrollmentId(actorUserId: string, studentId: string, newEnrollmentId: string): Promise<Record<string, unknown>> {
+    if (!studentId) return { status: 0, message: 'Student ID is required.' };
+    if (!newEnrollmentId.trim()) return { status: 0, message: 'Enrollment ID is required.' };
+
+    const now = new Date();
+    const result = await this.prisma.enrol.updateMany({
+      where: { user_id: studentId, deleted_at: null },
+      data: { enrollment_id: newEnrollmentId.trim(), updated_by: actorUserId, updated_at: now },
+    });
+
+    if (result.count === 0) return { status: 0, message: 'No enrolment found for this student.' };
+    return { status: 1, message: 'Enrollment ID updated successfully.' };
+  }
+
+  async editStudentInfo(actorUserId: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
+    if (!studentId) return { status: 0, message: 'Student ID is required.' };
+
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id: studentId, deleted_at: null },
+      data: { name: name.trim(), phone: phone.trim(), updated_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Student info updated successfully.' };
+  }
+
+  async listBatchStudents(batchId: string): Promise<SqlRow[]> {
+    if (!batchId) return [];
+
+    const enrols = await this.prisma.enrol.findMany({
+      where: { batch_id: batchId, deleted_at: null },
+      select: { user_id: true, course_id: true, enrollment_id: true },
+    });
+
+    const userIds = [...new Set(enrols.map(e => e.user_id))];
+    if (userIds.length === 0) return [];
+
+    const users = await this.prisma.users.findMany({
+      where: { id: { in: userIds }, deleted_at: null },
+      select: { id: true, name: true, user_email: true, phone: true, student_id: true, status: true },
+    });
+
+    const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
+    const enrolMap = new Map(enrols.map(e => [e.user_id, e]));
+
+    return users.map(u => ({
+      ...u,
+      enrollment_id: enrolMap.get(u.id)?.enrollment_id ?? null,
+      status_label: statusLabels[u.status] ?? 'Unknown',
+    })) as unknown as SqlRow[];
+  }
+
+  // ─── Phase D: Centres Feature ─────────────────────────────────────────────
+
+  async getCentre(centreId: string): Promise<Record<string, unknown>> {
+    const centre = await this.prisma.centres.findFirst({
+      where: { id: centreId, deleted_at: null },
+    });
+
+    if (!centre) {
+      return { status: 0, message: 'Centre not found' };
+    }
+
+    const coursePlans = await this.prisma.centre_course_plans.findMany({
+      where: { centre_id: centreId, deleted_at: null },
+    });
+
+    const courseIds = [...new Set(coursePlans.map(cp => cp.course_id))];
+    const courses = courseIds.length > 0
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds }, deleted_at: null },
+          select: { id: true, title: true },
+        })
+      : [];
+    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+
+    const fundRequestCount = await this.prisma.centre_fundrequests.count({
+      where: { centre_id: centreId, deleted_at: null },
+    });
+
+    const studentCount = centre.centre_id
+      ? await this.prisma.users.count({
+          where: { added_under_centre: centre.centre_id, role_id: { equals: 2 }, deleted_at: null },
+        })
+      : 0;
+
+    return {
+      status: 1,
+      message: 'success',
+      data: {
+        centre: {
+          ...centre,
+          students_count: studentCount,
+          fund_request_count: fundRequestCount,
+        },
+        course_plans: coursePlans.map(cp => ({
+          ...cp,
+          course_title: courseMap.get(cp.course_id) ?? null,
+        })),
+      },
+    };
+  }
+
+  async updateCentre(actorUserId: string, centreId: string, input: UpdateCentreInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    const existing = await this.prisma.centres.findFirst({
+      where: { id: centreId, deleted_at: null },
+    });
+    if (!existing) {
+      return { status: 0, message: 'Centre not found' };
+    }
+
+    await this.prisma.centres.update({
+      where: { id: centreId },
+      data: {
+        ...(input.centreName ? { centre_name: input.centreName } : {}),
+        ...(input.contactPerson !== undefined ? { contact_person: input.contactPerson } : {}),
+        ...(input.phone !== undefined ? { phone: input.phone } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+        ...(input.address !== undefined ? { address: input.address } : {}),
+        ...(input.affiliationDocument !== undefined ? { affiliation_document: input.affiliationDocument } : {}),
+        ...(input.registrationDate ? { date_of_registration: new Date(input.registrationDate) } : {}),
+        ...(input.expiryDate ? { date_of_expiry: new Date(input.expiryDate) } : {}),
+        updated_by: actorUserId,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Centre updated successfully.' };
+  }
+
+  async deleteCentre(actorUserId: string, centreId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    const existing = await this.prisma.centres.findFirst({
+      where: { id: centreId, deleted_at: null },
+    });
+    if (!existing) {
+      return { status: 0, message: 'Centre not found' };
+    }
+
+    await this.prisma.centres.update({
+      where: { id: centreId },
+      data: { deleted_at: now, deleted_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Centre deleted successfully.' };
+  }
+
+  async approveFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    const request = await this.prisma.centre_fundrequests.findFirst({
+      where: { id: requestId, deleted_at: null },
+    });
+    if (!request) {
+      return { status: 0, message: 'Fund request not found' };
+    }
+    if (request.status !== 'pending') {
+      return { status: 0, message: 'Fund request is already ' + request.status };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.centre_fundrequests.update({
+        where: { id: requestId },
+        data: { status: 'approved', updated_by: actorUserId, updated_at: now },
+      });
+
+      await tx.wallet_transactions.create({
+        data: {
+          centre_id: request.centre_id,
+          transaction_type: 'credit',
+          amount: request.amount,
+          remarks: 'Fund request approved',
+          reference_id: requestId,
+          created_by: actorUserId,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+
+      await tx.centres.update({
+        where: { id: request.centre_id },
+        data: {
+          wallet_balance: { increment: request.amount },
+          updated_by: actorUserId,
+          updated_at: now,
+        },
+      });
+    });
+
+    return { status: 1, message: 'Fund request approved and wallet credited.' };
+  }
+
+  async rejectFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    const request = await this.prisma.centre_fundrequests.findFirst({
+      where: { id: requestId, deleted_at: null },
+    });
+    if (!request) {
+      return { status: 0, message: 'Fund request not found' };
+    }
+    if (request.status !== 'pending') {
+      return { status: 0, message: 'Fund request is already ' + request.status };
+    }
+
+    await this.prisma.centre_fundrequests.update({
+      where: { id: requestId },
+      data: { status: 'rejected', updated_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Fund request rejected.' };
+  }
+
+  async getCohortDetail(cohortId: string): Promise<Record<string, unknown>> {
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cohortId, deleted_at: null },
+    });
+    if (!cohort) {
+      return { status: 0, message: 'Cohort not found' };
+    }
+
+    // Fetch related names
+    const [course, subject, centre, instructor] = await Promise.all([
+      cohort.course_id ? this.prisma.course.findFirst({ where: { id: cohort.course_id }, select: { id: true, title: true } }) : null,
+      cohort.subject_id ? this.prisma.subject.findFirst({ where: { id: cohort.subject_id }, select: { id: true, title: true } }) : null,
+      cohort.centre_id ? this.prisma.centres.findFirst({ where: { id: cohort.centre_id }, select: { id: true, centre_name: true } }) : null,
+      cohort.instructor_id ? this.prisma.users.findFirst({ where: { id: cohort.instructor_id }, select: { id: true, name: true } }) : null,
+    ]);
+
+    // Learners
+    const cohortStudents = await this.prisma.cohort_students.findMany({
+      where: { cohort_id: cohortId, deleted_at: null },
+    });
+    const studentUserIds = cohortStudents.map(cs => cs.user_id);
+    const studentUsers = studentUserIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: studentUserIds }, deleted_at: null },
+          select: { id: true, name: true, student_id: true, status: true },
+        })
+      : [];
+    const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
+    const learners = studentUsers.map(u => ({
+      ...u,
+      enrollment_id: u.student_id,
+      status_label: statusLabels[u.status] ?? 'Unknown',
+    }));
+
+    // Live sessions
+    const liveSessions = await this.prisma.live_class.findMany({
+      where: { cohort_id: cohortId, deleted_at: null },
+      orderBy: { date: 'desc' },
+    });
+
+    // Assignments
+    const assignments = await this.prisma.assignment.findMany({
+      where: { cohort_id: cohortId, deleted_at: null },
+      orderBy: { due_date: 'desc' },
+    });
+    const assignmentIds = assignments.map(a => a.id);
+    const submissionCounts = assignmentIds.length > 0
+      ? await this.prisma.assignment_submissions.groupBy({
+          by: ['assignment_id'],
+          where: { assignment_id: { in: assignmentIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const subCountMap = new Map(submissionCounts.map(sc => [sc.assignment_id, sc._count.id]));
+
+    const assignmentsWithCounts = assignments.map(a => ({
+      ...a,
+      submissions_count: subCountMap.get(a.id) ?? 0,
+    }));
+
+    return {
+      status: 1,
+      message: 'success',
+      data: {
+        cohort: {
+          ...cohort,
+          course_title: course?.title ?? null,
+          subject_title: subject?.title ?? null,
+          centre_name: centre?.centre_name ?? null,
+          instructor_name: instructor?.name ?? null,
+        },
+        learners,
+        live_sessions: liveSessions,
+        assignments: assignmentsWithCounts,
+      },
+    };
+  }
+
+  async deleteResource(actorUserId: string, resourceId: string, resourceType: 'file' | 'folder'): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    if (resourceType === 'folder') {
+      await this.prisma.folder.updateMany({
+        where: { id: resourceId, deleted_at: null },
+        data: { deleted_at: now, deleted_by: actorUserId },
+      });
+    } else {
+      await this.prisma.file.updateMany({
+        where: { id: resourceId, deleted_at: null },
+        data: { deleted_at: now, deleted_by: actorUserId },
+      });
+    }
+
+    return { status: 1, message: `${resourceType === 'folder' ? 'Folder' : 'File'} deleted successfully.` };
+  }
+
+  async renameResource(actorUserId: string, resourceId: string, resourceType: 'file' | 'folder', newName: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    if (resourceType === 'folder') {
+      await this.prisma.folder.updateMany({
+        where: { id: resourceId, deleted_at: null },
+        data: { name: newName, updated_by: actorUserId, updated_at: now },
+      });
+    } else {
+      await this.prisma.file.updateMany({
+        where: { id: resourceId, deleted_at: null },
+        data: { name: newName, updated_by: actorUserId, updated_at: now },
+      });
+    }
+
+    return { status: 1, message: `${resourceType === 'folder' ? 'Folder' : 'File'} renamed successfully.` };
+  }
+
+  async addTrainingVideo(actorUserId: string, input: TrainingVideoInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    await this.prisma.training_videos.create({
+      data: {
+        title: input.title,
+        description: toNullableString(input.description),
+        category: toNullableString(input.category),
+        video_type: toNullableString(input.videoType),
+        video_url: toNullableString(input.videoUrl),
+        thumbnail: toNullableString(input.thumbnail),
+        created_by: actorUserId,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Training video added successfully.' };
+  }
+
+  async editTrainingVideo(actorUserId: string, videoId: string, input: TrainingVideoInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    await this.prisma.training_videos.updateMany({
+      where: { id: videoId, deleted_at: null },
+      data: {
+        title: input.title,
+        description: toNullableString(input.description),
+        category: toNullableString(input.category),
+        video_type: toNullableString(input.videoType),
+        video_url: toNullableString(input.videoUrl),
+        thumbnail: toNullableString(input.thumbnail),
+        updated_by: actorUserId,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Training video updated successfully.' };
+  }
+
+  async deleteTrainingVideo(actorUserId: string, videoId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+
+    await this.prisma.training_videos.updateMany({
+      where: { id: videoId, deleted_at: null },
+      data: { deleted_at: now, deleted_by: actorUserId, updated_at: now },
+    });
+
+    return { status: 1, message: 'Training video deleted successfully.' };
+  }
+
+  async editCentre(actorUserId: string, centreId: string, input: UpdateCentreInput): Promise<Record<string, unknown>> {
+    return this.updateCentre(actorUserId, centreId, input);
+  }
+
+  // ── Phase F: Payment Actions ──────────────────────────────────
+
+  async markInstallmentPaid(actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.student_payments.updateMany({
+      where: { id: installmentId, deleted_at: null },
+      data: { status: 'Paid', paid_date: now, updated_by: actorUserId, updated_at: now },
+    });
+    return { status: 1, message: 'Installment marked as paid.' };
+  }
+
+  async sendPaymentReminder(actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {
+    const installment = await this.prisma.student_payments.findFirst({
+      where: { id: installmentId, deleted_at: null },
+    });
+    if (!installment) {
+      return { status: 0, message: 'Installment not found.' };
+    }
+    await this.prisma.payment_reminders.create({
+      data: {
+        user_id: installment.user_id,
+        course_id: installment.course_id,
+        reminder_type: 'manual',
+        sent_at: new Date(),
+        created_at: new Date(),
+      },
+    });
+    return { status: 1, message: 'Payment reminder sent successfully.' };
+  }
+
+  // ── Phase F: Chat Support ─────────────────────────────────────
+
+  async listAdminConversations(): Promise<Record<string, unknown>> {
+    const groups = await this.prisma.support_chat.groupBy({
+      by: ['chat_id'],
+      where: { deleted_at: null },
+      _count: { id: true },
+      _max: { created_at: true },
+      _min: { created_at: true },
+      orderBy: { _max: { created_at: 'desc' } },
+    });
+
+    const chatIds = groups.map(g => g.chat_id);
+    if (chatIds.length === 0) return { conversations: [] };
+
+    const lastMessages = await Promise.all(
+      chatIds.map(chatId =>
+        this.prisma.support_chat.findFirst({
+          where: { chat_id: chatId, deleted_at: null },
+          orderBy: { created_at: 'desc' },
+          select: { message: true, sender_id: true, created_at: true },
+        })
+      )
+    );
+    const lastMsgMap = new Map(chatIds.map((id, idx) => [id, lastMessages[idx]]));
+
+    const users = await this.prisma.users.findMany({
+      where: { id: { in: chatIds } },
+      select: { id: true, name: true, user_email: true, role_id: true, profile_picture: true },
+    });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    const conversations = groups.map(g => {
+      const user = userMap.get(g.chat_id);
+      const lastMsg = lastMsgMap.get(g.chat_id);
+      return {
+        chat_id: g.chat_id,
+        user_name: user?.name ?? 'Unknown',
+        user_email: user?.user_email ?? null,
+        user_photo: user?.profile_picture ?? null,
+        role_id: user?.role_id ?? null,
+        message_count: g._count.id,
+        last_message: lastMsg?.message ?? null,
+        last_message_at: g._max.created_at,
+        first_message_at: g._min.created_at,
+      };
+    });
+
+    return { conversations };
+  }
+
+  async getConversationMessages(chatId: string): Promise<Record<string, unknown>> {
+    const messages = await this.prisma.support_chat.findMany({
+      where: { chat_id: chatId, deleted_at: null },
+      orderBy: { created_at: 'asc' },
+      select: { id: true, sender_id: true, message: true, created_at: true },
+    });
+
+    const senderIds = [...new Set(messages.map(m => m.sender_id))];
+    const senders = senderIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true, profile_picture: true } })
+      : [];
+    const senderMap = new Map(senders.map(s => [s.id, s]));
+
+    return {
+      messages: messages.map(m => ({
+        id: m.id,
+        sender_id: m.sender_id,
+        sender_name: senderMap.get(m.sender_id)?.name ?? 'Unknown',
+        sender_photo: senderMap.get(m.sender_id)?.profile_picture ?? null,
+        message: m.message,
+        created_at: m.created_at,
+        is_admin: m.sender_id !== chatId,
+      })),
+    };
+  }
+
+  async sendAdminMessage(actorUserId: string, chatId: string, messageText: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.support_chat.create({
+      data: {
+        chat_id: chatId,
+        sender_id: actorUserId,
+        message: messageText,
+        created_by: actorUserId,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Message sent.' };
+  }
+
+  // ── Counsellor CRUD ─────────────────────────────────────────────
+
+  async addCounsellor(actorUserId: string, input: AddAssociateInput): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
+
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
+    if (existing) return { status: 0, message: 'Email already exists.' };
+
+    const now = new Date();
+    await this.prisma.users.create({
+      data: {
+        name: input.name.trim(),
+        user_email: input.email.trim(),
+        email: input.email.trim(),
+        phone: input.phone?.trim() || null,
+        role_id: 9,
+        status: input.status ?? 1,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Counsellor added successfully.' };
+  }
+
+  async editCounsellor(actorUserId: string, id: string, input: { name: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    const now = new Date();
+    const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
+    if (input.status !== undefined) data.status = input.status;
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data });
+    return { status: 1, message: 'Counsellor updated successfully.' };
+  }
+
+  async deleteCounsellor(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'Counsellor deleted successfully.' };
+  }
+
+  // ── Associate Edit/Delete ───────────────────────────────────────
+
+  async editAssociate(actorUserId: string, id: string, input: { name: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {
+    if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    const now = new Date();
+    const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
+    if (input.status !== undefined) data.status = input.status;
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data });
+    return { status: 1, message: 'Associate updated successfully.' };
+  }
+
+  async deleteAssociate(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    return { status: 1, message: 'Associate deleted successfully.' };
   }
 }

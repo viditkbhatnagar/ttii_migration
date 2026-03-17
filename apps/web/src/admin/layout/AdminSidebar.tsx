@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   BookOpen,
   Bot,
@@ -24,7 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAdminLayout } from './AdminLayoutContext.js';
-import { ADMIN_NAV_TREE, findActiveNavIds, isNavGroup, type AdminNavEntry, type AdminNavGroup, type AdminNavItem } from '../routing/admin-nav-tree.js';
+import { findActiveNavIds, getNavTreeForRole, isNavGroup, type AdminNavEntry, type AdminNavGroup, type AdminNavItem } from '../routing/admin-nav-tree.js';
 
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -48,6 +48,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 interface AdminSidebarProps {
   pathname: string;
+  roleId: number;
   onNavigate: (href: string) => void;
 }
 
@@ -149,8 +150,9 @@ function SidebarGroup({
   );
 }
 
-export function AdminSidebar({ pathname, onNavigate }: AdminSidebarProps) {
+export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps) {
   const { sidebarCollapsed, expandedGroups, toggleGroup, expandGroup } = useAdminLayout();
+  const navTree = useMemo(() => getNavTreeForRole(roleId), [roleId]);
   const { groupId: activeGroupId, itemId: activeItemId } = findActiveNavIds(pathname);
 
   useEffect(() => {
@@ -182,7 +184,7 @@ export function AdminSidebar({ pathname, onNavigate }: AdminSidebarProps) {
       {/* Navigation */}
       <ScrollArea className="flex-1 px-2 py-3">
         <nav className="space-y-1">
-          {ADMIN_NAV_TREE.map((entry: AdminNavEntry) =>
+          {navTree.map((entry: AdminNavEntry) =>
             isNavGroup(entry) ? (
               <SidebarGroup
                 key={entry.id}

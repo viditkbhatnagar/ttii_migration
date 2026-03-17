@@ -14,13 +14,18 @@ export const ADMIN_PORTAL_ROLES = [
   LEGACY_ROLE.SUBADMIN,
   LEGACY_ROLE.INSTRUCTOR,
   LEGACY_ROLE.COUNSELLOR,
+] as const;
+
+export const CENTRE_PORTAL_ROLES = [
+  LEGACY_ROLE.CENTRE,
   LEGACY_ROLE.ASSOCIATE,
 ] as const;
 
 const adminPortalRoleSet = new Set<number>(ADMIN_PORTAL_ROLES);
+const centrePortalRoleSet = new Set<number>(CENTRE_PORTAL_ROLES);
 
 export function resolveLegacyPortalPath(roleId: number | null | undefined): string {
-  if (roleId === LEGACY_ROLE.CENTRE) {
+  if (centrePortalRoleSet.has(roleId ?? -1)) {
     return '/centre/dashboard/index';
   }
 

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { CreditCard, Package, Tag } from 'lucide-react';
+import { CreditCard, Package, Tag, History, Calendar, Receipt } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,12 +8,38 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, asNumber, formatCurrency } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import type { StudentPaymentHistoryItem, StudentInstallmentItem } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+
+function getInstallmentStatusVariant(status: string): 'default' | 'secondary' | 'outline' | 'destructive' {
+  const lower = status.toLowerCase();
+  if (lower === 'paid') return 'default';
+  if (lower === 'overdue') return 'destructive';
+  if (lower === 'due') return 'secondary';
+  return 'outline';
+}
+
+function getPaymentStatusVariant(status: string): 'default' | 'secondary' | 'destructive' {
+  const lower = status.toLowerCase();
+  if (lower === 'success') return 'default';
+  if (lower === 'failed') return 'destructive';
+  return 'secondary';
+}
 
 export default function StudentPaymentsPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadPayments(session.token),
+    [api, session.token],
+  );
+
+  const { data: paymentHistory, loading: historyLoading } = useAdminPageData(
+    () => api.loadPaymentHistory(session.token),
+    [api, session.token],
+  );
+
+  const { data: installments, loading: installmentsLoading } = useAdminPageData(
+    () => api.loadInstallments(session.token),
     [api, session.token],
   );
 
@@ -123,6 +149,91 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         </Card>
       ) : null}
 
+      {/* Payment History */}
+      <Card className="bg-white">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="size-4 text-ttii-primary" />
+            Payment History
+          </CardTitle>
+          <CardDescription>Your payment transactions</CardDescription>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-4">
+          {historyLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : !paymentHistory || paymentHistory.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Receipt className="size-10 text-gray-300" />
+              <p className="text-sm text-gray-500">No payment transactions yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {paymentHistory.map((payment: StudentPaymentHistoryItem) => (
+                <div key={payment.id} className="flex items-center justify-between py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {payment.courseTitle || 'Course Payment'}
+                    </p>
+                    <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="size-3" />
+                        {payment.paymentDate ? formatDate(payment.paymentDate) : 'N/A'}
+                      </span>
+                      <span>{payment.paymentMode}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-gray-900">{formatCurrency(payment.amount)}</span>
+                    <Badge variant={getPaymentStatusVariant(payment.status)}>{payment.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Installment Schedule */}
+      {!installmentsLoading && installments && installments.length > 0 ? (
+        <Card className="bg-white">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Calendar className="size-4 text-ttii-primary" />
+              Installment Schedule
+            </CardTitle>
+            <CardDescription>Your fee installment plan</CardDescription>
+          </CardHeader>
+          <Separator />
+          <CardContent className="pt-4">
+            <div className="divide-y divide-gray-100">
+              {installments.map((inst: StudentInstallmentItem) => (
+                <div key={inst.id} className="flex items-center justify-between py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {inst.installmentDetails}
+                    </p>
+                    <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                      <span>Due: {inst.dueDate ? formatDate(inst.dueDate) : 'N/A'}</span>
+                      {inst.paidDate ? <span>Paid: {formatDate(inst.paidDate)}</span> : null}
+                      {inst.paymentMode ? <span>{inst.paymentMode}</span> : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-gray-900">{formatCurrency(inst.amount)}</span>
+                    <Badge variant={getInstallmentStatusVariant(inst.status)}>{inst.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Course Fees */}
       {(data?.studentCourses ?? []).length > 0 ? (
         <div className="space-y-3">
@@ -140,7 +251,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
                     <div>
                       <p className="font-medium text-gray-900">{title}</p>
                       {status ? (
-                        <Badge variant={status.toLowerCase() === 'paid' ? 'default' : 'secondary'} className="mt-1 text-xs">
+                        <Badge variant={status.toLowerCase() === 'paid' || status.toLowerCase() === 'completed' ? 'default' : 'secondary'} className="mt-1 text-xs">
                           {status}
                         </Badge>
                       ) : null}

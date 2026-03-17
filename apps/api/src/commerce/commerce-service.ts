@@ -884,4 +884,89 @@ export class CommerceService {
       installments,
     };
   }
+
+  async getPaymentHistory(userId: string, courseId?: string): Promise<Array<Record<string, unknown>>> {
+    if (!userId) {
+      return [];
+    }
+
+    const where: Record<string, unknown> = {
+      user_id: userId,
+      deleted_at: null,
+    };
+
+    if (courseId) {
+      where.course_id = courseId;
+    }
+
+    const payments = await this.prisma.payment_info.findMany({
+      where,
+      orderBy: { payment_date: 'desc' },
+    });
+
+    const courseIds = [...new Set(payments.map((p) => p.course_id).filter((id) => !!id))];
+    const courses = courseIds.length > 0
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds }, deleted_at: null },
+          select: { id: true, title: true },
+        })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c]));
+
+    return payments.map((p) => ({
+      id: p.id,
+      amount: toDbNumber(p.amount_paid),
+      payment_date: toStringValue(p.payment_date),
+      payment_mode: p.razorpay_payment_id ? 'Online' : (p.code ? 'Coupon' : 'Offline'),
+      status: 'Success',
+      razorpay_payment_id: toStringValue(p.razorpay_payment_id),
+      course_title: toStringValue(courseMap.get(p.course_id)?.title),
+      course_id: p.course_id,
+    }));
+  }
+
+  async getStudentInstallments(userId: string, courseId?: string): Promise<Array<Record<string, unknown>>> {
+    if (!userId) {
+      return [];
+    }
+
+    const where: Record<string, unknown> = {
+      user_id: userId,
+      deleted_at: null,
+    };
+
+    if (courseId) {
+      where.course_id = courseId;
+    }
+
+    const rows = await this.prisma.student_payments.findMany({
+      where,
+      orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
+    });
+
+    const currentDate = toDateOnlyString(new Date());
+
+    return rows.map((row, index) => {
+      const status = toStringValue(row.status) || 'Pending';
+      const dueDate = toDateString(row.due_date);
+      let computedStatus = status;
+      if (status === 'Pending' && dueDate !== '' && dueDate < currentDate) {
+        computedStatus = 'Overdue';
+      } else if (status === 'Pending' && dueDate !== '' && dueDate >= currentDate) {
+        computedStatus = 'Due';
+      }
+
+      return {
+        id: row.id,
+        installment_no: index + 1,
+        installment_details: toStringValue(row.installment_details) || `Installment ${index + 1}`,
+        amount: toDbNumber(row.amount),
+        due_date: dueDate,
+        paid_date: toDateString(row.paid_date),
+        payment_mode: toStringValue(row.payment_mode),
+        payment_to: toStringValue(row.payment_to),
+        status: computedStatus,
+      };
+    });
+  }
 }
