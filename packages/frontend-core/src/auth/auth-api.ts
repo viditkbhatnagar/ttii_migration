@@ -46,7 +46,7 @@ const centrePortalRoles = new Set<number>([
 
 export interface AuthSession {
   token: string;
-  userId: number;
+  userId: string;
   roleId: number;
 }
 
@@ -58,7 +58,7 @@ export interface LoginInput {
 
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
-  getCurrentUser(authToken: string): Promise<{ userId: number; roleId: number }>;
+  getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }>;
   checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void>;
   logout(authToken: string): Promise<void>;
 }
@@ -90,10 +90,10 @@ export class LegacyAuthApi implements AuthApi {
     }
 
     const token = asString(response.userdata.auth_token);
-    const userId = asNumber(response.userdata.user_id);
+    const userId = asString(response.userdata.user_id) ?? String(response.userdata.user_id ?? '');
     const roleId = asNumber(response.userdata.role_id);
 
-    if (!token || userId === null || roleId === null) {
+    if (!token || !userId || roleId === null) {
       throw new ApiError('Login response is missing required session fields.', {
         statusCode: 500,
         payload: response,
@@ -108,7 +108,7 @@ export class LegacyAuthApi implements AuthApi {
     };
   }
 
-  async getCurrentUser(authToken: string): Promise<{ userId: number; roleId: number }> {
+  async getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }> {
     const response = await this.apiClient.request<LegacyAuthMeResponse | Record<string, unknown>>({
       method: 'GET',
       path: '/auth/me',
@@ -123,10 +123,10 @@ export class LegacyAuthApi implements AuthApi {
       });
     }
 
-    const userId = asNumber(response.data.user_id);
+    const userId = asString(response.data.user_id) ?? String(response.data.user_id ?? '');
     const roleId = asNumber(response.data.role_id);
 
-    if (userId === null || roleId === null) {
+    if (!userId || roleId === null) {
       throw new ApiError('auth/me response is missing user identity fields.', {
         statusCode: 500,
         payload: response,
