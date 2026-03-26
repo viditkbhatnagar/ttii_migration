@@ -44,6 +44,13 @@ const CentreCohortsPage = lazy(() => import('../pages/centres/CentreCohortsPage.
 const CentrePaymentsPage = lazy(() => import('../pages/centres/CentrePaymentsPage.js'));
 const WalletStatusPage = lazy(() => import('../pages/wallet/WalletStatusPage.js'));
 const ResourcesPage = lazy(() => import('../pages/resources/ResourcesPage.js'));
+const ProgramDirectoryPage = lazy(() => import('../pages/program/ProgramDirectoryPage.js'));
+const ProgramCoursesPage = lazy(() => import('../pages/program/ProgramCoursesPage.js'));
+const OfferingsPage = lazy(() => import('../pages/offering/OfferingsPage.js'));
+const AddOfferingPage = lazy(() => import('../pages/offering/AddOfferingPage.js'));
+const ContentLibraryPage = lazy(() => import('../pages/content_library/ContentLibraryPage.js'));
+const CompletionPoliciesPage = lazy(() => import('../pages/certificates/CompletionPoliciesPage.js'));
+const CertificatesPage = lazy(() => import('../pages/certificates/CertificatesPage.js'));
 const CourseDirectoryPage = lazy(() => import('../pages/course/CourseDirectoryPage.js'));
 const AddCoursePage = lazy(() => import('../pages/course/AddCoursePage.js'));
 const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
@@ -130,6 +137,22 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/chat_support', pageComponent: ChatSupportPage, title: 'Chat Support' },
   { path: '/admin/resources/index', aliases: ['/admin/resources'], pageComponent: ResourcesPage, title: 'Resources' },
   { path: '/admin/training_videos', pageComponent: TrainingVideosPage, title: 'Training Videos' },
+
+  // Programs
+  { path: '/admin/programs/index', aliases: ['/admin/programs'], pageComponent: ProgramDirectoryPage, title: 'Programs' },
+  { path: '/admin/programs/courses/:id', pageComponent: ProgramCoursesPage, title: 'Program Courses' },
+
+  // Content Library
+  { path: '/admin/content-library/index', aliases: ['/admin/content-library'], pageComponent: ContentLibraryPage, title: 'Content Library' },
+
+  // Completion & Certificates
+  { path: '/admin/completion-policies/index', aliases: ['/admin/completion-policies'], pageComponent: CompletionPoliciesPage, title: 'Completion Policies' },
+  { path: '/admin/certificates/index', aliases: ['/admin/certificates'], pageComponent: CertificatesPage, title: 'Certificates' },
+
+  // Course Offerings
+  { path: '/admin/offerings/index', aliases: ['/admin/offerings'], pageComponent: OfferingsPage, title: 'Course Offerings' },
+  { path: '/admin/offerings/add', pageComponent: AddOfferingPage, title: 'New Offering' },
+  { path: '/admin/offerings/edit/:id', pageComponent: AddOfferingPage, title: 'Edit Offering' },
 
   // Courses
   { path: '/admin/course/index', aliases: ['/admin/course'], pageComponent: CourseDirectoryPage, title: 'Course Directory' },

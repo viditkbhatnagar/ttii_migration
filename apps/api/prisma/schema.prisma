@@ -445,6 +445,45 @@ model app_version {
   @@index([deleted_at])
 }
 
+// ─── Programs ─────────────────────────────────────────────────────────────────
+
+model program {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  code        String?
+  level       String?   // "certification" | "diploma" | "pg_diploma"
+  duration    String?
+  description String?
+  thumbnail   String?
+  status      String    @default("active")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+// Junction table: M:N Program ↔ Course
+model program_courses {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  program_id  String    @db.ObjectId
+  course_id   String    @db.ObjectId
+  order       Int       @default(0)
+  is_elective Int       @default(0)
+  created_by  String?   @db.ObjectId
+  created_at  DateTime?
+  deleted_at  DateTime?
+
+  @@unique([program_id, course_id])
+  @@index([program_id])
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
 // ─── Categories & Courses ──────────────────────────────────────────────────────
 
 model category {
@@ -606,10 +645,27 @@ model create_order {
 
 // ─── Content: Subjects, Lessons, Files ─────────────────────────────────────────
 
+// Junction table: M:N Course ↔ Subject (subjects are reusable across courses)
+model course_subjects {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id    String    @db.ObjectId
+  subject_id   String    @db.ObjectId
+  order        Int       @default(0)
+  is_mandatory Int       @default(1)
+  created_by   String?   @db.ObjectId
+  created_at   DateTime?
+  deleted_at   DateTime?
+
+  @@unique([course_id, subject_id])
+  @@index([course_id])
+  @@index([subject_id])
+  @@index([deleted_at])
+}
+
 model subject {
   id                String    @id @default(auto()) @map("_id") @db.ObjectId
-  course_id         String    @db.ObjectId
-  master_subject_id String?   @db.ObjectId
+  course_id         String?   @db.ObjectId // deprecated: use course_subjects junction instead
+  master_subject_id String?   @db.ObjectId // deprecated: subjects are now reusable via course_subjects
   title             String
   description       String?
   thumbnail         String?
@@ -628,7 +684,7 @@ model subject {
 
 model lesson {
   id         String    @id @default(auto()) @map("_id") @db.ObjectId
-  course_id  String    @db.ObjectId
+  course_id  String?   @db.ObjectId // deprecated: derive course from subject via course_subjects
   subject_id String    @db.ObjectId
   title      String
   summary    String?
@@ -679,6 +735,49 @@ model lesson_files {
   @@index([parent_file_id])
 }
 
+// ─── Content Asset Library (Reusable Content) ────────────────────────────────
+
+model content_asset {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  summary      String?
+  asset_type   String    // "video" | "audio" | "document" | "article" | "quiz"
+  duration     String?
+  provider     String?   // "vimeo" | "youtube" | "s3" | "local"
+  video_url    String?
+  download_url String?
+  attachment   String?
+  audio_file   String?
+  thumbnail    String?
+  tags         String?   // JSON array of tag strings
+  created_by   String?   @db.ObjectId
+  updated_by   String?   @db.ObjectId
+  deleted_by   String?   @db.ObjectId
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([asset_type])
+  @@index([deleted_at])
+}
+
+// Junction: M:N Lesson ↔ Content Asset (content reusable across lessons)
+model lesson_content {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_id  String    @db.ObjectId
+  asset_id   String    @db.ObjectId
+  order      Int       @default(0)
+  free       String?   @default("off")
+  created_by String?   @db.ObjectId
+  created_at DateTime?
+  deleted_at DateTime?
+
+  @@unique([lesson_id, asset_id])
+  @@index([lesson_id])
+  @@index([asset_id])
+  @@index([deleted_at])
+}
+
 model module {
   id         String    @id @default(auto()) @map("_id") @db.ObjectId
   title      String?
@@ -686,6 +785,78 @@ model module {
   updated_at DateTime?
   deleted_at DateTime?
 
+  @@index([deleted_at])
+}
+
+// ─── Completion Policies & Certificates ───────────────────────────────────────
+
+model completion_policy {
+  id                      String    @id @default(auto()) @map("_id") @db.ObjectId
+  title                   String
+  course_id               String?   @db.ObjectId
+  offering_id             String?   @db.ObjectId
+  min_progress_pct        Int       @default(80)
+  min_exam_score_pct      Int?
+  require_all_assignments Int       @default(0)
+  require_all_exams       Int       @default(0)
+  min_attendance_pct      Int?
+  require_manual_approval Int       @default(0)
+  created_by              String?   @db.ObjectId
+  updated_by              String?   @db.ObjectId
+  created_at              DateTime?
+  updated_at              DateTime?
+  deleted_at              DateTime?
+
+  @@index([course_id])
+  @@index([offering_id])
+  @@index([deleted_at])
+}
+
+model certificate_template {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  template    String?   // HTML template or reference
+  signatory   String?
+  course_id   String?   @db.ObjectId
+  program_id  String?   @db.ObjectId
+  status      String    @default("active")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([course_id])
+  @@index([program_id])
+  @@index([deleted_at])
+}
+
+model certificate {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id         String    @db.ObjectId
+  offering_id     String?   @db.ObjectId
+  course_id       String?   @db.ObjectId
+  program_id      String?   @db.ObjectId
+  template_id     String?   @db.ObjectId
+  policy_id       String?   @db.ObjectId
+  certificate_no  String?
+  issued_date     DateTime?
+  expiry_date     DateTime?
+  status          String    @default("issued") // "issued" | "revoked" | "expired"
+  verification_code String?
+  pdf_url         String?
+  result_snapshot String?   // JSON snapshot of grades/marks at issuance time
+  created_by      String?   @db.ObjectId
+  created_at      DateTime?
+  deleted_at      DateTime?
+
+  @@unique([user_id, offering_id])
+  @@index([user_id])
+  @@index([offering_id])
+  @@index([course_id])
+  @@index([certificate_no])
+  @@index([verification_code])
   @@index([deleted_at])
 }
 
@@ -1106,8 +1277,42 @@ model instructor_students {
   @@index([deleted_at])
 }
 
+// ─── Course Offerings (Delivery Layer) ────────────────────────────────────────
+
+model course_offering {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id        String    @db.ObjectId
+  program_id       String?   @db.ObjectId
+  centre_id        String?   @db.ObjectId
+  title            String?
+  offering_code    String?
+  delivery_mode    String    @default("cohort") // "self_paced" | "cohort" | "hybrid"
+  academic_year    String?
+  start_date       DateTime?
+  end_date         DateTime?
+  enrollment_start DateTime?
+  enrollment_end   DateTime?
+  max_enrollment   Int?
+  pricing_amount   Float?
+  language_id      String?   @db.ObjectId
+  status           String    @default("draft") // "draft" | "published" | "active" | "completed" | "archived"
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([course_id])
+  @@index([program_id])
+  @@index([centre_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
 model cohorts {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  offering_id   String?   @db.ObjectId // links cohort to a course offering
   subject_id    String?   @db.ObjectId
   course_id     String?   @db.ObjectId
   language_id   String?   @db.ObjectId
@@ -1124,6 +1329,7 @@ model cohorts {
   updated_at    DateTime?
   deleted_at    DateTime?
 
+  @@index([offering_id])
   @@index([subject_id])
   @@index([centre_id])
   @@index([deleted_at])
@@ -1209,6 +1415,7 @@ model enrol {
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId
   user_id            String    @db.ObjectId
   course_id          String    @db.ObjectId
+  offering_id        String?   @db.ObjectId // links enrollment to a course offering
   package_id         String?   @db.ObjectId
   batch_id           String?   @db.ObjectId
   enrollment_date    DateTime?
@@ -1228,6 +1435,7 @@ model enrol {
   users              users     @relation(fields: [user_id], references: [id])
 
   @@index([user_id, course_id])
+  @@index([offering_id])
   @@index([enrollment_id])
   @@index([deleted_at])
 }

@@ -51,9 +51,14 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     label: 'Courses',
     icon: 'BookOpen',
     children: [
+      { id: 'programs', label: 'Programs', href: '/admin/programs/index' },
       { id: 'course-directory', label: 'Course Directory', href: '/admin/course/index' },
+      { id: 'offerings', label: 'Course Offerings', href: '/admin/offerings/index' },
+      { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
       { id: 'add-lesson', label: 'Add Lesson', href: '/admin/course_new/index' },
       { id: 'packages', label: 'Packages', href: '/admin/packages/index' },
+      { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },
+      { id: 'certificates', label: 'Certificates', href: '/admin/certificates/index' },
     ],
   },
   {

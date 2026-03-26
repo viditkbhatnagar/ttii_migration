@@ -111,7 +111,6 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
     setSaving(true);
     try {
       const payload = {
-        course_id: selectedCourseId,
         subject_id: selectedSubjectId,
         title: lessonForm.title.trim(),
         summary: lessonForm.summary.trim(),

@@ -31,7 +31,18 @@ npm run lint -w @ttii/api             # Lint API only
 npx prisma generate --schema prisma/schema.prisma   # Regenerate client
 npx prisma db push --schema prisma/schema.prisma     # Push schema to DB
 npx tsx prisma/seed-from-sql.ts                      # Seed from SQL dump
+
+# Docker
+npm run docker:up                # Build and start containers
+npm run docker:down              # Stop and clean up containers
+
+# Formatting
+npm run format                   # Check formatting (Prettier)
+npm run format:write             # Auto-fix formatting
 ```
+
+## Environment Setup
+Copy `.env.example` to `.env` at repo root. Key providers default to safe dev values (`EMAIL_PROVIDER=console`, `OTP_PROVIDER=console`, `STORAGE_PROVIDER=local`, `PAYMENT_PROVIDER=mock`, `OPENAI_PROVIDER=mock`). Default endpoints: API `http://localhost:4000`, Web `http://localhost:5173`.
 
 ## Key Conventions
 - **API response format:** `{ status: 1, message: "success", data: {...} }`
@@ -63,19 +74,24 @@ apps/
         routing/
           admin-routes.ts       Route config
           admin-nav-tree.ts     Sidebar navigation tree
-      student/      Student portal
-      centre/       Centre portal
+      student/      Student portal (student-portal-api.ts + student-portal.tsx)
+      centre/       Centre portal (centre-portal-api.ts + centre-portal.tsx)
 packages/
   ui/             @ttii/ui — shared Tailwind components (shadcn/ui based)
   frontend-core/  @ttii/frontend-core — auth, routing, API client base
   shared-types/   @ttii/shared-types — cross-app type contracts
 ```
 
+## Subdomain Routing
+Three portals served by subdomain: `admin.teachersindia.in` (Admin — roles 1,8,9), `learn.teachersindia.in` (Student — role 2), `admissions.teachersindia.in` (Centre — roles 4,10). Portal selection is based on `window.location.hostname` matching `VITE_BASE_DOMAIN`.
+
 ## Design Tokens
 Primary: `#8F2774`, Secondary: `#F06543`, Navbar: `rgb(64,81,137)`, Sidebar active: `rgb(27,97,197)`, Page bg: `#F3F6F9`, Font: Poppins. All in `apps/web/src/app.css`.
 
 ## Important Files
-- `apps/web/src/admin/admin-portal-api.ts` — Frontend API client (AdminPortalApi class)
+- `apps/web/src/admin/admin-portal-api.ts` — Admin frontend API client (AdminPortalApi class)
+- `apps/web/src/student/student-portal-api.ts` — Student frontend API client
+- `apps/web/src/centre/centre-portal-api.ts` — Centre frontend API client
 - `apps/web/src/admin/routing/admin-routes.ts` — Route config
 - `apps/web/src/admin/routing/admin-nav-tree.ts` — Sidebar navigation
 - `apps/api/src/routes/` — All backend route files

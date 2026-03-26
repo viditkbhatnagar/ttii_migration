@@ -1567,8 +1567,163 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/course/subjects/edit', authToken, { id, ...input });
   }
 
-  async deleteSubject(authToken: string, id: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/course/subjects/delete', authToken, { id });
+  async deleteSubject(authToken: string, id: string, courseId?: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/delete', authToken, { id, course_id: courseId });
+  }
+
+  async linkSubjectToCourse(authToken: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/link', authToken, { course_id: courseId, subject_id: subjectId });
+  }
+
+  async unlinkSubjectFromCourse(authToken: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/unlink', authToken, { course_id: courseId, subject_id: subjectId });
+  }
+
+  // ── Program Admin CRUD ───────────────────────────────────────────
+
+  async listPrograms(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/programs', authToken);
+    return toRecords(payload.data);
+  }
+
+  async getProgram(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/programs/get', authToken, { id });
+    return payload.data as Record<string, unknown> | null;
+  }
+
+  async createProgram(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/programs/add', authToken, input);
+  }
+
+  async updateProgram(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/programs/edit', authToken, { id, ...input });
+  }
+
+  async deleteProgram(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/programs/delete', authToken, { id });
+  }
+
+  async listProgramCourses(authToken: string, programId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/programs/courses', authToken, { program_id: programId });
+    return toRecords(payload.data);
+  }
+
+  async addCourseToProgram(authToken: string, programId: string, courseId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/programs/courses/add', authToken, { program_id: programId, course_id: courseId });
+  }
+
+  async removeCourseFromProgram(authToken: string, programId: string, courseId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/programs/courses/remove', authToken, { program_id: programId, course_id: courseId });
+  }
+
+  // ── Offering Admin CRUD ──────────────────────────────────────────
+
+  async listOfferings(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/offerings', authToken, filters);
+    return toRecords(payload.data);
+  }
+
+  async getOffering(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/offerings/get', authToken, { id });
+    return payload.data as Record<string, unknown> | null;
+  }
+
+  async createOffering(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/offerings/add', authToken, input);
+  }
+
+  async updateOffering(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/offerings/edit', authToken, { id, ...input });
+  }
+
+  async deleteOffering(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/offerings/delete', authToken, { id });
+  }
+
+  // ── Completion Policies & Certificates ──────────────────────────
+
+  async listCompletionPolicies(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/completion-policies', authToken);
+    return toRecords(payload.data);
+  }
+
+  async createCompletionPolicy(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/completion-policies/add', authToken, input);
+  }
+
+  async updateCompletionPolicy(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/completion-policies/edit', authToken, { id, ...input });
+  }
+
+  async deleteCompletionPolicy(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/completion-policies/delete', authToken, { id });
+  }
+
+  async listCertificateTemplates(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certificate-templates', authToken);
+    return toRecords(payload.data);
+  }
+
+  async createCertificateTemplate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificate-templates/add', authToken, input);
+  }
+
+  async updateCertificateTemplate(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificate-templates/edit', authToken, { id, ...input });
+  }
+
+  async deleteCertificateTemplate(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificate-templates/delete', authToken, { id });
+  }
+
+  async listCertificates(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certificates', authToken, filters);
+    return toRecords(payload.data);
+  }
+
+  async issueCertificate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificates/issue', authToken, input);
+  }
+
+  async revokeCertificate(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificates/revoke', authToken, { id });
+  }
+
+  // ── Content Asset Library ────────────────────────────────────────
+
+  async listContentAssets(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/content-assets', authToken, filters);
+    return toRecords(payload.data);
+  }
+
+  async getContentAsset(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/content-assets/get', authToken, { id });
+    return payload.data as Record<string, unknown> | null;
+  }
+
+  async createContentAsset(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/add', authToken, input);
+  }
+
+  async updateContentAsset(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/edit', authToken, { id, ...input });
+  }
+
+  async deleteContentAsset(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/delete', authToken, { id });
+  }
+
+  async listLessonAssets(authToken: string, lessonId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/content-assets/lesson', authToken, { lesson_id: lessonId });
+    return toRecords(payload.data);
+  }
+
+  async linkAssetToLesson(authToken: string, lessonId: string, assetId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/lesson/link', authToken, { lesson_id: lessonId, asset_id: assetId });
+  }
+
+  async unlinkAssetFromLesson(authToken: string, lessonId: string, assetId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/lesson/unlink', authToken, { lesson_id: lessonId, asset_id: assetId });
   }
 
   // ── Lesson Admin CRUD ─────────────────────────────────────────────

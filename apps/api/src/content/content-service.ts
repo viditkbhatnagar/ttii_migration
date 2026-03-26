@@ -258,10 +258,11 @@ export type AdminSubjectInput = {
   title: string;
   description?: string | undefined;
   order?: number | undefined;
+  subject_id?: string | undefined; // for linking existing subject to course
 };
 
 export type AdminLessonInput = {
-  course_id: string;
+  course_id?: string | undefined; // deprecated: derived from subject via course_subjects
   subject_id: string;
   title: string;
   summary?: string | undefined;
@@ -396,9 +397,17 @@ export class ContentService {
   }
 
   private async getCourseLessonIds(courseId: string): Promise<string[]> {
+    // Get subject IDs from course_subjects junction
+    const junctions = await this.prisma.course_subjects.findMany({
+      where: { course_id: courseId, deleted_at: null },
+      select: { subject_id: true },
+    });
+    const subjectIds = junctions.map((j) => j.subject_id);
+    if (subjectIds.length === 0) return [];
+
     const rows = await this.prisma.lesson.findMany({
       where: {
-        course_id: courseId,
+        subject_id: { in: subjectIds },
         deleted_at: null,
       },
       select: { id: true },
@@ -1180,7 +1189,7 @@ export class ContentService {
   }
 
   private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
-    const masterSubjectId = toNullableString(subject.master_subject_id) ?? toStringValue(subject.id);
+    const subjectId = toStringValue(subject.id);
 
     // Find cohort_students for this user
     const cohortStudents = await this.prisma.cohort_students.findMany({
@@ -1197,7 +1206,7 @@ export class ContentService {
 
     const cohortIds = cohortStudents.map((cs) => cs.cohort_id);
 
-    // Find cohorts that are active and have a subject matching the master_subject_id
+    // Find cohorts that have this subject (direct match or via master_subject_id for legacy data)
     const cohorts = await this.prisma.cohorts.findMany({
       where: {
         id: { in: cohortIds },
@@ -1211,7 +1220,14 @@ export class ContentService {
       return null;
     }
 
-    // Get the subjects for these cohorts to check master_subject_id
+    // Direct match first
+    for (const cohort of cohorts) {
+      if (cohort.subject_id === subjectId) {
+        return cohort.id;
+      }
+    }
+
+    // Legacy fallback: check master_subject_id for cohort subjects that point to this subject
     const cohortSubjectIds = cohorts.map((c) => c.subject_id).filter(Boolean) as string[];
     const subjects = await this.prisma.subject.findMany({
       where: {
@@ -1221,15 +1237,12 @@ export class ContentService {
       select: { id: true, master_subject_id: true },
     });
 
-    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
-
     for (const cohort of cohorts) {
       if (!cohort.subject_id) continue;
-      const subjectRow = subjectMap.get(cohort.subject_id);
+      const subjectRow = subjects.find((s) => s.id === cohort.subject_id);
       if (!subjectRow) continue;
-
-      const effectiveSubjectId = subjectRow.master_subject_id ?? subjectRow.id;
-      if (effectiveSubjectId === masterSubjectId) {
+      const effectiveId = subjectRow.master_subject_id ?? subjectRow.id;
+      if (effectiveId === subjectId) {
         return cohort.id;
       }
     }
@@ -1238,37 +1251,47 @@ export class ContentService {
   }
 
   async getSubjects(userId: string, courseId: string): Promise<Record<string, unknown>[]> {
+    // Get subjects through course_subjects junction
+    const junctions = await this.prisma.course_subjects.findMany({
+      where: { course_id: courseId, deleted_at: null },
+      select: { subject_id: true, order: true },
+      orderBy: [{ order: 'asc' }],
+    });
+    const subjectIds = junctions.map((j) => j.subject_id);
+    if (subjectIds.length === 0) return [];
+
     const subjects = await this.prisma.subject.findMany({
       where: {
-        course_id: courseId,
+        id: { in: subjectIds },
         deleted_at: null,
       },
       select: {
         id: true,
-        master_subject_id: true,
         title: true,
         description: true,
         thumbnail: true,
       },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
+
+    // Maintain junction order
+    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+    const orderedSubjects = subjectIds.map((id) => subjectMap.get(id)).filter(Boolean);
 
     const subjectData: Record<string, unknown>[] = [];
 
-    for (const subject of subjects) {
-      const masterSubjectId = subject.master_subject_id ?? subject.id;
+    for (const subject of orderedSubjects) {
+      if (!subject) continue;
       const cohortId = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
       const totalLessons = await this.prisma.lesson.count({
         where: {
-          subject_id: masterSubjectId,
+          subject_id: subject.id,
           deleted_at: null,
         },
       });
-      const progress = await this.calculateUserProgress(userId, courseId, masterSubjectId);
+      const progress = await this.calculateUserProgress(userId, courseId, subject.id);
 
       subjectData.push({
         id: subject.id,
-        master_subject_id: masterSubjectId,
         title: subject.title,
         description: subject.description ?? '',
         thumbnail: this.toFileUrl(subject.thumbnail),
@@ -1346,7 +1369,6 @@ export class ContentService {
       select: {
         id: true,
         course_id: true,
-        master_subject_id: true,
       },
     });
 
@@ -1354,8 +1376,13 @@ export class ContentService {
       return [];
     }
 
-    const courseId = subject.course_id;
-    const lessonSubjectId = subject.master_subject_id ?? subjectId;
+    // Derive courseId from course_subjects junction (fallback to legacy course_id)
+    const junction = await this.prisma.course_subjects.findFirst({
+      where: { subject_id: subjectId, deleted_at: null },
+      select: { course_id: true },
+    });
+    const courseId = junction?.course_id ?? subject.course_id ?? '';
+    const lessonSubjectId = subjectId;
 
     const lessons = await this.prisma.lesson.findMany({
       where: {
@@ -1373,7 +1400,7 @@ export class ContentService {
         continue;
       }
 
-      const lessonCourseId = lesson.course_id;
+      const lessonCourseId = lesson.course_id ?? courseId;
       const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
       lessonsData.push(await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId));
     }
@@ -1430,14 +1457,15 @@ export class ContentService {
         continue;
       }
 
-      const purchaseStatus = await this.getUserPurchaseStatus(userId, lesson.course_id);
+      const lessonCourseId = lesson.course_id ?? '';
+      const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
       lessonData.push(
         await this.buildLessonData(
           lesson as unknown as Record<string, unknown>,
           userId,
           purchaseStatus,
           index,
-          lesson.course_id,
+          lessonCourseId,
         ),
       );
     }
@@ -1461,7 +1489,7 @@ export class ContentService {
       return [];
     }
 
-    const courseId = lesson.course_id;
+    const courseId = lesson.course_id ?? '';
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
     const videosById = new Map<string, Record<string, unknown>>();
     const pendingRelatedFiles: Record<string, unknown>[] = [];
@@ -1523,7 +1551,7 @@ export class ContentService {
       return {};
     }
 
-    const courseId = lesson.course_id;
+    const courseId = lesson.course_id ?? '';
     const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
 
     const videos = await this.prisma.lesson_files.findMany({
@@ -1925,8 +1953,8 @@ export class ContentService {
 
     const courseIds = courses.map((c) => c.id);
 
-    // Batch counts: subjects per course
-    const subjectCounts = await this.prisma.subject.groupBy({
+    // Batch counts: subjects per course (via course_subjects junction)
+    const subjectCounts = await this.prisma.course_subjects.groupBy({
       by: ['course_id'],
       where: { course_id: { in: courseIds }, deleted_at: null },
       _count: { id: true },
@@ -2056,12 +2084,21 @@ export class ContentService {
   // ── Admin Subject CRUD ────────────────────────────────────────────
 
   async listCourseSubjectsAdmin(courseId: string): Promise<Record<string, unknown>[]> {
-    const subjects = await this.prisma.subject.findMany({
+    // Get subjects through course_subjects junction
+    const junctions = await this.prisma.course_subjects.findMany({
       where: { course_id: courseId, deleted_at: null },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+      select: { subject_id: true, order: true },
+      orderBy: [{ order: 'asc' }],
     });
+    const subjectIds = junctions.map((j) => j.subject_id);
+    if (subjectIds.length === 0) return [];
 
-    const subjectIds = subjects.map((s) => s.id);
+    const subjects = await this.prisma.subject.findMany({
+      where: { id: { in: subjectIds }, deleted_at: null },
+    });
+    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+
+    // Batch lesson counts
     const lessonCounts = await this.prisma.lesson.groupBy({
       by: ['subject_id'],
       where: { subject_id: { in: subjectIds }, deleted_at: null },
@@ -2069,50 +2106,137 @@ export class ContentService {
     });
     const lessonCountMap = new Map(lessonCounts.map((l) => [l.subject_id, l._count.id]));
 
-    return subjects.map((s) => ({
-      id: s.id,
-      title: s.title,
-      description: s.description ?? '',
-      thumbnail: this.toFileUrl(s.thumbnail),
-      order: s.order ?? 0,
-      lesson_count: lessonCountMap.get(s.id) ?? 0,
-    }));
+    // Count how many courses each subject is used in
+    const usageCounts = await this.prisma.course_subjects.groupBy({
+      by: ['subject_id'],
+      where: { subject_id: { in: subjectIds }, deleted_at: null },
+      _count: { id: true },
+    });
+    const usageCountMap = new Map(usageCounts.map((u) => [u.subject_id, u._count.id]));
+
+    // Maintain junction order
+    const junctionOrderMap = new Map(junctions.map((j) => [j.subject_id, j.order]));
+
+    return subjectIds
+      .map((id) => {
+        const s = subjectMap.get(id);
+        if (!s) return null;
+        return {
+          id: s.id,
+          title: s.title,
+          description: s.description ?? '',
+          thumbnail: this.toFileUrl(s.thumbnail),
+          order: junctionOrderMap.get(s.id) ?? s.order ?? 0,
+          lesson_count: lessonCountMap.get(s.id) ?? 0,
+          course_count: usageCountMap.get(s.id) ?? 0,
+        };
+      })
+      .filter(Boolean) as Record<string, unknown>[];
   }
 
   async listAllSubjects(): Promise<Record<string, unknown>[]> {
     const subjects = await this.prisma.subject.findMany({
       where: { deleted_at: null },
-      select: { id: true, title: true, description: true, course_id: true },
+      select: { id: true, title: true, description: true },
       orderBy: { title: 'asc' },
     });
+
+    // Fetch course usage for each subject
+    const subjectIds = subjects.map((s) => s.id);
+    const usageCounts = subjectIds.length > 0
+      ? await this.prisma.course_subjects.groupBy({
+          by: ['subject_id'],
+          where: { subject_id: { in: subjectIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const usageMap = new Map(usageCounts.map((u) => [u.subject_id, u._count.id]));
 
     return subjects.map((s) => ({
       id: s.id,
       title: s.title,
       description: s.description ?? '',
-      course_id: s.course_id,
+      course_count: usageMap.get(s.id) ?? 0,
     }));
   }
 
   async addSubjectAdmin(actorUserId: string, input: AdminSubjectInput): Promise<Record<string, unknown>> {
-    const maxOrder = await this.prisma.subject.aggregate({
+    // Get max order from course_subjects junction for this course
+    const existingJunctions = await this.prisma.course_subjects.findMany({
       where: { course_id: input.course_id, deleted_at: null },
-      _max: { order: true },
+      select: { order: true },
+      orderBy: { order: 'desc' },
+      take: 1,
     });
+    const nextOrder = (existingJunctions[0]?.order ?? 0) + 1;
 
     const subject = await this.prisma.subject.create({
       data: {
-        course_id: input.course_id,
+        course_id: input.course_id, // dual-write for backward compat
         title: input.title,
         description: toNullableString(input.description),
-        order: (maxOrder._max.order ?? 0) + 1,
+        order: nextOrder,
         created_by: actorUserId,
         created_at: new Date(),
         updated_at: new Date(),
       },
     });
 
+    // Create junction row
+    await this.prisma.course_subjects.create({
+      data: {
+        course_id: input.course_id,
+        subject_id: subject.id,
+        order: nextOrder,
+        created_by: actorUserId,
+        created_at: new Date(),
+      },
+    });
+
     return { id: subject.id };
+  }
+
+  /** Link an existing subject to a course (M:N reuse) */
+  async linkSubjectToCourse(actorUserId: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
+    // Check if already linked
+    const existing = await this.prisma.course_subjects.findFirst({
+      where: { course_id: courseId, subject_id: subjectId, deleted_at: null },
+    });
+    if (existing) return { id: existing.id, already_linked: true };
+
+    // Get next order
+    const existingJunctions = await this.prisma.course_subjects.findMany({
+      where: { course_id: courseId, deleted_at: null },
+      select: { order: true },
+      orderBy: { order: 'desc' },
+      take: 1,
+    });
+    const nextOrder = (existingJunctions[0]?.order ?? 0) + 1;
+
+    const junction = await this.prisma.course_subjects.create({
+      data: {
+        course_id: courseId,
+        subject_id: subjectId,
+        order: nextOrder,
+        created_by: actorUserId,
+        created_at: new Date(),
+      },
+    });
+
+    return { id: junction.id };
+  }
+
+  /** Unlink a subject from a course (does not delete the subject itself) */
+  async unlinkSubjectFromCourse(actorUserId: string, courseId: string, subjectId: string): Promise<void> {
+    const junction = await this.prisma.course_subjects.findFirst({
+      where: { course_id: courseId, subject_id: subjectId, deleted_at: null },
+    });
+    if (junction) {
+      await this.prisma.course_subjects.update({
+        where: { id: junction.id },
+        data: { deleted_at: new Date() },
+      });
+    }
   }
 
   async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
@@ -2128,7 +2252,19 @@ export class ContentService {
     });
   }
 
-  async deleteSubjectAdmin(actorUserId: string, subjectId: string): Promise<void> {
+  async deleteSubjectAdmin(actorUserId: string, subjectId: string, courseId?: string): Promise<void> {
+    if (courseId) {
+      // Unlink from this specific course
+      await this.unlinkSubjectFromCourse(actorUserId, courseId, subjectId);
+
+      // Only soft-delete the subject if no other courses reference it
+      const remainingLinks = await this.prisma.course_subjects.count({
+        where: { subject_id: subjectId, deleted_at: null },
+      });
+      if (remainingLinks > 0) return; // Still used elsewhere — don't delete
+    }
+
+    // No remaining links or no courseId provided — soft-delete the subject
     await this.prisma.subject.update({
       where: { id: subjectId },
       data: {
@@ -2173,9 +2309,19 @@ export class ContentService {
       _max: { order: true },
     });
 
+    // Derive course_id from course_subjects junction if not provided
+    let courseId = input.course_id || null;
+    if (!courseId) {
+      const junction = await this.prisma.course_subjects.findFirst({
+        where: { subject_id: input.subject_id, deleted_at: null },
+        select: { course_id: true },
+      });
+      courseId = junction?.course_id ?? null;
+    }
+
     const lesson = await this.prisma.lesson.create({
       data: {
-        course_id: input.course_id,
+        course_id: courseId, // dual-write for backward compat (nullable now)
         subject_id: input.subject_id,
         title: input.title,
         summary: toNullableString(input.summary),
