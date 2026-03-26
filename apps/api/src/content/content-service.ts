@@ -2179,6 +2179,7 @@ export class ContentService {
         created_by: actorUserId,
         created_at: new Date(),
         updated_at: new Date(),
+        deleted_at: null,
       },
     });
 
@@ -2190,6 +2191,7 @@ export class ContentService {
         order: nextOrder,
         created_by: actorUserId,
         created_at: new Date(),
+        deleted_at: null,
       },
     });
 
@@ -2220,6 +2222,7 @@ export class ContentService {
         order: nextOrder,
         created_by: actorUserId,
         created_at: new Date(),
+        deleted_at: null,
       },
     });
 
