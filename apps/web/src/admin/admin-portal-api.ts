@@ -1640,6 +1640,23 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/offerings/delete', authToken, { id });
   }
 
+  // ── File Upload ────────────────────────────────────────────────
+
+  async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('auth_token', authToken);
+    const response = await fetch(`${this.apiClient.getBaseUrl()}admin/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (!payload || payload.status !== 1) {
+      throw new Error((payload?.message as string) || 'Upload failed');
+    }
+    return payload.data as { key: string; url: string };
+  }
+
   // ── Completion Policies & Certificates ──────────────────────────
 
   async listCompletionPolicies(authToken: string): Promise<Record<string, unknown>[]> {

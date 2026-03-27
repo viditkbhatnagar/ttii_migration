@@ -7,6 +7,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 
 export default function CourseDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
@@ -37,6 +38,15 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
         key: 'status',
         label: 'Status',
         render: (value) => <AdminStatusBadge status={asString(value)} />,
+      },
+      {
+        key: 'visibility',
+        label: 'Visibility',
+        render: (value) => (
+          <Badge variant={asString(value) === 'private' ? 'secondary' : 'default'}>
+            {asString(value) === 'private' ? 'Private' : 'Public'}
+          </Badge>
+        ),
       },
       {
         key: 'price',

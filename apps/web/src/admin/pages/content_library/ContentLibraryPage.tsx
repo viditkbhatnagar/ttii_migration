@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { Eye } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,8 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
+import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -40,6 +43,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const [form, setForm] = useState<AssetForm>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [filterType, setFilterType] = useState('');
+  const [previewAsset, setPreviewAsset] = useState<Record<string, unknown> | null>(null);
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {};
@@ -117,7 +121,24 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     } catch { /* ignore */ }
   }, [api, session.token, reload]);
 
+  const handlePreview = useCallback((row: Record<string, unknown>) => {
+    const type = asString(row.asset_type);
+    if (type === 'article') {
+      setPreviewAsset(row);
+    } else {
+      const url = type === 'video' ? asString(row.video_url)
+        : type === 'audio' ? asString(row.audio_file)
+        : asString(row.attachment);
+      if (url) window.open(url, '_blank');
+    }
+  }, []);
+
   const columns: DataTableColumn[] = [
+    { key: 'id', label: '', render: (_v, row) => (
+      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" onClick={() => handlePreview(row)}>
+        <Eye className="h-4 w-4" />
+      </button>
+    )},
     { key: 'title', label: 'Title', sortable: true },
     { key: 'asset_type', label: 'Type', render: (v) => (
       <Badge variant={typeColors[String(v)] ?? 'secondary'}>{String(v)}</Badge>
@@ -135,6 +156,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   ];
 
   const actions: DataTableAction[] = [
+    { label: 'Preview', onClick: (row) => handlePreview(row) },
     { label: 'Edit', onClick: (row) => void handleOpenEdit(row) },
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];
@@ -205,24 +227,46 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
             )}
             {(form.asset_type === 'audio') && (
               <div>
-                <Label>Audio File URL</Label>
-                <Input value={form.audio_file} onChange={(e) => setForm((f) => ({ ...f, audio_file: e.target.value }))} placeholder="https://..." />
+                <Label>Audio File</Label>
+                <FileUpload
+                  value={form.audio_file}
+                  onChange={(url) => setForm((f) => ({ ...f, audio_file: url }))}
+                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                  accept="audio/*"
+                  placeholder="Upload audio or enter URL"
+                />
               </div>
             )}
             {(form.asset_type === 'document') && (
               <div>
-                <Label>File URL</Label>
-                <Input value={form.attachment} onChange={(e) => setForm((f) => ({ ...f, attachment: e.target.value }))} placeholder="https://..." />
+                <Label>File</Label>
+                <FileUpload
+                  value={form.attachment}
+                  onChange={(url) => setForm((f) => ({ ...f, attachment: url }))}
+                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*"
+                  placeholder="Upload file or enter URL"
+                />
               </div>
             )}
-            <div>
-              <Label>{form.asset_type === 'article' ? 'Content' : 'Summary'}</Label>
-              <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={form.summary}
-                onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
-              />
-            </div>
+            {form.asset_type === 'article' ? (
+              <div>
+                <Label>Article Content</Label>
+                <RichTextEditor
+                  value={form.summary}
+                  onChange={(html) => setForm((f) => ({ ...f, summary: html }))}
+                />
+              </div>
+            ) : (
+              <div>
+                <Label>Summary</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  value={form.summary}
+                  onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+                />
+              </div>
+            )}
             <div>
               <Label>Tags (comma-separated)</Label>
               <Input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="e.g. montessori, child-development" />
@@ -234,6 +278,16 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Article Preview Dialog */}
+      <Dialog open={!!previewAsset} onOpenChange={(open) => { if (!open) setPreviewAsset(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{asString(previewAsset?.title)}</DialogTitle>
+          </DialogHeader>
+          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: asString(previewAsset?.summary) }} />
         </DialogContent>
       </Dialog>
     </div>

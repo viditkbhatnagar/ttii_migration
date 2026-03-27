@@ -8,6 +8,7 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 const textareaClass = 'flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -25,6 +26,7 @@ interface FormState {
   features: string;
   label: string;
   status: string;
+  visibility: string;
 }
 
 const emptyForm: FormState = {
@@ -40,6 +42,7 @@ const emptyForm: FormState = {
   features: '',
   label: '',
   status: 'active',
+  visibility: 'public',
 };
 
 export default function AddCoursePage({ api, session, onNavigate }: AdminPageProps) {
@@ -86,6 +89,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       features: asString(c.features),
       label: asString(c.label),
       status: asString(c.status) || 'active',
+      visibility: asString(c.visibility) || 'public',
     });
   }, [isEdit, courseData]);
 
@@ -114,6 +118,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         features: form.features.trim(),
         label: form.label.trim(),
         status: form.status,
+        visibility: form.visibility,
       };
 
       if (isEdit) {
@@ -195,8 +200,14 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               />
             </div>
             <div className="grid gap-2">
-              <Label>Thumbnail URL</Label>
-              <Input value={form.thumbnail} onChange={(e) => set('thumbnail', e.target.value)} placeholder="Enter thumbnail image URL" />
+              <Label>Thumbnail</Label>
+              <FileUpload
+                value={form.thumbnail}
+                onChange={(url) => set('thumbnail', url)}
+                onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                accept="image/*"
+                placeholder="Upload image or enter URL"
+              />
             </div>
             <div className="grid gap-2">
               <Label>Label</Label>
@@ -254,14 +265,23 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
             />
           </div>
 
-          {/* Status */}
-          <div className="grid gap-2 md:max-w-xs">
-            <Label>Status</Label>
-            <select className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="draft">Draft</option>
-            </select>
+          {/* Status & Visibility */}
+          <div className="grid gap-4 md:grid-cols-2 md:max-w-lg">
+            <div className="grid gap-2">
+              <Label>Status</Label>
+              <select className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="draft">Draft</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Visibility</Label>
+              <select className={selectClass} value={form.visibility} onChange={(e) => set('visibility', e.target.value)}>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>

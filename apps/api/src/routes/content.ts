@@ -18,9 +18,12 @@ import {
   type SaveVideoProgressInput,
 } from '../content/content-service.js';
 
+import type { StorageProvider } from '../integrations/contracts.js';
+
 interface RegisterContentRoutesOptions {
   authService?: AuthService;
   contentService?: ContentService;
+  storage?: StorageProvider;
   [key: string]: unknown;
 }
 
@@ -371,6 +374,7 @@ export function registerContentRoutes(
         features: toStringValue(payload.features),
         label: toStringValue(payload.label),
         status: toStringValue(payload.status) || 'active',
+        visibility: toStringValue(payload.visibility) || 'public',
       };
       const result = await contentService.createCourse(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Course created', data: result });
@@ -396,6 +400,7 @@ export function registerContentRoutes(
         features: toStringValue(payload.features),
         label: toStringValue(payload.label),
         status: toStringValue(payload.status) || 'active',
+        visibility: toStringValue(payload.visibility) || 'public',
       };
       const result = await contentService.updateCourse(requestUserId(request), courseId, input);
       reply.code(200).send({ status: 1, message: 'Course updated', data: result });
@@ -1121,5 +1126,39 @@ export function registerContentRoutes(
       await certificateService.revokeCertificate(requestUserId(request), toStringValue(p.id));
       reply.code(200).send({ status: 1, message: 'Certificate revoked', data: {} });
     } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  // ── File Upload ───────────────────────────────────────────────────
+
+  app.post('/admin/upload', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    const storage = options.storage;
+    if (!storage) {
+      return reply.code(500).send({ status: 0, message: 'Storage not configured' });
+    }
+    try {
+      const file = await request.file();
+      if (!file) {
+        return reply.code(400).send({ status: 0, message: 'No file provided' });
+      }
+      const ext = file.filename.split('.').pop() ?? 'bin';
+      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const chunks: Buffer[] = [];
+      for await (const chunk of file.file) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const body = Buffer.concat(chunks);
+      const result = await storage.uploadObject({
+        key,
+        body,
+        contentType: file.mimetype,
+      });
+      reply.code(200).send({
+        status: 1,
+        message: 'File uploaded',
+        data: { key: result.key, url: `/storage/${result.key}` },
+      });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
   });
 }

@@ -65,6 +65,10 @@ export class LegacyApiClient {
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   }
 
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   async request<T>(options: LegacyApiRequestOptions): Promise<T> {
     const method = options.method ?? (options.body ? 'POST' : 'GET');
     const query = { ...(options.query ?? {}) };

@@ -13,8 +13,6 @@ const selectClass =
 
 interface OfferingForm {
   course_id: string;
-  program_id: string;
-  centre_id: string;
   title: string;
   offering_code: string;
   delivery_mode: string;
@@ -29,7 +27,7 @@ interface OfferingForm {
 }
 
 const emptyForm: OfferingForm = {
-  course_id: '', program_id: '', centre_id: '', title: '', offering_code: '',
+  course_id: '', title: '', offering_code: '',
   delivery_mode: 'cohort', academic_year: '', start_date: '', end_date: '',
   enrollment_start: '', enrollment_end: '', max_enrollment: '', pricing_amount: '', status: 'draft',
 };
@@ -49,24 +47,15 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
     return match?.[1] ?? '';
   }, []);
 
-  // Load dropdowns
   const { data: coursesData, loading: coursesLoading } = useAdminPageData(() => api.loadCourses(session.token), []);
-  const { data: programsData } = useAdminPageData(() => api.listPrograms(session.token), []);
-  const { data: centresData } = useAdminPageData(() => api.loadCentres(session.token), []);
-
   const courses = useMemo(() => toRecords(coursesData), [coursesData]);
-  const programs = useMemo(() => toRecords(programsData), [programsData]);
-  const centres = useMemo(() => toRecords(centresData), [centresData]);
 
-  // Load existing offering for edit mode
   useEffect(() => {
     if (!editId) return;
     api.getOffering(session.token, editId).then((offering) => {
       if (!offering) return;
       setForm({
         course_id: asString(offering.course_id),
-        program_id: asString(offering.program_id),
-        centre_id: asString(offering.centre_id),
         title: asString(offering.title),
         offering_code: asString(offering.offering_code),
         delivery_mode: asString(offering.delivery_mode) || 'cohort',
@@ -88,12 +77,10 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
     try {
       const payload = {
         course_id: form.course_id,
-        program_id: form.program_id || undefined,
-        centre_id: form.centre_id || undefined,
         title: form.title.trim() || undefined,
         offering_code: form.offering_code.trim() || undefined,
         delivery_mode: form.delivery_mode,
-        academic_year: form.academic_year.trim() || undefined,
+        academic_year: form.delivery_mode === 'cohort' ? (form.academic_year.trim() || undefined) : undefined,
         start_date: form.start_date || undefined,
         end_date: form.end_date || undefined,
         enrollment_start: form.enrollment_start || undefined,
@@ -127,23 +114,14 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Course & Program</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Course *</Label>
-              <select className={selectClass} value={form.course_id} onChange={(e) => updateField('course_id', e.target.value)}>
-                <option value="">-- Select Course --</option>
-                {courses.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Program (optional)</Label>
-              <select className={selectClass} value={form.program_id} onChange={(e) => updateField('program_id', e.target.value)}>
-                <option value="">-- None --</option>
-                {programs.map((p) => <option key={asString(p.id)} value={asString(p.id)}>{asString(p.title)}</option>)}
-              </select>
-            </div>
+        <CardHeader><CardTitle className="text-base">Course Selection</CardTitle></CardHeader>
+        <CardContent>
+          <div className="max-w-md space-y-1">
+            <Label>Course *</Label>
+            <select className={selectClass} value={form.course_id} onChange={(e) => updateField('course_id', e.target.value)}>
+              <option value="">-- Select Course --</option>
+              {courses.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>)}
+            </select>
           </div>
         </CardContent>
       </Card>
@@ -161,70 +139,71 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
               <Input value={form.offering_code} onChange={(e) => updateField('offering_code', e.target.value)} placeholder="e.g. MF-JAN26" />
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Delivery Mode</Label>
               <select className={selectClass} value={form.delivery_mode} onChange={(e) => updateField('delivery_mode', e.target.value)}>
                 <option value="self_paced">Self-Paced</option>
                 <option value="cohort">Cohort</option>
-                <option value="hybrid">Hybrid</option>
               </select>
             </div>
-            <div className="space-y-1">
-              <Label>Centre (optional)</Label>
-              <select className={selectClass} value={form.centre_id} onChange={(e) => updateField('centre_id', e.target.value)}>
-                <option value="">-- Any --</option>
-                {centres.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.centre_name)}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Academic Year</Label>
-              <Input value={form.academic_year} onChange={(e) => updateField('academic_year', e.target.value)} placeholder="e.g. 2025-26" />
-            </div>
+            {form.delivery_mode === 'cohort' && (
+              <div className="space-y-1">
+                <Label>Academic Year</Label>
+                <Input value={form.academic_year} onChange={(e) => updateField('academic_year', e.target.value)} placeholder="e.g. 2025-26" />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
+      {form.delivery_mode === 'cohort' && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Schedule & Capacity</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Start Date</Label>
+                <Input type="date" value={form.start_date} onChange={(e) => updateField('start_date', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>End Date</Label>
+                <Input type="date" value={form.end_date} onChange={(e) => updateField('end_date', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Enrollment Opens</Label>
+                <Input type="date" value={form.enrollment_start} onChange={(e) => updateField('enrollment_start', e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Enrollment Closes</Label>
+                <Input type="date" value={form.enrollment_end} onChange={(e) => updateField('enrollment_end', e.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Max Enrollment</Label>
+                <Input type="number" value={form.max_enrollment} onChange={(e) => updateField('max_enrollment', e.target.value)} placeholder="0 = unlimited" />
+              </div>
+              <div className="space-y-1">
+                <Label>Pricing (INR)</Label>
+                <Input type="number" value={form.pricing_amount} onChange={(e) => updateField('pricing_amount', e.target.value)} placeholder="0" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
-        <CardHeader><CardTitle className="text-base">Schedule & Capacity</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Start Date</Label>
-              <Input type="date" value={form.start_date} onChange={(e) => updateField('start_date', e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>End Date</Label>
-              <Input type="date" value={form.end_date} onChange={(e) => updateField('end_date', e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Enrollment Opens</Label>
-              <Input type="date" value={form.enrollment_start} onChange={(e) => updateField('enrollment_start', e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Enrollment Closes</Label>
-              <Input type="date" value={form.enrollment_end} onChange={(e) => updateField('enrollment_end', e.target.value)} />
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Max Enrollment</Label>
-              <Input type="number" value={form.max_enrollment} onChange={(e) => updateField('max_enrollment', e.target.value)} placeholder="0 = unlimited" />
-            </div>
-            <div className="space-y-1">
-              <Label>Pricing (INR)</Label>
-              <Input type="number" value={form.pricing_amount} onChange={(e) => updateField('pricing_amount', e.target.value)} placeholder="0" />
-            </div>
-            <div className="space-y-1">
-              <Label>Status</Label>
-              <select className={selectClass} value={form.status} onChange={(e) => updateField('status', e.target.value)}>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
+        <CardContent className="pt-4">
+          <div className="max-w-xs space-y-1">
+            <Label>Status</Label>
+            <select className={selectClass} value={form.status} onChange={(e) => updateField('status', e.target.value)}>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="archived">Archived</option>
+            </select>
           </div>
         </CardContent>
       </Card>

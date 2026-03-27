@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 
@@ -46,6 +47,10 @@ export function buildApp(options: BuildAppOptions = {}) {
     contentSecurityPolicy: false,
   });
 
+  app.register(multipart, {
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  });
+
   // --- API routes ---
 
   app.register(registerHealthRoutes, {
@@ -60,6 +65,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(registerContentRoutes, {
     prefix: '/api',
     authService,
+    storage: integrations.storage,
   });
 
   app.register(registerAssessmentRoutes, {

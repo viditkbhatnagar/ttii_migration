@@ -16,7 +16,6 @@ const selectClass =
 const deliveryModeLabels: Record<string, string> = {
   self_paced: 'Self-Paced',
   cohort: 'Cohort',
-  hybrid: 'Hybrid',
 };
 
 const statusColors: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -65,7 +64,6 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
     { key: 'title', label: 'Offering', sortable: true },
     { key: 'course_title', label: 'Course' },
     { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[String(v)] || String(v) },
-    { key: 'centre_name', label: 'Centre', render: (v) => String(v || '-') },
     { key: 'start_date', label: 'Start', render: (v) => {
       if (!v) return '-';
       const d = new Date(String(v));

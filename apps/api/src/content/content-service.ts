@@ -251,6 +251,7 @@ export type AdminCourseInput = {
   features?: string | undefined;
   label?: string | undefined;
   status?: string | undefined;
+  visibility?: string | undefined;
 };
 
 export type AdminSubjectInput = {
@@ -1990,6 +1991,7 @@ export class ContentService {
       thumbnail: this.toFileUrl(course.thumbnail),
       subject_count: subjectCountMap.get(course.id) ?? 0,
       enrolled_students: enrolCountMap.get(course.id) ?? 0,
+      visibility: course.visibility ?? 'public',
       created_at: course.created_at?.toISOString() ?? '',
     }));
   }
@@ -2019,6 +2021,7 @@ export class ContentService {
       course_icon: this.toFileUrl(course.course_icon),
       features: course.features ?? '',
       is_free_course: course.is_free_course,
+      visibility: course.visibility ?? 'public',
     };
   }
 
@@ -2037,9 +2040,11 @@ export class ContentService {
         features: toNullableString(input.features),
         label: toNullableString(input.label),
         status: input.status ?? 'active',
+        visibility: input.visibility ?? 'public',
         created_by: actorUserId,
         created_at: new Date(),
         updated_at: new Date(),
+        deleted_at: null,
       },
     });
 
@@ -2062,6 +2067,7 @@ export class ContentService {
         features: toNullableString(input.features),
         label: toNullableString(input.label),
         status: input.status ?? 'active',
+        visibility: input.visibility ?? 'public',
         updated_by: actorUserId,
         updated_at: new Date(),
       },

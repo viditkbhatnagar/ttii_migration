@@ -526,6 +526,7 @@ model course {
   course_icon    String?
   features       String?
   is_free_course Int       @default(0)
+  visibility     String    @default("public") // "public" | "private"
   created_by     String?   @db.ObjectId
   updated_by     String?   @db.ObjectId
   deleted_by     String?   @db.ObjectId
