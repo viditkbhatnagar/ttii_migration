@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
+import { Eye, EyeOff, Pencil, X } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -65,6 +65,8 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -127,10 +129,11 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-40" />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Skeleton className="h-96 w-full rounded-xl lg:col-span-2" />
-          <Skeleton className="h-56 w-full rounded-xl" />
+        <Skeleton className="h-10 w-40" />
+        <Skeleton className="h-28 w-full rounded-2xl" />
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <Skeleton className="h-96 w-full rounded-2xl" />
+          <Skeleton className="h-56 w-full rounded-2xl" />
         </div>
       </div>
     );
@@ -139,13 +142,11 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold text-gray-900">My Profile</h1>
-        <Card className="bg-white">
-          <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold text-student-text">Settings</h1>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
+        </div>
       </div>
     );
   }
@@ -158,95 +159,100 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
     .toUpperCase();
 
   const completionColor = profileCompletion >= 80 ? 'text-emerald-600' : profileCompletion >= 50 ? 'text-amber-600' : 'text-red-600';
-  const completionBarColor = profileCompletion >= 80 ? 'bg-emerald-500' : profileCompletion >= 50 ? 'bg-amber-500' : 'bg-red-500';
+  const completionBarColor = profileCompletion >= 80 ? 'from-emerald-500 to-teal-500' : profileCompletion >= 50 ? 'from-amber-500 to-orange-500' : 'from-red-500 to-pink-500';
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">My Profile</h1>
+      <h1 className="text-2xl font-bold text-student-text">Settings</h1>
 
       {message ? (
-        <div className={`rounded-md px-4 py-3 text-sm ${message.includes('success') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+        <div className={`rounded-xl px-4 py-3 text-sm ${message.includes('success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
           {message}
         </div>
       ) : null}
 
       {/* Profile Completion */}
-      <Card className="bg-white">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Avatar className="size-14">
-                {profile?.image ? (
-                  <AvatarImage src={profile.image} alt={profile.name} />
-                ) : null}
-                <AvatarFallback className="bg-ttii-primary text-lg text-white">{initials}</AvatarFallback>
-              </Avatar>
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">{profile?.name || 'Student'}</h2>
-                <p className="text-sm text-gray-500">
-                  {profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`}
-                </p>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className={`text-2xl font-bold ${completionColor}`}>{profileCompletion}%</p>
-              <p className="text-xs text-gray-500">Profile Complete</p>
+      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Avatar className="size-16 shadow-md">
+              {profile?.image ? (
+                <AvatarImage src={profile.image} alt={profile.name} />
+              ) : null}
+              <AvatarFallback className="bg-gradient-to-br from-[#FF7F11] to-[#ff9a44] text-lg text-white font-bold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h2 className="text-xl font-bold text-student-text">{profile?.name || 'Student'}</h2>
+              <p className="text-sm text-student-muted">
+                {profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`}
+              </p>
             </div>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-            <div
-              className={`h-full rounded-full ${completionBarColor} transition-all`}
-              style={{ width: `${profileCompletion}%` }}
-            />
+          <div className="text-right">
+            <p className={`text-3xl font-bold ${completionColor}`}>{profileCompletion}%</p>
+            <p className="text-xs text-student-muted">Profile Complete</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${completionBarColor} transition-all duration-700 ease-out`}
+            style={{ width: `${profileCompletion}%` }}
+          />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Personal Information */}
-        <Card className="bg-white lg:col-span-2">
+        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>Personal Information</CardTitle>
+              <CardTitle className="text-lg">Personal Information</CardTitle>
               {!editing ? (
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                  Edit Profile
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="rounded-xl gap-1.5">
+                  <Pencil className="size-3.5" />
+                  Edit
                 </Button>
-              ) : null}
+              ) : (
+                <Button variant="ghost" size="icon-sm" onClick={() => { setEditing(false); setMessage(''); }}>
+                  <X className="size-4" />
+                </Button>
+              )}
             </div>
           </CardHeader>
           <Separator />
           <CardContent className="space-y-4 pt-4">
             {editing ? (
               <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Full Name</Label>
-                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+                    <Label htmlFor="name" className="text-xs uppercase tracking-wider text-student-muted">Full Name</Label>
+                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    <Label htmlFor="email" className="text-xs uppercase tracking-wider text-student-muted">Email</Label>
+                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                    <Label htmlFor="phone" className="text-xs uppercase tracking-wider text-student-muted">Phone</Label>
+                    <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="academicYear">Academic Year</Label>
-                    <Input id="academicYear" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} />
+                    <Label htmlFor="academicYear" className="text-xs uppercase tracking-wider text-student-muted">Academic Year</Label>
+                    <Input id="academicYear" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="dob">Date of Birth</Label>
-                    <Input id="dob" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
+                    <Label htmlFor="dob" className="text-xs uppercase tracking-wider text-student-muted">Date of Birth</Label>
+                    <Input id="dob" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gender">Gender</Label>
+                    <Label htmlFor="gender" className="text-xs uppercase tracking-wider text-student-muted">Gender</Label>
                     <select
                       id="gender"
                       value={gender}
                       onChange={(e) => setGender(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="flex h-9 w-full rounded-xl border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
                       <option value="">Select gender</option>
                       {GENDER_OPTIONS.map((opt) => (
@@ -256,34 +262,34 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                   </div>
                 </div>
                 <Separator />
-                <h3 className="text-sm font-medium text-gray-700">Address</h3>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address">Address Line</Label>
-                    <Input id="address" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="House/Street" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-student-muted">Address</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="address" className="text-xs uppercase tracking-wider text-student-muted">Address Line</Label>
+                    <Input id="address" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="House/Street" className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
-                    <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} />
+                    <Label htmlFor="city" className="text-xs uppercase tracking-wider text-student-muted">City</Label>
+                    <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
-                    <Input id="state" value={state} onChange={(e) => setState(e.target.value)} />
+                    <Label htmlFor="state" className="text-xs uppercase tracking-wider text-student-muted">State</Label>
+                    <Input id="state" value={state} onChange={(e) => setState(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="pincode">Pincode</Label>
-                    <Input id="pincode" value={pincode} onChange={(e) => setPincode(e.target.value)} />
+                    <Label htmlFor="pincode" className="text-xs uppercase tracking-wider text-student-muted">Pincode</Label>
+                    <Input id="pincode" value={pincode} onChange={(e) => setPincode(e.target.value)} className="rounded-xl" />
                   </div>
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <Button className="bg-ttii-primary hover:bg-ttii-primary/90" disabled={saving} onClick={() => void handleSave()}>
+                  <Button className="rounded-xl bg-student-primary hover:bg-student-primary/90" disabled={saving} onClick={() => void handleSave()}>
                     {saving ? 'Saving...' : 'Save Changes'}
                   </Button>
-                  <Button variant="outline" onClick={() => { setEditing(false); setMessage(''); }}>Cancel</Button>
+                  <Button variant="outline" className="rounded-xl" onClick={() => { setEditing(false); setMessage(''); }}>Cancel</Button>
                 </div>
               </>
             ) : (
-              <div className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2">
+              <div className="space-y-3">
                 <InfoRow label="Name" value={profile?.name} />
                 <InfoRow label="Email" value={profile?.email} />
                 <InfoRow label="Phone" value={profile?.phone} />
@@ -292,52 +298,70 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                 <InfoRow label="Gender" value={profile?.gender} />
                 <InfoRow label="Student ID" value={profile?.studentId} />
                 <InfoRow label="Course ID" value={profile?.courseId} />
-                <div className="md:col-span-2">
-                  <InfoRow
-                    label="Address"
-                    value={formatAddress(profile?.addressLine1, profile?.city, profile?.state, profile?.pincode)}
-                  />
-                </div>
+                <InfoRow
+                  label="Address"
+                  value={formatAddress(profile?.addressLine1, profile?.city, profile?.state, profile?.pincode)}
+                />
               </div>
             )}
           </CardContent>
         </Card>
 
         {/* Change Password */}
-        <Card className="bg-white">
+        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm h-fit">
           <CardHeader>
-            <CardTitle>Change Password</CardTitle>
+            <CardTitle className="text-lg">Change Password</CardTitle>
             <CardDescription>Update your account password</CardDescription>
           </CardHeader>
           <Separator />
           <CardContent className="space-y-4 pt-4">
             {passwordMessage ? (
-              <div className={`rounded-md px-4 py-3 text-sm ${passwordMessage.includes('success') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              <div className={`rounded-xl px-4 py-3 text-sm ${passwordMessage.includes('success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                 {passwordMessage}
               </div>
             ) : null}
             <div className="space-y-2">
-              <Label htmlFor="password">New Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-              />
+              <Label htmlFor="password" className="text-xs uppercase tracking-wider text-student-muted">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  className="rounded-xl pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
+              <Label htmlFor="confirmPassword" className="text-xs uppercase tracking-wider text-student-muted">Confirm Password</Label>
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  className="rounded-xl pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
+                  {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
             </div>
             <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
+              className="rounded-xl bg-student-primary hover:bg-student-primary/90"
               disabled={passwordSaving || !password || password !== confirmPassword}
               onClick={() => void handlePasswordChange()}
             >
@@ -352,9 +376,9 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
 
 function InfoRow({ label, value }: { label: string; value?: string | undefined }) {
   return (
-    <div className="flex justify-between border-b border-gray-100 pb-2">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900">{value || 'N/A'}</span>
+    <div className="flex flex-col gap-0.5 pb-3 border-b border-slate-100 last:border-0">
+      <span className="text-xs font-medium uppercase tracking-wider text-student-muted">{label}</span>
+      <span className="text-sm font-medium text-student-text">{value || 'N/A'}</span>
     </div>
   );
 }

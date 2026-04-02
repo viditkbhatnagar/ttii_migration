@@ -1,11 +1,20 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Send, MessageCircle, RefreshCw, Headphones } from 'lucide-react';
+import { Send, MessageCircle, RefreshCw, Headphones, Mail, Phone, MapPin, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+
+const SUPPORT_TYPES = ['General', 'Technical', 'Academic', 'Billing'] as const;
+
+const CONTACT_INFO = [
+  { icon: Mail, label: 'Email', value: 'support@teachersindia.in', color: 'bg-blue-100 text-blue-600' },
+  { icon: Phone, label: 'Phone', value: '+91-XXXX-XXXXXX', color: 'bg-emerald-100 text-emerald-600' },
+  { icon: MapPin, label: 'Address', value: 'Teacher\'s Training Institute of India', color: 'bg-purple-100 text-purple-600' },
+  { icon: Clock, label: 'Hours', value: 'Mon - Sat, 9 AM - 6 PM', color: 'bg-amber-100 text-amber-600' },
+];
 
 function formatChatTimestamp(dateStr: string): string {
   if (!dateStr) return '';
@@ -42,6 +51,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
 
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [selectedType, setSelectedType] = useState<string>('General');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -53,7 +63,6 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
     scrollToBottom();
   }, [data?.messages.length, scrollToBottom]);
 
-  // Auto-refresh every 15 seconds
   useEffect(() => {
     refreshIntervalRef.current = setInterval(() => {
       reload();
@@ -70,19 +79,25 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
     if (!message.trim()) return;
     setSending(true);
     try {
-      await api.submitSupportMessage(session.token, message.trim());
+      const prefixedMessage = `[${selectedType}] ${message.trim()}`;
+      await api.submitSupportMessage(session.token, prefixedMessage);
       setMessage('');
       reload();
     } finally {
       setSending(false);
     }
-  }, [api, session.token, message, reload]);
+  }, [api, session.token, message, selectedType, reload]);
 
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-96 w-full rounded-xl" />
+        <Skeleton className="h-10 w-40" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+        <Skeleton className="h-96 w-full rounded-2xl" />
       </div>
     );
   }
@@ -90,13 +105,11 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold text-gray-900">Support</h1>
-        <Card className="bg-white">
-          <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold text-student-text">Help Center</h1>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
+        </div>
       </div>
     );
   }
@@ -106,31 +119,69 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Support Chat</h1>
-        <Button variant="outline" size="sm" onClick={reload}>
+        <div>
+          <h1 className="text-2xl font-bold text-student-text">Help Center</h1>
+          <p className="mt-1 text-sm text-student-muted">Get in touch with our support team</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">
           <RefreshCw className="mr-2 size-3.5" />
           Refresh
         </Button>
       </div>
 
-      <Card className="bg-white">
+      {/* Contact Info Grid */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {CONTACT_INFO.map((info) => {
+          const Icon = info.icon;
+          return (
+            <div key={info.label} className="rounded-2xl border border-slate-200/80 bg-white p-5 transition-all hover:shadow-md">
+              <div className={`inline-flex size-10 items-center justify-center rounded-full ${info.color} mb-3`}>
+                <Icon className="size-5" />
+              </div>
+              <p className="text-xs font-medium uppercase tracking-wider text-student-muted">{info.label}</p>
+              <p className="mt-1 text-sm font-medium text-student-text">{info.value}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Chat Section */}
+      <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageCircle className="size-5 text-ttii-primary" />
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <MessageCircle className="size-5 text-student-primary" />
             Conversation
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Support Type Selector */}
+          <div className="flex flex-wrap gap-2">
+            {SUPPORT_TYPES.map((type) => (
+              <button
+                key={type}
+                type="button"
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
+                  selectedType === type
+                    ? 'bg-student-primary text-white shadow-md'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+                onClick={() => setSelectedType(type)}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+
           {/* Message thread */}
-          <div className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+          <div className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <div className="flex size-16 items-center justify-center rounded-full bg-ttii-primary/10">
-                  <Headphones className="size-8 text-ttii-primary" />
+                <div className="flex size-16 items-center justify-center rounded-full bg-student-primary/10">
+                  <Headphones className="size-8 text-student-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">Need help?</p>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="font-semibold text-student-text">Need help?</p>
+                  <p className="mt-1 text-sm text-student-muted">
                     Start a conversation with our support team. We're here to help!
                   </p>
                 </div>
@@ -150,19 +201,19 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                   >
                     <div className={`max-w-[75%] ${isStudent ? 'order-2' : 'order-1'}`}>
                       {!isStudent ? (
-                        <p className="mb-1 ml-1 text-xs font-medium text-ttii-primary">Support Agent</p>
+                        <p className="mb-1 ml-1 text-xs font-semibold text-student-primary">Support Agent</p>
                       ) : null}
                       <div
                         className={`rounded-2xl px-4 py-2.5 ${
                           isStudent
-                            ? 'rounded-br-md bg-blue-600 text-white'
-                            : 'rounded-bl-md border border-gray-200 bg-white text-gray-900 shadow-sm'
+                            ? 'rounded-br-md bg-student-primary text-white'
+                            : 'rounded-bl-md border border-slate-200 bg-white text-student-text shadow-sm'
                         }`}
                       >
                         <p className="text-sm leading-relaxed">{text}</p>
                       </div>
                       {createdAt ? (
-                        <p className={`mt-1 text-[10px] ${isStudent ? 'text-right text-gray-400' : 'ml-1 text-gray-400'}`}>
+                        <p className={`mt-1 text-[10px] ${isStudent ? 'text-right text-slate-400' : 'ml-1 text-slate-400'}`}>
                           {formatChatTimestamp(createdAt)}
                         </p>
                       ) : null}
@@ -187,11 +238,11 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                 }
               }}
               placeholder="Type your message..."
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-ttii-primary focus:outline-none focus:ring-1 focus:ring-ttii-primary"
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-student-primary focus:outline-none focus:ring-1 focus:ring-student-primary"
               disabled={sending}
             />
             <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
+              className="rounded-xl bg-student-primary hover:bg-student-primary/90"
               disabled={sending || !message.trim()}
               onClick={() => void handleSend()}
             >
@@ -200,8 +251,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
             </Button>
           </div>
 
-          {/* Auto-refresh indicator */}
-          <p className="text-center text-[10px] text-gray-400">
+          <p className="text-center text-[10px] text-slate-400">
             Messages auto-refresh every 15 seconds
           </p>
         </CardContent>

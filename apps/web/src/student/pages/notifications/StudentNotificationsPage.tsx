@@ -1,8 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -38,11 +36,11 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-48" />
         <Skeleton className="h-10 w-64" />
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+            <Skeleton key={i} className="h-20 w-full rounded-2xl" />
           ))}
         </div>
       </div>
@@ -52,13 +50,11 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold text-gray-900">Notifications</h1>
-        <Card className="bg-white">
-          <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold text-student-text">Notifications</h1>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
+        </div>
       </div>
     );
   }
@@ -68,8 +64,11 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Notifications</h1>
-        <Button variant="outline" size="sm" onClick={reload}>
+        <div>
+          <h1 className="text-2xl font-bold text-student-text">Notifications</h1>
+          <p className="mt-1 text-sm text-student-muted">Stay updated with your latest alerts</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">
           Refresh
         </Button>
       </div>
@@ -81,12 +80,11 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
       />
 
       {notifications.length === 0 ? (
-        <Card className="bg-white">
-          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-            <Bell className="size-10 text-gray-300" />
-            <p className="text-sm text-gray-500">No notifications yet.</p>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+          <Bell className="mx-auto size-12 text-slate-300 mb-4" />
+          <h3 className="text-lg font-semibold text-slate-700">No notifications</h3>
+          <p className="text-sm text-student-muted mt-1">You're all caught up!</p>
+        </div>
       ) : (
         <div className="space-y-3">
           {notifications.map((notification) => {
@@ -97,27 +95,35 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
             const isRead = asNumber(notification.is_read) === 1;
 
             return (
-              <Card
+              <div
                 key={id}
-                className={`bg-white transition-colors ${!isRead ? 'border-l-4 border-l-ttii-primary' : ''}`}
+                className={`rounded-2xl border bg-white p-4 transition-all hover:shadow-md ${
+                  !isRead ? 'border-l-4 border-l-student-accent border-slate-200/80' : 'border-slate-200/80'
+                }`}
               >
-                <CardContent className="flex items-start gap-4 p-4">
-                  <div className={`mt-1 flex size-8 shrink-0 items-center justify-center rounded-full ${isRead ? 'bg-gray-100' : 'bg-ttii-primary/10'}`}>
-                    <Bell className={`size-4 ${isRead ? 'text-gray-400' : 'text-ttii-primary'}`} />
+                <div className="flex items-start gap-4">
+                  <div className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full ${
+                    isRead ? 'bg-slate-100' : 'bg-student-accent/10'
+                  }`}>
+                    <Bell className={`size-5 ${isRead ? 'text-slate-400' : 'text-student-accent'}`} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className={`text-sm ${isRead ? 'text-gray-600' : 'font-semibold text-gray-900'}`}>{title}</p>
-                      {!isRead ? <Badge variant="secondary" className="text-[10px]">New</Badge> : null}
+                      <p className={`text-sm ${isRead ? 'text-slate-600' : 'font-semibold text-student-text'}`}>{title}</p>
+                      {!isRead ? (
+                        <span className="inline-flex items-center rounded-full bg-student-accent/10 px-2 py-0.5 text-[10px] font-semibold text-student-accent">
+                          New
+                        </span>
+                      ) : null}
                     </div>
-                    {description ? <p className="mt-1 text-sm text-gray-500">{description}</p> : null}
-                    {createdAt ? <p className="mt-1.5 text-xs text-gray-400">{createdAt}</p> : null}
+                    {description ? <p className="mt-1 text-sm text-student-muted">{description}</p> : null}
+                    {createdAt ? <p className="mt-1.5 text-xs text-slate-400">{createdAt}</p> : null}
                   </div>
                   {!isRead && activeTab === 'inbox' ? (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="shrink-0 text-xs text-ttii-primary hover:text-ttii-primary/80"
+                      className="shrink-0 text-xs text-student-primary hover:text-student-primary/80 rounded-xl"
                       disabled={markingId === id}
                       onClick={() => void handleMarkRead(id)}
                     >
@@ -125,8 +131,8 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
                       {markingId === id ? 'Marking...' : 'Mark read'}
                     </Button>
                   ) : null}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             );
           })}
         </div>

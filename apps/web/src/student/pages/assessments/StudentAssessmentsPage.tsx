@@ -1,12 +1,25 @@
 import { useState } from 'react';
-import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -40,12 +53,23 @@ function getFileName(url: string): string {
   }
 }
 
+function getStatusBadge(status: string) {
+  const lower = status.toLowerCase();
+  if (lower === 'passed' || lower === 'completed') return { className: 'bg-green-100 text-green-700 border-green-200', label: status };
+  if (lower === 'failed') return { className: 'bg-red-100 text-red-700 border-red-200', label: status };
+  if (lower === 'pending' || lower === 'under review') return { className: 'bg-yellow-100 text-yellow-700 border-yellow-200', label: status };
+  if (lower === 'upcoming') return { className: 'bg-blue-100 text-blue-700 border-blue-200', label: status };
+  if (lower === 'expired') return { className: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Past' };
+  return { className: 'bg-slate-100 text-slate-600 border-slate-200', label: status || 'Unknown' };
+}
+
 export default function StudentAssessmentsPage({ api, session }: StudentPageProps) {
   const [mainTab, setMainTab] = useState<MainTab>('assignments');
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('current');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('upcoming');
   const [actionPending, setActionPending] = useState<string | null>(null);
-  const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [detailItem, setDetailItem] = useState<Record<string, unknown> | null>(null);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssessments(session.token),
@@ -65,13 +89,9 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   if (loading) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-48" />
         <Skeleton className="h-10 w-64" />
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full rounded-xl" />
-          ))}
-        </div>
+        <Skeleton className="h-64 w-full rounded-2xl" />
       </div>
     );
   }
@@ -79,13 +99,11 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold text-gray-900">Assessments</h1>
-        <Card className="bg-white">
-          <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
-          </CardContent>
-        </Card>
+        <h1 className="text-2xl font-bold text-student-text">Grades</h1>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
+        </div>
       </div>
     );
   }
@@ -126,11 +144,22 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
       ? data?.exams.upcoming ?? []
       : data?.exams.expired ?? [];
 
+  const filteredAssignments = searchQuery
+    ? currentAssignments.filter((a) => asString(a.title).toLowerCase().includes(searchQuery.toLowerCase()))
+    : currentAssignments;
+
+  const filteredExams = searchQuery
+    ? currentExams.filter((e) => asString(e.title).toLowerCase().includes(searchQuery.toLowerCase()))
+    : currentExams;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Assessments</h1>
-        <Button variant="outline" size="sm" onClick={reload}>Refresh</Button>
+        <div>
+          <h1 className="text-2xl font-bold text-student-text">Grades</h1>
+          <p className="mt-1 text-sm text-student-muted">Track your assignments and examinations</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
       </div>
 
       <AdminTabBar
@@ -138,6 +167,17 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
         activeTab={mainTab}
         onChange={(id) => setMainTab(id as MainTab)}
       />
+
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          placeholder={`Search ${mainTab}...`}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10 rounded-xl"
+        />
+      </div>
 
       {mainTab === 'assignments' ? (
         <div className="space-y-4">
@@ -147,141 +187,91 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
             onChange={(id) => setAssignmentSubTab(id as AssignmentSubTab)}
           />
 
-          {currentAssignments.length === 0 ? (
-            <Card className="bg-white">
-              <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-                <ClipboardList className="size-10 text-gray-300" />
-                <p className="text-sm text-gray-500">No {assignmentSubTab} assignments.</p>
-              </CardContent>
-            </Card>
+          {filteredAssignments.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+              <ClipboardList className="mx-auto size-12 text-slate-300 mb-4" />
+              <p className="text-sm text-slate-500">No {assignmentSubTab} assignments.</p>
+            </div>
           ) : (
-            <div className="space-y-3">
-              {currentAssignments.map((assignment) => {
-                const id = asString(assignment.id);
-                const title = asString(assignment.title) || `Assignment ${id}`;
-                const status = asString(assignment.status) || assignmentSubTab;
-                const dueDate = asString(assignment.date) || asString(assignment.due_date) || asString(assignment.end_date);
-                const totalMarks = asString(assignment.total_marks);
-                const marks = asString(assignment.marks);
-                const isSaved = asNumber(assignment.is_saved) === 1;
-                const isSubmitted = asNumber(assignment.is_submitted) > 0;
-                const isReviewed = asNumber(assignment.is_reviewed) === 1;
-                const remarks = asString(assignment.remarks);
-                const submittedFiles = parseSubmittedFiles(assignment.submitted_file);
-                const isExpanded = expandedSubmission === id;
-                const isCompleted = assignmentSubTab === 'completed';
+            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead>Assignment</TableHead>
+                    <TableHead className="hidden sm:table-cell">Due Date</TableHead>
+                    <TableHead className="hidden md:table-cell">Marks</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAssignments.map((assignment) => {
+                    const id = asString(assignment.id);
+                    const title = asString(assignment.title) || `Assignment ${id}`;
+                    const status = asString(assignment.status) || assignmentSubTab;
+                    const dueDate = asString(assignment.date) || asString(assignment.due_date) || asString(assignment.end_date);
+                    const totalMarks = asString(assignment.total_marks);
+                    const marks = asString(assignment.marks);
+                    const isSaved = asNumber(assignment.is_saved) === 1;
+                    const isSubmitted = asNumber(assignment.is_submitted) > 0;
+                    const isCompleted = assignmentSubTab === 'completed';
+                    const badge = getStatusBadge(status);
 
-                return (
-                  <Card key={id} className="bg-white">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-                          <ClipboardList className="size-4 text-orange-600" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900">{title}</p>
-                          <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                            {dueDate ? (
-                              <span className="flex items-center gap-1">
-                                <Calendar className="size-3" />
-                                {formatDate(dueDate)}
-                              </span>
-                            ) : null}
-                            {totalMarks ? <span>{totalMarks} marks</span> : null}
+                    return (
+                      <TableRow key={id} className="hover:bg-slate-50/80">
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-orange-100">
+                              <ClipboardList className="size-4 text-orange-600" />
+                            </div>
+                            <span className="font-medium text-slate-800">{title}</span>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <AdminStatusBadge status={status} />
-                          {isCompleted && isSubmitted ? (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => setExpandedSubmission(isExpanded ? null : id)}
-                              title="View Submission"
-                            >
-                              <Eye className="size-4 text-ttii-primary" />
-                            </Button>
-                          ) : null}
-                          {assignmentSubTab === 'current' ? (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              disabled={actionPending === id}
-                              onClick={() => void handleToggleSaved(id)}
-                              title={isSaved ? 'Unsave' : 'Save'}
-                            >
-                              {isSaved ? (
-                                <BookmarkCheck className="size-4 text-ttii-primary" />
-                              ) : (
-                                <Bookmark className="size-4 text-gray-400" />
-                              )}
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {/* Submission Details (expanded for completed assignments) */}
-                      {isExpanded && isCompleted ? (
-                        <>
-                          <Separator className="my-3" />
-                          <div className="space-y-3 rounded-lg bg-gray-50 p-3">
-                            <h4 className="text-sm font-medium text-gray-700">Submission Details</h4>
-
-                            {/* Score & Review */}
-                            {isReviewed ? (
-                              <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-2">
-                                  <Award className="size-4 text-amber-500" />
-                                  <span className="text-sm font-semibold text-gray-900">Score: {marks}</span>
-                                </div>
-                                <Badge variant="default">Reviewed</Badge>
-                              </div>
-                            ) : isSubmitted ? (
-                              <div className="flex items-center gap-2">
-                                <Badge variant="secondary">Pending Review</Badge>
-                              </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell text-slate-500 text-sm">
+                          {dueDate ? formatDate(dueDate) : '—'}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-slate-500 text-sm">
+                          {marks && isCompleted ? `${marks}/${totalMarks}` : totalMarks || '—'}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {isCompleted && isSubmitted ? (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => setDetailItem(assignment)}
+                                title="View Details"
+                              >
+                                <Eye className="size-4 text-student-primary" />
+                              </Button>
                             ) : null}
-
-                            {/* Remarks */}
-                            {remarks ? (
-                              <div className="flex items-start gap-2">
-                                <MessageSquare className="mt-0.5 size-4 text-gray-400" />
-                                <div>
-                                  <p className="text-xs font-medium text-gray-500">Instructor Remarks</p>
-                                  <p className="text-sm text-gray-700">{remarks}</p>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {/* Submitted Files */}
-                            {submittedFiles.length > 0 ? (
-                              <div className="space-y-1.5">
-                                <p className="text-xs font-medium text-gray-500">Submitted Files</p>
-                                {submittedFiles.map((sf, idx) => (
-                                  <div key={idx} className="flex items-center gap-2">
-                                    <Link2 className="size-3.5 text-blue-500" />
-                                    <a
-                                      href={sf.file}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-sm text-blue-600 hover:underline"
-                                    >
-                                      {getFileName(sf.file)}
-                                    </a>
-                                    {sf.date ? (
-                                      <span className="text-xs text-gray-400">{formatDate(sf.date)}</span>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
+                            {assignmentSubTab === 'current' ? (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                disabled={actionPending === id}
+                                onClick={() => void handleToggleSaved(id)}
+                                title={isSaved ? 'Unsave' : 'Save'}
+                              >
+                                {isSaved ? (
+                                  <BookmarkCheck className="size-4 text-student-accent" />
+                                ) : (
+                                  <Bookmark className="size-4 text-slate-400" />
+                                )}
+                              </Button>
                             ) : null}
                           </div>
-                        </>
-                      ) : null}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>
@@ -293,50 +283,152 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
             onChange={(id) => setExamSubTab(id as ExamSubTab)}
           />
 
-          {currentExams.length === 0 ? (
-            <Card className="bg-white">
-              <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-                <FileText className="size-10 text-gray-300" />
-                <p className="text-sm text-gray-500">No {examSubTab} exams.</p>
-              </CardContent>
-            </Card>
+          {filteredExams.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+              <FileText className="mx-auto size-12 text-slate-300 mb-4" />
+              <p className="text-sm text-slate-500">No {examSubTab} exams.</p>
+            </div>
           ) : (
-            <div className="space-y-3">
-              {currentExams.map((exam) => {
-                const id = asString(exam.id);
-                const title = asString(exam.title) || `Exam ${id}`;
-                const date = asString(exam.date) || asString(exam.start_date);
-                const questionCount = asNumber(exam.questions_count) || asNumber(exam.total_questions);
-                const duration = asString(exam.duration) || asString(exam.time_limit);
+            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead>Exam</TableHead>
+                    <TableHead className="hidden sm:table-cell">Date</TableHead>
+                    <TableHead className="hidden md:table-cell">Questions</TableHead>
+                    <TableHead className="hidden md:table-cell">Duration</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredExams.map((exam) => {
+                    const id = asString(exam.id);
+                    const title = asString(exam.title) || `Exam ${id}`;
+                    const date = asString(exam.date) || asString(exam.start_date);
+                    const questionCount = asNumber(exam.questions_count) || asNumber(exam.total_questions);
+                    const duration = asString(exam.duration) || asString(exam.time_limit);
+                    const badge = getStatusBadge(examSubTab === 'upcoming' ? 'upcoming' : 'expired');
 
-                return (
-                  <Card key={id} className="bg-white">
-                    <CardContent className="flex items-center gap-4 p-4">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-red-100">
-                        <FileText className="size-4 text-red-600" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900">{title}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                          {date ? (
-                            <span className="flex items-center gap-1">
-                              <Calendar className="size-3" />
-                              {formatDate(date)}
-                            </span>
-                          ) : null}
-                          {questionCount > 0 ? <span>{questionCount} questions</span> : null}
-                          {duration ? <span>{duration}</span> : null}
-                        </div>
-                      </div>
-                      <AdminStatusBadge status={examSubTab === 'upcoming' ? 'upcoming' : 'expired'} />
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    return (
+                      <TableRow key={id} className="hover:bg-slate-50/80">
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-100">
+                              <FileText className="size-4 text-red-600" />
+                            </div>
+                            <span className="font-medium text-slate-800">{title}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell text-slate-500 text-sm">
+                          {date ? formatDate(date) : '—'}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-slate-500 text-sm">
+                          {questionCount > 0 ? `${questionCount} questions` : '—'}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-slate-500 text-sm">
+                          {duration || '—'}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>
       )}
+
+      {/* Detail Dialog */}
+      <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Submission Details</DialogTitle>
+          </DialogHeader>
+          {detailItem ? (
+            <SubmissionDetail item={detailItem} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SubmissionDetail({ item }: { item: Record<string, unknown> }) {
+  const marks = asString(item.marks);
+  const totalMarks = asString(item.total_marks);
+  const isReviewed = asNumber(item.is_reviewed) === 1;
+  const remarks = asString(item.remarks);
+  const submittedFiles = parseSubmittedFiles(item.submitted_file);
+  const submittedDate = asString(item.submitted_date) || asString(item.updated_at);
+
+  return (
+    <div className="space-y-4">
+      {/* Metadata Grid */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-xl bg-slate-50 p-4">
+          <p className="text-xs text-slate-500 mb-1">Score</p>
+          <p className="text-lg font-bold text-slate-800">
+            {marks ? `${marks}/${totalMarks}` : 'N/A'}
+          </p>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-4">
+          <p className="text-xs text-slate-500 mb-1">Status</p>
+          <div className="mt-1">
+            {isReviewed ? (
+              <Badge className="bg-green-100 text-green-700 border-green-200">Reviewed</Badge>
+            ) : (
+              <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">Pending Review</Badge>
+            )}
+          </div>
+        </div>
+        {submittedDate ? (
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs text-slate-500 mb-1">Submitted</p>
+            <p className="text-sm font-medium text-slate-800">{formatDate(submittedDate)}</p>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Teacher Feedback */}
+      {remarks ? (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+          <div className="flex items-start gap-2">
+            <MessageSquare className="mt-0.5 size-4 text-amber-600" />
+            <div>
+              <p className="text-xs font-semibold text-amber-700">Instructor Feedback</p>
+              <p className="mt-1 text-sm text-amber-900">{remarks}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Submitted Files */}
+      {submittedFiles.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted Files</p>
+          {submittedFiles.map((sf, idx) => (
+            <div key={idx} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white p-3">
+              <Link2 className="size-4 text-blue-500 shrink-0" />
+              <a
+                href={sf.file}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-600 hover:underline truncate flex-1"
+              >
+                {getFileName(sf.file)}
+              </a>
+              {sf.date ? (
+                <span className="text-xs text-slate-400 shrink-0">{formatDate(sf.date)}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

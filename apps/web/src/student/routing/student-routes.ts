@@ -25,12 +25,12 @@ const StudentProfilePage = lazy(() => import('../pages/profile/StudentProfilePag
 
 export const STUDENT_ROUTES: StudentRouteConfig[] = [
   { path: '/student/dashboard', aliases: ['/student', '/student/'], pageComponent: StudentDashboardPage, title: 'Dashboard' },
-  { path: '/student/learning', pageComponent: StudentLearningPage, title: 'My Learning' },
-  { path: '/student/assessments', pageComponent: StudentAssessmentsPage, title: 'Assessments' },
+  { path: '/student/courses', aliases: ['/student/learning'], pageComponent: StudentLearningPage, title: 'My Courses' },
+  { path: '/student/grades', aliases: ['/student/assessments'], pageComponent: StudentAssessmentsPage, title: 'Grades' },
   { path: '/student/payments', pageComponent: StudentPaymentsPage, title: 'Payments' },
   { path: '/student/notifications', pageComponent: StudentNotificationsPage, title: 'Notifications' },
-  { path: '/student/support', pageComponent: StudentSupportPage, title: 'Support' },
-  { path: '/student/profile', pageComponent: StudentProfilePage, title: 'My Profile' },
+  { path: '/student/help', aliases: ['/student/support'], pageComponent: StudentSupportPage, title: 'Help Center' },
+  { path: '/student/settings', aliases: ['/student/profile'], pageComponent: StudentProfilePage, title: 'Settings' },
 ];
 
 export function resolveStudentRoute(pathname: string): StudentRouteConfig | null {

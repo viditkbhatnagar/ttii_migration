@@ -3,16 +3,19 @@ export interface StudentNavItem {
   label: string;
   href: string;
   icon: string;
+  section: 'general' | 'tools';
 }
 
 export const STUDENT_NAV_TREE: readonly StudentNavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', href: '/student/dashboard', icon: 'LayoutDashboard' },
-  { id: 'learning', label: 'My Learning', href: '/student/learning', icon: 'BookOpen' },
-  { id: 'assessments', label: 'Assessments', href: '/student/assessments', icon: 'ClipboardList' },
-  { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard' },
-  { id: 'notifications', label: 'Notifications', href: '/student/notifications', icon: 'Bell' },
-  { id: 'support', label: 'Support', href: '/student/support', icon: 'MessageCircle' },
-  { id: 'profile', label: 'Profile', href: '/student/profile', icon: 'User' },
+  // General section
+  { id: 'dashboard', label: 'Dashboard', href: '/student/dashboard', icon: 'LayoutDashboard', section: 'general' },
+  { id: 'courses', label: 'Courses', href: '/student/courses', icon: 'BookOpen', section: 'general' },
+  { id: 'grades', label: 'Grades', href: '/student/grades', icon: 'GraduationCap', section: 'general' },
+  { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard', section: 'general' },
+  { id: 'notifications', label: 'Notifications', href: '/student/notifications', icon: 'Bell', section: 'general' },
+  // Tools section
+  { id: 'settings', label: 'Settings', href: '/student/settings', icon: 'Settings', section: 'tools' },
+  { id: 'help', label: 'Help Center', href: '/student/help', icon: 'HelpCircle', section: 'tools' },
 ];
 
 export function findActiveStudentNav(pathname: string): string | null {
@@ -22,8 +25,11 @@ export function findActiveStudentNav(pathname: string): string | null {
       return item.id;
     }
   }
-  if (normalized === '/student') {
-    return 'dashboard';
-  }
+  // Backward compat aliases
+  if (normalized === '/student' || normalized === '/student/') return 'dashboard';
+  if (normalized.startsWith('/student/learning')) return 'courses';
+  if (normalized.startsWith('/student/assessments')) return 'grades';
+  if (normalized.startsWith('/student/profile')) return 'settings';
+  if (normalized.startsWith('/student/support')) return 'help';
   return null;
 }

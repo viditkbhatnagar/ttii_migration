@@ -6,14 +6,17 @@ import type { AuthSession } from '@ttii/frontend-core';
 
 function StudentPageSkeleton() {
   return (
-    <div className="space-y-4 p-6">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-4 w-72" />
-      <div className="mt-6 space-y-3">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
+    <div className="space-y-6">
+      <Skeleton className="h-10 w-48 rounded-xl" />
+      <Skeleton className="h-4 w-72 rounded-lg" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-2xl" />
+        ))}
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <Skeleton className="h-32 w-full rounded-2xl" />
       </div>
     </div>
   );
@@ -21,12 +24,12 @@ function StudentPageSkeleton() {
 
 function StudentNotFoundPage({ pathname, onNavigate }: { pathname: string; onNavigate: (href: string) => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 p-12 text-center">
-      <h2 className="text-lg font-semibold text-gray-900">Page Not Found</h2>
-      <p className="text-sm text-gray-500">No student page registered for: <code className="text-xs">{pathname}</code></p>
+    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-white p-12 text-center">
+      <h2 className="text-lg font-semibold text-student-text">Page Not Found</h2>
+      <p className="text-sm text-student-muted">No student page registered for: <code className="text-xs">{pathname}</code></p>
       <button
         type="button"
-        className="rounded-md bg-ttii-primary px-4 py-2 text-sm font-medium text-white hover:bg-ttii-primary/90"
+        className="rounded-xl bg-student-primary px-4 py-2 text-sm font-medium text-white hover:bg-student-primary/90 transition-colors"
         onClick={() => onNavigate('/student/dashboard')}
       >
         Go to Dashboard
@@ -54,7 +57,9 @@ export function StudentRouter({ pathname, api, session, onNavigate }: StudentRou
 
   return (
     <Suspense fallback={<StudentPageSkeleton />}>
-      <PageComponent {...pageProps} />
+      <div className="animate-in fade-in duration-200">
+        <PageComponent {...pageProps} />
+      </div>
     </Suspense>
   );
 }

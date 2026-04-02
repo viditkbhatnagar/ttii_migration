@@ -59,6 +59,15 @@
   --spacing-sidebar-width: 249px;
   --spacing-sidebar-collapsed: 70px;
   --spacing-navbar-height: 64px;
+
+  /* Student Portal Colors */
+  --color-student-primary: #18548b;
+  --color-student-primary-light: #e8f0f7;
+  --color-student-accent: #FF7F11;
+  --color-student-bg: #f6f7f8;
+  --color-student-surface: #ffffff;
+  --color-student-text: #121417;
+  --color-student-muted: #657686;
 }
 
 @theme inline {
@@ -178,6 +187,18 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Student Portal Scoped Styles */
+.student-dashboard {
+  font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.student-dashboard h1,
+.student-dashboard h2,
+.student-dashboard h3,
+.student-dashboard h4 {
+  font-family: 'Epilogue', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 @keyframes shellEnter {
