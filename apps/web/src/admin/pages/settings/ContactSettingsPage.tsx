@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 
 const CONTACT_FIELDS = [
   { key: 'contact_email', label: 'Contact Email' },
@@ -47,12 +47,7 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading contact settings..." />;
   }
 
   if (error) {

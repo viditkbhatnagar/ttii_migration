@@ -1,5 +1,5 @@
 import { useMemo, useCallback } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -46,7 +46,7 @@ export default function CertificatesPage({ api, session }: AdminPageProps) {
     { label: 'Revoke', onClick: (row) => void handleRevoke(row), variant: 'destructive' },
   ];
 
-  if (loading) return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>;
+  if (loading) return <PageLoader label="Loading certificates..." />;
   if (error) return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
 
   return (

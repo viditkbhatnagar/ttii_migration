@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { BookOpen, Flame, Lock, FileText, Video, FileQuestion, BarChart3, CheckCircle, ArrowRight } from 'lucide-react';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -72,6 +72,7 @@ function computeSubjectProgress(
   }));
 }
 
+
 export default function StudentLearningPage({ api, session, onNavigate }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
@@ -91,22 +92,14 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     return Math.round(totalCompletion / lessons.length);
   }, [lessons]);
 
+  // Lessons not assigned to any subject (orphans)
+  const orphanLessons = useMemo(() => {
+    const subjectIds = new Set(subjects.map((s) => asString(s.id)));
+    return lessons.filter((l) => !subjectIds.has(asString(l.subject_id)));
+  }, [subjects, lessons]);
+
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-2xl" />
-          ))}
-        </div>
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-2xl" />
-          ))}
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading courses..." />;
   }
 
   if (error) {
@@ -255,72 +248,24 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                     </div>
 
                     {/* Lessons List */}
-                    <div className="space-y-2">
-                      {subjectLessons.map((lesson) => {
-                        const id = asString(lesson.id);
-                        const title = asString(lesson.title) || `Lesson ${id}`;
-                        const completion = asNumber(lesson.completed_percentage);
-                        const isLocked = lesson.lock === true || lesson.lock === 1 || lesson.lock === '1';
-
-                        return (
-                          <div
-                            key={id}
-                            className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
-                              isLocked
-                                ? 'border-slate-100 bg-slate-50 opacity-60'
-                                : completion === 100
-                                  ? 'border-green-100 bg-green-50/50'
-                                  : 'border-slate-100 bg-white'
-                            }`}
-                          >
-                            {isLocked ? (
-                              <Lock className="size-4 text-slate-400 shrink-0" />
-                            ) : completion === 100 ? (
-                              <CheckCircle className="size-4 text-green-500 shrink-0" />
-                            ) : (
-                              <BookOpen className="size-4 text-student-primary shrink-0" />
-                            )}
-                            <span className="text-sm font-medium text-slate-700 flex-1 truncate">{title}</span>
-                            {isLocked ? (
-                              <Badge variant="outline" className="text-xs rounded-full">Locked</Badge>
-                            ) : (
-                              <Badge className={`text-xs rounded-full ${
-                                completion === 100
-                                  ? 'bg-green-100 text-green-700 border-green-200'
-                                  : 'bg-blue-100 text-blue-700 border-blue-200'
-                              }`}>
-                                {completion}%
-                              </Badge>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    {subjectLessons.length > 0 ? (
+                      <div className="space-y-2">
+                        {subjectLessons.map((lesson) => (
+                          <LessonRow key={asString(lesson.id)} lesson={lesson} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500 text-center py-4">No lessons in this subject yet.</p>
+                    )}
 
                     {/* Lesson Files for this subject */}
                     {subjectFiles.length > 0 ? (
                       <div className="mt-4 space-y-2">
                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Materials</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {subjectFiles.map((file) => {
-                            const fId = asString(file.id);
-                            const fTitle = asString(file.title) || `File ${fId}`;
-                            const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
-                            const badge = getFileTypeBadgeStyle(attachmentType);
-                            const FileIcon = getFileTypeIcon(attachmentType);
-
-                            return (
-                              <div key={fId} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3">
-                                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-                                  <FileIcon className="size-4 text-slate-600" />
-                                </div>
-                                <p className="text-sm font-medium text-slate-700 truncate flex-1">{fTitle}</p>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
-                                  {badge.label}
-                                </span>
-                              </div>
-                            );
-                          })}
+                          {subjectFiles.map((file) => (
+                            <FileRow key={asString(file.id)} file={file} />
+                          ))}
                         </div>
                       </div>
                     ) : null}
@@ -353,8 +298,44 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
         </div>
       ) : null}
 
-      {/* Enrolled Courses (if multiple) */}
-      {courses.length > 1 ? (
+      {/* Orphan Lessons (not assigned to any subject) — flat list fallback */}
+      {orphanLessons.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-student-text">Lessons</h2>
+          <div className="space-y-2">
+            {orphanLessons.map((lesson) => (
+              <LessonRow key={asString(lesson.id)} lesson={lesson} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* If no subjects at all, show ALL lessons in flat list */}
+      {subjectProgress.length === 0 && lessons.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-student-text">All Lessons</h2>
+          <div className="space-y-2">
+            {lessons.map((lesson) => (
+              <LessonRow key={asString(lesson.id)} lesson={lesson} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Lesson Files — flat list fallback when no subjects */}
+      {subjectProgress.length === 0 && lessonFiles.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-student-text">Lesson Materials</h2>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {lessonFiles.map((file) => (
+              <FileRow key={asString(file.id)} file={file} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Enrolled Courses */}
+      {courses.length > 0 ? (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">Enrolled Courses</h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -381,6 +362,67 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
           <p className="text-slate-500 mt-1">You haven't been enrolled in any courses yet.</p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* ─── Shared sub-components ────────────────────────────────── */
+
+function LessonRow({ lesson }: { lesson: Record<string, unknown> }) {
+  const id = asString(lesson.id);
+  const title = asString(lesson.title) || `Lesson ${id}`;
+  const completion = asNumber(lesson.completed_percentage);
+  const isLocked = lesson.lock === true || lesson.lock === 1 || lesson.lock === '1';
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+        isLocked
+          ? 'border-slate-100 bg-slate-50 opacity-60'
+          : completion === 100
+            ? 'border-green-100 bg-green-50/50'
+            : 'border-slate-100 bg-white'
+      }`}
+    >
+      {isLocked ? (
+        <Lock className="size-4 text-slate-400 shrink-0" />
+      ) : completion === 100 ? (
+        <CheckCircle className="size-4 text-green-500 shrink-0" />
+      ) : (
+        <BookOpen className="size-4 text-student-primary shrink-0" />
+      )}
+      <span className="text-sm font-medium text-slate-700 flex-1 truncate">{title}</span>
+      {isLocked ? (
+        <Badge variant="outline" className="text-xs rounded-full">Locked</Badge>
+      ) : (
+        <Badge className={`text-xs rounded-full ${
+          completion === 100
+            ? 'bg-green-100 text-green-700 border-green-200'
+            : 'bg-blue-100 text-blue-700 border-blue-200'
+        }`}>
+          {completion}%
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+function FileRow({ file }: { file: Record<string, unknown> }) {
+  const fId = asString(file.id);
+  const fTitle = asString(file.title) || `File ${fId}`;
+  const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
+  const badge = getFileTypeBadgeStyle(attachmentType);
+  const FileIcon = getFileTypeIcon(attachmentType);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
+        <FileIcon className="size-4 text-slate-600" />
+      </div>
+      <p className="text-sm font-medium text-slate-700 truncate flex-1">{fTitle}</p>
+      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+        {badge.label}
+      </span>
     </div>
   );
 }

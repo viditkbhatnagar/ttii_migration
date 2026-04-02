@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { GraduationCap, Building2, Users, BookOpen, IndianRupee } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -72,49 +72,7 @@ export default function DashboardPage({ api, session }: AdminPageProps) {
 
   /* ---- Loading state ---------------------------------------------------- */
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <AdminPageHeader title="Dashboard" />
-
-        {/* Skeleton stat cards */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Card key={i} className="bg-white">
-              <CardContent className="flex items-center gap-4 p-5">
-                <Skeleton className="size-10 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-6 w-20" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Skeleton tables */}
-        <Card className="bg-white">
-          <CardHeader>
-            <Skeleton className="h-5 w-48" />
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white">
-          <CardHeader>
-            <Skeleton className="h-5 w-40" />
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <PageLoader label="Loading dashboard..." />;
   }
 
   /* ---- Error state ------------------------------------------------------ */

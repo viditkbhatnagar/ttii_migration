@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -97,7 +97,7 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];
 
-  if (loading) return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>;
+  if (loading) return <PageLoader label="Loading completion policies..." />;
   if (error) return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
 
   return (

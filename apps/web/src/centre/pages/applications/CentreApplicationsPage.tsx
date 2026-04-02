@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
   DialogContent,
@@ -271,13 +271,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    );
+    return <PageLoader label="Loading centre applications..." />;
   }
 
   if (error) {

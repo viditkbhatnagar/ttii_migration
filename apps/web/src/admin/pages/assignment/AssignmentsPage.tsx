@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -146,13 +146,7 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading assignments..." />;
   }
 
   if (error) {

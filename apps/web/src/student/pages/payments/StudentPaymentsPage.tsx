@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { CreditCard, Package, Tag, History, Calendar, Receipt, Wallet } from 'lucide-react';
+import { CreditCard, Package, Tag, History, Calendar, Receipt, Wallet, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { PageLoader } from '@/components/ui/page-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPaymentHistoryItem, StudentInstallmentItem } from '../../student-portal-api.js';
@@ -68,17 +69,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
   }, [api, session.token, couponCode, data]);
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-40" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
-        </div>
-        <Skeleton className="h-64 w-full rounded-2xl" />
-      </div>
-    );
+    return <PageLoader label="Loading student payments..." />;
   }
 
   if (error) {

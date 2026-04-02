@@ -3,6 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Send, Paperclip, RefreshCw } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -187,12 +188,7 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
   }, [messageText, selectedChatId, api, session.token, loadMessages]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-[600px] w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading chat support..." />;
   }
 
   if (error) {

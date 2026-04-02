@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { CentrePageProps } from '../../routing/centre-routes.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -129,13 +129,7 @@ export default function CentreStudentsPage({ api, session }: CentrePageProps) {
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading centre students..." />;
   }
 
   if (error) {

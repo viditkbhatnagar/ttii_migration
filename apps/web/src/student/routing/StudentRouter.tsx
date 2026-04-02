@@ -1,25 +1,11 @@
 import { Suspense, useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { resolveStudentRoute, type StudentPageProps } from './student-routes.js';
 import type { StudentPortalApi } from '../student-portal-api.js';
 import type { AuthSession } from '@ttii/frontend-core';
 
 function StudentPageSkeleton() {
-  return (
-    <div className="space-y-6">
-      <Skeleton className="h-10 w-48 rounded-xl" />
-      <Skeleton className="h-4 w-72 rounded-lg" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-2xl" />
-        ))}
-      </div>
-      <div className="space-y-3">
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
-      </div>
-    </div>
-  );
+  return <PageLoader />;
 }
 
 function StudentNotFoundPage({ pathname, onNavigate }: { pathname: string; onNavigate: (href: string) => void }) {

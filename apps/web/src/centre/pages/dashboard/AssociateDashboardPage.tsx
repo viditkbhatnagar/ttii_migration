@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { FileText, Target, TrendingUp, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -45,25 +45,7 @@ export default function AssociateDashboardPage({ api, session }: CentrePageProps
   const conversionRate = totalApps > 0 ? Math.round((convertedApps / totalApps) * 100) : 0;
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <AdminPageHeader title="My Dashboard" />
-      <p className="text-sm text-gray-500 -mt-4">Associate performance overview</p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="bg-white">
-              <CardContent className="flex items-center gap-4 p-5">
-                <Skeleton className="size-10 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-6 w-20" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading associate dashboard..." />;
   }
 
   if (error) {

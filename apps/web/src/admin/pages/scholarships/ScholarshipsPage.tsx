@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -67,15 +67,7 @@ export default function ScholarshipsPage({ api, session }: AdminPageProps) {
   ], []);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
-        </div>
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading scholarships..." />;
   }
 
   if (error) {

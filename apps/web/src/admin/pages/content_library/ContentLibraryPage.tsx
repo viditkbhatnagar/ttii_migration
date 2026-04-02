@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Eye } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -162,7 +162,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   ];
 
   if (loading) {
-    return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>;
+    return <PageLoader label="Loading content library..." />;
   }
 
   if (error) {

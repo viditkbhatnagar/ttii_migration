@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, CheckCheck, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -34,17 +34,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   ];
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-10 w-64" />
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full rounded-2xl" />
-          ))}
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading student notifications..." />;
   }
 
   if (error) {

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
   DialogContent,
@@ -209,13 +209,7 @@ export default function CentrePaymentsPage({ api, session, onNavigate }: AdminPa
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading centre payments..." />;
   }
 
   if (error) {

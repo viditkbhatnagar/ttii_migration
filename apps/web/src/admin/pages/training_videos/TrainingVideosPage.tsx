@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Play, Pencil, Trash2, Video } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -110,14 +110,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
   }, []);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-48 w-full" />)}
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading training videos..." />;
   }
 
   if (error) {

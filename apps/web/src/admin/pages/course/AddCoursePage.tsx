@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
@@ -144,12 +144,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
   }, [form, isEdit, courseId, api, session.token, onNavigate]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading add course..." />;
   }
 
   const categoryList = (categories ?? []) as Record<string, unknown>[];

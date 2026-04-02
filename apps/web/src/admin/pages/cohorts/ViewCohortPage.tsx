@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Eye } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -109,12 +109,7 @@ export default function ViewCohortPage({ api, session, onNavigate }: AdminPagePr
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading view cohort..." />;
   }
 
   if (error || !cohort) {

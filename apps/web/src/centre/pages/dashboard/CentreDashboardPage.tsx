@@ -1,7 +1,7 @@
 import { MetricCard } from '@ttii/ui';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -27,17 +27,7 @@ export default function CentreDashboardPage({ api, session, onNavigate }: Centre
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
-        </div>
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    );
+    return <PageLoader label="Loading centre dashboard..." />;
   }
 
   if (error) {

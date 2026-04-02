@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageLoader } from '@/components/ui/page-loader';
 import { ArrowLeft } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -152,12 +152,7 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
   ], [getEdited, handleFieldChange, editedRows, saving, handleSave]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading view submissions..." />;
   }
 
   if (error) {

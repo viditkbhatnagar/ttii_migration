@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
   const { data, loading, error } = useAdminPageData(
@@ -38,12 +38,7 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading website settings..." />;
   }
 
   if (error) {

@@ -3,10 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Eye, EyeOff, Pencil, X } from 'lucide-react';
+import { PageLoader } from '@/components/ui/page-loader';
+import { Eye, EyeOff, Pencil, X, Loader2 } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -127,16 +127,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   }, [api, session.token, password, confirmPassword]);
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-40" />
-        <Skeleton className="h-28 w-full rounded-2xl" />
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Skeleton className="h-96 w-full rounded-2xl" />
-          <Skeleton className="h-56 w-full rounded-2xl" />
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading student profile..." />;
   }
 
   if (error) {

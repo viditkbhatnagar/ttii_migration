@@ -3,7 +3,7 @@ import {
   BookOpen, ClipboardList, FileText, Bell, Flame, CheckCircle,
   CreditCard, ArrowRight, Target, TrendingUp, BarChart3,
 } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -135,19 +135,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-72" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Skeleton className="h-52 rounded-2xl" />
-          <Skeleton className="h-52 rounded-2xl" />
-          <Skeleton className="h-52 rounded-2xl" />
-        </div>
-      </div>
+      <PageLoader label="Loading dashboard..." />
     );
   }
 

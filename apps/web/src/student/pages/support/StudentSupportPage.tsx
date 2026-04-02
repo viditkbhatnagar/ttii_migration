@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Send, MessageCircle, RefreshCw, Headphones, Mail, Phone, MapPin, Clock } from 'lucide-react';
+import { Send, MessageCircle, RefreshCw, Headphones, Mail, Phone, MapPin, Clock, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -89,17 +89,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   }, [api, session.token, message, selectedType, reload]);
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-40" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-2xl" />
-          ))}
-        </div>
-        <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
-    );
+    return <PageLoader label="Loading student support..." />;
   }
 
   if (error) {

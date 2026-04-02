@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { AdminTabBar, type AdminTab } from '../../../admin/shared/components/AdminTabBar.js';
@@ -69,13 +69,7 @@ export default function CentreViewCohortPage({ api, session, onNavigate }: Centr
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-10 w-96" />
-        <Skeleton className="h-64 rounded-xl" />
-      </div>
-    );
+    return <PageLoader label="Loading centre view cohort..." />;
   }
 
   if (error) {

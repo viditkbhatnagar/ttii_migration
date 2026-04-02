@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2, Search } from 'lucide-react';
+import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2, Search, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
+import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
   DialogContent,
@@ -87,13 +87,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   };
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-64 w-full rounded-2xl" />
-      </div>
-    );
+    return <PageLoader label="Loading student assessments..." />;
   }
 
   if (error) {

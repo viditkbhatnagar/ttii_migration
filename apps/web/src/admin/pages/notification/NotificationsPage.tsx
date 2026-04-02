@@ -5,7 +5,7 @@ import { toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function NotificationsPage({ api, session }: AdminPageProps) {
   const { data, loading, error } = useAdminPageData(
@@ -30,12 +30,7 @@ export default function NotificationsPage({ api, session }: AdminPageProps) {
   const rows = useMemo(() => toRecords(data), [data]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading notifications..." />;
   }
 
   if (error) {

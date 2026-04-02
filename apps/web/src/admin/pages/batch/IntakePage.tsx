@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
   DialogContent,
@@ -179,12 +180,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading intake..." />;
   }
 
   if (error) {

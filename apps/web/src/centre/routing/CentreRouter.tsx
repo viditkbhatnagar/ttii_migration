@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { resolveCentreRoute, type CentrePageProps } from './centre-routes.js';
 import type { CentrePortalApi } from '../centre-portal-api.js';
 import type { AuthSession } from '@ttii/frontend-core';
@@ -7,18 +7,7 @@ import type { AuthSession } from '@ttii/frontend-core';
 const AssociateDashboardPage = lazy(() => import('../pages/dashboard/AssociateDashboardPage.js'));
 
 function CentrePageSkeleton() {
-  return (
-    <div className="space-y-4 p-6">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-4 w-72" />
-      <div className="mt-6 space-y-3">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-      </div>
-    </div>
-  );
+  return <PageLoader />;
 }
 
 function CentreNotFoundPage({ pathname, onNavigate }: { pathname: string; onNavigate: (href: string) => void }) {

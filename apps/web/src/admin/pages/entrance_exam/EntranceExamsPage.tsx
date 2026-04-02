@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -31,12 +31,7 @@ export default function EntranceExamsPage({ api, session, onNavigate }: AdminPag
   ], []);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading entrance exams..." />;
   }
 
   if (error) {

@@ -6,8 +6,8 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function CourseDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
@@ -95,12 +95,7 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading course directory..." />;
   }
 
   if (error) {

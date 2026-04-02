@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, formatDate, messageFromError } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -53,15 +53,7 @@ export default function CentreSupportPage({ api, session }: CentrePageProps) {
   };
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-6 max-lg:grid-cols-1">
-          <Skeleton className="h-[500px] rounded-xl" />
-          <Skeleton className="h-[500px] rounded-xl" />
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading centre support..." />;
   }
 
   if (error) {

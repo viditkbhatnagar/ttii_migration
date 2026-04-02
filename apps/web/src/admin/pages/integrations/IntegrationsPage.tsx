@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -70,14 +70,7 @@ export default function IntegrationsPage({ api, session }: AdminPageProps) {
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-48 w-full" />)}
-        </div>
-      </div>
-    );
+    return <PageLoader label="Loading integrations..." />;
   }
 
   if (error) {

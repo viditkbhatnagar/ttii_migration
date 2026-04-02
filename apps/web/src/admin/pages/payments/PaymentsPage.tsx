@@ -6,7 +6,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function PaymentsPage({ api, session }: AdminPageProps) {
   const [fromDate, setFromDate] = useState(() => dateOnly(-30));
@@ -77,13 +77,7 @@ export default function PaymentsPage({ api, session }: AdminPageProps) {
   const rows = useMemo(() => toRecords(data), [data]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <PageLoader label="Loading payments..." />;
   }
 
   if (error) {
