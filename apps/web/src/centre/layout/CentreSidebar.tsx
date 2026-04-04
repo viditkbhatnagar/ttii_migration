@@ -66,25 +66,29 @@ function SidebarItem({
   );
 }
 
-export function CentreSidebar({ pathname, roleId, onNavigate }: CentreSidebarProps) {
-  const { sidebarCollapsed } = useCentreLayout();
+function SidebarContent({
+  pathname,
+  roleId,
+  collapsed,
+  onNavigate,
+}: {
+  pathname: string;
+  roleId: number;
+  collapsed: boolean;
+  onNavigate: (href: string) => void;
+}) {
   const navItems = useMemo(() => getCentreNavForRole(roleId), [roleId]);
   const activeItemId = findActiveCentreNavId(pathname);
   const portalLabel = roleId === 10 ? 'Associate' : 'Centre';
 
   return (
-    <aside
-      className={cn(
-        'flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
-        sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',
-      )}
-    >
+    <>
       {/* Brand */}
-      <div className={cn('flex items-center gap-3 border-b border-gray-200 px-4 py-4', sidebarCollapsed && 'justify-center px-2')}>
+      <div className={cn('flex items-center gap-3 border-b border-gray-200 px-4 py-4', collapsed && 'justify-center px-2')}>
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-blue-600 text-sm font-bold text-white">
           T
         </div>
-        {!sidebarCollapsed ? (
+        {!collapsed ? (
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-900">TTII</p>
             <p className="truncate text-[10px] text-gray-400">{portalLabel} Portal</p>
@@ -100,12 +104,37 @@ export function CentreSidebar({ pathname, roleId, onNavigate }: CentreSidebarPro
               key={item.id}
               item={item}
               isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
+              collapsed={collapsed}
               onNavigate={onNavigate}
             />
           ))}
         </nav>
       </ScrollArea>
+    </>
+  );
+}
+
+/** Desktop sidebar — hidden on mobile */
+export function CentreSidebar({ pathname, roleId, onNavigate }: CentreSidebarProps) {
+  const { sidebarCollapsed } = useCentreLayout();
+
+  return (
+    <aside
+      className={cn(
+        'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
+        sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',
+      )}
+    >
+      <SidebarContent pathname={pathname} roleId={roleId} collapsed={sidebarCollapsed} onNavigate={onNavigate} />
     </aside>
+  );
+}
+
+/** Mobile sidebar content — rendered inside a Sheet */
+export function CentreSidebarMobile({ pathname, roleId, onNavigate }: CentreSidebarProps) {
+  return (
+    <div className="flex h-full flex-col bg-white">
+      <SidebarContent pathname={pathname} roleId={roleId} collapsed={false} onNavigate={onNavigate} />
+    </div>
   );
 }

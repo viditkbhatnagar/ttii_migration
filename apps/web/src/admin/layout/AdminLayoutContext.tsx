@@ -3,9 +3,12 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 interface AdminLayoutState {
   sidebarCollapsed: boolean;
   expandedGroups: Set<string>;
+  mobileSidebarOpen: boolean;
   toggleSidebar: () => void;
   toggleGroup: (groupId: string) => void;
   expandGroup: (groupId: string) => void;
+  toggleMobileSidebar: () => void;
+  closeMobileSidebar: () => void;
 }
 
 const AdminLayoutCtx = createContext<AdminLayoutState | null>(null);
@@ -13,6 +16,7 @@ const AdminLayoutCtx = createContext<AdminLayoutState | null>(null);
 export function AdminLayoutProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setCollapsed((prev) => !prev);
@@ -39,9 +43,17 @@ export function AdminLayoutProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const toggleMobileSidebar = useCallback(() => {
+    setMobileOpen((prev) => !prev);
+  }, []);
+
+  const closeMobileSidebar = useCallback(() => {
+    setMobileOpen(false);
+  }, []);
+
   const value = useMemo(
-    () => ({ sidebarCollapsed: collapsed, expandedGroups, toggleSidebar, toggleGroup, expandGroup }),
-    [collapsed, expandedGroups, toggleSidebar, toggleGroup, expandGroup],
+    () => ({ sidebarCollapsed: collapsed, expandedGroups, mobileSidebarOpen: mobileOpen, toggleSidebar, toggleGroup, expandGroup, toggleMobileSidebar, closeMobileSidebar }),
+    [collapsed, expandedGroups, mobileOpen, toggleSidebar, toggleGroup, expandGroup, toggleMobileSidebar, closeMobileSidebar],
   );
 
   return <AdminLayoutCtx value={value}>{children}</AdminLayoutCtx>;

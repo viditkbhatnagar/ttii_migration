@@ -150,8 +150,18 @@ function SidebarGroup({
   );
 }
 
-export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps) {
-  const { sidebarCollapsed, expandedGroups, toggleGroup, expandGroup } = useAdminLayout();
+function SidebarContent({
+  pathname,
+  roleId,
+  collapsed,
+  onNavigate,
+}: {
+  pathname: string;
+  roleId: number;
+  collapsed: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  const { expandedGroups, toggleGroup, expandGroup } = useAdminLayout();
   const navTree = useMemo(() => getNavTreeForRole(roleId), [roleId]);
   const { groupId: activeGroupId, itemId: activeItemId } = findActiveNavIds(pathname);
 
@@ -162,18 +172,13 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
   }, [activeGroupId, expandGroup]);
 
   return (
-    <aside
-      className={cn(
-        'flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
-        sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',
-      )}
-    >
+    <>
       {/* Brand */}
-      <div className={cn('flex items-center gap-3 border-b border-gray-200 px-4 py-4', sidebarCollapsed && 'justify-center px-2')}>
+      <div className={cn('flex items-center gap-3 border-b border-gray-200 px-4 py-4', collapsed && 'justify-center px-2')}>
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-blue-600 text-sm font-bold text-white">
           T
         </div>
-        {!sidebarCollapsed ? (
+        {!collapsed ? (
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-900">TTII</p>
             <p className="truncate text-[10px] text-gray-400">Empower · Educate · Evolve</p>
@@ -190,7 +195,7 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
                 key={entry.id}
                 group={entry}
                 activeItemId={activeItemId}
-                collapsed={sidebarCollapsed}
+                collapsed={collapsed}
                 expanded={expandedGroups.has(entry.id)}
                 onToggle={() => toggleGroup(entry.id)}
                 onNavigate={onNavigate}
@@ -200,7 +205,7 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
                 key={entry.id}
                 item={entry}
                 isActive={entry.id === activeItemId}
-                collapsed={sidebarCollapsed}
+                collapsed={collapsed}
                 icon={entry.icon}
                 onNavigate={onNavigate}
               />
@@ -208,6 +213,31 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
           )}
         </nav>
       </ScrollArea>
+    </>
+  );
+}
+
+/** Desktop sidebar — hidden on mobile */
+export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps) {
+  const { sidebarCollapsed } = useAdminLayout();
+
+  return (
+    <aside
+      className={cn(
+        'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
+        sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',
+      )}
+    >
+      <SidebarContent pathname={pathname} roleId={roleId} collapsed={sidebarCollapsed} onNavigate={onNavigate} />
     </aside>
+  );
+}
+
+/** Mobile sidebar content — rendered inside a Sheet */
+export function AdminSidebarMobile({ pathname, roleId, onNavigate }: AdminSidebarProps) {
+  return (
+    <div className="flex h-full flex-col bg-white">
+      <SidebarContent pathname={pathname} roleId={roleId} collapsed={false} onNavigate={onNavigate} />
+    </div>
   );
 }

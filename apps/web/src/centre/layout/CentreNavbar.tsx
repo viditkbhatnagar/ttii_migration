@@ -1,4 +1,4 @@
-import { Bell, Maximize, Menu, Search } from 'lucide-react';
+import { Bell, Maximize, Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -16,7 +16,7 @@ interface CentreNavbarProps {
 }
 
 export function CentreNavbar({ roleLabel, onLogout }: CentreNavbarProps) {
-  const { toggleSidebar } = useCentreLayout();
+  const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar } = useCentreLayout();
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -30,14 +30,30 @@ export function CentreNavbar({ roleLabel, onLogout }: CentreNavbarProps) {
     <header className="flex h-navbar-height items-center justify-between border-b border-gray-200 bg-ttii-navbar px-4">
       {/* Left side */}
       <div className="flex items-center gap-3">
+        {/* Mobile menu toggle */}
         <Button
           variant="ghost"
           size="icon"
-          className="text-white hover:bg-white/10"
-          onClick={toggleSidebar}
+          className="md:hidden text-white hover:bg-white/10"
+          onClick={toggleMobileSidebar}
         >
           <Menu className="size-5" />
         </Button>
+
+        {/* Desktop sidebar toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden md:flex text-white hover:bg-white/10"
+          onClick={toggleSidebar}
+        >
+          {sidebarCollapsed ? (
+            <PanelLeftOpen className="size-5" />
+          ) : (
+            <PanelLeftClose className="size-5" />
+          )}
+        </Button>
+
         <div className="hidden items-center gap-2 rounded-md bg-white/10 px-3 py-1.5 sm:flex">
           <Search className="size-4 text-white/70" />
           <span className="text-sm text-white/70">Search...</span>
@@ -49,7 +65,7 @@ export function CentreNavbar({ roleLabel, onLogout }: CentreNavbarProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="text-white hover:bg-white/10"
+          className="hidden sm:flex text-white hover:bg-white/10"
           onClick={toggleFullscreen}
         >
           <Maximize className="size-4" />

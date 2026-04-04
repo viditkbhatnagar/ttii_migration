@@ -1,10 +1,12 @@
+import { useCallback } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
 import type { CentrePortalApi } from '../centre-portal-api.js';
-import { CentreLayoutProvider } from './CentreLayoutContext.js';
-import { CentreSidebar } from './CentreSidebar.js';
+import { CentreLayoutProvider, useCentreLayout } from './CentreLayoutContext.js';
+import { CentreSidebar, CentreSidebarMobile } from './CentreSidebar.js';
 import { CentreNavbar } from './CentreNavbar.js';
 import { CentreBreadcrumb } from './CentreBreadcrumb.js';
 import { CentreRouter } from '../routing/CentreRouter.js';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 interface CentreLayoutInnerProps {
   pathname: string;
@@ -15,18 +17,34 @@ interface CentreLayoutInnerProps {
 }
 
 function CentreLayoutInner({ pathname, session, api, onNavigate, onLogout }: CentreLayoutInnerProps) {
+  const { mobileSidebarOpen, closeMobileSidebar } = useCentreLayout();
   const roleLabel = session.roleId === 10 ? 'Associate' : 'Centre';
+
+  const handleNavigate = useCallback((href: string) => {
+    closeMobileSidebar();
+    onNavigate(href);
+  }, [closeMobileSidebar, onNavigate]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-ttii-page-bg">
-      <CentreSidebar pathname={pathname} roleId={session.roleId} onNavigate={onNavigate} />
+      {/* Desktop Sidebar */}
+      <CentreSidebar pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
+
+      {/* Mobile Sidebar (Sheet) */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
+        <SheetContent side="left" className="w-[280px] p-0 border-0" showCloseButton={false}>
+          <CentreSidebarMobile pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
+        </SheetContent>
+      </Sheet>
+
+      {/* Main Content */}
       <div className="flex min-h-screen flex-1 flex-col transition-all duration-200">
         <CentreNavbar roleLabel={roleLabel} onLogout={onLogout} />
-        <CentreBreadcrumb pathname={pathname} onNavigate={onNavigate} />
-        <main className="flex-1 overflow-y-auto px-6 pb-4">
-          <CentreRouter pathname={pathname} api={api} session={session} onNavigate={onNavigate} />
+        <CentreBreadcrumb pathname={pathname} onNavigate={handleNavigate} />
+        <main className="flex-1 overflow-y-auto px-4 pb-4 md:px-6">
+          <CentreRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
-        <footer className="border-t border-gray-200 px-6 py-3 text-center text-xs text-gray-400">
+        <footer className="border-t border-gray-200 px-4 py-3 text-center text-xs text-gray-400 md:px-6">
           2026 &copy; Teacher&apos;s Training Institute of India.
         </footer>
       </div>

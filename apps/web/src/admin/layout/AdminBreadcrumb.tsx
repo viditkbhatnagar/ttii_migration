@@ -28,7 +28,7 @@ export function AdminBreadcrumb({ pathname, onNavigate }: AdminBreadcrumbProps) 
   const crumbs = resolveBreadcrumb(pathname);
 
   return (
-    <div className="flex items-center gap-1.5 px-6 py-3 text-sm text-gray-500">
+    <div className="flex items-center gap-1.5 px-4 py-3 text-sm text-gray-500 md:px-6 overflow-x-auto">
       <button
         type="button"
         className="flex items-center gap-1 hover:text-gray-700"
