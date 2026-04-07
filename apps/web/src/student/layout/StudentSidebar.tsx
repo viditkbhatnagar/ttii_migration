@@ -133,7 +133,7 @@ export function StudentSidebar({ pathname, session, onNavigate, onLogout }: Stud
       </div>
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 py-6 px-3">
+      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
         <nav className="flex flex-col gap-1">
           {/* General Section */}
           {!sidebarCollapsed ? (
@@ -246,7 +246,7 @@ export function StudentSidebarMobile({ pathname, session, onNavigate, onLogout }
       </div>
 
       {/* Nav */}
-      <ScrollArea className="flex-1 py-6 px-3">
+      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
         <nav className="flex flex-col gap-1">
           <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
             General
