@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -30,31 +30,25 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
   // --- Filters ---
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [centreFilter, setCentreFilter] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [appliedStatus, setAppliedStatus] = useState('');
-  const [appliedCentre, setAppliedCentre] = useState('');
 
   // --- Add/Edit dialog ---
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
   const [editRow, setEditRow] = useState<Record<string, unknown> | null>(null);
   const [formName, setFormName] = useState('');
+  const [formGender, setFormGender] = useState('');
+  const [formDob, setFormDob] = useState('');
+  const [formNationality, setFormNationality] = useState('');
+  const [formLanguages, setFormLanguages] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formQualification, setFormQualification] = useState('');
+  const [formDoj, setFormDoj] = useState('');
+  const [formPassword, setFormPassword] = useState('');
   const [formStatus, setFormStatus] = useState('1');
   const [formSaving, setFormSaving] = useState(false);
-
-  const centreOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const row of allCounsellors) {
-      const c = row.centre_name;
-      if (c != null && String(c).trim()) set.add(String(c));
-    }
-    return Array.from(set)
-      .sort()
-      .map((v) => ({ label: v, value: v }));
-  }, [allCounsellors]);
 
   const filters: FilterField[] = useMemo(
     () => [
@@ -63,7 +57,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
         label: 'Search',
         type: 'text' as const,
         value: searchFilter,
-        placeholder: 'Search by name, email, phone...',
+        placeholder: 'Search by counsellor name, p…',
         onChange: setSearchFilter,
       },
       {
@@ -71,39 +65,27 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
         label: 'Status',
         type: 'select' as const,
         value: statusFilter,
-        placeholder: 'All Statuses',
+        placeholder: 'Select Status',
         options: [
           { label: 'Active', value: '1' },
           { label: 'Inactive', value: '0' },
         ],
         onChange: setStatusFilter,
       },
-      {
-        key: 'centre',
-        label: 'Centre',
-        type: 'select' as const,
-        value: centreFilter,
-        placeholder: 'All Centres',
-        options: centreOptions,
-        onChange: setCentreFilter,
-      },
     ],
-    [searchFilter, statusFilter, centreFilter, centreOptions],
+    [searchFilter, statusFilter],
   );
 
   const handleApplyFilters = useCallback(() => {
     setAppliedSearch(searchFilter);
     setAppliedStatus(statusFilter);
-    setAppliedCentre(centreFilter);
-  }, [searchFilter, statusFilter, centreFilter]);
+  }, [searchFilter, statusFilter]);
 
   const handleClearFilters = useCallback(() => {
     setSearchFilter('');
     setStatusFilter('');
-    setCentreFilter('');
     setAppliedSearch('');
     setAppliedStatus('');
-    setAppliedCentre('');
   }, []);
 
   const filteredCounsellors = useMemo(() => {
@@ -112,34 +94,20 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
       const q = appliedSearch.toLowerCase();
       rows = rows.filter(
         (r) =>
-          String(r.name ?? '').toLowerCase().includes(q) ||
-          String(r.user_email ?? '').toLowerCase().includes(q) ||
-          String(r.phone ?? '').toLowerCase().includes(q),
+          asString(r.name).toLowerCase().includes(q) ||
+          asString(r.user_email).toLowerCase().includes(q) ||
+          asString(r.phone).toLowerCase().includes(q),
       );
     }
     if (appliedStatus !== '') {
       const s = Number(appliedStatus);
       rows = rows.filter((r) => asNumber(r.status) === s);
     }
-    if (appliedCentre) {
-      rows = rows.filter((r) => String(r.centre_name) === appliedCentre);
-    }
     return rows;
-  }, [allCounsellors, appliedSearch, appliedStatus, appliedCentre]);
+  }, [allCounsellors, appliedSearch, appliedStatus]);
 
-  // --- Summary stats ---
   const activeCount = useMemo(
     () => allCounsellors.filter((row) => asNumber(row.status) === 1).length,
-    [allCounsellors],
-  );
-
-  const totalReferred = useMemo(
-    () => allCounsellors.reduce((sum, row) => sum + asNumber(row.applications_referred), 0),
-    [allCounsellors],
-  );
-
-  const totalConverted = useMemo(
-    () => allCounsellors.reduce((sum, row) => sum + asNumber(row.applications_converted), 0),
     [allCounsellors],
   );
 
@@ -161,22 +129,32 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
   );
 
   // --- Dialog handlers ---
+  const resetForm = useCallback(() => {
+    setFormName(''); setFormGender(''); setFormDob(''); setFormNationality('');
+    setFormLanguages(''); setFormEmail(''); setFormPhone(''); setFormQualification('');
+    setFormDoj(''); setFormPassword(''); setFormStatus('1');
+  }, []);
+
   const openAddDialog = useCallback(() => {
     setDialogMode('add');
     setEditRow(null);
-    setFormName('');
-    setFormEmail('');
-    setFormPhone('');
-    setFormStatus('1');
+    resetForm();
     setDialogOpen(true);
-  }, []);
+  }, [resetForm]);
 
   const openEditDialog = useCallback((row: Record<string, unknown>) => {
     setDialogMode('edit');
     setEditRow(row);
     setFormName(String(row.name ?? ''));
+    setFormGender(String(row.gender ?? ''));
+    setFormDob(String(row.dob ?? '').slice(0, 10));
+    setFormNationality(String(row.nationality ?? ''));
+    setFormLanguages(String(row.languages_spoken ?? ''));
     setFormEmail(String(row.user_email ?? ''));
     setFormPhone(String(row.phone ?? ''));
+    setFormQualification(String(row.highest_qualification ?? ''));
+    setFormDoj(String(row.doj ?? '').slice(0, 10));
+    setFormPassword('');
     setFormStatus(String(asNumber(row.status)));
     setDialogOpen(true);
   }, []);
@@ -184,19 +162,24 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
   const handleDialogSave = useCallback(async () => {
     setFormSaving(true);
     try {
+      const payload: Record<string, unknown> = {
+        name: formName,
+        gender: formGender,
+        dob: formDob,
+        nationality: formNationality,
+        languages_spoken: formLanguages,
+        email: formEmail,
+        phone: formPhone || undefined,
+        highest_qualification: formQualification,
+        doj: formDoj,
+        status: Number(formStatus),
+      };
+      if (formPassword) payload.password = formPassword;
+
       if (dialogMode === 'add') {
-        await api.addCounsellor(session.token, {
-          name: formName,
-          email: formEmail,
-          phone: formPhone || undefined,
-          status: Number(formStatus),
-        });
+        await api.addCounsellor(session.token, payload as Parameters<typeof api.addCounsellor>[1]);
       } else if (editRow) {
-        await api.editCounsellor(session.token, String(editRow.id ?? editRow._id ?? ''), {
-          name: formName,
-          phone: formPhone || undefined,
-          status: Number(formStatus),
-        });
+        await api.editCounsellor(session.token, String(editRow.id ?? editRow._id ?? ''), payload as Parameters<typeof api.editCounsellor>[2]);
       }
       setDialogOpen(false);
       reload();
@@ -207,7 +190,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
     } finally {
       setFormSaving(false);
     }
-  }, [api, session.token, dialogMode, editRow, formName, formEmail, formPhone, formStatus, reload]);
+  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formQualification, formDoj, formPassword, formStatus, reload]);
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
@@ -225,10 +208,25 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
 
   const actions: DataTableAction[] = useMemo(
     () => [
+      { label: 'View', onClick: (row) => openEditDialog(row) },
       { label: 'Edit', onClick: (row) => openEditDialog(row) },
       { label: 'Delete', onClick: (row) => handleDelete(row), variant: 'destructive' as const },
+      { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
+      {
+        label: 'Make Inactive',
+        onClick: async (row) => {
+          if (window.confirm('Make this counsellor inactive?')) {
+            try {
+              await api.editCounsellor(session.token, String(row.id ?? row._id ?? ''), { status: 0 } as Parameters<typeof api.editCounsellor>[2]);
+              reload();
+            } catch (err) {
+              alert(err instanceof Error ? err.message : 'Failed to update status');
+            }
+          }
+        },
+      },
     ],
-    [openEditDialog, handleDelete],
+    [openEditDialog, handleDelete, api, session.token, reload],
   );
 
   // --- Render ---
@@ -248,22 +246,20 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Counsellors Directory" addLabel="+ Add Counsellor" onAdd={openAddDialog} />
+      <AdminPageHeader title="Counsellors" addLabel="+ Create Counsellors" onAdd={openAddDialog} />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Counsellors', value: allCounsellors.length },
-          { label: 'Active', value: activeCount },
-          { label: 'Applications Referred', value: totalReferred },
-          { label: 'Conversions', value: totalConverted },
-        ].map((card) => (
-          <Card key={card.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{card.label}</p>
-              <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border-l-4 border-teal-500">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-10 items-center justify-center rounded-full bg-teal-100">
+              <svg className="size-5 text-teal-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" /></svg>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-500">ACTIVE COUNSELLORS</p>
+              <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <AdminFilterBar filters={filters} onApply={handleApplyFilters} onClear={handleClearFilters} />
@@ -272,63 +268,72 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
 
       {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{dialogMode === 'add' ? 'Add Counsellor' : 'Edit Counsellor'}</DialogTitle>
+            <DialogTitle>{dialogMode === 'add' ? 'Add counsellor' : 'Update counsellor Details'}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="form-name">Full Name</Label>
-              <Input
-                id="form-name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Full name"
-              />
+          <div className="grid gap-4 py-2 md:grid-cols-2">
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="c-name">Full Name *</Label>
+              <Input id="c-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-email">Email</Label>
-              <Input
-                id="form-email"
-                type="email"
-                value={formEmail}
-                onChange={(e) => setFormEmail(e.target.value)}
-                placeholder="Email address"
-                disabled={dialogMode === 'edit'}
-              />
+              <Label htmlFor="c-gender">Gender *</Label>
+              <select id="c-gender" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formGender} onChange={(e) => setFormGender(e.target.value)}>
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-phone">Phone</Label>
-              <Input
-                id="form-phone"
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                placeholder="Phone number"
-              />
+              <Label htmlFor="c-dob">Date of Birth *</Label>
+              <Input id="c-dob" type="date" value={formDob} onChange={(e) => setFormDob(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-status">Status</Label>
-              <select
-                id="form-status"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
-                value={formStatus}
-                onChange={(e) => setFormStatus(e.target.value)}
-              >
+              <Label htmlFor="c-nat">Nationality *</Label>
+              <Input id="c-nat" value={formNationality} onChange={(e) => setFormNationality(e.target.value)} placeholder="e.g. Indian" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="c-lang">Languages Spoken *</Label>
+              <Input id="c-lang" value={formLanguages} onChange={(e) => setFormLanguages(e.target.value)} placeholder="e.g. English, Hindi" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="c-phone">Phone Number *</Label>
+              <Input id="c-phone" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} placeholder="91 0000000000" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="c-qual">Highest Qualification *</Label>
+              <Input id="c-qual" value={formQualification} onChange={(e) => setFormQualification(e.target.value)} placeholder="e.g. Masters" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="c-doj">Date of Joining *</Label>
+              <Input id="c-doj" type="date" value={formDoj} onChange={(e) => setFormDoj(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="c-email">Email Address *</Label>
+              <Input id="c-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@example.com" disabled={dialogMode === 'edit'} />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="c-pwd">Password {dialogMode === 'add' ? '*' : '(leave empty to keep current)'}</Label>
+              <Input id="c-pwd" type="text" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} placeholder="Password" />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="c-status">Status *</Label>
+              <select id="c-status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formStatus} onChange={(e) => setFormStatus(e.target.value)}>
                 <option value="1">Active</option>
                 <option value="0">Inactive</option>
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
               onClick={handleDialogSave}
               disabled={formSaving || !formName.trim() || (dialogMode === 'add' && !formEmail.trim())}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              {formSaving ? 'Saving...' : dialogMode === 'add' ? 'Add Counsellor' : 'Save Changes'}
+              {formSaving ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

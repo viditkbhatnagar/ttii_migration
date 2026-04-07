@@ -38,8 +38,15 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
   const [editRow, setEditRow] = useState<Record<string, unknown> | null>(null);
   const [formName, setFormName] = useState('');
+  const [formGender, setFormGender] = useState('');
+  const [formDob, setFormDob] = useState('');
+  const [formNationality, setFormNationality] = useState('');
+  const [formLanguages, setFormLanguages] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formQualification, setFormQualification] = useState('');
+  const [formDoj, setFormDoj] = useState('');
+  const [formPassword, setFormPassword] = useState('');
   const [formStatus, setFormStatus] = useState('1');
   const [formSaving, setFormSaving] = useState(false);
 
@@ -105,16 +112,6 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     [allAssociates],
   );
 
-  const totalReferred = useMemo(
-    () => allAssociates.reduce((sum, row) => sum + asNumber(row.applications_referred), 0),
-    [allAssociates],
-  );
-
-  const totalConverted = useMemo(
-    () => allAssociates.reduce((sum, row) => sum + asNumber(row.applications_converted), 0),
-    [allAssociates],
-  );
-
   // --- Table columns ---
   const columns: DataTableColumn[] = useMemo(
     () => [
@@ -133,22 +130,32 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   );
 
   // --- Dialog handlers ---
+  const resetForm = useCallback(() => {
+    setFormName(''); setFormGender(''); setFormDob(''); setFormNationality('');
+    setFormLanguages(''); setFormEmail(''); setFormPhone(''); setFormQualification('');
+    setFormDoj(''); setFormPassword(''); setFormStatus('1');
+  }, []);
+
   const openAddDialog = useCallback(() => {
     setDialogMode('add');
     setEditRow(null);
-    setFormName('');
-    setFormEmail('');
-    setFormPhone('');
-    setFormStatus('1');
+    resetForm();
     setDialogOpen(true);
-  }, []);
+  }, [resetForm]);
 
   const openEditDialog = useCallback((row: Record<string, unknown>) => {
     setDialogMode('edit');
     setEditRow(row);
     setFormName(String(row.name ?? ''));
+    setFormGender(String(row.gender ?? ''));
+    setFormDob(String(row.dob ?? '').slice(0, 10));
+    setFormNationality(String(row.nationality ?? ''));
+    setFormLanguages(String(row.languages_spoken ?? ''));
     setFormEmail(String(row.user_email ?? ''));
     setFormPhone(String(row.phone ?? ''));
+    setFormQualification(String(row.highest_qualification ?? ''));
+    setFormDoj(String(row.doj ?? '').slice(0, 10));
+    setFormPassword('');
     setFormStatus(String(asNumber(row.status)));
     setDialogOpen(true);
   }, []);
@@ -156,19 +163,24 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const handleDialogSave = useCallback(async () => {
     setFormSaving(true);
     try {
+      const payload: Record<string, unknown> = {
+        name: formName,
+        gender: formGender,
+        dob: formDob,
+        nationality: formNationality,
+        languages_spoken: formLanguages,
+        email: formEmail,
+        phone: formPhone || undefined,
+        highest_qualification: formQualification,
+        doj: formDoj,
+        status: Number(formStatus),
+      };
+      if (formPassword) payload.password = formPassword;
+
       if (dialogMode === 'add') {
-        await api.addAssociate(session.token, {
-          name: formName,
-          email: formEmail,
-          phone: formPhone || undefined,
-          status: Number(formStatus),
-        });
+        await api.addAssociate(session.token, payload);
       } else if (editRow) {
-        await api.editAssociate(session.token, String(editRow.id ?? editRow._id ?? ''), {
-          name: formName,
-          phone: formPhone || undefined,
-          status: Number(formStatus),
-        });
+        await api.editAssociate(session.token, String(editRow.id ?? editRow._id ?? ''), payload);
       }
       setDialogOpen(false);
       reload();
@@ -179,7 +191,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     } finally {
       setFormSaving(false);
     }
-  }, [api, session.token, dialogMode, editRow, formName, formEmail, formPhone, formStatus, reload]);
+  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formQualification, formDoj, formPassword, formStatus, reload]);
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
@@ -197,10 +209,25 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
   const actions: DataTableAction[] = useMemo(
     () => [
+      { label: 'View', onClick: (row) => openEditDialog(row) },
       { label: 'Edit', onClick: (row) => openEditDialog(row) },
       { label: 'Delete', onClick: (row) => handleDelete(row), variant: 'destructive' as const },
+      { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
+      {
+        label: 'Make Inactive',
+        onClick: async (row) => {
+          if (window.confirm('Make this associate inactive?')) {
+            try {
+              await api.editAssociate(session.token, String(row.id ?? row._id ?? ''), { status: 0 });
+              reload();
+            } catch (err) {
+              alert(err instanceof Error ? err.message : 'Failed to update status');
+            }
+          }
+        },
+      },
     ],
-    [openEditDialog, handleDelete],
+    [openEditDialog, handleDelete, api, session.token, reload],
   );
 
   // --- Render ---
@@ -220,22 +247,20 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Associates Directory" addLabel="+ Add Associate" onAdd={openAddDialog} />
+      <AdminPageHeader title="Associates" addLabel="+ Create Associates" onAdd={openAddDialog} />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Associates', value: allAssociates.length },
-          { label: 'Active', value: activeCount },
-          { label: 'Applications Referred', value: totalReferred },
-          { label: 'Conversions', value: totalConverted },
-        ].map((card) => (
-          <Card key={card.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{card.label}</p>
-              <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border-l-4 border-teal-500">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-10 items-center justify-center rounded-full bg-teal-100">
+              <svg className="size-5 text-teal-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" /></svg>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-500">ACTIVE ASSOCIATES</p>
+              <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <AdminFilterBar filters={filters} onApply={handleApplyFilters} onClear={handleClearFilters} />
@@ -244,63 +269,72 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
       {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{dialogMode === 'add' ? 'Add Associate' : 'Edit Associate'}</DialogTitle>
+            <DialogTitle>{dialogMode === 'add' ? 'Add associate' : 'Update associate Details'}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="form-name">Full Name</Label>
-              <Input
-                id="form-name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Full name"
-              />
+          <div className="grid gap-4 py-2 md:grid-cols-2">
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="a-name">Full Name *</Label>
+              <Input id="a-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-email">Email</Label>
-              <Input
-                id="form-email"
-                type="email"
-                value={formEmail}
-                onChange={(e) => setFormEmail(e.target.value)}
-                placeholder="Email address"
-                disabled={dialogMode === 'edit'}
-              />
+              <Label htmlFor="a-gender">Gender *</Label>
+              <select id="a-gender" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formGender} onChange={(e) => setFormGender(e.target.value)}>
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-phone">Phone</Label>
-              <Input
-                id="form-phone"
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                placeholder="Phone number"
-              />
+              <Label htmlFor="a-dob">Date of Birth *</Label>
+              <Input id="a-dob" type="date" value={formDob} onChange={(e) => setFormDob(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="form-status">Status</Label>
-              <select
-                id="form-status"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
-                value={formStatus}
-                onChange={(e) => setFormStatus(e.target.value)}
-              >
+              <Label htmlFor="a-nat">Nationality *</Label>
+              <Input id="a-nat" value={formNationality} onChange={(e) => setFormNationality(e.target.value)} placeholder="e.g. Indian" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="a-lang">Languages Spoken *</Label>
+              <Input id="a-lang" value={formLanguages} onChange={(e) => setFormLanguages(e.target.value)} placeholder="e.g. English, Hindi" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="a-phone">Phone Number *</Label>
+              <Input id="a-phone" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} placeholder="91 0000000000" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="a-qual">Highest Qualification *</Label>
+              <Input id="a-qual" value={formQualification} onChange={(e) => setFormQualification(e.target.value)} placeholder="e.g. Masters" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="a-doj">Date of Joining *</Label>
+              <Input id="a-doj" type="date" value={formDoj} onChange={(e) => setFormDoj(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="a-email">Email Address *</Label>
+              <Input id="a-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@example.com" disabled={dialogMode === 'edit'} />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="a-pwd">Password {dialogMode === 'add' ? '*' : '(leave empty to keep current)'}</Label>
+              <Input id="a-pwd" type="text" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} placeholder="Password" />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label htmlFor="a-status">Status *</Label>
+              <select id="a-status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formStatus} onChange={(e) => setFormStatus(e.target.value)}>
                 <option value="1">Active</option>
                 <option value="0">Inactive</option>
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
               onClick={handleDialogSave}
               disabled={formSaving || !formName.trim() || (dialogMode === 'add' && !formEmail.trim())}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              {formSaving ? 'Saving...' : dialogMode === 'add' ? 'Add Associate' : 'Save Changes'}
+              {formSaving ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

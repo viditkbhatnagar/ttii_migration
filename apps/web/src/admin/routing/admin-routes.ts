@@ -21,6 +21,7 @@ const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage.js'));
 // Phase 2: Exam & Assessment pages
 const QuestionBankPage = lazy(() => import('../pages/question_bank/QuestionBankPage.js'));
 const ExamsPage = lazy(() => import('../pages/exam/ExamsPage.js'));
+const AddExamPage = lazy(() => import('../pages/exam/AddExamPage.js'));
 const AssignmentsPage = lazy(() => import('../pages/assignment/AssignmentsPage.js'));
 const ExamResultPage = lazy(() => import('../pages/exam_result/ExamResultPage.js'));
 const ExamEvaluationPage = lazy(() => import('../pages/exam_evaluation/ExamEvaluationPage.js'));
@@ -192,6 +193,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Exam
   { path: '/admin/exam/index', aliases: ['/admin/exam'], pageComponent: ExamsPage, title: 'Exams' },
+  { path: '/admin/exam/add', pageComponent: AddExamPage, title: 'Add Exam' },
+  { path: '/admin/exam/edit/:id', pageComponent: AddExamPage, title: 'Edit Exam' },
   { path: '/admin/Re_exam/index', pageComponent: ReExamPage, title: 'Re-Examination' },
   { path: '/admin/Exam_evaluation/index', pageComponent: ExamEvaluationPage, title: 'Evaluation' },
   { path: '/admin/Exam_result/index', pageComponent: ExamResultPage, title: 'Exam Result' },

@@ -21,12 +21,14 @@ interface FormState {
   description: string;
   thumbnail: string;
   is_free_course: string;
+  is_cohort_course: string;
+  is_public: string;
+  point: string;
   price: string;
   sale_price: string;
   features: string;
   label: string;
   status: string;
-  visibility: string;
 }
 
 const emptyForm: FormState = {
@@ -36,13 +38,15 @@ const emptyForm: FormState = {
   duration: '',
   description: '',
   thumbnail: '',
-  is_free_course: '1',
+  is_free_course: 'free',
+  is_cohort_course: 'cohort',
+  is_public: 'public',
+  point: '',
   price: '',
   sale_price: '',
   features: '',
   label: '',
-  status: 'active',
-  visibility: 'public',
+  status: 'draft',
 };
 
 export default function AddCoursePage({ api, session, onNavigate }: AdminPageProps) {
@@ -76,6 +80,8 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     if (!isEdit || !courseData) return;
     const c = courseData as Record<string, unknown>;
     const isFree = c.is_free_course === true || c.is_free_course === 1 || asString(c.is_free_course) === '1';
+    const isCohort = c.is_cohort_course === true || c.is_cohort_course === 1 || asString(c.is_cohort_course) === '1';
+    const isPublic = c.is_public === true || c.is_public === 1 || asString(c.is_public) === '1' || asString(c.visibility) === 'public';
     setForm({
       title: asString(c.title),
       short_name: asString(c.short_name),
@@ -83,13 +89,15 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       duration: asString(c.duration),
       description: asString(c.description),
       thumbnail: asString(c.thumbnail),
-      is_free_course: isFree ? '1' : '0',
+      is_free_course: isFree ? 'free' : 'paid',
+      is_cohort_course: isCohort ? 'cohort' : 'non_cohort',
+      is_public: isPublic ? 'public' : 'private',
+      point: asString(c.point),
       price: asString(c.price),
       sale_price: asString(c.sale_price),
       features: asString(c.features),
       label: asString(c.label),
-      status: asString(c.status) || 'active',
-      visibility: asString(c.visibility) || 'public',
+      status: asString(c.status) || 'draft',
     });
   }, [isEdit, courseData]);
 
@@ -112,13 +120,16 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         duration: form.duration.trim(),
         description: form.description.trim(),
         thumbnail: form.thumbnail.trim(),
-        is_free_course: form.is_free_course === '1',
-        price: form.is_free_course === '0' && form.price ? Number(form.price) : null,
-        sale_price: form.is_free_course === '0' && form.sale_price ? Number(form.sale_price) : null,
+        is_free_course: form.is_free_course === 'free',
+        is_cohort_course: form.is_cohort_course === 'cohort',
+        is_public: form.is_public === 'public',
+        point: form.point ? Number(form.point) : 0,
+        price: form.is_free_course === 'paid' && form.price ? Number(form.price) : null,
+        sale_price: form.is_free_course === 'paid' && form.sale_price ? Number(form.sale_price) : null,
         features: form.features.trim(),
         label: form.label.trim(),
         status: form.status,
-        visibility: form.visibility,
+        visibility: form.is_public,
       };
 
       if (isEdit) {
@@ -169,73 +180,80 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               <Input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Enter course title" />
             </div>
             <div className="grid gap-2">
-              <Label>Short Name</Label>
-              <Input value={form.short_name} onChange={(e) => set('short_name', e.target.value)} placeholder="e.g. B.Ed, D.El.Ed" />
+              <Label>Course Short Name *</Label>
+              <Input value={form.short_name} onChange={(e) => set('short_name', e.target.value)} placeholder="e.g. PGDM" />
             </div>
             <div className="grid gap-2">
-              <Label>Category</Label>
+              <Label>Course Category *</Label>
               <select className={selectClass} value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
-                <option value="">Select Category</option>
+                <option value="">Choose Category</option>
                 {categoryList.map((cat) => (
                   <option key={asString(cat.id)} value={asString(cat.id)}>{asString(cat.name)}</option>
                 ))}
               </select>
             </div>
             <div className="grid gap-2">
-              <Label>Duration</Label>
-              <Input value={form.duration} onChange={(e) => set('duration', e.target.value)} placeholder="e.g. 6 months, 2 years" />
+              <Label>Course duration *</Label>
+              <Input value={form.duration} onChange={(e) => set('duration', e.target.value)} placeholder="e.g. 1 Year" />
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Description</Label>
+              <Label>Course Description</Label>
               <textarea
                 className={textareaClass}
                 value={form.description}
                 onChange={(e) => set('description', e.target.value)}
                 placeholder="Enter course description"
               />
+              <p className="text-xs text-gray-500">Rich text description (supports HTML)</p>
             </div>
-            <div className="grid gap-2">
-              <Label>Thumbnail</Label>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Who should enrol (points per line)</Label>
+              <textarea
+                className={textareaClass}
+                value={form.features}
+                onChange={(e) => set('features', e.target.value)}
+                placeholder="Enter one bullet point per line"
+              />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Course Thumbnail</Label>
               <FileUpload
                 value={form.thumbnail}
                 onChange={(url) => set('thumbnail', url)}
                 onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
                 accept="image/*"
-                placeholder="Upload image or enter URL"
+                placeholder="Upload thumbnail image"
               />
-            </div>
-            <div className="grid gap-2">
-              <Label>Label</Label>
-              <Input value={form.label} onChange={(e) => set('label', e.target.value)} placeholder="Enter label" />
+              <p className="text-xs text-gray-500">Image Aspect ratio should be 1200x628 – Max File size 100KB</p>
             </div>
           </div>
 
           {/* Pricing */}
           <div className="space-y-3">
-            <Label className="text-sm font-medium">Pricing</Label>
+            <Label className="text-sm font-medium">Pricing *</Label>
             <div className="flex items-center gap-6">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="radio"
                   name="is_free_course"
-                  value="1"
-                  checked={form.is_free_course === '1'}
-                  onChange={() => set('is_free_course', '1')}
+                  value="free"
+                  checked={form.is_free_course === 'free'}
+                  onChange={() => set('is_free_course', 'free')}
                 />
-                Free
+                Free Course
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="radio"
                   name="is_free_course"
-                  value="0"
-                  checked={form.is_free_course === '0'}
-                  onChange={() => set('is_free_course', '0')}
+                  value="paid"
+                  checked={form.is_free_course === 'paid'}
+                  onChange={() => set('is_free_course', 'paid')}
                 />
-                Paid
+                Paid Course
               </label>
             </div>
-            {form.is_free_course === '0' && (
+            {form.is_free_course === 'paid' && (
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="grid gap-2">
                   <Label>Price</Label>
@@ -249,32 +267,78 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
             )}
           </div>
 
-          {/* Features */}
-          <div className="grid gap-2">
-            <Label>Features / Who Should Enrol</Label>
-            <textarea
-              className={textareaClass}
-              value={form.features}
-              onChange={(e) => set('features', e.target.value)}
-              placeholder="Enter course features or eligibility details"
-            />
+          {/* Course Type */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Course Type *</Label>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="is_cohort_course"
+                  value="cohort"
+                  checked={form.is_cohort_course === 'cohort'}
+                  onChange={() => set('is_cohort_course', 'cohort')}
+                />
+                Cohort Course
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="is_cohort_course"
+                  value="non_cohort"
+                  checked={form.is_cohort_course === 'non_cohort'}
+                  onChange={() => set('is_cohort_course', 'non_cohort')}
+                />
+                Non Cohort Course
+              </label>
+            </div>
           </div>
 
-          {/* Status & Visibility */}
+          {/* Publish Type */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Publish Type *</Label>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="is_public"
+                  value="public"
+                  checked={form.is_public === 'public'}
+                  onChange={() => set('is_public', 'public')}
+                />
+                Public
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="is_public"
+                  value="private"
+                  checked={form.is_public === 'private'}
+                  onChange={() => set('is_public', 'private')}
+                />
+                Private
+              </label>
+            </div>
+          </div>
+
+          {/* Referral Point + Status */}
           <div className="grid gap-4 md:grid-cols-2 md:max-w-lg">
+            <div className="grid gap-2">
+              <Label>Referral Point *</Label>
+              <Input
+                type="number"
+                min="0"
+                value={form.point}
+                onChange={(e) => set('point', e.target.value)}
+                placeholder="0"
+              />
+            </div>
             <div className="grid gap-2">
               <Label>Status</Label>
               <select className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
                 <option value="draft">Draft</option>
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Visibility</Label>
-              <select className={selectClass} value={form.visibility} onChange={(e) => set('visibility', e.target.value)}>
-                <option value="public">Public</option>
-                <option value="private">Private</option>
+                <option value="published">Published</option>
+                <option value="archived">Archived</option>
               </select>
             </div>
           </div>

@@ -7,33 +7,32 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 
 export default function FeeInstallmentsPage({ api, session, onNavigate }: AdminPageProps) {
+  const [studentFilter, setStudentFilter] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
-  const [centreFilter, setCentreFilter] = useState('');
-  const [searchText, setSearchText] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [centres, setCentres] = useState<Record<string, unknown>[]>([]);
+  const [students, setStudents] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
     Promise.all([
       api.loadCourses(session.token),
-      api.loadCentres(session.token),
-    ]).then(([c, ct]) => { setCourses(c); setCentres(ct); }).catch(() => {});
+      api.loadStudents(session.token, {}),
+    ]).then(([c, s]) => { setCourses(c); setStudents(s); }).catch(() => {});
   }, [api, session.token]);
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadFeeInstallments(session.token, {
       ...(courseFilter ? { courseId: courseFilter } : {}),
       ...(activeTab !== 'all' ? { status: activeTab } : {}),
-      ...(searchText ? { search: searchText } : {}),
-      ...(centreFilter ? { centreId: centreFilter } : {}),
+      ...(studentFilter ? { studentId: studentFilter } : {}),
+      ...(paymentStatusFilter ? { paymentStatus: paymentStatusFilter } : {}),
     }),
-    [courseFilter, activeTab, searchText, centreFilter],
+    [courseFilter, activeTab, studentFilter, paymentStatusFilter],
   );
 
   const counts = useMemo(() => data?.counts ?? { fully_added: 0, partially_added: 0, not_added: 0 }, [data]);
@@ -53,57 +52,62 @@ export default function FeeInstallmentsPage({ api, session, onNavigate }: AdminP
 
   const filters: FilterField[] = useMemo(() => [
     {
-      key: 'search',
-      label: 'Search',
-      type: 'text' as const,
-      value: searchText,
-      placeholder: 'Student Name / ID...',
-      onChange: setSearchText,
+      key: 'student',
+      label: 'Student',
+      type: 'select' as const,
+      value: studentFilter,
+      placeholder: 'Select any student',
+      options: students.map((s) => ({
+        label: asString(s.name) || asString(s.student_name) || 'Unknown',
+        value: asString(s._id) || asString(s.id),
+      })),
+      onChange: setStudentFilter,
     },
     {
       key: 'course',
       label: 'Course',
       type: 'select' as const,
       value: courseFilter,
-      placeholder: 'All Courses',
+      placeholder: 'Select any course',
       options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
-      key: 'centre',
-      label: 'Centre',
+      key: 'paymentStatus',
+      label: 'Payment Status',
       type: 'select' as const,
-      value: centreFilter,
-      placeholder: 'All Centres',
-      options: centres.map((c) => ({ label: asString(c.centre_name), value: asString(c.id) })),
-      onChange: setCentreFilter,
+      value: paymentStatusFilter,
+      placeholder: 'Select Status',
+      options: [
+        { label: 'Pending', value: 'pending' },
+        { label: 'Paid', value: 'paid' },
+      ],
+      onChange: setPaymentStatusFilter,
     },
-  ], [searchText, courseFilter, centreFilter, courses, centres]);
-
-  const STATUS_LABEL: Record<string, string> = {
-    fully_added: 'Fully Added',
-    partially_added: 'Partially Added',
-    not_added: 'Not Added',
-  };
+  ], [studentFilter, courseFilter, paymentStatusFilter, courses, students]);
 
   const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'student_name', label: 'Student', sortable: true },
-    { key: 'student_id', label: 'Student ID' },
-    { key: 'enrollment_id', label: 'Enrollment ID' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'course_title', label: 'Course' },
-    { key: 'total_fee', label: 'Total Fee', render: (v) => formatCurrency(v) },
-    { key: 'installments_added', label: 'Installments Added' },
+    { key: 'student_id', label: 'Student ID', sortable: true, render: (v) => asString(v) || '-' },
+    { key: 'student_name', label: 'Name', sortable: true, render: (v) => asString(v) || '-' },
+    { key: 'installment_details', label: 'Installment Details', sortable: true, render: (v) => asString(v) || '-' },
     {
-      key: 'fee_plan_status',
-      label: 'Status',
+      key: 'course_title',
+      label: 'Enrolled Course(s)',
+      sortable: true,
       render: (v) => {
-        const raw = asString(v);
-        const label = STATUS_LABEL[raw] ?? raw;
-        const variant = raw === 'fully_added' ? 'active' : raw === 'partially_added' ? 'pending' : 'inactive';
-        return <AdminStatusBadge status={variant} className="capitalize" />;
+        const text = asString(v);
+        if (!text) return '-';
+        // Display as bullet list if multiple
+        const items = text.split(',').map((s) => s.trim()).filter(Boolean);
+        if (items.length <= 1) return text;
+        return (
+          <ul className="list-disc list-inside text-xs">
+            {items.map((it, i) => <li key={i}>{it}</li>)}
+          </ul>
+        );
       },
     },
+    { key: 'total_fee', label: 'Total Courses Fee', sortable: true, render: (v) => formatCurrency(v) },
     {
       key: '_action',
       label: 'Action',
@@ -111,13 +115,13 @@ export default function FeeInstallmentsPage({ api, session, onNavigate }: AdminP
         <Button
           variant="outline"
           size="sm"
+          className="rounded-full"
           onClick={() => {
-            const userId = asString(row?.user_id);
-            const courseId = asString(row?.course_id);
-            onNavigate(`/admin/fee_management/payment_status?course_id=${courseId}&search=${asString(row?.student_name)}`);
+            const studentCourseId = asString(row?.student_course_id) || asString(row?.id);
+            onNavigate(`/admin/fee_management/manage_installmets/${studentCourseId}`);
           }}
         >
-          View Plan
+          View Installments
         </Button>
       ),
     },
@@ -139,40 +143,13 @@ export default function FeeInstallmentsPage({ api, session, onNavigate }: AdminP
     <div className="space-y-4">
       <AdminPageHeader title="Fee Installments" />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-xs text-gray-500">Total Students</p>
-            <p className="text-2xl font-semibold">{totalCount}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-green-500">
-          <CardContent className="pt-4">
-            <p className="text-xs text-green-600">Fully Added</p>
-            <p className="text-2xl font-semibold text-green-700">{asNumber(counts.fully_added)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-orange-500">
-          <CardContent className="pt-4">
-            <p className="text-xs text-orange-600">Partially Added</p>
-            <p className="text-2xl font-semibold text-orange-700">{asNumber(counts.partially_added)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-gray-400">
-          <CardContent className="pt-4">
-            <p className="text-xs text-gray-500">Not Added</p>
-            <p className="text-2xl font-semibold text-gray-700">{asNumber(counts.not_added)}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
-
       <AdminFilterBar
         filters={filters}
         onApply={() => {}}
-        onClear={() => { setCourseFilter(''); setCentreFilter(''); setSearchText(''); }}
+        onClear={() => { setCourseFilter(''); setStudentFilter(''); setPaymentStatusFilter(''); }}
       />
+
+      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
       <AdminDataTable columns={columns} rows={allItems} searchable exportable />
     </div>

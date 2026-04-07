@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -16,13 +16,23 @@ interface InstructorForm {
   name: string;
   email: string;
   phone: string;
+  whatsapp_phone: string;
+  qualification: string;
+  password: string;
   bio: string;
   status: number;
 }
 
-const emptyForm: InstructorForm = { name: '', email: '', phone: '', bio: '', status: 1 };
+const emptyForm: InstructorForm = { name: '', email: '', phone: '', whatsapp_phone: '', qualification: '', password: '', bio: '', status: 1 };
 
-export default function InstructorsPage({ api, session }: AdminPageProps) {
+function generatePassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+  let p = '';
+  for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
+  return p;
+}
+
+export default function InstructorsPage({ api, session, onNavigate }: AdminPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadInstructors(session.token),
     [],
@@ -34,16 +44,6 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
   const [saving, setSaving] = useState(false);
 
   const allInstructors = useMemo(() => toRecords(data), [data]);
-
-  const activeCount = useMemo(
-    () => allInstructors.filter((row) => asNumber(row.status) === 1).length,
-    [allInstructors],
-  );
-
-  const inactiveCount = useMemo(
-    () => allInstructors.filter((row) => asNumber(row.status) !== 1).length,
-    [allInstructors],
-  );
 
   const openAdd = useCallback(() => {
     setEditingId(null);
@@ -57,7 +57,10 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
       name: asString(row.name),
       email: asString(row.user_email),
       phone: asString(row.phone),
-      bio: asString(row.bio || row.description),
+      whatsapp_phone: asString(row.whatsapp_phone),
+      qualification: asString(row.qualification),
+      password: '',
+      bio: asString(row.biography || row.bio || row.description),
       status: asNumber(row.status),
     });
     setDialogOpen(true);
@@ -82,6 +85,9 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
+        whatsapp_phone: form.whatsapp_phone.trim() || undefined,
+        qualification: form.qualification.trim() || undefined,
+        password: form.password.trim() || undefined,
         bio: form.bio.trim() || undefined,
         status: form.status,
       };
@@ -101,11 +107,30 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
 
   const columns: DataTableColumn[] = useMemo(
     () => [
-      { key: 'name', label: 'Name', sortable: true },
-      { key: 'phone', label: 'Phone' },
-      { key: 'user_email', label: 'Email' },
-      { key: 'verification_code', label: 'OTP' },
-      { key: 'assigned_courses', label: 'Enrolled Courses' },
+      { key: 'name', label: 'Name', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'phone', label: 'Phone', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'user_email', label: 'Email', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'verification_code', label: 'OTP', sortable: true, render: (v) => asString(v) || '-' },
+      {
+        key: 'assigned_courses',
+        label: 'Course',
+        sortable: true,
+        render: (_v, row) => (
+          <button
+            type="button"
+            className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200"
+            onClick={() => onNavigate('/admin/course/index?instructor=' + asString(row?._id || row?.id))}
+          >
+            Enrolled Courses
+          </button>
+        ),
+      },
+      {
+        key: 'students_count',
+        label: 'Students',
+        sortable: true,
+        render: (v) => String(asNumber(v) || 0),
+      },
       {
         key: 'status',
         label: 'Status',
@@ -113,21 +138,22 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
           <AdminStatusBadge status={asNumber(v) === 1 ? 'Active' : 'Inactive'} />
         ),
       },
-      { key: 'created_at', label: 'Joined', render: (v) => formatDate(v) },
     ],
-    [],
+    [onNavigate],
   );
 
   const actions: DataTableAction[] = useMemo(
     () => [
+      { label: 'View', onClick: (row) => openEdit(row) },
+      { label: 'Edit', onClick: (row) => openEdit(row) },
+      { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
       {
-        label: 'Edit',
-        onClick: (row) => openEdit(row),
-      },
-      {
-        label: 'Delete',
-        variant: 'destructive',
-        onClick: (row) => { void handleDelete(row); },
+        label: 'Change Device',
+        onClick: (row) => {
+          if (window.confirm('Reset device binding for this instructor?')) {
+            window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
+          }
+        },
       },
     ],
     [openEdit, handleDelete],
@@ -149,23 +175,7 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Instructors Directory" addLabel="+ Add Instructor" onAdd={openAdd} />
-
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Instructors', value: allInstructors.length },
-          { label: 'Active', value: activeCount },
-          { label: 'Inactive', value: inactiveCount },
-        ].map((card) => (
-          <Card key={card.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{card.label}</p>
-              <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
+      <AdminPageHeader title="Instructors" addLabel="+ Add Instructor" onAdd={openAdd} />
       <AdminDataTable columns={columns} rows={allInstructors} actions={actions} />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -174,47 +184,89 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
             <DialogTitle>{editingId ? 'Edit Instructor' : 'Add Instructor'}</DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
+          <div className="grid gap-4 py-2 max-h-[70vh] overflow-y-auto">
             <div className="grid gap-2">
-              <Label htmlFor="inst-name">Full Name</Label>
+              <Label htmlFor="inst-name">Name *</Label>
               <Input
                 id="inst-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Enter full name"
+                placeholder="Name"
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="inst-phone">Phone *</Label>
+                <Input
+                  id="inst-phone"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="91 0000000000"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="inst-whatsapp">Whatsapp *</Label>
+                <Input
+                  id="inst-whatsapp"
+                  value={form.whatsapp_phone}
+                  onChange={(e) => setForm((f) => ({ ...f, whatsapp_phone: e.target.value }))}
+                  placeholder="91 0000000000"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="inst-qual">Highest Qualification *</Label>
+              <Input
+                id="inst-qual"
+                value={form.qualification}
+                onChange={(e) => setForm((f) => ({ ...f, qualification: e.target.value }))}
+                placeholder="e.g. Masters"
               />
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="inst-email">Email</Label>
+              <Label htmlFor="inst-email">Email *</Label>
               <Input
                 id="inst-email"
                 type="email"
                 value={form.email}
                 disabled={!!editingId}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="Enter email address"
+                placeholder="email@example.com"
               />
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="inst-phone">Phone</Label>
-              <Input
-                id="inst-phone"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="Enter phone number"
-              />
+              <Label htmlFor="inst-pwd">Password (Without Space) {!editingId ? '*' : '(leave empty to keep current)'}</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="inst-pwd"
+                  type="text"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value.replace(/\s/g, '') }))}
+                  placeholder="Password"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setForm((f) => ({ ...f, password: generatePassword() }))}
+                >
+                  Generate
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="inst-bio">Bio / Description</Label>
+              <Label htmlFor="inst-bio">Biography *</Label>
               <textarea
                 id="inst-bio"
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={form.bio}
                 onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
-                placeholder="Enter bio or description"
+                placeholder="Enter biography (supports HTML)"
               />
             </div>
 
@@ -222,7 +274,7 @@ export default function InstructorsPage({ api, session }: AdminPageProps) {
               <Label htmlFor="inst-status">Status</Label>
               <select
                 id="inst-status"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: Number(e.target.value) }))}
               >

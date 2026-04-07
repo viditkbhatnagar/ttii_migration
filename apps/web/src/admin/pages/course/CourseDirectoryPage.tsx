@@ -1,21 +1,28 @@
 import { useMemo, useState } from 'react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { toRecords, asString, formatCurrency } from '../../shared/utils/admin-data-utils.js';
+import { toRecords, asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/page-loader';
 
 export default function CourseDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
+  const [statusFilter, setStatusFilter] = useState('');
+
   const { data, loading, error, reload } = useAdminPageData(
     () => api.listCoursesAdmin(session.token),
     [session.token],
   );
 
-  const [archiving, setArchiving] = useState<string | null>(null);
+  const allRows = useMemo(() => toRecords(data), [data]);
+
+  const filteredRows = useMemo(() => {
+    if (!statusFilter) return allRows;
+    return allRows.filter((r) => asString(r.status).toLowerCase() === statusFilter);
+  }, [allRows, statusFilter]);
 
   const columns: DataTableColumn[] = useMemo(
     () => [
@@ -33,60 +40,55 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
           </button>
         ),
       },
-      { key: 'category_name', label: 'Category', sortable: true },
+      { key: 'category_name', label: 'Category', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'subject_count', label: 'Subjects', sortable: true, render: (v) => String(Number(v) || 0) },
+      { key: 'enrolled_students', label: 'Enrolled Students', sortable: true, render: (v) => String(Number(v) || 0) },
       {
         key: 'status',
         label: 'Status',
-        render: (value) => <AdminStatusBadge status={asString(value)} />,
+        sortable: true,
+        render: (value) => <AdminStatusBadge status={asString(value) || 'draft'} />,
       },
-      {
-        key: 'visibility',
-        label: 'Visibility',
-        render: (value) => (
-          <Badge variant={asString(value) === 'private' ? 'secondary' : 'default'}>
-            {asString(value) === 'private' ? 'Private' : 'Public'}
-          </Badge>
-        ),
-      },
-      {
-        key: 'price',
-        label: 'Price',
-        render: (value, row) =>
-          Number(row.is_free_course) === 1 ? 'Free' : formatCurrency(value),
-      },
-      { key: 'duration', label: 'Duration' },
-      { key: 'subject_count', label: 'Subjects', sortable: true },
-      { key: 'enrolled_students', label: 'Enrolled', sortable: true },
     ],
     [onNavigate],
   );
 
-  const rows = useMemo(() => toRecords(data), [data]);
+  const filters: FilterField[] = useMemo(
+    () => [
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'select' as const,
+        value: statusFilter,
+        placeholder: 'All',
+        options: [
+          { label: 'Draft', value: 'draft' },
+          { label: 'Published', value: 'published' },
+          { label: 'Archived', value: 'archived' },
+        ],
+        onChange: setStatusFilter,
+      },
+    ],
+    [statusFilter],
+  );
 
   const actions: DataTableAction[] = useMemo(
     () => [
       {
         label: 'Edit',
-        onClick: (row) => onNavigate(`/admin/course/edit/${asString(row.id)}`),
+        onClick: (row) => onNavigate(`/admin/course/add/${asString(row.id)}`),
       },
       {
-        label: 'Subjects',
-        onClick: (row) => onNavigate(`/admin/course/subjects/${asString(row.id)}`),
-      },
-      {
-        label: 'Archive',
+        label: 'Archive Course',
         variant: 'destructive',
         onClick: async (row) => {
           const id = asString(row.id);
           if (!window.confirm(`Archive course "${asString(row.title)}"?`)) return;
-          setArchiving(id);
           try {
             await api.archiveCourse(session.token, id);
             reload();
-          } catch {
-            // silently fail
-          } finally {
-            setArchiving(null);
+          } catch (err) {
+            alert(err instanceof Error ? err.message : 'Failed to archive course');
           }
         },
       },
@@ -94,16 +96,12 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
     [api, session.token, onNavigate, reload],
   );
 
-  if (loading) {
-    return <PageLoader label="Loading course directory..." />;
-  }
+  if (loading) return <PageLoader label="Loading course directory..." />;
 
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
-          {error}
-        </CardContent>
+        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
@@ -115,14 +113,8 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
         addLabel="+ Create Course"
         onAdd={() => onNavigate('/admin/course/add')}
       />
-      <AdminDataTable
-        columns={columns}
-        rows={rows}
-        actions={actions}
-      />
-      {archiving ? (
-        <div className="text-center text-sm text-gray-500">Archiving...</div>
-      ) : null}
+      <AdminFilterBar filters={filters} onApply={() => {}} onClear={() => setStatusFilter('')} />
+      <AdminDataTable columns={columns} rows={filteredRows} actions={actions} />
     </div>
   );
 }

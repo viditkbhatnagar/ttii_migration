@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 
 const INDIAN_STATES = [
@@ -19,10 +19,7 @@ const INDIAN_STATES = [
   'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
 ];
 
-const CENTRE_TYPES = ['Study Centre', 'Exam Centre', 'Training Centre'];
-const RECOGNITION_STATUSES = ['Recognized', 'Pending', 'Expired'];
-
-const SECTION_LABELS = ['Basic Info', 'Contact Info', 'Affiliation Info', 'Course Plans'];
+const SECTION_LABELS = ['Basic Centre Information', 'Contact Information', 'Affiliation Information', 'Login Credentials'];
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
@@ -86,12 +83,6 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
     () => (isEdit && centreId ? api.getCentre(session.token, centreId) : Promise.resolve(null)),
     [isEdit, centreId],
   );
-
-  const coursePlans = useMemo(() => {
-    if (!centreData) return [];
-    const raw = centreData.course_plans ?? centreData.coursePlans;
-    return toRecords(raw);
-  }, [centreData]);
 
   // Pre-fill form in edit mode
   useEffect(() => {
@@ -229,31 +220,42 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
 
       <Card>
         <CardContent className="pt-6">
-          {/* Section 1: Basic Info */}
+          {/* Section 1: Basic Centre Information */}
           {activeSection === 0 && (
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Centre ID *</Label>
+                <Input value={form.centreCode} onChange={(e) => set('centreCode', e.target.value)} placeholder="Auto-generated" />
+              </div>
               <div className="grid gap-2">
                 <Label>Centre Name *</Label>
                 <Input value={form.centreName} onChange={(e) => set('centreName', e.target.value)} placeholder="Enter centre name" />
               </div>
               <div className="grid gap-2">
-                <Label>Centre Code *</Label>
-                <Input value={form.centreCode} onChange={(e) => set('centreCode', e.target.value)} placeholder="Enter centre code" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Centre Type</Label>
-                <select className={selectClass} value={form.centreType} onChange={(e) => set('centreType', e.target.value)}>
-                  <option value="">Select Type</option>
-                  {CENTRE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                <Label>Country *</Label>
+                <select className={selectClass} value={form.countryCode} onChange={(e) => set('countryCode', e.target.value)}>
+                  <option value="">Select Country</option>
+                  <option value="IN">INDIA</option>
+                  <option value="US">UNITED STATES</option>
+                  <option value="FI">FINLAND</option>
+                  <option value="FR">FRANCE</option>
+                  <option value="DE">GERMANY</option>
+                  <option value="AU">AUSTRALIA</option>
+                  <option value="IE">IRELAND</option>
+                  <option value="IT">ITALY</option>
+                  <option value="KW">KUWAIT</option>
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Established Date</Label>
-                <Input type="date" value={form.establishedDate} onChange={(e) => set('establishedDate', e.target.value)} />
+                <Label>State *</Label>
+                <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
+                  <option value="">Select State</option>
+                  {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
               <div className="grid gap-2">
-                <Label>Centre Logo (URL)</Label>
-                <Input value={form.logo} onChange={(e) => set('logo', e.target.value)} placeholder="Enter logo URL" />
+                <Label>District *</Label>
+                <Input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Enter district" />
               </div>
               <div className="grid gap-2">
                 <Label>Status</Label>
@@ -263,30 +265,14 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
                 </select>
               </div>
               <div className="grid gap-2 md:col-span-2">
-                <Label>Description</Label>
+                <Label>Address *</Label>
                 <textarea
                   className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={form.description}
-                  onChange={(e) => set('description', e.target.value)}
-                  placeholder="Enter centre description"
+                  value={form.addressLine1}
+                  onChange={(e) => set('addressLine1', e.target.value)}
+                  placeholder="Enter full address"
                 />
               </div>
-              {!isEdit && (
-                <>
-                  <div className="grid gap-2">
-                    <Label>Registration Date</Label>
-                    <Input type="date" value={form.registrationDate} onChange={(e) => set('registrationDate', e.target.value)} />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Expiry Date</Label>
-                    <Input type="date" value={form.expiryDate} onChange={(e) => set('expiryDate', e.target.value)} />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Password</Label>
-                    <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Enter password" />
-                  </div>
-                </>
-              )}
             </div>
           )}
 
@@ -335,62 +321,41 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
             </div>
           )}
 
-          {/* Section 3: Affiliation Info */}
+          {/* Section 3: Affiliation Information */}
           {activeSection === 2 && (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Affiliation Number</Label>
-                <Input value={form.affiliationNumber} onChange={(e) => set('affiliationNumber', e.target.value)} placeholder="Enter affiliation number" />
+                <Label>Date of Registration *</Label>
+                <Input type="date" value={form.registrationDate} onChange={(e) => set('registrationDate', e.target.value)} />
               </div>
               <div className="grid gap-2">
-                <Label>Affiliation Date</Label>
-                <Input type="date" value={form.affiliationDate} onChange={(e) => set('affiliationDate', e.target.value)} />
+                <Label>Date of Expiry *</Label>
+                <Input type="date" value={form.expiryDate} onChange={(e) => set('expiryDate', e.target.value)} />
               </div>
               <div className="grid gap-2">
-                <Label>Affiliation Document (URL)</Label>
-                <Input value={form.affiliationDocument} onChange={(e) => set('affiliationDocument', e.target.value)} placeholder="Enter document URL" />
+                <Label>Registration Certificate</Label>
+                <Input value={form.affiliationDocument} onChange={(e) => set('affiliationDocument', e.target.value)} placeholder="Upload URL" />
               </div>
               <div className="grid gap-2">
-                <Label>Recognition Status</Label>
-                <select className={selectClass} value={form.recognitionStatus} onChange={(e) => set('recognitionStatus', e.target.value)}>
-                  <option value="">Select Status</option>
-                  {RECOGNITION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <Label>Affiliation Document</Label>
+                <Input value={form.affiliationNumber} onChange={(e) => set('affiliationNumber', e.target.value)} placeholder="Upload URL" />
               </div>
             </div>
           )}
 
-          {/* Section 4: Course Plans (read-only) */}
+          {/* Section 4: Login Credentials */}
           {activeSection === 3 && (
-            <div>
-              {coursePlans.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-left">
-                        <th className="px-3 py-2 font-medium text-gray-600">Course Title</th>
-                        <th className="px-3 py-2 font-medium text-gray-600">Assigned Amount</th>
-                        <th className="px-3 py-2 font-medium text-gray-600">Start Date</th>
-                        <th className="px-3 py-2 font-medium text-gray-600">End Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coursePlans.map((plan, idx) => (
-                        <tr key={idx} className="border-b border-gray-100">
-                          <td className="px-3 py-2 text-gray-900">{asString(plan.course_title) || asString(plan.title) || '-'}</td>
-                          <td className="px-3 py-2 text-gray-900">{asString(plan.assigned_amount) || '-'}</td>
-                          <td className="px-3 py-2 text-gray-900">{formatDate(plan.start_date) || '-'}</td>
-                          <td className="px-3 py-2 text-gray-900">{formatDate(plan.end_date) || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="py-8 text-center text-sm text-gray-400">
-                  {isEdit ? 'No course plans assigned to this centre.' : 'Course plans can be assigned after creating the centre.'}
-                </p>
-              )}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Email (used as username)</Label>
+                <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="centre@example.com" disabled />
+                <p className="text-xs text-gray-500">Set in Contact Information section</p>
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Password *</Label>
+                <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Enter password" />
+                <p className="text-xs text-gray-500">Centre will use this to log in to their portal.</p>
+              </div>
             </div>
           )}
         </CardContent>

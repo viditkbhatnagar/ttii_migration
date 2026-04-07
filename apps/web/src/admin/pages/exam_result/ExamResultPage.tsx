@@ -48,14 +48,14 @@ export default function ExamResultPage({ api, session }: AdminPageProps) {
 
   const filters: FilterField[] = useMemo(() => [
     {
-      key: 'course', label: 'Course', type: 'select' as const, value: courseFilter,
-      placeholder: 'All Courses',
+      key: 'course', label: 'Choose Course', type: 'select' as const, value: courseFilter,
+      placeholder: 'Choose Course',
       options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
       onChange: setCourseFilter,
     },
     {
-      key: 'exam', label: 'Exam', type: 'select' as const, value: examFilter,
-      placeholder: 'Select Exam',
+      key: 'exam', label: 'Choose Exam', type: 'select' as const, value: examFilter,
+      placeholder: 'Choose Exam',
       options: exams.map((e) => ({ label: asString(e.title), value: asString(e.id) })),
       onChange: setExamFilter,
     },

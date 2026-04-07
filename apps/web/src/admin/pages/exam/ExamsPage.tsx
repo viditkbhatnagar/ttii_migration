@@ -10,7 +10,7 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
-export default function ExamsPage({ api, session }: AdminPageProps) {
+export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [batchFilter, setBatchFilter] = useState('');
@@ -66,22 +66,36 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
   ], [summary]);
 
   const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'title', label: 'Title', sortable: true },
-    { key: 'course_title', label: 'Course' },
-    { key: 'subject_title', label: 'Subject' },
-    { key: 'batch_title', label: 'Batch' },
-    { key: 'from_date', label: 'Start', render: (v) => formatDate(v) },
-    { key: 'to_date', label: 'End', render: (v) => formatDate(v) },
-    { key: 'duration', label: 'Duration' },
-    { key: 'mark', label: 'Marks', sortable: true },
-    { key: 'question_count', label: 'Questions' },
-    { key: 'attempt_count', label: 'Attempts' },
+    { key: 'title', label: 'Title', sortable: true, render: (v) => asString(v) || '-' },
+    { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
+    { key: 'batch_title', label: 'Batch', sortable: true, render: (v) => asString(v) || '-' },
+    {
+      key: 'description',
+      label: 'Instruction',
+      render: (v) => {
+        const text = asString(v).replace(/<[^>]*>/g, ''); // strip HTML
+        return text.length > 60 ? text.slice(0, 60) + '...' : text || '-';
+      },
+    },
+    {
+      key: '_questions',
+      label: 'Question Bank',
+      render: (_v, row) => (
+        <button
+          type="button"
+          className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200"
+          onClick={() => onNavigate('/admin/exam/exam_questions/' + asString(row?.id))}
+        >
+          Questions
+        </button>
+      ),
+    },
     {
       key: 'publish_result',
       label: 'Result',
       render: (v) => <AdminStatusBadge status={asNumber(v) === 1 ? 'Published' : 'Unpublished'} />,
     },
-  ], []);
+  ], [onNavigate]);
 
   const filters: FilterField[] = useMemo(() => [
     {
@@ -118,7 +132,7 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Exams" />
+      <AdminPageHeader title="Exams" addLabel="+ Add Exam" onAdd={() => onNavigate('/admin/exam/add')} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
@@ -148,6 +162,10 @@ export default function ExamsPage({ api, session }: AdminPageProps) {
         columns={columns}
         rows={filteredExams}
         actions={[
+          {
+            label: 'Edit',
+            onClick: (row) => onNavigate('/admin/exam/edit/' + asString(row.id)),
+          },
           {
             label: 'Publish Result',
             onClick: (row) => { api.publishExamResult(session.token, asString(row.id)); },

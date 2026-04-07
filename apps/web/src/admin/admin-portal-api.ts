@@ -1301,13 +1301,15 @@ export class AdminPortalApi {
 
   async loadFeeInstallments(
     authToken: string,
-    filters: { courseId?: string; status?: string; search?: string; centreId?: string } = {},
+    filters: { courseId?: string; status?: string; search?: string; centreId?: string; studentId?: string; paymentStatus?: string } = {},
   ): Promise<{ counts: Record<string, number>; items: Record<string, unknown>[] }> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/installments', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.search ? { search: filters.search } : {}),
       ...(filters.centreId ? { centre_id: filters.centreId } : {}),
+      ...(filters.studentId ? { student_id: filters.studentId } : {}),
+      ...(filters.paymentStatus ? { payment_status: filters.paymentStatus } : {}),
     });
     const data = asRecord(payload.data) ?? {};
     const countsRaw = asRecord(data.counts) ?? {};
@@ -1323,16 +1325,20 @@ export class AdminPortalApi {
 
   async loadPaymentStatus(
     authToken: string,
-    filters: { courseId?: string; centreId?: string; search?: string } = {},
+    filters: { courseId?: string; centreId?: string; search?: string; paymentStatus?: string; dueDateFrom?: string; dueDateTo?: string } = {},
   ): Promise<AdminPaymentStatusSnapshot> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/fee_management/payment_status', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
       ...(filters.centreId ? { centre_id: filters.centreId } : {}),
       ...(filters.search ? { search: filters.search } : {}),
+      ...(filters.paymentStatus ? { payment_status: filters.paymentStatus } : {}),
+      ...(filters.dueDateFrom ? { due_date_from: filters.dueDateFrom } : {}),
+      ...(filters.dueDateTo ? { due_date_to: filters.dueDateTo } : {}),
     });
 
     const data = asRecord(payload.data) ?? {};
     const countsRaw = asRecord(data.counts) ?? {};
+    const amountsRaw = asRecord(data.amounts) ?? {};
 
     return {
       counts: {
@@ -1340,6 +1346,10 @@ export class AdminPortalApi {
         due: asNumber(countsRaw.due),
         upcoming: asNumber(countsRaw.upcoming),
         paid: asNumber(countsRaw.paid),
+        overdue_amount: asNumber(amountsRaw.overdue),
+        due_amount: asNumber(amountsRaw.due),
+        upcoming_amount: asNumber(amountsRaw.upcoming),
+        paid_amount: asNumber(amountsRaw.paid),
       },
       installments: toRecords(data.installments),
     };
@@ -1452,6 +1462,18 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async addFeed(authToken: string, input: { title: string; image?: string; course_id: string; instructor_id?: string; description: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/feed/add', authToken, input);
+  }
+
+  async editFeed(authToken: string, id: string, input: { title: string; image?: string; course_id: string; instructor_id?: string; description: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/feed/edit', authToken, { id, ...input });
+  }
+
+  async deleteFeed(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/feed/delete', authToken, { id });
+  }
+
   async loadIntegrations(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/integration/index', authToken);
     return toRecords(payload.data);
@@ -1535,11 +1557,11 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/user/delete', authToken, { id });
   }
 
-  async addAssociate(authToken: string, input: { name: string; email: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+  async addAssociate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/associates/add', authToken, input);
   }
 
-  async editAssociate(authToken: string, id: string, input: { name: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+  async editAssociate(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/associates/edit', authToken, { id, ...input });
   }
 
@@ -1547,11 +1569,11 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/associates/delete', authToken, { id });
   }
 
-  async addCounsellor(authToken: string, input: { name: string; email: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+  async addCounsellor(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/counsellor/add', authToken, input);
   }
 
-  async editCounsellor(authToken: string, id: string, input: { name: string; phone?: string | undefined; status?: number | undefined }): Promise<Record<string, unknown>> {
+  async editCounsellor(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/counsellor/edit', authToken, { id, ...input });
   }
 

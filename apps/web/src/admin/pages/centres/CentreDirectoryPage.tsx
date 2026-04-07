@@ -21,13 +21,17 @@ const INDIAN_STATES = [
 ];
 
 export default function CentreDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
+  const [filterCentreId, setFilterCentreId] = useState('');
   const [filterName, setFilterName] = useState('');
   const [filterContact, setFilterContact] = useState('');
+  const [filterPhone, setFilterPhone] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterState, setFilterState] = useState('');
   const [filterCity, setFilterCity] = useState('');
+  const [appliedCentreId, setAppliedCentreId] = useState('');
   const [appliedName, setAppliedName] = useState('');
   const [appliedContact, setAppliedContact] = useState('');
+  const [appliedPhone, setAppliedPhone] = useState('');
   const [appliedStatus, setAppliedStatus] = useState('');
   const [appliedState, setAppliedState] = useState('');
   const [appliedCity, setAppliedCity] = useState('');
@@ -42,16 +46,26 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
   const rows = useMemo(() => {
     const all = toRecords(data);
     return all.filter((row) => {
+      if (appliedCentreId && !asString(row.centre_id).toLowerCase().includes(appliedCentreId.toLowerCase())) return false;
       if (appliedName && !asString(row.centre_name).toLowerCase().includes(appliedName.toLowerCase())) return false;
       if (appliedContact && !asString(row.contact_person).toLowerCase().includes(appliedContact.toLowerCase())) return false;
+      if (appliedPhone && !asString(row.phone).toLowerCase().includes(appliedPhone.toLowerCase())) return false;
       if (appliedStatus && asString(row.status).toLowerCase() !== appliedStatus.toLowerCase()) return false;
       if (appliedState && asString(row.state).toLowerCase() !== appliedState.toLowerCase()) return false;
       if (appliedCity && !asString(row.city).toLowerCase().includes(appliedCity.toLowerCase())) return false;
       return true;
     });
-  }, [data, appliedName, appliedContact, appliedStatus, appliedState, appliedCity]);
+  }, [data, appliedCentreId, appliedName, appliedContact, appliedPhone, appliedStatus, appliedState, appliedCity]);
 
   const filters: FilterField[] = [
+    {
+      key: 'centre_id',
+      label: 'Centre ID',
+      type: 'text',
+      value: filterCentreId,
+      placeholder: 'Search by centre ID',
+      onChange: setFilterCentreId,
+    },
     {
       key: 'centre_name',
       label: 'Centre Name',
@@ -69,6 +83,14 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
       onChange: setFilterContact,
     },
     {
+      key: 'phone',
+      label: 'Contact Phone',
+      type: 'text',
+      value: filterPhone,
+      placeholder: 'Search by phone',
+      onChange: setFilterPhone,
+    },
+    {
       key: 'state',
       label: 'State',
       type: 'select',
@@ -77,18 +99,11 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
       onChange: setFilterState,
     },
     {
-      key: 'city',
-      label: 'City',
-      type: 'text',
-      value: filterCity,
-      placeholder: 'Search by city',
-      onChange: setFilterCity,
-    },
-    {
       key: 'status',
       label: 'Status',
       type: 'select',
       value: filterStatus,
+      placeholder: 'Select Status',
       options: [
         { label: 'Active', value: 'Active' },
         { label: 'Inactive', value: 'Inactive' },
@@ -151,21 +166,27 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
   ];
 
   const handleApply = () => {
+    setAppliedCentreId(filterCentreId);
     setAppliedName(filterName);
     setAppliedContact(filterContact);
+    setAppliedPhone(filterPhone);
     setAppliedStatus(filterStatus);
     setAppliedState(filterState);
     setAppliedCity(filterCity);
   };
 
   const handleClear = () => {
+    setFilterCentreId('');
     setFilterName('');
     setFilterContact('');
+    setFilterPhone('');
     setFilterStatus('');
     setFilterState('');
     setFilterCity('');
+    setAppliedCentreId('');
     setAppliedName('');
     setAppliedContact('');
+    setAppliedPhone('');
     setAppliedStatus('');
     setAppliedState('');
     setAppliedCity('');
@@ -201,7 +222,7 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Centre Directory" addLabel="+ Add Centre" onAdd={() => onNavigate('/admin/centres/add')} />
+      <AdminPageHeader title="Centre Directory" addLabel="+ Add Centres" onAdd={() => onNavigate('/admin/centres/add')} />
       <AdminFilterBar filters={filters} onApply={handleApply} onClear={handleClear} />
       <AdminDataTable columns={columns} rows={rows} actions={actions} />
 
