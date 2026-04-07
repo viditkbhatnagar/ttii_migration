@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 export interface FilterField {
   key: string;
   label: string;
-  type: 'text' | 'date' | 'select';
+  type: 'text' | 'date' | 'month' | 'select';
   value: string;
   placeholder?: string;
   options?: { label: string; value: string }[];

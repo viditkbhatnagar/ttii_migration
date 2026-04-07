@@ -691,16 +691,31 @@ export class AdminPortalApi {
 
   async loadAdminCohorts(
     authToken: string,
-    input: { courseId?: string; subjectId?: string; centreId?: string; status?: string } = {},
+    input: {
+      courseId?: string;
+      subjectId?: string;
+      centreId?: string;
+      status?: string;
+      languageId?: string;
+      instructorId?: string;
+      cohortMonth?: string;
+    } = {},
   ): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/centres/cohorts', authToken, {
       ...(input.courseId ? { course_id: input.courseId } : {}),
       ...(input.subjectId ? { subject_id: input.subjectId } : {}),
       ...(input.centreId ? { centre_id: input.centreId } : {}),
       ...(input.status ? { status: input.status } : {}),
+      ...(input.languageId ? { language_id: input.languageId } : {}),
+      ...(input.instructorId ? { instructor_id: input.instructorId } : {}),
+      ...(input.cohortMonth ? { cohort_month: input.cohortMonth } : {}),
     });
 
     return toRecords(payload.data);
+  }
+
+  async deleteCohort(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/delete', authToken, { id });
   }
 
   // ─── Phase 1: Admin Centre Payments ───────────────────────────────────────

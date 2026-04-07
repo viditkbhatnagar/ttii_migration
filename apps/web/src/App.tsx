@@ -492,16 +492,13 @@ function LoginHome() {
             minHeight: '280px',
           }}
         >
-          {/* Logo */}
-          <div className="relative z-10 flex items-center gap-2.5">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white">
-              <span className="text-2xl font-extrabold" style={{ color: '#3B5BBE' }}>T</span>
-            </div>
-            <div className="text-white">
-              <p className="text-sm font-bold leading-tight">Teachers&apos; Training</p>
-              <p className="text-sm font-bold leading-tight">Institute of India</p>
-              <p className="text-[10px] mt-0.5 text-white/80">Empower. Educate. Evolve.</p>
-            </div>
+          {/* Logo — full white version on gradient background */}
+          <div className="relative z-10">
+            <img
+              src="/logos/ttii-full-white.svg"
+              alt="Teachers' Training Institute of India"
+              className="h-12 w-auto"
+            />
           </div>
 
           {/* Tagline */}

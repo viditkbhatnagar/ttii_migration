@@ -111,24 +111,25 @@ export function StudentSidebar({ pathname, session, onNavigate, onLogout }: Stud
         'flex h-20 items-center border-b border-white/10 bg-white px-4',
         sidebarCollapsed && 'justify-center px-2',
       )}>
-        {!sidebarCollapsed ? (
-          <button
-            type="button"
-            onClick={() => onNavigate('/student/dashboard')}
-            className="flex items-center gap-2 hover:opacity-95 transition-opacity"
-          >
-            <span className="text-lg font-bold text-student-primary">TTII</span>
-            <span className="text-sm text-student-muted">Student</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onNavigate('/student/dashboard')}
-            className="text-lg font-bold text-student-primary hover:opacity-95 transition-opacity"
-          >
-            T
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onNavigate('/student/dashboard')}
+          className="flex items-center hover:opacity-95 transition-opacity"
+        >
+          {sidebarCollapsed ? (
+            <img
+              src="/logos/ttii-icon-color.svg"
+              alt="TTII"
+              className="h-9 w-auto"
+            />
+          ) : (
+            <img
+              src="/logos/ttii-full-color.svg"
+              alt="Teachers' Training Institute of India"
+              className="h-10 w-auto max-w-full"
+            />
+          )}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -234,10 +235,13 @@ export function StudentSidebarMobile({ pathname, session, onNavigate, onLogout }
         <button
           type="button"
           onClick={() => onNavigate('/student/dashboard')}
-          className="flex items-center gap-2 hover:opacity-95 transition-opacity"
+          className="flex items-center hover:opacity-95 transition-opacity"
         >
-          <span className="text-lg font-bold text-student-primary">TTII</span>
-          <span className="text-sm text-student-muted">Student</span>
+          <img
+            src="/logos/ttii-full-color.svg"
+            alt="Teachers' Training Institute of India"
+            className="h-10 w-auto max-w-full"
+          />
         </button>
       </div>
 

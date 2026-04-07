@@ -84,16 +84,23 @@ function SidebarContent({
   return (
     <>
       {/* Brand */}
-      <div className={cn('flex items-center gap-3 border-b border-gray-200 px-4 py-4', collapsed && 'justify-center px-2')}>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-blue-600 text-sm font-bold text-white">
-          T
-        </div>
-        {!collapsed ? (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900">TTII</p>
-            <p className="truncate text-[10px] text-gray-400">{portalLabel} Portal</p>
-          </div>
-        ) : null}
+      <div className={cn('flex flex-col items-start gap-1 border-b border-gray-200 px-4 py-3', collapsed && 'items-center px-2')}>
+        {collapsed ? (
+          <img
+            src="/logos/ttii-icon-color.svg"
+            alt="TTII"
+            className="h-8 w-auto"
+          />
+        ) : (
+          <>
+            <img
+              src="/logos/ttii-full-color.svg"
+              alt="Teachers' Training Institute of India"
+              className="h-9 w-auto max-w-full"
+            />
+            <p className="text-[10px] font-medium text-gray-400 ml-0.5">{portalLabel} Portal</p>
+          </>
+        )}
       </div>
 
       {/* Navigation */}
