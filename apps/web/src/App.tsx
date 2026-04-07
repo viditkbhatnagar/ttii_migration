@@ -425,6 +425,8 @@ function LoginHome() {
   const [roleId, setRoleId] = useState('2');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const onSubmit = async (): Promise<void> => {
     setSubmitting(true);
@@ -448,128 +450,230 @@ function LoginHome() {
     }
   };
 
-  return (
-    <main className="w-[min(900px,calc(100%-2rem))] mx-auto py-9 pb-14 grid gap-5 animate-[shellEnter_360ms_ease]">
-      <header>
-        <p className="uppercase tracking-widest text-teal-700 font-bold text-xs mb-1">TTII</p>
-        <h1 className="text-2xl font-bold">Welcome to TTII</h1>
-        <p className="mt-3 max-w-prose leading-relaxed text-gray-700">
-          Sign in to access your student, centre, or admin portal.
-        </p>
-      </header>
-
-      {error ? (
-        <InlineNotice tone="danger" title="Auth state warning">
-          <p>{error.message}</p>
-          <button
-            type="button"
-            className="border-0 rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
-            onClick={clearError}
-          >
-            Dismiss
-          </button>
-        </InlineNotice>
-      ) : null}
-
-      {session ? (
-        <InlineNotice tone="success" title="Session active">
-          <p>
-            Logged in as role <strong>{session.roleId}</strong>. Continue to your guarded portal.
-          </p>
-          <div className="flex gap-2.5 mt-2.5">
+  /* If already logged in, show a quick redirect card */
+  if (session) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-100">
+            <svg className="size-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Session Active</h2>
+          <p className="mt-2 text-sm text-gray-500">Logged in as role <strong>{session.roleId}</strong></p>
+          <div className="mt-6 flex gap-3 justify-center">
             <button
               type="button"
-              className="border-0 rounded-lg px-2.5 py-1.5 bg-teal-700 text-white font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
+              className="rounded-full bg-gradient-to-r from-[#5b7fea] to-[#6c63ff] px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 hover:-translate-y-0.5 transition-transform"
               onClick={() => navigateTo(resolveShellPathForRole(session.roleId))}
             >
-              Open portal
+              Open Portal
             </button>
             <button
               type="button"
-              className="rounded-lg px-2.5 py-1.5 bg-gray-100 text-gray-700 border border-gray-300 font-semibold cursor-pointer hover:-translate-y-px transition-transform text-sm"
-              onClick={() => {
-                void logout();
-              }}
+              className="rounded-full border border-gray-300 bg-white px-6 py-2.5 text-sm font-semibold text-gray-700 hover:-translate-y-0.5 transition-transform"
+              onClick={() => { void logout(); }}
             >
               Logout
             </button>
           </div>
-        </InlineNotice>
-      ) : null}
+        </div>
+      </main>
+    );
+  }
 
-      {loginError ? (
-        <InlineNotice tone="warning" title="Login failed">
-          {loginError}
-        </InlineNotice>
-      ) : null}
-
-      <section
-        className="bg-white/85 border border-gray-300 rounded-2xl p-5 shadow-lg grid gap-4"
-        aria-label="Sign in"
-      >
-        <h2 className="text-lg font-semibold">Sign in</h2>
-        <p className="text-gray-600">Enter your credentials to access your portal.</p>
-
-        <form
-          className="grid gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onSubmit();
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#1a1a2e] p-4 animate-[shellEnter_360ms_ease]" style={{ fontFamily: "'Inter', 'Manrope', system-ui, -apple-system, sans-serif" }}>
+      <div className="flex w-full max-w-[900px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.20)] lg:flex-row" style={{ minHeight: '552px' }}>
+        {/* ── Left Panel: Gradient Hero ──────────────────────────────────── */}
+        <div
+          className="relative overflow-hidden p-8 lg:w-1/2 lg:p-10 flex flex-col justify-between"
+          style={{
+            background: 'linear-gradient(135deg, #3B5BBE 0%, #5263BF 20%, #8B6BAA 45%, #C4714E 70%, #E8864E 85%, #E87932 100%)',
+            minHeight: '280px',
           }}
         >
-          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
-            Email or username
-            <input
-              name="email"
-              type="text"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="student@example.test"
-              autoComplete="username"
-              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
-            />
-          </label>
+          {/* Logo */}
+          <div className="relative z-10 flex items-center gap-2.5">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white">
+              <span className="text-2xl font-extrabold" style={{ color: '#3B5BBE' }}>T</span>
+            </div>
+            <div className="text-white">
+              <p className="text-sm font-bold leading-tight">Teachers&apos; Training</p>
+              <p className="text-sm font-bold leading-tight">Institute of India</p>
+              <p className="text-[10px] mt-0.5 text-white/80">Empower. Educate. Evolve.</p>
+            </div>
+          </div>
 
-          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
-            Password
-            <input
-              name="password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
-            />
-          </label>
+          {/* Tagline */}
+          <h1 className="relative z-10 mt-12 font-bold leading-tight text-white lg:mt-0" style={{ fontSize: 'clamp(28px, 4.5vw, 44px)', letterSpacing: '-0.5px' }}>
+            Become a<br />Future-Ready<br />Teacher Today.
+          </h1>
 
-          <label className="grid gap-1.5 text-gray-800 font-semibold text-sm">
-            Requested role
-            <select
-              value={roleId}
-              onChange={(event) => setRoleId(event.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 bg-white font-normal"
-            >
-              <option value="1">Super Admin (role_id 1)</option>
-              <option value="2">Student (role_id 2)</option>
-              <option value="3">Instructor (role_id 3)</option>
-              <option value="4">Team Lead (role_id 4)</option>
-              <option value="7">Centre (role_id 7)</option>
-              <option value="8">Sub Admin (role_id 8)</option>
-              <option value="9">Counsellor (role_id 9)</option>
-              <option value="10">Associate (role_id 10)</option>
-            </select>
-          </label>
+          {/* Sparkle decorations (4-pointed stars) */}
+          <svg className="absolute pointer-events-none" style={{ top: '55%', left: '18%', width: '55px', height: '55px', opacity: 0.3 }} viewBox="0 0 50 50" fill="none">
+            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+          </svg>
+          <svg className="absolute pointer-events-none" style={{ bottom: '14%', left: '38%', width: '90px', height: '90px', opacity: 0.32 }} viewBox="0 0 50 50" fill="none">
+            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+          </svg>
+          <svg className="absolute pointer-events-none" style={{ top: '32%', right: '14%', width: '38px', height: '38px', opacity: 0.28 }} viewBox="0 0 50 50" fill="none">
+            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+          </svg>
+          <svg className="absolute pointer-events-none" style={{ bottom: '38%', right: '22%', width: '45px', height: '45px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
+            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+          </svg>
+        </div>
 
-          <button
-            type="submit"
-            className="border-0 rounded-xl px-4 py-2.5 bg-teal-700 text-white font-bold cursor-pointer hover:-translate-y-px transition-transform disabled:cursor-not-allowed disabled:opacity-65"
-            disabled={submitting}
+        {/* ── Right Panel: Login Form ─────────────────────────────────── */}
+        <div className="flex flex-col items-center justify-center bg-white px-8 py-10 lg:w-1/2 lg:px-12">
+          <div className="w-full max-w-sm">
+            {/* Heading */}
+            <div className="mb-8 text-center">
+              <h2 className="font-extrabold text-[#111111]" style={{ fontSize: '40px', lineHeight: '1.1', letterSpacing: '-0.5px' }}>Welcome</h2>
+              <p className="mt-2.5 text-sm text-[#666666]">Enter Your LMS Credentials To Continue.</p>
+            </div>
+
+          {/* Error messages */}
+          {error ? (
+            <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              <p>{error.message}</p>
+              <button type="button" className="mt-1 text-xs font-semibold text-red-600 underline" onClick={clearError}>Dismiss</button>
+            </div>
+          ) : null}
+
+          {loginError ? (
+            <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {loginError}
+            </div>
+          ) : null}
+
+          {/* Form */}
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onSubmit();
+            }}
           >
-            {submitting ? 'Signing in...' : 'Sign in and open portal'}
-          </button>
-        </form>
-      </section>
+            {/* Email Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="login-email" className="text-sm font-semibold text-gray-800">Email Address</label>
+              <div className="relative">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                </svg>
+                <input
+                  id="login-email"
+                  name="email"
+                  type="text"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="Enter Your Mail"
+                  autoComplete="username"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="login-password" className="text-sm font-semibold text-gray-800">Password</label>
+              <div className="relative">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <input
+                  id="login-password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter Your Password"
+                  autoComplete="current-password"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+                  ) : (
+                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Role Selector */}
+            <div className="space-y-1.5">
+              <label htmlFor="login-role" className="text-sm font-semibold text-gray-800">Login As</label>
+              <div className="relative">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                <select
+                  id="login-role"
+                  value={roleId}
+                  onChange={(event) => setRoleId(event.target.value)}
+                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-10 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                >
+                  <option value="1">Super Admin</option>
+                  <option value="2">Student</option>
+                  <option value="3">Instructor</option>
+                  <option value="4">Team Lead</option>
+                  <option value="7">Centre</option>
+                  <option value="8">Sub Admin</option>
+                  <option value="9">Counsellor</option>
+                  <option value="10">Associate</option>
+                </select>
+                <svg className="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+              </div>
+            </div>
+
+            {/* Remember Me + Forgot Password */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="size-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-600">Remember Me</span>
+              </label>
+              <button type="button" className="text-sm font-semibold text-gray-800 hover:text-blue-600 transition-colors">
+                Forgot Password?
+              </button>
+            </div>
+
+            {/* Sign In Button */}
+            <button
+              type="submit"
+              className="w-full h-12 rounded-full text-white font-semibold tracking-wide border-none transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0"
+              style={{
+                background: 'linear-gradient(90deg, #6B8FEF 0%, #4A6EDB 100%)',
+                boxShadow: '0 8px 24px rgba(74, 110, 219, 0.40)',
+                fontSize: '15px',
+                letterSpacing: '0.02em',
+              }}
+              disabled={submitting}
+            >
+              {submitting ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+
+          {/* Need Help */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-[#666666]">Need Help?</p>
+            <p className="text-sm font-bold text-[#222222] mt-1">Contact Support</p>
+            <a href="mailto:support@teachersindia.in" className="text-sm text-[#666666] hover:text-[#4B6EDB]">support@teachersindia.in</a>
+          </div>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

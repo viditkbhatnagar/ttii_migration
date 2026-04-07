@@ -111,8 +111,10 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         value: pipelineRoleId,
         placeholder: 'All Pipelines',
         options: [
-          { label: 'Counsellor', value: '9' },
-          { label: 'Associate', value: '10' },
+          { label: 'Senders', value: 'senders' },
+          { label: 'Counsellors', value: '9' },
+          { label: 'Student Referral', value: 'student_referral' },
+          { label: 'Associates', value: '10' },
         ],
         onChange: setPipelineRoleId,
       },
@@ -134,8 +136,20 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   const columns: DataTableColumn[] = useMemo(
     () => [
       {
+        key: 'application_id',
+        label: 'Application ID',
+        sortable: true,
+        render: (value) => asString(value) || '-',
+      },
+      {
+        key: 'created_at',
+        label: 'Application Date',
+        sortable: true,
+        render: (value) => formatDate(value),
+      },
+      {
         key: 'name',
-        label: 'Applicant Name',
+        label: 'Name',
         sortable: true,
         render: (value, row) => (
           <button
@@ -150,16 +164,12 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
           </button>
         ),
       },
-      { key: 'phone', label: 'Phone' },
-      { key: 'user_email', label: 'Email', render: (v) => asString(v) || asString(v) || '-' },
-      { key: 'course_title', label: 'Course' },
-      { key: 'centre_name', label: 'Centre' },
-      {
-        key: 'created_at',
-        label: 'Applied Date',
-        sortable: true,
-        render: (value) => formatDate(value),
-      },
+      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'phone', label: 'Phone No', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'user_email', label: 'E-mail', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'pipeline_role', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'pipeline_user_name', label: 'Pipeline User', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'centre_name', label: 'Centre', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'status',
         label: 'Status',
@@ -177,6 +187,10 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
       {
         label: 'View',
         onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
+      },
+      {
+        label: 'Edit',
+        onClick: (row) => onNavigate('/admin/applications/edit/' + asString(row._id || row.id)),
       },
       {
         label: 'Convert',

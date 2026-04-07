@@ -1465,6 +1465,10 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
   }
 
+  async deleteStudent(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/delete', authToken, { id });
+  }
+
   async loadBatchStudents(authToken: string, batchId: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/batch/students', authToken, { batch_id: batchId });
     return toRecords(payload.data);

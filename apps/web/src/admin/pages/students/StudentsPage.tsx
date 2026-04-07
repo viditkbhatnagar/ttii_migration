@@ -223,12 +223,44 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
     }
   };
 
+  /* ── Delete handler ──────────────────────────────────────────────────────── */
+  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row._id) || asString(row.id);
+    const name = asString(row.name) || asString(row.student_name) || 'this student';
+    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return;
+    try {
+      await api.deleteStudent(session.token, id);
+      reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete student');
+    }
+  }, [api, session.token, reload]);
+
   /* ── Table columns ───────────────────────────────────────────────────────── */
   const columns: DataTableColumn[] = useMemo(
     () => [
       {
+        key: 'student_id',
+        label: 'Student ID',
+        sortable: true,
+        render: (value: unknown, row: Record<string, unknown>) => asString(value) || asString(row.unique_student_id) || '-',
+      },
+      {
+        key: 'image',
+        label: 'Profile',
+        render: (value: unknown) => {
+          const src = asString(value);
+          return src ? (
+            <img src={src} alt="" className="size-8 rounded-full object-cover" />
+          ) : (
+            <div className="flex size-8 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500">—</div>
+          );
+        },
+      },
+      {
         key: 'name',
-        label: 'Student Name',
+        label: 'Name',
+        sortable: true,
         render: (_value: unknown, row: Record<string, unknown>) => {
           const name = asString(row.name) || asString(row.student_name) || 'N/A';
           const id = asString(row._id) || asString(row.id);
@@ -245,15 +277,15 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
           );
         },
       },
-      { key: 'enrollment_id', label: 'Enrollment ID', render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'phone', label: 'Phone', render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'email', label: 'Email', render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'course_title', label: 'Course', render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'centre_name', label: 'Centre', render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'batch_name', label: 'Batch', render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'course_title', label: 'Course', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'batch_name', label: 'Batch', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'enrollment_id', label: 'Enrollment ID', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'phone', label: 'Phone', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'email', label: 'E-mail', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
       {
         key: 'status_label',
         label: 'Status',
+        sortable: true,
         render: (value: unknown) => {
           const status = asString(value) || 'Inactive';
           return <AdminStatusBadge status={status} />;
@@ -289,8 +321,13 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         label: 'Edit Enrollment ID',
         onClick: (row: Record<string, unknown>) => openDialog('enrollmentId', row),
       },
+      {
+        label: 'Delete',
+        variant: 'destructive' as const,
+        onClick: (row: Record<string, unknown>) => { void handleDelete(row); },
+      },
     ],
-    [onNavigate, openDialog],
+    [onNavigate, openDialog, handleDelete],
   );
 
   /* ── Export handler ──────────────────────────────────────────────────────── */
@@ -334,7 +371,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   /* ── Render ──────────────────────────────────────────────────────────────── */
   return (
     <div>
-      <AdminPageHeader title="Students">
+      <AdminPageHeader title="Students" addLabel="+ Add Students" onAdd={() => onNavigate('/admin/students/add')}>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
           <Download className="size-4" />
           Export
