@@ -9,6 +9,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 
+const SYSTEM_FIELDS: Array<{ key: string; label: string; type: 'text' | 'textarea' }> = [
+  { key: 'system_name', label: 'Website Name *', type: 'text' },
+  { key: 'system_title', label: 'Website Title *', type: 'text' },
+  { key: 'system_email', label: 'System Email *', type: 'text' },
+  { key: 'website_keywords', label: 'Website Keywords *', type: 'text' },
+  { key: 'website_description', label: 'Website Description *', type: 'textarea' },
+  { key: 'address', label: 'Address *', type: 'textarea' },
+  { key: 'author', label: 'Author *', type: 'text' },
+  { key: 'privacy_policy', label: 'Privacy Policy *', type: 'text' },
+  { key: 'phone', label: 'Phone *', type: 'text' },
+];
+
 export default function SystemSettingsPage({ api, session }: AdminPageProps) {
   const { data, loading, error } = useAdminPageData(
     () => api.loadSettings(session.token),
@@ -51,23 +63,32 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
     );
   }
 
-  const entries = Object.entries(form);
-
   return (
     <div className="space-y-4">
       <AdminPageHeader title="System Settings" />
       <Card>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {entries.map(([key, value]) => (
-              <div key={key} className="space-y-1">
-                <Label className="text-sm font-medium text-gray-700">{key}</Label>
-                <Input
-                  value={value}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, [key]: e.target.value }))
-                  }
-                />
+            {SYSTEM_FIELDS.map((field) => (
+              <div key={field.key} className={`space-y-1 ${field.type === 'textarea' ? 'md:col-span-2' : ''}`}>
+                <Label className="text-sm font-medium text-gray-700">{field.label}</Label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={form[field.key] ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    }
+                  />
+                ) : (
+                  <Input
+                    id={field.key}
+                    value={form[field.key] ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    }
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -76,7 +97,7 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
               onClick={handleSave}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              Save Settings
+              Save
             </Button>
           </div>
         </CardContent>

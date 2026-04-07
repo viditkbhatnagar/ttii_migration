@@ -10,12 +10,10 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const CONTACT_FIELDS = [
-  { key: 'contact_email', label: 'Contact Email' },
-  { key: 'contact_phone', label: 'Contact Phone' },
-  { key: 'contact_address', label: 'Contact Address' },
-  { key: 'support_email', label: 'Support Email' },
-  { key: 'support_phone', label: 'Support Phone' },
-  { key: 'whatsapp_number', label: 'WhatsApp Number' },
+  { key: 'contact_whatsapp', label: 'Contact Whatsapp *' },
+  { key: 'contact_phone', label: 'Contact Phone *' },
+  { key: 'contact_email', label: 'Contact Email *' },
+  { key: 'contact_address', label: 'Contact Address *' },
 ] as const;
 
 export default function ContactSettingsPage({ api, session }: AdminPageProps) {
@@ -85,7 +83,7 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
               onClick={handleSave}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              Save Settings
+              Save
             </Button>
           </div>
         </CardContent>

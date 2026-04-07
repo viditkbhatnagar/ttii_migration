@@ -11,17 +11,19 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 
-const CATEGORIES = ['Live', 'Lecture', 'Tutorial'];
+const CATEGORIES = ['Live', 'Lectures', 'Tutorials'];
+const VIDEO_TYPES = ['YouTube', 'Vimeo'];
 
 interface VideoFormState {
   title: string;
   category: string;
+  videoType: string;
   videoUrl: string;
   thumbnail: string;
   description: string;
 }
 
-const emptyForm: VideoFormState = { title: '', category: '', videoUrl: '', thumbnail: '', description: '' };
+const emptyForm: VideoFormState = { title: '', category: '', videoType: '', videoUrl: '', thumbnail: '', description: '' };
 
 export default function TrainingVideosPage({ api, session }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState('All');
@@ -63,6 +65,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
     setForm({
       title: asString(row.title),
       category: asString(row.category),
+      videoType: asString(row.video_type),
       videoUrl: asString(row.video_url),
       thumbnail: asString(row.thumbnail),
       description: asString(row.description),
@@ -77,7 +80,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
       const input = {
         title: form.title.trim(),
         category: form.category,
-        video_type: form.category,
+        video_type: form.videoType,
         video_url: form.videoUrl,
         thumbnail: form.thumbnail,
         description: form.description,
@@ -220,31 +223,46 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
               <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="Video title" />
             </div>
             <div>
-              <Label>Category</Label>
+              <Label>Category *</Label>
               <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={form.category}
                 onChange={(e) => updateField('category', e.target.value)}
               >
-                <option value="">Select category</option>
+                <option value="">Choose Category</option>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <Label>Video URL</Label>
+              <Label>Video Type *</Label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.videoType}
+                onChange={(e) => updateField('videoType', e.target.value)}
+              >
+                <option value="">Choose Type</option>
+                {VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Video URL (YouTube/Vimeo link)</Label>
               <Input value={form.videoUrl} onChange={(e) => updateField('videoUrl', e.target.value)} placeholder="https://..." />
             </div>
             <div>
-              <Label>Thumbnail URL</Label>
+              <Label>Thumbnail (optional — upload to override auto-fetch)</Label>
               <Input value={form.thumbnail} onChange={(e) => updateField('thumbnail', e.target.value)} placeholder="https://..." />
+              <p className="mt-1 text-xs text-gray-500">Auto-fetch thumbnail preview from YouTube/Vimeo URL</p>
+              {form.thumbnail ? (
+                <img src={form.thumbnail} alt="Thumbnail preview" className="mt-2 h-24 w-auto rounded border object-contain" />
+              ) : null}
             </div>
             <div>
               <Label>Description</Label>
               <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={form.description}
                 onChange={(e) => updateField('description', e.target.value)}
-                placeholder="Video description"
+                placeholder="Video description (supports HTML)"
               />
             </div>
           </div>

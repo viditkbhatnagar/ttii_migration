@@ -57,18 +57,20 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-sm font-medium text-gray-700">
-                App Version (Android)
+                Android Version *
               </Label>
               <Input
+                id="app_version"
                 value={appVersion}
                 onChange={(e) => setAppVersion(e.target.value)}
               />
             </div>
             <div className="space-y-1">
               <Label className="text-sm font-medium text-gray-700">
-                App Version (iOS)
+                Ios Version *
               </Label>
               <Input
+                id="app_version_ios"
                 value={appVersionIos}
                 onChange={(e) => setAppVersionIos(e.target.value)}
               />
@@ -79,7 +81,7 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
               onClick={handleSave}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              Save Version
+              Save
             </Button>
           </div>
         </CardContent>

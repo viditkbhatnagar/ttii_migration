@@ -913,14 +913,36 @@ export class AdminPortalApi {
 
   async addBanner(
     authToken: string,
-    input: { title?: string; image?: string; courseId?: string; status?: string },
+    input: { title?: string; image?: string; courseId?: string; status?: string; url?: string; isCourseBanner?: boolean },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/banners/add', authToken, {
       title: input.title,
       image: input.image,
       course_id: input.courseId,
       status: input.status,
+      url: input.url,
+      is_course_banner: input.isCourseBanner ? 1 : 0,
     });
+  }
+
+  async editBanner(
+    authToken: string,
+    id: string,
+    input: { title?: string; image?: string; courseId?: string; status?: string; url?: string; isCourseBanner?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/banners/edit', authToken, {
+      id,
+      title: input.title,
+      image: input.image,
+      course_id: input.courseId,
+      status: input.status,
+      url: input.url,
+      is_course_banner: input.isCourseBanner ? 1 : 0,
+    });
+  }
+
+  async deleteBanner(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/banners/delete', authToken, { id });
   }
 
   // ─── Phase 1: FAQ ────────────────────────────────────────────────────────
@@ -935,6 +957,18 @@ export class AdminPortalApi {
     input: { question: string; answer?: string; status?: string },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/faq/add', authToken, input);
+  }
+
+  async editFaq(
+    authToken: string,
+    id: string,
+    input: { question: string; answer?: string; status?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/faq/edit', authToken, { id, ...input });
+  }
+
+  async deleteFaq(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/faq/delete', authToken, { id });
   }
 
   // ─── Phase 1: Contact Settings ────────────────────────────────────────────
@@ -1409,9 +1443,33 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async addEvent(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/events/add', authToken, input);
+  }
+
+  async editEvent(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/events/edit', authToken, { id, ...input });
+  }
+
+  async deleteEvent(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/events/delete', authToken, { id });
+  }
+
   async loadCirculars(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/circulars/index', authToken);
     return toRecords(payload.data);
+  }
+
+  async addCircular(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/circulars/add', authToken, input);
+  }
+
+  async editCircular(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/circulars/edit', authToken, { id, ...input });
+  }
+
+  async deleteCircular(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/circulars/delete', authToken, { id });
   }
 
   async loadMentorshipHistory(authToken: string): Promise<Record<string, unknown>[]> {
@@ -1484,9 +1542,33 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async addReview(authToken: string, input: { course_id: string; user_id: string; rating: string; review: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/review/add', authToken, input);
+  }
+
+  async editReview(authToken: string, id: string, input: { course_id: string; user_id: string; rating: string; review: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/review/edit', authToken, { id, ...input });
+  }
+
+  async deleteReview(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/review/delete', authToken, { id });
+  }
+
   async loadLanguages(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/language/index', authToken);
     return toRecords(payload.data);
+  }
+
+  async addLanguage(authToken: string, title: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/language/add', authToken, { title });
+  }
+
+  async editLanguage(authToken: string, id: string, title: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/language/edit', authToken, { id, title });
+  }
+
+  async deleteLanguage(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/language/delete', authToken, { id });
   }
 
   // ── Phase 6: Additional pages ──────────────────────────────────

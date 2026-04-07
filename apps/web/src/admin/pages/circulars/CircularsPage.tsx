@@ -1,82 +1,240 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+
+const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
 export default function CircularsPage({ api, session }: AdminPageProps) {
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadCirculars(session.token),
     [],
   );
 
   const allCirculars = useMemo(() => toRecords(data), [data]);
 
-  const publishedCount = useMemo(
-    () => allCirculars.filter((row) => asString(row.status) === 'published').length,
-    [allCirculars],
-  );
+  const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [mTitle, setMTitle] = useState('');
+  const [mImage, setMImage] = useState('');
+  const [mDescription, setMDescription] = useState('');
+  const [mInstructorId, setMInstructorId] = useState('');
+  const [mEventDate, setMEventDate] = useState('');
+  const [mFromTime, setMFromTime] = useState('');
+  const [mToTime, setMToTime] = useState('');
+  const [mDuration, setMDuration] = useState('');
 
-  const draftCount = useMemo(
-    () => allCirculars.filter((row) => asString(row.status) === 'draft').length,
-    [allCirculars],
+  useEffect(() => {
+    api.loadInstructors(session.token).then(setInstructors).catch(() => {});
+  }, [api, session.token]);
+
+  const openAdd = useCallback(() => {
+    setEditingId(null);
+    setMTitle(''); setMImage(''); setMDescription(''); setMInstructorId('');
+    setMEventDate(''); setMFromTime(''); setMToTime(''); setMDuration('');
+    setModalOpen(true);
+  }, []);
+
+  const openEdit = useCallback((row: Record<string, unknown>) => {
+    setEditingId(asString(row.id) || asString(row._id));
+    setMTitle(asString(row.title));
+    setMImage(asString(row.image));
+    setMDescription(asString(row.description));
+    setMInstructorId(asString(row.instructor_id));
+    setMEventDate(asString(row.event_date).slice(0, 10));
+    setMFromTime(asString(row.from_time));
+    setMToTime(asString(row.to_time));
+    setMDuration(asString(row.duration));
+    setModalOpen(true);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!mTitle.trim() || !mImage.trim()) {
+      alert('Title and Image are required.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload = {
+        title: mTitle.trim(),
+        image: mImage.trim(),
+        description: mDescription.trim(),
+        instructor_id: mInstructorId,
+        event_date: mEventDate,
+        from_time: mFromTime,
+        to_time: mToTime,
+        duration: mDuration.trim(),
+      };
+      if (editingId) {
+        await api.editCircular(session.token, editingId, payload);
+      } else {
+        await api.addCircular(session.token, payload);
+      }
+      setModalOpen(false);
+      reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save circular');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [mTitle, mImage, mDescription, mInstructorId, mEventDate, mFromTime, mToTime, mDuration, editingId, api, session.token, reload]);
+
+  const handleDelete = useCallback(
+    async (row: Record<string, unknown>) => {
+      const id = asString(row.id) || asString(row._id);
+      if (!window.confirm('Delete this circular?')) return;
+      try {
+        await api.deleteCircular(session.token, id);
+        reload();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to delete circular');
+      }
+    },
+    [api, session.token, reload],
   );
 
   const columns: DataTableColumn[] = useMemo(
     () => [
-      { key: 'title', label: 'Title', sortable: true },
-      { key: 'target_audience', label: 'Audience' },
       {
-        key: 'status',
-        label: 'Status',
-        render: (v) => <AdminStatusBadge status={asString(v)} />,
+        key: 'image',
+        label: 'Image',
+        render: (v) => {
+          const src = asString(v);
+          return src ? <img src={src} alt="" className="h-10 w-auto rounded object-contain" /> : '-';
+        },
       },
-      { key: 'created_by_name', label: 'Created By' },
-      { key: 'publish_date', label: 'Published', render: (v) => formatDate(v) },
-      { key: 'expiry_date', label: 'Expires', render: (v) => formatDate(v) },
-      { key: 'created_at', label: 'Created', render: (v) => formatDate(v) },
+      { key: 'title', label: 'Title', sortable: true, render: (v) => asString(v) || '-' },
+      {
+        key: 'description',
+        label: 'Description',
+        render: (v) => {
+          const text = asString(v);
+          return text.length > 60 ? text.slice(0, 60) + '...' : text || '-';
+        },
+      },
+      {
+        key: 'objectives',
+        label: 'Objectives',
+        render: (v) => asString(v) || '-',
+      },
+      {
+        key: 'event_date',
+        label: 'Time',
+        render: (_v, row) => {
+          const d = asString(row?.event_date);
+          const f = asString(row?.from_time);
+          const t = asString(row?.to_time);
+          return (
+            <div className="text-xs">
+              {d ? <div>Date: {d}</div> : null}
+              {f ? <div>From: {f}</div> : null}
+              {t ? <div>To: {t}</div> : null}
+            </div>
+          );
+        },
+      },
     ],
     [],
   );
 
-  if (loading) {
-    return <PageLoader label="Loading circulars..." />;
-  }
+  if (loading) return <PageLoader label="Loading circulars..." />;
 
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
-          {error}
-        </CardContent>
+        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Circulars" />
+      <AdminPageHeader title="Circulars" addLabel="+ Add Circulars" onAdd={openAdd} />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Circulars', value: allCirculars.length },
-          { label: 'Published', value: publishedCount },
-          { label: 'Drafts', value: draftCount },
-        ].map((card) => (
-          <Card key={card.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{card.label}</p>
-              <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <AdminDataTable
+        columns={columns}
+        rows={allCirculars}
+        actions={[
+          { label: 'Edit', onClick: (row) => openEdit(row) },
+          { label: 'Delete', variant: 'destructive', onClick: (row) => void handleDelete(row) },
+        ]}
+      />
 
-      <AdminDataTable columns={columns} rows={allCirculars} />
+      {/* Add/Edit Circular Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit Circular' : 'Add Circular'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2 md:grid-cols-2">
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Title *</Label>
+              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Circular title" />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Image *</Label>
+              <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Description</Label>
+              <textarea
+                className={textareaClass}
+                value={mDescription}
+                onChange={(e) => setMDescription(e.target.value)}
+                placeholder="Description"
+              />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Instructor</Label>
+              <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
+                <option value="">Choose Instructor</option>
+                {instructors.map((i) => (
+                  <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
+                    {asString(i.name)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Date</Label>
+              <Input type="date" value={mEventDate} onChange={(e) => setMEventDate(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Duration</Label>
+              <Input value={mDuration} onChange={(e) => setMDuration(e.target.value)} placeholder="e.g. 1 hour" />
+            </div>
+            <div className="grid gap-2">
+              <Label>From Time</Label>
+              <Input type="time" value={mFromTime} onChange={(e) => setMFromTime(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>To Time</Label>
+              <Input type="time" value={mToTime} onChange={(e) => setMToTime(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-ttii-primary hover:bg-ttii-primary/90"
+              disabled={submitting}
+              onClick={() => void handleSave()}
+            >
+              {submitting ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
