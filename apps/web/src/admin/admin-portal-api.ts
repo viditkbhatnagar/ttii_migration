@@ -718,6 +718,151 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/cohorts/delete', authToken, { id });
   }
 
+  // ─── Cohort Detail Mutations ─────────────────────────────────────────
+  async addCohortLearners(authToken: string, cohortId: string, studentIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/add_learners', authToken, {
+      cohort_id: cohortId,
+      student_ids: studentIds,
+    });
+  }
+
+  async removeCohortLearner(authToken: string, cohortId: string, studentId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/remove_learner', authToken, {
+      cohort_id: cohortId,
+      student_id: studentId,
+    });
+  }
+
+  async loadAvailableLearners(authToken: string, cohortId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/cohorts/available_learners', authToken, {
+      cohort_id: cohortId,
+    });
+    return toRecords(payload.data);
+  }
+
+  async addCohortLiveSession(
+    authToken: string,
+    cohortId: string,
+    input: {
+      sessionId: string;
+      title: string;
+      date: string;
+      fromTime: string;
+      toTime: string;
+      zoomId?: string;
+      password?: string;
+      isRepetitive?: boolean;
+      repeatDates?: string[];
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/add_live_session', authToken, {
+      cohort_id: cohortId,
+      session_id: input.sessionId,
+      title: input.title,
+      date: input.date,
+      from_time: input.fromTime,
+      to_time: input.toTime,
+      ...(input.zoomId ? { zoom_id: input.zoomId } : {}),
+      ...(input.password ? { password: input.password } : {}),
+      ...(input.isRepetitive ? { is_repetitive: 1 } : {}),
+      ...(input.repeatDates ? { repeat_dates: input.repeatDates } : {}),
+    });
+  }
+
+  async deleteCohortLiveSession(authToken: string, sessionId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/delete_live_session', authToken, { id: sessionId });
+  }
+
+  async updateLiveSessionRecording(authToken: string, sessionId: string, vimeoLink: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/update_recording', authToken, {
+      session_id: sessionId,
+      vimeo_link: vimeoLink,
+    });
+  }
+
+  async addCohortAssignment(
+    authToken: string,
+    cohortId: string,
+    input: {
+      title: string;
+      courseId?: string;
+      description?: string;
+      totalMarks?: string;
+      dueDate: string;
+      fromTime?: string;
+      dueTime?: string;
+      attachment?: string;
+      instructions?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/add_assignment', authToken, {
+      cohort_id: cohortId,
+      title: input.title,
+      ...(input.courseId ? { course_id: input.courseId } : {}),
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.totalMarks ? { total_marks: input.totalMarks } : {}),
+      due_date: input.dueDate,
+      ...(input.fromTime ? { from_time: input.fromTime } : {}),
+      ...(input.dueTime ? { due_time: input.dueTime } : {}),
+      ...(input.attachment ? { attachment: input.attachment } : {}),
+      ...(input.instructions ? { instructions: input.instructions } : {}),
+    });
+  }
+
+  async editCohortAssignment(authToken: string, assignmentId: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/edit_assignment', authToken, { id: assignmentId, ...input });
+  }
+
+  async loadCohortAssignmentSubmissions(authToken: string, assignmentId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/cohorts/assignment_submissions', authToken, {
+      assignment_id: assignmentId,
+    });
+    return (payload.data as Record<string, unknown>) ?? {};
+  }
+
+  async gradeAssignmentSubmission(
+    authToken: string,
+    submissionId: string,
+    marks: string,
+    remarks: string,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/grade_submission', authToken, {
+      submission_id: submissionId,
+      marks,
+      remarks,
+    });
+  }
+
+  async deleteAssignmentSubmission(authToken: string, submissionId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/delete_submission_file', authToken, { id: submissionId });
+  }
+
+  async addCohortAnnouncement(
+    authToken: string,
+    cohortId: string,
+    input: { title: string; content: string; description?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/add_announcement', authToken, {
+      cohort_id: cohortId,
+      title: input.title,
+      content: input.content,
+      ...(input.description ? { description: input.description } : {}),
+    });
+  }
+
+  async editCohortAnnouncement(authToken: string, id: string, input: { title: string; content: string; description?: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/edit_announcement', authToken, {
+      id,
+      title: input.title,
+      content: input.content,
+      ...(input.description ? { description: input.description } : {}),
+    });
+  }
+
+  async deleteCohortAnnouncement(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/delete_announcement', authToken, { id });
+  }
+
   // ─── Phase 1: Admin Centre Payments ───────────────────────────────────────
 
   async loadAdminCentrePayments(

@@ -46,7 +46,7 @@ export function AdminRouter({ pathname, api, session, onNavigate }: AdminRouterP
 
   return (
     <Suspense fallback={<AdminPageSkeleton />}>
-      <PageComponent {...pageProps} />
+      <PageComponent key={pathname} {...pageProps} />
     </Suspense>
   );
 }
