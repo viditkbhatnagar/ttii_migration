@@ -37,9 +37,9 @@ function StudentLayoutInner({ pathname, session, api, onNavigate, onLogout }: St
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex min-h-screen flex-1 flex-col transition-all duration-300">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300">
         <StudentNavbar session={session} onNavigate={handleNavigate} onLogout={onLogout} />
-        <main className="flex-1 overflow-y-auto px-4 pb-4 pt-4 md:px-6">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4 md:px-6">
           <StudentRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
         <footer className="border-t border-slate-200/60 px-6 py-3 text-center text-xs text-student-muted">
