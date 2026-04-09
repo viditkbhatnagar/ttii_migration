@@ -148,6 +148,74 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     }
   });
 
+  /* ──────────────────────────────────────────────────────────────────
+     OTP-based forgot password (used by the new Figma flow on web)
+     POST /auth/forgot_password   { email }            → send 6-digit OTP
+     POST /auth/verify_otp        { email, otp }       → return reset token
+     POST /auth/reset_password    { email, reset_token, new_password }
+     ────────────────────────────────────────────────────────────────── */
+
+  app.post('/auth/forgot_password', async (request, reply) => {
+    const payload = requestPayload(request);
+    const email = toStringValue(payload.email) ?? '';
+
+    try {
+      const result = await authService.sendForgotPasswordOtp(email, requestMeta(request));
+      reply.code(200).send({
+        status: 1,
+        message: 'If an account exists for that email, an OTP has been sent.',
+        data: {
+          masked_email: result.maskedEmail,
+          expires_in: result.expiresInSeconds,
+        },
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
+  app.post('/auth/verify_otp', async (request, reply) => {
+    const payload = requestPayload(request);
+    const email = toStringValue(payload.email) ?? '';
+    const otp = toStringValue(payload.otp) ?? '';
+
+    try {
+      const result = await authService.verifyForgotPasswordOtp(email, otp, requestMeta(request));
+      reply.code(200).send({
+        status: 1,
+        message: 'OTP verified successfully.',
+        data: {
+          reset_token: result.resetToken,
+        },
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
+  app.post('/auth/reset_password', async (request, reply) => {
+    const payload = requestPayload(request);
+    const email = toStringValue(payload.email) ?? '';
+    const resetToken = toStringValue(payload.reset_token) ?? '';
+    const newPassword = toStringValue(payload.new_password) ?? '';
+
+    try {
+      await authService.resetPasswordWithSignedToken({
+        email,
+        resetToken,
+        newPassword,
+        requestMeta: requestMeta(request),
+      });
+      reply.code(200).send({
+        status: 1,
+        message: 'Password reset successfully.',
+        data: {},
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
   app.get('/login/reset_password/:userId', async (request, reply) => {
     const params = request.params as { userId?: string };
     const query = request.query as { token?: string };

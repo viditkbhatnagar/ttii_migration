@@ -1,3 +1,5 @@
+import nodemailer, { type Transporter } from 'nodemailer';
+
 import type { EmailProvider, EmailSendRequest, IntegrationDeliveryResult, IntegrationLogger } from './contracts.js';
 
 function maskEmail(value: string): string {
@@ -133,5 +135,85 @@ export class BrevoEmailProvider implements EmailProvider {
       provider: this.name,
       ...(result.messageId ? { providerMessageId: result.messageId } : {}),
     };
+  }
+}
+
+export interface SmtpEmailProviderConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  password: string;
+  fromAddress: string;
+  fromName: string;
+}
+
+/**
+ * SMTP-based email provider compatible with Outlook / Microsoft 365 and any
+ * standard SMTP server. Uses nodemailer under the hood.
+ *
+ * For Outlook / Office 365, use:
+ *   host: smtp.office365.com
+ *   port: 587
+ *   secure: false  (STARTTLS will be negotiated automatically)
+ */
+export class SmtpEmailProvider implements EmailProvider {
+  readonly name = 'smtp';
+  private readonly transporter: Transporter;
+
+  constructor(
+    private readonly config: SmtpEmailProviderConfig,
+    private readonly logger: IntegrationLogger,
+  ) {
+    this.transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: {
+        user: config.username,
+        pass: config.password,
+      },
+    });
+  }
+
+  async sendEmail(input: EmailSendRequest): Promise<IntegrationDeliveryResult> {
+    ensureMessageContent(input);
+
+    const fromHeader = `"${this.config.fromName}" <${this.config.fromAddress}>`;
+
+    try {
+      const mailOptions: Parameters<Transporter['sendMail']>[0] = {
+        from: fromHeader,
+        to: input.to,
+        subject: input.subject,
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+        ...(input.html ? { html: input.html } : {}),
+        ...(input.text ? { text: input.text } : {}),
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+
+      this.logger.info('integration.email.send', {
+        provider: this.name,
+        to: maskEmail(input.to),
+        subject: input.subject,
+        message_id: info.messageId,
+      });
+
+      return {
+        accepted: true,
+        provider: this.name,
+        ...(info.messageId ? { providerMessageId: info.messageId } : {}),
+      };
+    } catch (error) {
+      this.logger.error('integration.email.send_failed', {
+        provider: this.name,
+        to: maskEmail(input.to),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new Error(
+        `SMTP email send failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }

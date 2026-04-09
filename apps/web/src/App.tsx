@@ -23,6 +23,7 @@ import { CentrePortal, normalizeCentrePath } from './centre/centre-portal.js';
 import { CentrePortalApi } from './centre/centre-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
+import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
 
 interface ShellMetric {
   label: string;
@@ -641,7 +642,11 @@ function LoginHome() {
                 />
                 <span className="text-sm text-gray-600">Remember Me</span>
               </label>
-              <button type="button" className="text-sm font-semibold text-gray-800 hover:text-blue-600 transition-colors">
+              <button
+                type="button"
+                className="text-sm font-semibold text-gray-800 hover:text-blue-600 transition-colors"
+                onClick={() => navigateTo('/forgot-password')}
+              >
                 Forgot Password?
               </button>
             </div>
@@ -699,6 +704,7 @@ function PortalRouter({
 }) {
   const pathname = usePathname(initialPath);
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
+  const { authApi } = useAuthState();
 
   // On subdomain, redirect root or wrong-portal paths to the correct portal
   useEffect(() => {
@@ -708,6 +714,11 @@ function PortalRouter({
       navigateTo(redirect);
     }
   }, [subdomainPortal, pathname]);
+
+  // Forgot Password flow
+  if (pathname === '/forgot-password') {
+    return <ForgotPasswordFlow authApi={authApi} onBackToLogin={() => navigateTo('/')} />;
+  }
 
   if (pathname === '/' && !subdomainPortal) {
     return <LoginHome />;

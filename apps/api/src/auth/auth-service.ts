@@ -417,6 +417,262 @@ export class AuthService {
     };
   }
 
+  /* ────────────────────────────────────────────────────────────────────
+     OTP-based forgot password (used by Figma forgot-password flow)
+     - sendForgotPasswordOtp(email): generates 6-digit OTP, stores hash in
+       password_reset_token table, sends OTP via email
+     - verifyForgotPasswordOtp(email, otp): validates OTP, returns a signed
+       reset token (the same signed token format used for link-based reset)
+     - resetPasswordWithToken(email, resetToken, newPassword): consumes the
+       signed reset token and updates the password
+     ──────────────────────────────────────────────────────────────────── */
+
+  async sendForgotPasswordOtp(
+    email: string,
+    requestMeta: RequestMeta,
+  ): Promise<{ maskedEmail: string; expiresInSeconds: number }> {
+    const normalizedEmail = normalizeEmail(email);
+    if (!isTruthyString(normalizedEmail)) {
+      throw new AuthErrorClass(400, 'Please enter your email.', 'VALIDATION_ERROR');
+    }
+
+    const rateLimitKey = toRateLimitKey('forgot_pwd_otp_request', normalizedEmail, requestMeta.ipAddress);
+    const rateLimitResult = passwordResetRateLimiter.consume(
+      rateLimitKey,
+      env.AUTH_PASSWORD_RESET_RATE_LIMIT_MAX,
+    );
+    if (!rateLimitResult.allowed) {
+      throw new AuthErrorClass(429, 'Too many OTP requests. Try again later.', 'RATE_LIMITED', {
+        retry_after_seconds: rateLimitResult.retryAfterSeconds,
+      });
+    }
+
+    const user = await this.prisma.users.findFirst({
+      where: {
+        deleted_at: null,
+        OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+      },
+    });
+
+    // Always return the same masked email shape — never reveal whether the
+    // account exists. If the user is missing we still pretend success.
+    const maskedEmail = this.maskEmail(normalizedEmail);
+    const expiresInSeconds = 120;
+
+    if (!user || !isTruthyString(user.password)) {
+      await this.writeAuditLog({
+        event: 'FORGOT_PWD_OTP_REQUESTED_NOT_FOUND',
+        success: false,
+        identifier: normalizedEmail,
+        userId: null,
+        requestMeta,
+      });
+      return { maskedEmail, expiresInSeconds };
+    }
+
+    const canonicalEmail = this.getCanonicalUserEmail(user);
+    if (!isTruthyString(canonicalEmail)) {
+      return { maskedEmail, expiresInSeconds };
+    }
+
+    const otp = this.generateOtp(6);
+    const otpHash = sha256Hex(`forgot_pwd_otp:${user.id}:${otp}`);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + expiresInSeconds * 1000);
+
+    // Invalidate any prior unused OTPs for this user
+    await this.prisma.password_reset_token.updateMany({
+      where: { user_id: user.id, used_at: null },
+      data: { used_at: now, updated_at: now },
+    });
+
+    await this.prisma.password_reset_token.create({
+      data: {
+        user_id: user.id,
+        token_hash: otpHash,
+        created_at: now,
+        updated_at: now,
+        expires_at: expiresAt,
+        requested_ip: requestMeta.ipAddress ?? null,
+        requested_user_agent: requestMeta.userAgent ?? null,
+      },
+    });
+
+    try {
+      await this.emailProvider.sendEmail({
+        to: canonicalEmail,
+        subject: 'TTII Password Reset OTP',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+            <h2 style="color: #18548b;">Password Reset Request</h2>
+            <p>You requested to reset your TTII account password. Use the OTP below to continue:</p>
+            <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+              <p style="margin: 0; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #18548b;">${otp}</p>
+            </div>
+            <p style="color: #666; font-size: 14px;">This OTP expires in 2 minutes. If you didn't request this, please ignore this email.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="color: #999; font-size: 12px;">Teachers' Training Institute of India</p>
+          </div>
+        `,
+        text: `Your TTII password reset OTP is: ${otp}\n\nThis OTP expires in 2 minutes.\n\nIf you didn't request this, please ignore this email.`,
+      });
+    } catch {
+      await this.writeAuditLog({
+        event: 'FORGOT_PWD_OTP_DELIVERY_FAILED',
+        success: false,
+        identifier: normalizedEmail,
+        userId: user.id,
+        requestMeta,
+      });
+      throw new AuthErrorClass(
+        502,
+        'Unable to send OTP at the moment. Please try again later.',
+        'INTEGRATION_ERROR',
+      );
+    }
+
+    await this.writeAuditLog({
+      event: 'FORGOT_PWD_OTP_REQUESTED',
+      success: true,
+      identifier: normalizedEmail,
+      userId: user.id,
+      requestMeta,
+      details: { expires_at: expiresAt.toISOString() },
+    });
+
+    return { maskedEmail, expiresInSeconds };
+  }
+
+  async verifyForgotPasswordOtp(
+    email: string,
+    otp: string,
+    requestMeta: RequestMeta,
+  ): Promise<{ resetToken: string }> {
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedOtp = otp.trim();
+    if (!isTruthyString(normalizedEmail) || !/^\d{6}$/.test(normalizedOtp)) {
+      throw new AuthErrorClass(400, 'Invalid email or OTP.', 'VALIDATION_ERROR');
+    }
+
+    const rateLimitKey = toRateLimitKey('forgot_pwd_otp_verify', normalizedEmail, requestMeta.ipAddress);
+    const rateLimitResult = otpVerifyRateLimiter.consume(rateLimitKey, env.AUTH_OTP_VERIFY_RATE_LIMIT_MAX);
+    if (!rateLimitResult.allowed) {
+      throw new AuthErrorClass(429, 'Too many verification attempts. Try again later.', 'RATE_LIMITED', {
+        retry_after_seconds: rateLimitResult.retryAfterSeconds,
+      });
+    }
+
+    const user = await this.prisma.users.findFirst({
+      where: {
+        deleted_at: null,
+        OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+      },
+    });
+
+    if (!user || !isTruthyString(user.password)) {
+      throw new AuthErrorClass(400, 'OTP is invalid or has expired.', 'INVALID_OTP');
+    }
+
+    const otpHash = sha256Hex(`forgot_pwd_otp:${user.id}:${normalizedOtp}`);
+    const now = new Date();
+    const tokenRecord = await this.prisma.password_reset_token.findFirst({
+      where: {
+        user_id: user.id,
+        token_hash: otpHash,
+        used_at: null,
+        expires_at: { gt: now },
+      },
+    });
+
+    if (!tokenRecord) {
+      await this.writeAuditLog({
+        event: 'FORGOT_PWD_OTP_VERIFY_FAILED',
+        success: false,
+        identifier: normalizedEmail,
+        userId: user.id,
+        requestMeta,
+      });
+      throw new AuthErrorClass(400, 'OTP is invalid or has expired.', 'INVALID_OTP');
+    }
+
+    // Mark OTP as consumed and issue a signed reset token
+    await this.prisma.password_reset_token.update({
+      where: { id: tokenRecord.id },
+      data: { used_at: now, updated_at: now },
+    });
+
+    const canonicalEmail = this.getCanonicalUserEmail(user);
+    const generated = createSignedPasswordResetToken({
+      userId: user.id,
+      email: canonicalEmail,
+      currentPasswordHash: user.password,
+      signingKey: env.PASSWORD_RESET_TOKEN_KEY,
+      ttlSeconds: env.PASSWORD_RESET_TOKEN_TTL_SECONDS,
+    });
+
+    // Persist the new signed token so updatePasswordWithResetToken can find it
+    await this.prisma.password_reset_token.create({
+      data: {
+        user_id: user.id,
+        token_hash: sha256Hex(generated.token),
+        created_at: now,
+        updated_at: now,
+        expires_at: generated.expiresAt,
+        requested_ip: requestMeta.ipAddress ?? null,
+        requested_user_agent: requestMeta.userAgent ?? null,
+      },
+    });
+
+    await this.writeAuditLog({
+      event: 'FORGOT_PWD_OTP_VERIFIED',
+      success: true,
+      identifier: normalizedEmail,
+      userId: user.id,
+      requestMeta,
+    });
+
+    return { resetToken: generated.token };
+  }
+
+  async resetPasswordWithSignedToken(input: {
+    email: string;
+    resetToken: string;
+    newPassword: string;
+    requestMeta: RequestMeta;
+  }): Promise<void> {
+    const normalizedEmail = normalizeEmail(input.email);
+    if (!isTruthyString(normalizedEmail) || !isTruthyString(input.resetToken)) {
+      throw new AuthErrorClass(400, 'Invalid request.', 'VALIDATION_ERROR');
+    }
+
+    const user = await this.prisma.users.findFirst({
+      where: {
+        deleted_at: null,
+        OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+      },
+    });
+
+    if (!user) {
+      throw toLegacyPasswordResetError();
+    }
+
+    return this.updatePasswordWithResetToken({
+      userId: user.id,
+      email: this.getCanonicalUserEmail(user),
+      token: input.resetToken,
+      password: input.newPassword,
+      confirmPassword: input.newPassword,
+      requestMeta: input.requestMeta,
+    });
+  }
+
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!local || !domain) return email;
+    if (local.length <= 4) return `${local[0]}***@${domain}`;
+    return `${local.slice(0, 4)}***@${domain}`;
+  }
+
   async updatePasswordWithResetToken(input: {
     userId: string;
     email: string;

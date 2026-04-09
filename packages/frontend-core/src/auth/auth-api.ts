@@ -56,11 +56,29 @@ export interface LoginInput {
   roleId?: number;
 }
 
+export interface ForgotPasswordResult {
+  message: string;
+  maskedEmail?: string;
+  expiresInSeconds?: number;
+}
+
+export interface VerifyOtpResult {
+  message: string;
+  resetToken: string;
+}
+
+export interface ResetPasswordResult {
+  message: string;
+}
+
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
   getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }>;
   checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void>;
   logout(authToken: string): Promise<void>;
+  forgotPassword(email: string): Promise<ForgotPasswordResult>;
+  verifyOtp(email: string, otp: string): Promise<VerifyOtpResult>;
+  resetPassword(input: { email: string; resetToken: string; newPassword: string }): Promise<ResetPasswordResult>;
 }
 
 export class LegacyAuthApi implements AuthApi {
@@ -154,6 +172,87 @@ export class LegacyAuthApi implements AuthApi {
       path: '/login/logout',
       authToken,
     });
+  }
+
+  async forgotPassword(email: string): Promise<ForgotPasswordResult> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/auth/forgot_password',
+      body: { email },
+    });
+
+    if (!isRecord(response)) {
+      throw new ApiError('Invalid forgot password response.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/forgot_password',
+      });
+    }
+
+    const data = isRecord(response.data) ? response.data : response;
+    const maskedEmail = asString(data.masked_email);
+    const expiresInSeconds = asNumber(data.expires_in);
+    return {
+      message: asString(response.message) ?? asString(data.message) ?? 'OTP sent to your email.',
+      ...(maskedEmail ? { maskedEmail } : {}),
+      ...(expiresInSeconds !== null ? { expiresInSeconds } : {}),
+    };
+  }
+
+  async verifyOtp(email: string, otp: string): Promise<VerifyOtpResult> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/auth/verify_otp',
+      body: { email, otp },
+    });
+
+    if (!isRecord(response)) {
+      throw new ApiError('Invalid verify OTP response.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/verify_otp',
+      });
+    }
+
+    const data = isRecord(response.data) ? response.data : response;
+    const resetToken = asString(data.reset_token) ?? asString(data.token);
+
+    if (!resetToken) {
+      throw new ApiError('Verify OTP response is missing reset token.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/verify_otp',
+      });
+    }
+
+    return {
+      message: asString(response.message) ?? 'OTP verified successfully.',
+      resetToken,
+    };
+  }
+
+  async resetPassword(input: { email: string; resetToken: string; newPassword: string }): Promise<ResetPasswordResult> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/auth/reset_password',
+      body: {
+        email: input.email,
+        reset_token: input.resetToken,
+        new_password: input.newPassword,
+      },
+    });
+
+    if (!isRecord(response)) {
+      throw new ApiError('Invalid reset password response.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/reset_password',
+      });
+    }
+
+    return {
+      message: asString(response.message) ?? 'Password reset successfully.',
+    };
   }
 }
 

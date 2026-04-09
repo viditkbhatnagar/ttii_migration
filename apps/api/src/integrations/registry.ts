@@ -1,6 +1,6 @@
 import { env } from '../env.js';
 import type { IntegrationLogger, IntegrationRegistry } from './contracts.js';
-import { BrevoEmailProvider, ConsoleEmailProvider, NoopEmailProvider } from './email-provider.js';
+import { BrevoEmailProvider, ConsoleEmailProvider, NoopEmailProvider, SmtpEmailProvider } from './email-provider.js';
 import { createConsoleIntegrationLogger } from './logger.js';
 import { MockOpenAiProvider, OpenAiHttpProvider } from './openai-provider.js';
 import { ConsoleOtpProvider, HttpOtpProvider, NoopOtpProvider } from './otp-provider.js';
@@ -9,11 +9,16 @@ import { LocalStorageProvider, S3StorageProvider } from './storage-provider.js';
 import { NoopZoomProvider, ZoomSdkProvider } from './zoom-provider.js';
 
 export interface IntegrationRuntimeConfig {
-  emailProvider: 'console' | 'noop' | 'brevo';
+  emailProvider: 'console' | 'noop' | 'brevo' | 'smtp';
   emailFromAddress: string;
   emailFromName: string;
   emailBrevoApiKey: string | undefined;
   emailBrevoBaseUrl: string;
+  emailSmtpHost: string | undefined;
+  emailSmtpPort: number;
+  emailSmtpSecure: boolean;
+  emailSmtpUsername: string | undefined;
+  emailSmtpPassword: string | undefined;
 
   otpProvider: 'console' | 'noop' | 'http';
   otpHttpEndpoint: string | undefined;
@@ -67,6 +72,11 @@ function fromEnv(): IntegrationRuntimeConfig {
     emailFromName: env.EMAIL_FROM_NAME,
     emailBrevoApiKey: env.EMAIL_BREVO_API_KEY,
     emailBrevoBaseUrl: env.EMAIL_BREVO_BASE_URL,
+    emailSmtpHost: env.EMAIL_SMTP_HOST,
+    emailSmtpPort: env.EMAIL_SMTP_PORT,
+    emailSmtpSecure: env.EMAIL_SMTP_SECURE,
+    emailSmtpUsername: env.EMAIL_SMTP_USERNAME,
+    emailSmtpPassword: env.EMAIL_SMTP_PASSWORD,
 
     otpProvider: env.OTP_PROVIDER,
     otpHttpEndpoint: env.OTP_HTTP_ENDPOINT,
@@ -135,6 +145,21 @@ export function createIntegrationRegistry(options: CreateIntegrationRegistryOpti
         },
         logger,
         fetchImpl,
+      );
+    }
+
+    if (runtime.emailProvider === 'smtp') {
+      return new SmtpEmailProvider(
+        {
+          host: requiredValue(runtime.emailSmtpHost, 'EMAIL_SMTP_HOST'),
+          port: runtime.emailSmtpPort,
+          secure: runtime.emailSmtpSecure,
+          username: requiredValue(runtime.emailSmtpUsername, 'EMAIL_SMTP_USERNAME'),
+          password: requiredValue(runtime.emailSmtpPassword, 'EMAIL_SMTP_PASSWORD'),
+          fromAddress: runtime.emailFromAddress,
+          fromName: runtime.emailFromName,
+        },
+        logger,
       );
     }
 
