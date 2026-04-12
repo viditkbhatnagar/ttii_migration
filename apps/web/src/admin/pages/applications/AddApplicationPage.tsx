@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,65 +34,95 @@ const LEAD_SOURCES = [
   'Agent/Associate', 'Event', 'Other',
 ];
 
+const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
+
+interface EducationRow {
+  qualification: string;
+  institution: string;
+  yearOfPassing: string;
+  percentage: string;
+}
+
 interface FormState {
-  // Tab 1: Basic Info
+  // Tab 1: Basic Info — Personal Information
   firstName: string;
   lastName: string;
+  dateOfBirth: string;
+  gender: string;
+  nationality: string;
+  maritalStatus: string;
+  fatherName: string;
+  motherName: string;
+  guardianName: string;
+  aadharNo: string;
+  passportNo: string;
+  // Tab 1: Basic Info — Contact Information
   email: string;
   phone: string;
   alternatePhone: string;
-  dateOfBirth: string;
-  gender: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  state: string;
-  pincode: string;
+  whatsappNo: string;
   country: string;
+  state: string;
+  district: string;
+  permanentAddress: string;
+  correspondenceAddress: string;
   // Tab 2: Qualification
   highestQualification: string;
   specialization: string;
   institutionName: string;
   yearOfPassing: string;
-  percentageOrCgpa: string;
-  workExperience: string;
+  employmentStatus: string;
   currentOccupation: string;
+  workExperience: string;
   // Tab 3: Enrolment
   courseId: string;
-  centreId: string;
-  batchId: string;
+  offeringId: string;
+  certificateCombination: string;
   enrollmentDate: string;
-  feePlan: string;
-  discount: string;
-  referralCode: string;
-  // Tab 4: LMS/CRM
+  modeOfStudy: string;
+  language: string;
+  pipeline: string;
+  pipelineUser: string;
   leadSource: string;
-  assignedCounsellor: string;
-  applicationStatus: string;
-  notes: string;
-  crmTags: string;
+  // Tab 4: Fee Information
+  courseFee: string;
+  discount: string;
+  gstApplicability: string;
+  finalCourseFee: string;
 }
 
 const emptyForm: FormState = {
-  firstName: '', lastName: '', email: '', phone: '', alternatePhone: '',
-  dateOfBirth: '', gender: '', addressLine1: '', addressLine2: '',
-  city: '', state: '', pincode: '', country: 'India',
+  firstName: '', lastName: '', dateOfBirth: '', gender: '', nationality: 'Indian',
+  maritalStatus: '', fatherName: '', motherName: '', guardianName: '',
+  aadharNo: '', passportNo: '',
+  email: '', phone: '', alternatePhone: '', whatsappNo: '',
+  country: 'India', state: '', district: '', permanentAddress: '', correspondenceAddress: '',
   highestQualification: '', specialization: '', institutionName: '',
-  yearOfPassing: '', percentageOrCgpa: '', workExperience: '', currentOccupation: '',
-  courseId: '', centreId: '', batchId: '', enrollmentDate: '',
-  feePlan: '', discount: '', referralCode: '',
-  leadSource: '', assignedCounsellor: '', applicationStatus: 'pending',
-  notes: '', crmTags: '',
+  yearOfPassing: '', employmentStatus: '', currentOccupation: '', workExperience: '',
+  courseId: '', offeringId: '', certificateCombination: '', enrollmentDate: '',
+  modeOfStudy: '', language: '', pipeline: '', pipelineUser: '', leadSource: '',
+  courseFee: '', discount: '', gstApplicability: 'No', finalCourseFee: '',
 };
 
-const TAB_LABELS = ['Basic Info', 'Qualification', 'Enrolment', 'LMS / CRM'];
+const TAB_LABELS = ['Basic Info', 'Qualification', 'Enrolment', 'Fee Information'];
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+
+function calculateAge(dob: string): string {
+  if (!dob) return '';
+  const birthDate = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+  return age > 0 ? String(age) : '';
+}
 
 export default function AddApplicationPage({ api, session, onNavigate }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [educationRows, setEducationRows] = useState<EducationRow[]>([]);
 
   // Load dropdown data
   const { data: refData, loading: refLoading } = useAdminPageData(
@@ -100,9 +131,15 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   );
 
   const courses = useMemo(() => refData?.courses ?? [], [refData]);
-  const centres = useMemo(() => refData?.centres ?? [], [refData]);
 
-  // Load counsellors for dropdown
+  // Load offerings for selected course
+  const { data: offeringsData } = useAdminPageData(
+    () => form.courseId ? api.listOfferings(session.token, { course_id: form.courseId }) : Promise.resolve([]),
+    [form.courseId],
+  );
+  const offerings = useMemo(() => toRecords(offeringsData), [offeringsData]);
+
+  // Load pipeline users (counsellors)
   const { data: counsellors } = useAdminPageData(
     () => api.loadPipelineUsers(session.token, 9),
     [],
@@ -116,8 +153,48 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   const batches = useMemo(() => toRecords(batchesData), [batchesData]);
 
   const set = useCallback((key: keyof FormState, value: string) => {
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => {
+      const updated = { ...f, [key]: value };
+      // Auto-calculate final course fee when discount or courseFee changes
+      if (key === 'discount' || key === 'courseFee' || key === 'gstApplicability') {
+        const fee = parseFloat(updated.courseFee) || 0;
+        const disc = parseFloat(updated.discount) || 0;
+        const afterDiscount = fee - (fee * disc / 100);
+        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * 0.18 : 0;
+        updated.finalCourseFee = (afterDiscount + gst).toFixed(2);
+      }
+      return updated;
+    });
   }, []);
+
+  // Auto-fill course fee when offering is selected
+  const handleOfferingChange = useCallback((offeringId: string) => {
+    setForm((f) => {
+      const offering = offerings.find((o) => asString(o.id) === offeringId);
+      const fee = offering ? asString(offering.pricing_amount) : '';
+      const updated = { ...f, offeringId, courseFee: fee };
+      if (fee) {
+        const feeNum = parseFloat(fee) || 0;
+        const disc = parseFloat(updated.discount) || 0;
+        const afterDiscount = feeNum - (feeNum * disc / 100);
+        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * 0.18 : 0;
+        updated.finalCourseFee = (afterDiscount + gst).toFixed(2);
+      }
+      return updated;
+    });
+  }, [offerings]);
+
+  const addEducationRow = () => {
+    setEducationRows((prev) => [...prev, { qualification: '', institution: '', yearOfPassing: '', percentage: '' }]);
+  };
+
+  const updateEducationRow = (index: number, field: keyof EducationRow, value: string) => {
+    setEducationRows((prev) => prev.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  };
+
+  const removeEducationRow = (index: number) => {
+    setEducationRows((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = useCallback(async () => {
     if (!form.firstName.trim()) { alert('First name is required.'); setActiveTab(0); return; }
@@ -134,31 +211,37 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         alternate_phone: form.alternatePhone.trim(),
         date_of_birth: form.dateOfBirth,
         gender: form.gender,
-        address_line_1: form.addressLine1.trim(),
-        address_line_2: form.addressLine2.trim(),
-        city: form.city.trim(),
-        state: form.state,
-        pincode: form.pincode.trim(),
+        nationality: form.nationality.trim(),
+        marital_status: form.maritalStatus,
+        father_name: form.fatherName.trim(),
+        mother_name: form.motherName.trim(),
+        guardian_name: form.guardianName.trim(),
+        aadhar_no: form.aadharNo.trim(),
+        passport_no: form.passportNo.trim(),
+        whatsapp_no: form.whatsappNo.trim(),
         country: form.country.trim(),
+        state: form.state,
+        city: form.district.trim(),
+        permanent_address: form.permanentAddress.trim(),
+        correspondence_address: form.correspondenceAddress.trim(),
         highest_qualification: form.highestQualification,
         specialization: form.specialization.trim(),
         institution_name: form.institutionName.trim(),
         year_of_passing: form.yearOfPassing.trim(),
-        percentage_or_cgpa: form.percentageOrCgpa.trim(),
-        work_experience: form.workExperience,
+        employment_status: form.employmentStatus.trim(),
         current_occupation: form.currentOccupation.trim(),
+        work_experience: form.workExperience,
         course_id: form.courseId,
-        centre_id: form.centreId,
-        batch_id: form.batchId,
+        offering_id: form.offeringId,
         enrollment_date: form.enrollmentDate,
-        fee_plan: form.feePlan.trim(),
-        discount: form.discount.trim(),
-        referral_code: form.referralCode.trim(),
+        mode_of_study: form.modeOfStudy,
+        language: form.language.trim(),
+        pipeline: form.pipeline,
+        pipeline_user: form.pipelineUser,
         lead_source: form.leadSource,
-        assigned_counsellor: form.assignedCounsellor,
-        application_status: form.applicationStatus || 'pending',
-        notes: form.notes.trim(),
-        crm_tags: form.crmTags.trim(),
+        discount: form.discount.trim(),
+        gst_applicability: form.gstApplicability,
+        application_status: 'pending',
       };
 
       const result = await api.createApplication(session.token, payload);
@@ -224,106 +307,227 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         <CardContent className="pt-6">
           {/* Tab 1: Basic Info */}
           {activeTab === 0 && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>First Name *</Label>
-                <Input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} placeholder="Enter first name" />
+            <div className="space-y-6">
+              {/* Personal Information */}
+              <div>
+                <h3 className="mb-4 text-sm font-semibold text-gray-700 uppercase tracking-wide">Personal Information</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>First Name *</Label>
+                    <Input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} placeholder="Enter first name" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Last Name</Label>
+                    <Input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="Enter last name" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Date of Birth</Label>
+                    <Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Age</Label>
+                    <Input value={calculateAge(form.dateOfBirth)} readOnly className="bg-gray-50" placeholder="Auto-calculated" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Gender</Label>
+                    <select className={selectClass} value={form.gender} onChange={(e) => set('gender', e.target.value)}>
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Nationality</Label>
+                    <Input value={form.nationality} onChange={(e) => set('nationality', e.target.value)} placeholder="Enter nationality" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Marital Status</Label>
+                    <select className={selectClass} value={form.maritalStatus} onChange={(e) => set('maritalStatus', e.target.value)}>
+                      <option value="">Select Marital Status</option>
+                      <option value="Single">Single</option>
+                      <option value="Married">Married</option>
+                      <option value="Divorced">Divorced</option>
+                      <option value="Widowed">Widowed</option>
+                    </select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Father Name</Label>
+                    <Input value={form.fatherName} onChange={(e) => set('fatherName', e.target.value)} placeholder="Enter father's name" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Mother Name</Label>
+                    <Input value={form.motherName} onChange={(e) => set('motherName', e.target.value)} placeholder="Enter mother's name" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Guardian Name (if applicable)</Label>
+                    <Input value={form.guardianName} onChange={(e) => set('guardianName', e.target.value)} placeholder="Enter guardian's name" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Aadhar Number</Label>
+                    <Input value={form.aadharNo} onChange={(e) => set('aadharNo', e.target.value)} placeholder="Enter Aadhar number" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Passport Number</Label>
+                    <Input value={form.passportNo} onChange={(e) => set('passportNo', e.target.value)} placeholder="Enter passport number" />
+                  </div>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>Last Name</Label>
-                <Input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="Enter last name" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Email *</Label>
-                <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Enter email" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Phone *</Label>
-                <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="Enter phone number" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Alternate Phone</Label>
-                <Input value={form.alternatePhone} onChange={(e) => set('alternatePhone', e.target.value)} placeholder="Enter alternate phone" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Date of Birth</Label>
-                <Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Gender</Label>
-                <select className={selectClass} value={form.gender} onChange={(e) => set('gender', e.target.value)}>
-                  <option value="">Select Gender</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Address Line 1</Label>
-                <Input value={form.addressLine1} onChange={(e) => set('addressLine1', e.target.value)} placeholder="Enter address" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Address Line 2</Label>
-                <Input value={form.addressLine2} onChange={(e) => set('addressLine2', e.target.value)} placeholder="Enter address line 2" />
-              </div>
-              <div className="grid gap-2">
-                <Label>City</Label>
-                <Input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Enter city" />
-              </div>
-              <div className="grid gap-2">
-                <Label>State</Label>
-                <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
-                  <option value="">Select State</option>
-                  {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Pincode</Label>
-                <Input value={form.pincode} onChange={(e) => set('pincode', e.target.value)} placeholder="Enter pincode" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Country</Label>
-                <Input value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="Enter country" />
+
+              {/* Contact Information */}
+              <div>
+                <h3 className="mb-4 text-sm font-semibold text-gray-700 uppercase tracking-wide">Contact Information</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>Email ID *</Label>
+                    <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Enter email" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Phone Number *</Label>
+                    <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="Enter phone number" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Alternate Phone Number</Label>
+                    <Input value={form.alternatePhone} onChange={(e) => set('alternatePhone', e.target.value)} placeholder="Enter alternate phone" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>WhatsApp Number</Label>
+                    <Input value={form.whatsappNo} onChange={(e) => set('whatsappNo', e.target.value)} placeholder="Enter WhatsApp number" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Country</Label>
+                    <Input value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="Enter country" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>State</Label>
+                    <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
+                      <option value="">Select State</option>
+                      {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>District</Label>
+                    <Input value={form.district} onChange={(e) => set('district', e.target.value)} placeholder="Enter district" />
+                  </div>
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label>Permanent Address</Label>
+                    <textarea
+                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      value={form.permanentAddress}
+                      onChange={(e) => set('permanentAddress', e.target.value)}
+                      placeholder="Enter permanent address"
+                    />
+                  </div>
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label>Correspondence Address</Label>
+                    <textarea
+                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      value={form.correspondenceAddress}
+                      onChange={(e) => set('correspondenceAddress', e.target.value)}
+                      placeholder="Enter correspondence address"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
           {/* Tab 2: Qualification */}
           {activeTab === 1 && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>Highest Qualification</Label>
-                <select className={selectClass} value={form.highestQualification} onChange={(e) => set('highestQualification', e.target.value)}>
-                  <option value="">Select Qualification</option>
-                  {QUALIFICATIONS.map((q) => <option key={q} value={q}>{q}</option>)}
-                </select>
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Highest Qualification</Label>
+                  <select className={selectClass} value={form.highestQualification} onChange={(e) => set('highestQualification', e.target.value)}>
+                    <option value="">Select Qualification</option>
+                    {QUALIFICATIONS.map((q) => <option key={q} value={q}>{q}</option>)}
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Specialization</Label>
+                  <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Enter specialization" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>School / College</Label>
+                  <Input value={form.institutionName} onChange={(e) => set('institutionName', e.target.value)} placeholder="Enter school/college name" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Year of Passing</Label>
+                  <Input value={form.yearOfPassing} onChange={(e) => set('yearOfPassing', e.target.value)} placeholder="e.g. 2023" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Current Employment Status</Label>
+                  <select className={selectClass} value={form.employmentStatus} onChange={(e) => set('employmentStatus', e.target.value)}>
+                    <option value="">Select Status</option>
+                    <option value="Employed">Employed</option>
+                    <option value="Self-Employed">Self-Employed</option>
+                    <option value="Unemployed">Unemployed</option>
+                    <option value="Student">Student</option>
+                    <option value="Homemaker">Homemaker</option>
+                    <option value="Retired">Retired</option>
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Current Occupation</Label>
+                  <Input value={form.currentOccupation} onChange={(e) => set('currentOccupation', e.target.value)} placeholder="Enter current occupation" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Experience</Label>
+                  <select className={selectClass} value={form.workExperience} onChange={(e) => set('workExperience', e.target.value)}>
+                    <option value="">Select Experience</option>
+                    {WORK_EXPERIENCE.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>Specialization</Label>
-                <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Enter specialization" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Institution Name</Label>
-                <Input value={form.institutionName} onChange={(e) => set('institutionName', e.target.value)} placeholder="Enter institution name" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Year of Passing</Label>
-                <Input value={form.yearOfPassing} onChange={(e) => set('yearOfPassing', e.target.value)} placeholder="e.g. 2023" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Percentage / CGPA</Label>
-                <Input value={form.percentageOrCgpa} onChange={(e) => set('percentageOrCgpa', e.target.value)} placeholder="e.g. 85% or 8.5 CGPA" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Work Experience</Label>
-                <select className={selectClass} value={form.workExperience} onChange={(e) => set('workExperience', e.target.value)}>
-                  <option value="">Select Experience</option>
-                  {WORK_EXPERIENCE.map((w) => <option key={w} value={w}>{w}</option>)}
-                </select>
-              </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label>Current Occupation</Label>
-                <Input value={form.currentOccupation} onChange={(e) => set('currentOccupation', e.target.value)} placeholder="Enter current occupation" />
+
+              {/* Education Pathway */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Education Pathway</h3>
+                  <Button type="button" variant="outline" size="sm" onClick={addEducationRow}>
+                    Add Row
+                  </Button>
+                </div>
+                {educationRows.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Qualification</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Institution</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Year of Passing</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Percentage / Grade</th>
+                          <th className="px-3 py-2 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {educationRows.map((row, idx) => (
+                          <tr key={idx} className="border-b last:border-b-0">
+                            <td className="px-2 py-1.5">
+                              <Input value={row.qualification} onChange={(e) => updateEducationRow(idx, 'qualification', e.target.value)} placeholder="e.g. B.Ed." className="h-8 text-sm" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input value={row.institution} onChange={(e) => updateEducationRow(idx, 'institution', e.target.value)} placeholder="Institution name" className="h-8 text-sm" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input value={row.yearOfPassing} onChange={(e) => updateEducationRow(idx, 'yearOfPassing', e.target.value)} placeholder="e.g. 2023" className="h-8 text-sm" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input value={row.percentage} onChange={(e) => updateEducationRow(idx, 'percentage', e.target.value)} placeholder="e.g. 85%" className="h-8 text-sm" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Button type="button" variant="ghost" size="sm" className="size-7 p-0 text-red-500 hover:text-red-700" onClick={() => removeEducationRow(idx)}>
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 py-3 text-center border rounded-md">No education pathway entries. Click "Add Row" to add.</p>
+                )}
               </div>
             </div>
           )}
@@ -332,48 +536,57 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
           {activeTab === 2 && (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Select Course</Label>
+                <Label>Course</Label>
                 <select className={selectClass} value={form.courseId} onChange={(e) => set('courseId', e.target.value)}>
                   <option value="">Select Course</option>
                   {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Select Centre</Label>
-                <select className={selectClass} value={form.centreId} onChange={(e) => set('centreId', e.target.value)}>
-                  <option value="">Select Centre</option>
-                  {centres.map((c) => <option key={c.id} value={c.id}>{c.centre_name}</option>)}
+                <Label>Course Offering</Label>
+                <select className={selectClass} value={form.offeringId} onChange={(e) => handleOfferingChange(e.target.value)}>
+                  <option value="">Select Offering</option>
+                  {offerings.map((o) => <option key={asString(o.id)} value={asString(o.id)}>{asString(o.title) || asString(o.offering_code) || 'Untitled'}</option>)}
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Select Batch / Intake</Label>
-                <select className={selectClass} value={form.batchId} onChange={(e) => set('batchId', e.target.value)}>
-                  <option value="">Select Batch</option>
-                  {batches.map((b) => <option key={asString(b.id)} value={asString(b.id)}>{asString(b.title)}</option>)}
-                </select>
+                <Label>Certificate Combination</Label>
+                <Input value={form.certificateCombination} onChange={(e) => set('certificateCombination', e.target.value)} placeholder="Enter certificate combination" />
               </div>
               <div className="grid gap-2">
-                <Label>Enrolment Date</Label>
+                <Label>Date of Enrolment</Label>
                 <Input type="date" value={form.enrollmentDate} onChange={(e) => set('enrollmentDate', e.target.value)} />
               </div>
               <div className="grid gap-2">
-                <Label>Fee Plan</Label>
-                <Input value={form.feePlan} onChange={(e) => set('feePlan', e.target.value)} placeholder="e.g. Full Payment, EMI" />
+                <Label>Mode of Study</Label>
+                <select className={selectClass} value={form.modeOfStudy} onChange={(e) => set('modeOfStudy', e.target.value)}>
+                  <option value="">Select Mode</option>
+                  {MODE_OF_STUDY.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
               </div>
               <div className="grid gap-2">
-                <Label>Discount</Label>
-                <Input value={form.discount} onChange={(e) => set('discount', e.target.value)} placeholder="e.g. 10%" />
+                <Label>Language</Label>
+                <Input value={form.language} onChange={(e) => set('language', e.target.value)} placeholder="Enter preferred language" />
               </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label>Referral Code</Label>
-                <Input value={form.referralCode} onChange={(e) => set('referralCode', e.target.value)} placeholder="Enter referral code" />
+              <div className="grid gap-2">
+                <Label>Pipeline</Label>
+                <select className={selectClass} value={form.pipeline} onChange={(e) => set('pipeline', e.target.value)}>
+                  <option value="">Select Pipeline</option>
+                  <option value="senders">Senders</option>
+                  <option value="9">Counsellors</option>
+                  <option value="student_referral">Student Referral</option>
+                  <option value="10">Associates</option>
+                </select>
               </div>
-            </div>
-          )}
-
-          {/* Tab 4: LMS / CRM */}
-          {activeTab === 3 && (
-            <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Pipeline User</Label>
+                <select className={selectClass} value={form.pipelineUser} onChange={(e) => set('pipelineUser', e.target.value)}>
+                  <option value="">Select Pipeline User</option>
+                  {toRecords(counsellors).map((c) => (
+                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.name)}</option>
+                  ))}
+                </select>
+              </div>
               <div className="grid gap-2">
                 <Label>Lead Source</Label>
                 <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
@@ -381,35 +594,31 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+            </div>
+          )}
+
+          {/* Tab 4: Fee Information */}
+          {activeTab === 3 && (
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Assigned Counsellor</Label>
-                <select className={selectClass} value={form.assignedCounsellor} onChange={(e) => set('assignedCounsellor', e.target.value)}>
-                  <option value="">Select Counsellor</option>
-                  {toRecords(counsellors).map((c) => (
-                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.name)}</option>
-                  ))}
+                <Label>Course Fee</Label>
+                <Input value={form.courseFee} readOnly className="bg-gray-50" placeholder="Auto-filled from offering" />
+                <p className="text-xs text-gray-400">Static — Based on Course Offering</p>
+              </div>
+              <div className="grid gap-2">
+                <Label>Discount (%)</Label>
+                <Input value={form.discount} onChange={(e) => set('discount', e.target.value)} placeholder="e.g. 10" />
+              </div>
+              <div className="grid gap-2">
+                <Label>GST Applicability</Label>
+                <select className={selectClass} value={form.gstApplicability} onChange={(e) => set('gstApplicability', e.target.value)}>
+                  <option value="No">No</option>
+                  <option value="Yes">Yes (18%)</option>
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Application Status</Label>
-                <select className={selectClass} value={form.applicationStatus} onChange={(e) => set('applicationStatus', e.target.value)}>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
-              <div className="grid gap-2">
-                <Label>CRM Tags</Label>
-                <Input value={form.crmTags} onChange={(e) => set('crmTags', e.target.value)} placeholder="Comma-separated tags" />
-              </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label>Notes / Remarks</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={form.notes}
-                  onChange={(e) => set('notes', e.target.value)}
-                  placeholder="Enter notes or remarks"
-                />
+                <Label>Final Course Fee</Label>
+                <Input value={form.finalCourseFee ? `₹${form.finalCourseFee}` : ''} readOnly className="bg-gray-50 font-semibold" placeholder="Auto-calculated" />
               </div>
             </div>
           )}

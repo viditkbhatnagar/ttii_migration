@@ -60,16 +60,16 @@ apps/
   api/          Fastify 5 backend
     src/
       routes/       Route handlers (auth, profile, content, assessment, operations, engagement, commerce, health)
-      auth/         Auth service + middleware
+      auth/         Auth service + middleware (middleware.ts, rate-limit.ts, roles.ts, session-token.ts, password.ts)
       operations/   operations-service.ts (admin CRUD)
       assessment/   assessment-service.ts
-      content/      content-service.ts
+      content/      content-service.ts, program-service.ts, offering-service.ts, content-asset-service.ts, certificate-service.ts
       engagement/   engagement-service.ts
       commerce/     commerce-service.ts
     prisma/         schema.prisma (83 models, MongoDB)
   web/          React 19 frontend
     src/
-      admin/        Admin portal (69 pages)
+      admin/        Admin portal (~80 pages in pages/*/)
         admin-portal-api.ts     Frontend API client class
         routing/
           admin-routes.ts       Route config
@@ -80,6 +80,8 @@ packages/
   ui/             @ttii/ui — shared Tailwind components (shadcn/ui based)
   frontend-core/  @ttii/frontend-core — auth, routing, API client base
   shared-types/   @ttii/shared-types — cross-app type contracts
+app/              Legacy PHP codebase (untouched)
+public_html/      Legacy PHP public files (untouched)
 ```
 
 ## Subdomain Routing

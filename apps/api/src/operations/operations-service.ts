@@ -119,12 +119,22 @@ export type AdminApplicationInput = {
   alternatePhone?: string;
   dateOfBirth?: string;
   gender?: string;
+  nationality?: string;
+  maritalStatus?: string;
+  fatherName?: string;
+  motherName?: string;
+  guardianName?: string;
+  aadharNo?: string;
+  passportNo?: string;
+  whatsappNo?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
   state?: string;
   pincode?: string;
   country?: string;
+  permanentAddress?: string;
+  correspondenceAddress?: string;
   highestQualification?: string;
   specialization?: string;
   institutionName?: string;
@@ -132,15 +142,19 @@ export type AdminApplicationInput = {
   percentageOrCgpa?: string;
   workExperience?: string;
   currentOccupation?: string;
+  employmentStatus?: string;
   courseId?: string;
   centreId?: string;
   batchId?: string;
+  offeringId?: string;
   enrollmentDate?: string;
-  feePlan?: string;
+  modeOfStudy?: string;
+  language?: string;
+  pipeline?: string;
+  pipelineUser?: string;
   discount?: string;
-  referralCode?: string;
+  gstApplicability?: string;
   leadSource?: string;
-  assignedCounsellor?: string;
   applicationStatus?: string;
   notes?: string;
   crmTags?: string;
@@ -4086,6 +4100,14 @@ export class OperationsService {
     const now = new Date();
     const fullName = `${input.firstName.trim()} ${input.lastName?.trim() || ''}`.trim();
 
+    // Auto-calculate age from DOB
+    let age: number | null = null;
+    if (input.dateOfBirth) {
+      const dob = new Date(input.dateOfBirth);
+      const ageDiff = now.getTime() - dob.getTime();
+      age = Math.floor(ageDiff / (365.25 * 24 * 60 * 60 * 1000));
+    }
+
     const created = await this.prisma.applications.create({
       data: {
         application_id: `APP-${Date.now()}`,
@@ -4095,19 +4117,29 @@ export class OperationsService {
         user_email: email,
         country_code: '+91',
         date_of_birth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+        age,
         gender: input.gender || null,
+        nationality: input.nationality || input.country || 'India',
+        marital_status: input.maritalStatus || null,
+        father_name: input.fatherName || null,
+        mother_name: input.motherName || null,
+        guardian_name: input.guardianName || null,
+        aadhar_no: input.aadharNo || null,
+        passport_no: input.passportNo || null,
+        whatsapp_no: input.whatsappNo || null,
         state: input.state || null,
-        address: input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null,
         district: input.city || null,
-        nationality: input.country || 'India',
+        address: input.permanentAddress || (input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null),
+        native_address: input.correspondenceAddress || null,
         second_phone: input.alternatePhone || null,
         course_id: input.courseId || null,
         batch_id: input.batchId || null,
         enrollment_date: input.enrollmentDate ? new Date(input.enrollmentDate) : null,
-        mode_of_study: input.feePlan || null,
+        mode_of_study: input.modeOfStudy || null,
+        preferred_language: input.language || null,
         marketing_source: input.leadSource || null,
-        pipeline_user: input.assignedCounsellor || null,
-        pipeline: input.assignedCounsellor ? '9' : null,
+        pipeline_user: input.pipelineUser || null,
+        pipeline: input.pipeline || (input.pipelineUser ? '9' : null),
         status: input.applicationStatus || 'pending',
         added_under_centre: input.centreId ? Number(input.centreId) : null,
         created_by: actorUserId,
@@ -4118,7 +4150,7 @@ export class OperationsService {
     });
 
     // Store qualification if provided
-    if (input.highestQualification || input.institutionName) {
+    if (input.highestQualification || input.institutionName || input.specialization) {
       await this.prisma.qualification.create({
         data: {
           user_id: created.id,
@@ -4147,13 +4179,17 @@ export class OperationsService {
     return { status: 1, message: 'Application deleted successfully.' };
   }
 
-  async updateApplicationStatus(actorUserId: string, id: string, status: string): Promise<Record<string, unknown>> {
+  async updateApplicationStatus(actorUserId: string, id: string, status: string, rejectReason?: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
     if (!status) return { status: 0, message: 'Status is required.' };
     const now = new Date();
+    const data: Record<string, unknown> = { status, updated_by: actorUserId, updated_at: now };
+    if (status === 'rejected' && rejectReason) {
+      data.reject_reason = rejectReason;
+    }
     const result = await this.prisma.applications.updateMany({
       where: { id, deleted_at: null },
-      data: { status, updated_by: actorUserId, updated_at: now },
+      data,
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
     return { status: 1, message: `Application ${status} successfully.` };

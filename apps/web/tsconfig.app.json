@@ -4,7 +4,6 @@
     "composite": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "vitest/globals", "react", "react-dom"],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

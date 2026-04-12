@@ -2038,12 +2038,22 @@ export function registerOperationsRoutes(
         alternatePhone: toStringValue(payload.alternate_phone),
         dateOfBirth: toStringValue(payload.date_of_birth),
         gender: toStringValue(payload.gender),
+        nationality: toStringValue(payload.nationality),
+        maritalStatus: toStringValue(payload.marital_status),
+        fatherName: toStringValue(payload.father_name),
+        motherName: toStringValue(payload.mother_name),
+        guardianName: toStringValue(payload.guardian_name),
+        aadharNo: toStringValue(payload.aadhar_no),
+        passportNo: toStringValue(payload.passport_no),
+        whatsappNo: toStringValue(payload.whatsapp_no),
         addressLine1: toStringValue(payload.address_line_1),
         addressLine2: toStringValue(payload.address_line_2),
         city: toStringValue(payload.city),
         state: toStringValue(payload.state),
         pincode: toStringValue(payload.pincode),
         country: toStringValue(payload.country),
+        permanentAddress: toStringValue(payload.permanent_address),
+        correspondenceAddress: toStringValue(payload.correspondence_address),
         highestQualification: toStringValue(payload.highest_qualification),
         specialization: toStringValue(payload.specialization),
         institutionName: toStringValue(payload.institution_name),
@@ -2051,15 +2061,19 @@ export function registerOperationsRoutes(
         percentageOrCgpa: toStringValue(payload.percentage_or_cgpa),
         workExperience: toStringValue(payload.work_experience),
         currentOccupation: toStringValue(payload.current_occupation),
+        employmentStatus: toStringValue(payload.employment_status),
         courseId: toStringValue(payload.course_id),
         centreId: toStringValue(payload.centre_id),
         batchId: toStringValue(payload.batch_id),
+        offeringId: toStringValue(payload.offering_id),
         enrollmentDate: toStringValue(payload.enrollment_date),
-        feePlan: toStringValue(payload.fee_plan),
+        modeOfStudy: toStringValue(payload.mode_of_study),
+        language: toStringValue(payload.language),
+        pipeline: toStringValue(payload.pipeline),
+        pipelineUser: toStringValue(payload.pipeline_user),
         discount: toStringValue(payload.discount),
-        referralCode: toStringValue(payload.referral_code),
+        gstApplicability: toStringValue(payload.gst_applicability),
         leadSource: toStringValue(payload.lead_source),
-        assignedCounsellor: toStringValue(payload.assigned_counsellor),
         applicationStatus: toStringValue(payload.application_status) || 'pending',
         notes: toStringValue(payload.notes),
         crmTags: toStringValue(payload.crm_tags),
@@ -2080,7 +2094,7 @@ export function registerOperationsRoutes(
   app.post('/admin/applications/update_status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.updateApplicationStatus(requestUserId(request), toStringValue(payload.id), toStringValue(payload.status));
+      const result = await operationsService.updateApplicationStatus(requestUserId(request), toStringValue(payload.id), toStringValue(payload.status), toStringValue(payload.reject_reason));
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

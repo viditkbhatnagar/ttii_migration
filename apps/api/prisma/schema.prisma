@@ -308,6 +308,7 @@ model applications {
   learning_disabilities String?
   accessibility_needs   String?
   marketing_source      String?
+  reject_reason         String?
   added_under_centre    Int?
   created_by            String?   @db.ObjectId
   updated_by            String?   @db.ObjectId

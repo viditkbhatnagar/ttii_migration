@@ -1702,8 +1702,8 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/delete', authToken, { id });
   }
 
-  async updateApplicationStatus(authToken: string, id: string, status: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/applications/update_status', authToken, { id, status });
+  async updateApplicationStatus(authToken: string, id: string, status: string, rejectReason?: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/update_status', authToken, { id, status, reject_reason: rejectReason || '' });
   }
 
   // ─── Phase C: Student Detail & Actions ────────────────────────────────────

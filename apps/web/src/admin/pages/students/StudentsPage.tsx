@@ -15,62 +15,37 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
-type DialogType = 'edit' | 'username' | 'password' | 'enrollmentId' | null;
-
 export default function StudentsPage({ api, session, onNavigate }: AdminPageProps) {
   /* ── Filter state ────────────────────────────────────────────────────────── */
-  const [search, setSearch] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
-  const [centreFilter, setCentreFilter] = useState('');
-  const [batchFilter, setBatchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
-  /* ── Dialog state ────────────────────────────────────────────────────────── */
-  const [dialogType, setDialogType] = useState<DialogType>(null);
+  /* ── Dialog state (Edit only) ───────────────────────────────────────────── */
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Record<string, unknown> | null>(null);
   const [dialogName, setDialogName] = useState('');
   const [dialogPhone, setDialogPhone] = useState('');
-  const [dialogUsername, setDialogUsername] = useState('');
-  const [dialogPassword, setDialogPassword] = useState('');
-  const [dialogConfirmPassword, setDialogConfirmPassword] = useState('');
-  const [dialogEnrollmentId, setDialogEnrollmentId] = useState('');
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
 
   /* ── Dropdown options ────────────────────────────────────────────────────── */
   const [courseOptions, setCourseOptions] = useState<{ label: string; value: string }[]>([]);
-  const [centreOptions, setCentreOptions] = useState<{ label: string; value: string }[]>([]);
-  const [batchOptions, setBatchOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
-    const token = session.token;
-    Promise.all([
-      api.loadCourses(token),
-      api.loadCentres(token),
-      api.loadBatches(token),
-    ]).then(([courses, centres, batches]) => {
+    api.loadCourses(session.token).then((courses) => {
       setCourseOptions(
         courses.map((c) => ({ label: asString(c.title) || asString(c.course_title) || asString(c.name) || 'Untitled', value: asString(c._id) || asString(c.id) })),
-      );
-      setCentreOptions(
-        centres.map((c) => ({ label: asString(c.centre_name) || asString(c.name) || 'Untitled', value: asString(c._id) || asString(c.id) })),
-      );
-      setBatchOptions(
-        batches.map((b) => ({ label: asString(b.title) || asString(b.batch_name) || asString(b.name) || 'Untitled', value: asString(b._id) || asString(b.id) })),
       );
     });
   }, [api, session.token]);
 
-  /* ── Data loading (server-side filtering for course/centre/batch/search) ─ */
+  /* ── Data loading ───────────────────────────────────────────────────────── */
   const { data, loading, error, reload } = useAdminPageData(
     () =>
       api.loadStudents(session.token, {
         ...(courseFilter ? { courseId: courseFilter } : {}),
-        ...(centreFilter ? { centreId: centreFilter } : {}),
-        ...(batchFilter ? { batchId: batchFilter } : {}),
-        ...(search ? { search } : {}),
       }),
-    [courseFilter, centreFilter, batchFilter, search],
+    [courseFilter],
   );
 
   const allStudents = useMemo(() => toRecords(data), [data]);
@@ -79,12 +54,10 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   const filteredStudents = useMemo(() => {
     let list = allStudents;
 
-    // Status dropdown filter
     if (statusFilter) {
       list = list.filter((r) => asString(r.status_label) === statusFilter);
     }
 
-    // Tab filter (overrides status dropdown when a specific tab is selected)
     if (activeTab !== 'all') {
       list = list.filter((r) => asString(r.status_label) === activeTab);
     }
@@ -104,17 +77,9 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
     [allStudents],
   );
 
-  /* ── Filters ─────────────────────────────────────────────────────────────── */
+  /* ── Filters (Course + Status only) ─────────────────────────────────────── */
   const filters: FilterField[] = useMemo(
     () => [
-      {
-        key: 'search',
-        label: 'Search',
-        type: 'text' as const,
-        value: search,
-        placeholder: 'Name / Email / Phone / Enrollment ID',
-        onChange: setSearch,
-      },
       {
         key: 'course',
         label: 'Course',
@@ -123,24 +88,6 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         placeholder: 'All Courses',
         options: courseOptions,
         onChange: setCourseFilter,
-      },
-      {
-        key: 'centre',
-        label: 'Centre',
-        type: 'select' as const,
-        value: centreFilter,
-        placeholder: 'All Centres',
-        options: centreOptions,
-        onChange: setCentreFilter,
-      },
-      {
-        key: 'batch',
-        label: 'Batch',
-        type: 'select' as const,
-        value: batchFilter,
-        placeholder: 'All Batches',
-        options: batchOptions,
-        onChange: setBatchFilter,
       },
       {
         key: 'status',
@@ -157,63 +104,36 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         onChange: setStatusFilter,
       },
     ],
-    [search, courseFilter, centreFilter, batchFilter, statusFilter, courseOptions, centreOptions, batchOptions],
+    [courseFilter, statusFilter, courseOptions],
   );
 
   const handleClearFilters = () => {
-    setSearch('');
     setCourseFilter('');
-    setCentreFilter('');
-    setBatchFilter('');
     setStatusFilter('');
   };
 
-  /* ── Dialog helpers ──────────────────────────────────────────────────────── */
-  const openDialog = useCallback((type: DialogType, student: Record<string, unknown>) => {
+  /* ── Dialog helpers (Edit only) ─────────────────────────────────────────── */
+  const openEditDialog = useCallback((student: Record<string, unknown>) => {
     setSelectedStudent(student);
-    setDialogType(type);
-    setDialogSubmitting(false);
-
-    // Reset all fields and pre-fill where appropriate
     setDialogName(asString(student.name) || asString(student.student_name) || '');
     setDialogPhone(asString(student.phone) || '');
-    setDialogUsername(asString(student.username) || asString(student.email) || '');
-    setDialogPassword('');
-    setDialogConfirmPassword('');
-    setDialogEnrollmentId(asString(student.enrollment_id) || '');
+    setDialogSubmitting(false);
+    setEditDialogOpen(true);
   }, []);
 
   const closeDialog = () => {
-    setDialogType(null);
+    setEditDialogOpen(false);
     setSelectedStudent(null);
   };
 
-  const handleDialogSubmit = async () => {
+  const handleEditSubmit = async () => {
     if (!selectedStudent) return;
     const studentId = asString(selectedStudent._id) || asString(selectedStudent.id);
     if (!studentId) return;
 
     setDialogSubmitting(true);
     try {
-      if (dialogType === 'edit') {
-        await api.editStudentInfo(session.token, studentId, dialogName, dialogPhone);
-      } else if (dialogType === 'username') {
-        await api.changeStudentUsername(session.token, studentId, dialogUsername);
-      } else if (dialogType === 'password') {
-        if (dialogPassword !== dialogConfirmPassword) {
-          alert('Passwords do not match');
-          setDialogSubmitting(false);
-          return;
-        }
-        if (!dialogPassword) {
-          alert('Password is required');
-          setDialogSubmitting(false);
-          return;
-        }
-        await api.changeStudentPassword(session.token, studentId, dialogPassword);
-      } else if (dialogType === 'enrollmentId') {
-        await api.editStudentEnrollmentId(session.token, studentId, dialogEnrollmentId);
-      }
+      await api.editStudentInfo(session.token, studentId, dialogName, dialogPhone);
       closeDialog();
       reload();
     } catch {
@@ -222,19 +142,6 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       setDialogSubmitting(false);
     }
   };
-
-  /* ── Delete handler ──────────────────────────────────────────────────────── */
-  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    const id = asString(row._id) || asString(row.id);
-    const name = asString(row.name) || asString(row.student_name) || 'this student';
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return;
-    try {
-      await api.deleteStudent(session.token, id);
-      reload();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete student');
-    }
-  }, [api, session.token, reload]);
 
   /* ── Table columns ───────────────────────────────────────────────────────── */
   const columns: DataTableColumn[] = useMemo(
@@ -277,11 +184,18 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
           );
         },
       },
-      { key: 'course_title', label: 'Course', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'batch_name', label: 'Batch', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'enrollment_id', label: 'Enrollment ID', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
       { key: 'phone', label: 'Phone', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
       { key: 'email', label: 'E-mail', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      { key: 'course_title', label: 'Courses', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      {
+        key: 'enrollment_count',
+        label: 'Enrollments',
+        sortable: true,
+        render: (value: unknown, row: Record<string, unknown>) => {
+          const count = Number(value) || Number(row.enrolment_count) || 1;
+          return <span>{count}</span>;
+        },
+      },
       {
         key: 'status_label',
         label: 'Status',
@@ -295,7 +209,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
     [onNavigate],
   );
 
-  /* ── Actions (three-dot menu) ────────────────────────────────────────────── */
+  /* ── Actions (View + Edit only) ─────────────────────────────────────────── */
   const actions = useMemo(
     () => [
       {
@@ -307,40 +221,20 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       },
       {
         label: 'Edit',
-        onClick: (row: Record<string, unknown>) => openDialog('edit', row),
-      },
-      {
-        label: 'Change Username',
-        onClick: (row: Record<string, unknown>) => openDialog('username', row),
-      },
-      {
-        label: 'Change Password',
-        onClick: (row: Record<string, unknown>) => openDialog('password', row),
-      },
-      {
-        label: 'Edit Enrollment ID',
-        onClick: (row: Record<string, unknown>) => openDialog('enrollmentId', row),
-      },
-      {
-        label: 'Delete',
-        variant: 'destructive' as const,
-        onClick: (row: Record<string, unknown>) => { void handleDelete(row); },
+        onClick: (row: Record<string, unknown>) => openEditDialog(row),
       },
     ],
-    [onNavigate, openDialog, handleDelete],
+    [onNavigate, openEditDialog],
   );
 
   /* ── Export handler ──────────────────────────────────────────────────────── */
   const handleExport = () => {
-    const headers = ['Student Name', 'Enrollment ID', 'Phone', 'Email', 'Course', 'Centre', 'Batch', 'Status'];
+    const headers = ['Student Name', 'Phone', 'Email', 'Course', 'Status'];
     const csvRows = filteredStudents.map((row) => [
       asString(row.name) || asString(row.student_name) || '',
-      asString(row.enrollment_id) || '',
       asString(row.phone) || '',
       asString(row.email) || '',
       asString(row.course_title) || '',
-      asString(row.centre_name) || '',
-      asString(row.batch_name) || '',
       asString(row.status_label) || '',
     ]);
     const csv = [headers, ...csvRows].map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -371,7 +265,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   /* ── Render ──────────────────────────────────────────────────────────────── */
   return (
     <div>
-      <AdminPageHeader title="Students" addLabel="+ Add Students" onAdd={() => onNavigate('/admin/students/add')}>
+      <AdminPageHeader title="Students" addLabel="Add Students" onAdd={() => onNavigate('/admin/students/add')}>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
           <Download className="size-4" />
           Export
@@ -393,7 +287,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       />
 
       {/* ── Edit Student Dialog ──────────────────────────────────────────── */}
-      <Dialog open={dialogType === 'edit'} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+      <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Student</DialogTitle>
@@ -420,115 +314,10 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={handleDialogSubmit}
+              onClick={handleEditSubmit}
               disabled={dialogSubmitting}
             >
               {dialogSubmitting ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Change Username Dialog ───────────────────────────────────────── */}
-      <Dialog open={dialogType === 'username'} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Username</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label className="mb-1 text-sm text-gray-500">Current Username</Label>
-              <p className="text-sm font-medium">{asString(selectedStudent?.username) || asString(selectedStudent?.email) || 'N/A'}</p>
-            </div>
-            <div>
-              <Label className="mb-1 text-sm">New Username</Label>
-              <Input
-                value={dialogUsername}
-                onChange={(e) => setDialogUsername(e.target.value)}
-                placeholder="Enter new username"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={handleDialogSubmit}
-              disabled={dialogSubmitting}
-            >
-              {dialogSubmitting ? 'Saving...' : 'Update Username'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Change Password Dialog ───────────────────────────────────────── */}
-      <Dialog open={dialogType === 'password'} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Password</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label className="mb-1 text-sm">New Password</Label>
-              <Input
-                type="password"
-                value={dialogPassword}
-                onChange={(e) => setDialogPassword(e.target.value)}
-                placeholder="Enter new password"
-              />
-            </div>
-            <div>
-              <Label className="mb-1 text-sm">Confirm Password</Label>
-              <Input
-                type="password"
-                value={dialogConfirmPassword}
-                onChange={(e) => setDialogConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={handleDialogSubmit}
-              disabled={dialogSubmitting}
-            >
-              {dialogSubmitting ? 'Saving...' : 'Update Password'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Edit Enrollment ID Dialog ────────────────────────────────────── */}
-      <Dialog open={dialogType === 'enrollmentId'} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Enrollment ID</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label className="mb-1 text-sm text-gray-500">Current Enrollment ID</Label>
-              <p className="text-sm font-medium">{asString(selectedStudent?.enrollment_id) || 'N/A'}</p>
-            </div>
-            <div>
-              <Label className="mb-1 text-sm">New Enrollment ID</Label>
-              <Input
-                value={dialogEnrollmentId}
-                onChange={(e) => setDialogEnrollmentId(e.target.value)}
-                placeholder="Enter new enrollment ID"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={handleDialogSubmit}
-              disabled={dialogSubmitting}
-            >
-              {dialogSubmitting ? 'Saving...' : 'Update Enrollment ID'}
             </Button>
           </DialogFooter>
         </DialogContent>

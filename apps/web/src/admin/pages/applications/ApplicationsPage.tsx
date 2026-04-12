@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -15,28 +15,37 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   const [toDate, setToDate] = useState('');
   const [courseId, setCourseId] = useState('');
   const [pipelineRoleId, setPipelineRoleId] = useState('');
+  const [pipelineUserId, setPipelineUserId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [centreId, setCentreId] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
-  const { data, loading, error, reload } = useAdminPageData(
+  const { data, loading, error } = useAdminPageData(
     () =>
       api.loadApplications(session.token, {
         ...(fromDate ? { fromDate } : {}),
         ...(toDate ? { toDate } : {}),
         ...(courseId ? { courseId } : {}),
         ...(pipelineRoleId ? { pipelineRoleId } : {}),
+        ...(pipelineUserId ? { pipelineUserId } : {}),
         ...(statusFilter ? { status: statusFilter } : {}),
-        ...(centreId ? { centreId } : {}),
       }),
-    [fromDate, toDate, courseId, pipelineRoleId, statusFilter, centreId],
+    [fromDate, toDate, courseId, pipelineRoleId, pipelineUserId, statusFilter],
+  );
+
+  // Load pipeline users for filter dropdown
+  const { data: pipelineUsersData } = useAdminPageData(
+    () => api.loadPipelineUsers(session.token, 9),
+    [],
+  );
+  const pipelineUserOptions = useMemo(
+    () => (Array.isArray(pipelineUsersData) ? pipelineUsersData : []).map((u) => ({ label: asString(u.name), value: asString(u.id) })),
+    [pipelineUsersData],
   );
 
   const items = useMemo(() => (data ? data.items : []), [data]);
   const rejectedCount = data?.rejectedCount ?? 0;
   const pendingCount = data?.pendingCount ?? 0;
   const courseOptions = useMemo(() => (data?.courses ?? []).map(c => ({ label: c.title, value: c.id })), [data]);
-  const centreOptions = useMemo(() => (data?.centres ?? []).map(c => ({ label: c.centre_name, value: c.id })), [data]);
 
   const displayedItems = useMemo(() => {
     if (activeTab === 'rejected') {
@@ -83,13 +92,27 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         onChange: setCourseId,
       },
       {
-        key: 'centreId',
-        label: 'Centre',
+        key: 'pipelineRoleId',
+        label: 'Pipeline',
         type: 'select',
-        value: centreId,
-        placeholder: 'All Centres',
-        options: centreOptions,
-        onChange: setCentreId,
+        value: pipelineRoleId,
+        placeholder: 'All Pipelines',
+        options: [
+          { label: 'Senders', value: 'senders' },
+          { label: 'Counsellors', value: '9' },
+          { label: 'Student Referral', value: 'student_referral' },
+          { label: 'Associates', value: '10' },
+        ],
+        onChange: setPipelineRoleId,
+      },
+      {
+        key: 'pipelineUserId',
+        label: 'Pipeline User',
+        type: 'select',
+        value: pipelineUserId,
+        placeholder: 'All Pipeline Users',
+        options: pipelineUserOptions,
+        onChange: setPipelineUserId,
       },
       {
         key: 'statusFilter',
@@ -104,34 +127,9 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         ],
         onChange: setStatusFilter,
       },
-      {
-        key: 'pipelineRoleId',
-        label: 'Pipeline',
-        type: 'select',
-        value: pipelineRoleId,
-        placeholder: 'All Pipelines',
-        options: [
-          { label: 'Senders', value: 'senders' },
-          { label: 'Counsellors', value: '9' },
-          { label: 'Student Referral', value: 'student_referral' },
-          { label: 'Associates', value: '10' },
-        ],
-        onChange: setPipelineRoleId,
-      },
     ],
-    [fromDate, toDate, courseId, pipelineRoleId, statusFilter, centreId, courseOptions, centreOptions],
+    [fromDate, toDate, courseId, pipelineRoleId, pipelineUserId, statusFilter, courseOptions, pipelineUserOptions],
   );
-
-  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    const id = asString(row._id || row.id);
-    if (!window.confirm(`Are you sure you want to delete application "${asString(row.name)}"?`)) return;
-    try {
-      await api.deleteApplication(session.token, id);
-      reload();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete application');
-    }
-  }, [api, session.token, reload]);
 
   const columns: DataTableColumn[] = useMemo(
     () => [
@@ -169,7 +167,6 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
       { key: 'user_email', label: 'E-mail', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'pipeline_role', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'pipeline_user_name', label: 'Pipeline User', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'centre_name', label: 'Centre', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'status',
         label: 'Status',
@@ -188,43 +185,17 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         label: 'View',
         onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
       },
-      {
-        label: 'Edit',
-        onClick: (row) => onNavigate('/admin/applications/edit/' + asString(row._id || row.id)),
-      },
-      {
-        label: 'Convert',
-        onClick: async (row) => {
-          const id = asString(row._id || row.id);
-          if (!window.confirm(`Convert application "${asString(row.name)}" to student?`)) return;
-          try {
-            await api.convertApplication(session.token, id);
-            reload();
-          } catch (err) {
-            alert(err instanceof Error ? err.message : 'Failed to convert application');
-          }
-        },
-      },
-      {
-        label: 'Delete',
-        variant: 'destructive',
-        onClick: (row) => { void handleDelete(row); },
-      },
     ],
-    [onNavigate, api, session.token, reload, handleDelete],
+    [onNavigate],
   );
-
-  const handleApplyFilters = () => {
-    // Filters are reactive via deps in useAdminPageData
-  };
 
   const handleClearFilters = () => {
     setFromDate('');
     setToDate('');
     setCourseId('');
     setPipelineRoleId('');
+    setPipelineUserId('');
     setStatusFilter('');
-    setCentreId('');
   };
 
   if (loading) {
@@ -245,13 +216,13 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
     <div>
       <AdminPageHeader
         title="Applications"
-        addLabel="+ Add Application"
+        addLabel="Add Application"
         onAdd={() => onNavigate('/admin/applications/add')}
       />
 
       <AdminFilterBar
         filters={filters}
-        onApply={handleApplyFilters}
+        onApply={() => {}}
         onClear={handleClearFilters}
       />
 
