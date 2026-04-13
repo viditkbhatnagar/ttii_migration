@@ -15,6 +15,7 @@
     "db:seed-from-sql": "tsx prisma/seed-from-sql.ts"
   },
   "dependencies": {
+    "@azure/msal-node": "^5.1.2",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^9.4.0",

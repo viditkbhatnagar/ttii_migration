@@ -1,6 +1,6 @@
 import { env } from '../env.js';
 import type { IntegrationLogger, IntegrationRegistry } from './contracts.js';
-import { BrevoEmailProvider, ConsoleEmailProvider, NoopEmailProvider, SmtpEmailProvider } from './email-provider.js';
+import { BrevoEmailProvider, ConsoleEmailProvider, MsGraphEmailProvider, NoopEmailProvider, SmtpEmailProvider } from './email-provider.js';
 import { createConsoleIntegrationLogger } from './logger.js';
 import { MockOpenAiProvider, OpenAiHttpProvider } from './openai-provider.js';
 import { ConsoleOtpProvider, HttpOtpProvider, NoopOtpProvider } from './otp-provider.js';
@@ -9,7 +9,7 @@ import { LocalStorageProvider, S3StorageProvider } from './storage-provider.js';
 import { NoopZoomProvider, ZoomSdkProvider } from './zoom-provider.js';
 
 export interface IntegrationRuntimeConfig {
-  emailProvider: 'console' | 'noop' | 'brevo' | 'smtp';
+  emailProvider: 'console' | 'noop' | 'brevo' | 'smtp' | 'msgraph';
   emailFromAddress: string;
   emailFromName: string;
   emailBrevoApiKey: string | undefined;
@@ -19,6 +19,11 @@ export interface IntegrationRuntimeConfig {
   emailSmtpSecure: boolean;
   emailSmtpUsername: string | undefined;
   emailSmtpPassword: string | undefined;
+
+  emailMsGraphClientId: string | undefined;
+  emailMsGraphClientSecret: string | undefined;
+  emailMsGraphTenantId: string | undefined;
+  emailMsGraphSenderEmail: string | undefined;
 
   otpProvider: 'console' | 'noop' | 'http';
   otpHttpEndpoint: string | undefined;
@@ -77,6 +82,11 @@ function fromEnv(): IntegrationRuntimeConfig {
     emailSmtpSecure: env.EMAIL_SMTP_SECURE,
     emailSmtpUsername: env.EMAIL_SMTP_USERNAME,
     emailSmtpPassword: env.EMAIL_SMTP_PASSWORD,
+
+    emailMsGraphClientId: env.EMAIL_MSGRAPH_CLIENT_ID,
+    emailMsGraphClientSecret: env.EMAIL_MSGRAPH_CLIENT_SECRET,
+    emailMsGraphTenantId: env.EMAIL_MSGRAPH_TENANT_ID,
+    emailMsGraphSenderEmail: env.EMAIL_MSGRAPH_SENDER_EMAIL,
 
     otpProvider: env.OTP_PROVIDER,
     otpHttpEndpoint: env.OTP_HTTP_ENDPOINT,
@@ -160,6 +170,19 @@ export function createIntegrationRegistry(options: CreateIntegrationRegistryOpti
           fromName: runtime.emailFromName,
         },
         logger,
+      );
+    }
+
+    if (runtime.emailProvider === 'msgraph') {
+      return new MsGraphEmailProvider(
+        {
+          clientId: requiredValue(runtime.emailMsGraphClientId, 'EMAIL_MSGRAPH_CLIENT_ID'),
+          clientSecret: requiredValue(runtime.emailMsGraphClientSecret, 'EMAIL_MSGRAPH_CLIENT_SECRET'),
+          tenantId: requiredValue(runtime.emailMsGraphTenantId, 'EMAIL_MSGRAPH_TENANT_ID'),
+          senderEmail: requiredValue(runtime.emailMsGraphSenderEmail, 'EMAIL_MSGRAPH_SENDER_EMAIL'),
+        },
+        logger,
+        fetchImpl,
       );
     }
 

@@ -58,7 +58,7 @@ const envSchema = z.object({
   AUTH_OTP_REQUEST_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(5),
   AUTH_OTP_VERIFY_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
 
-  EMAIL_PROVIDER: z.enum(['console', 'noop', 'brevo', 'smtp']).default('console'),
+  EMAIL_PROVIDER: z.enum(['console', 'noop', 'brevo', 'smtp', 'msgraph']).default('console'),
   EMAIL_FROM_ADDRESS: z.string().default('noreply@ttii.local'),
   EMAIL_FROM_NAME: z.string().default('TTII'),
   EMAIL_BREVO_API_KEY: optionalStringFromEnv,
@@ -68,6 +68,11 @@ const envSchema = z.object({
   EMAIL_SMTP_SECURE: z.coerce.boolean().default(false),
   EMAIL_SMTP_USERNAME: optionalStringFromEnv,
   EMAIL_SMTP_PASSWORD: optionalStringFromEnv,
+
+  EMAIL_MSGRAPH_CLIENT_ID: optionalStringFromEnv,
+  EMAIL_MSGRAPH_CLIENT_SECRET: optionalStringFromEnv,
+  EMAIL_MSGRAPH_TENANT_ID: optionalStringFromEnv,
+  EMAIL_MSGRAPH_SENDER_EMAIL: optionalStringFromEnv,
 
   OTP_PROVIDER: z.enum(['console', 'noop', 'http']).default('console'),
   OTP_HTTP_ENDPOINT: optionalUrlFromEnv,

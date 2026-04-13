@@ -1,3 +1,4 @@
+import { ConfidentialClientApplication } from '@azure/msal-node';
 import nodemailer, { type Transporter } from 'nodemailer';
 
 import type { EmailProvider, EmailSendRequest, IntegrationDeliveryResult, IntegrationLogger } from './contracts.js';
@@ -215,5 +216,111 @@ export class SmtpEmailProvider implements EmailProvider {
         `SMTP email send failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+}
+
+export interface MsGraphEmailProviderConfig {
+  clientId: string;
+  clientSecret: string;
+  tenantId: string;
+  senderEmail: string;
+}
+
+/**
+ * Microsoft Graph API email provider. Uses OAuth2 client-credentials flow
+ * via @azure/msal-node to send email through Microsoft 365.
+ *
+ * Prerequisites (Azure portal):
+ *   1. App Registration with Mail.Send application permission
+ *   2. Admin consent granted for Mail.Send
+ *   3. clientId, clientSecret, tenantId from the registration
+ */
+export class MsGraphEmailProvider implements EmailProvider {
+  readonly name = 'msgraph';
+  private readonly msalClient: ConfidentialClientApplication;
+
+  constructor(
+    private readonly config: MsGraphEmailProviderConfig,
+    private readonly logger: IntegrationLogger,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {
+    this.msalClient = new ConfidentialClientApplication({
+      auth: {
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+        authority: `https://login.microsoftonline.com/${config.tenantId}`,
+      },
+    });
+  }
+
+  private async getAccessToken(): Promise<string> {
+    const result = await this.msalClient.acquireTokenByClientCredential({
+      scopes: ['https://graph.microsoft.com/.default'],
+    });
+
+    if (!result?.accessToken) {
+      throw new Error('Failed to acquire Microsoft Graph access token.');
+    }
+
+    return result.accessToken;
+  }
+
+  async sendEmail(input: EmailSendRequest): Promise<IntegrationDeliveryResult> {
+    ensureMessageContent(input);
+
+    const accessToken = await this.getAccessToken();
+
+    const message: Record<string, unknown> = {
+      subject: input.subject,
+      toRecipients: [{ emailAddress: { address: input.to } }],
+    };
+
+    const body: Record<string, unknown> = {};
+    if (input.html) {
+      body.contentType = 'HTML';
+      body.content = input.html;
+    } else if (input.text) {
+      body.contentType = 'Text';
+      body.content = input.text;
+    }
+    message.body = body;
+
+    if (input.replyTo) {
+      message.replyTo = [{ emailAddress: { address: input.replyTo } }];
+    }
+
+    const response = await this.fetchImpl(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.config.senderEmail)}/sendMail`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message, saveToSentItems: false }),
+      },
+    );
+
+    if (!response.ok) {
+      const responseBody = await response.text();
+      this.logger.error('integration.email.send_failed', {
+        provider: this.name,
+        status: response.status,
+        to: maskEmail(input.to),
+      });
+      throw new Error(`Graph API email send failed (${response.status}): ${responseBody.slice(0, 256)}`);
+    }
+
+    this.logger.info('integration.email.send', {
+      provider: this.name,
+      to: maskEmail(input.to),
+      subject: input.subject,
+    });
+
+    return {
+      accepted: true,
+      provider: this.name,
+      providerMessageId: `msgraph-${Date.now()}`,
+    };
   }
 }
