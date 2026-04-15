@@ -531,6 +531,20 @@ function normalizeSqlRow(row: SqlRow): SqlRow {
   return normalized;
 }
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -540,7 +554,7 @@ export class OperationsService {
     }
 
     const user = await this.prisma.users.findFirst({
-      where: { id: userId, deleted_at: null },
+      where: { id: toIntId(userId), deleted_at: null },
       select: { id: true, role_id: true, name: true, user_email: true, centre_id: true, course_id: true },
     });
 
@@ -559,7 +573,7 @@ export class OperationsService {
       select: { id: true },
     });
 
-    return admin?.id ?? '';
+    return admin ? String(admin.id) : '';
   }
 
   private async nextStudentCode(tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>): Promise<string> {
@@ -612,7 +626,7 @@ export class OperationsService {
       where.pipeline = String(filters.pipelineRoleId);
     }
     if (filters.courseId) {
-      where.course_id = filters.courseId;
+      where.course_id = toIntId(filters.courseId);
     }
     if ((filters.listBy ?? '').trim() !== '') {
       where.status = filters.listBy;
@@ -621,16 +635,16 @@ export class OperationsService {
       where.status = filters.status;
     }
     if (filters.centreId) {
-      where.added_under_centre = Number(filters.centreId);
+      where.added_under_centre = toIntId(filters.centreId);
     }
     if ((filters.search ?? '').trim() !== '') {
       const q = filters.search!.trim();
       where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
+        { name: { contains: q } },
         { phone: { contains: q } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { user_email: { contains: q, mode: 'insensitive' } },
-        { application_id: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q } },
+        { user_email: { contains: q } },
+        { application_id: { contains: q } },
       ];
     }
 
@@ -640,9 +654,9 @@ export class OperationsService {
     });
 
     // LEFT JOIN: courses, users (pipeline), centres
-    const courseIds = [...new Set(apps.map(a => a.course_id).filter(Boolean))] as string[];
-    const pipelineUserIds = [...new Set(apps.map(a => a.pipeline_user).filter(Boolean))] as string[];
-    const centreIds = [...new Set(apps.map(a => a.added_under_centre).filter(Boolean))].map(String);
+    const courseIds = [...new Set(apps.map(a => a.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    const pipelineUserIds = [...new Set(apps.map(a => a.pipeline_user).filter((x): x is number => x !== null && x !== undefined))];
+    const centreIds = [...new Set(apps.map(a => a.added_under_centre).filter((x): x is number => x !== null && x !== undefined))];
 
     const [courses, pipelineUsers, centres, allCourses, allCentres] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } } }) : [],
@@ -660,7 +674,7 @@ export class OperationsService {
       ...a,
       course_title: a.course_id ? courseMap.get(a.course_id)?.title ?? null : null,
       pipeline_user_name: a.pipeline_user ? pipelineUserMap.get(a.pipeline_user)?.name ?? null : null,
-      centre_name: a.added_under_centre ? centreMap.get(String(a.added_under_centre))?.centre_name ?? null : null,
+      centre_name: a.added_under_centre ? centreMap.get(a.added_under_centre)?.centre_name ?? null : null,
     }));
 
     const rejectedCount = applications.filter((item) => toStringValue(item.status) === 'rejected').length;
@@ -689,8 +703,8 @@ export class OperationsService {
       deleted_at: null,
       is_converted: 0,
       OR: [
-        { added_under_centre: Number(centreId) },
-        { created_by: actorUserId },
+        { added_under_centre: toIntId(centreId) },
+        { created_by: toIntId(actorUserId) },
       ],
     };
 
@@ -704,7 +718,7 @@ export class OperationsService {
     });
 
     // LEFT JOIN: courses
-    const courseIds = [...new Set(apps.map(a => a.course_id).filter(Boolean))] as string[];
+    const courseIds = [...new Set(apps.map(a => a.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } } }) : [];
     const courseMap = new Map(courses.map(c => [c.id, c]));
 
@@ -985,8 +999,8 @@ export class OperationsService {
       where: {
         deleted_at: null,
         OR: [
-          { chat_id: actorUserId },
-          { sender_id: actorUserId },
+          { chat_id: toIntId(actorUserId) },
+          { sender_id: toIntId(actorUserId) },
         ],
       },
       select: { id: true, chat_id: true, sender_id: true, message: true, created_at: true, updated_at: true },
@@ -1009,13 +1023,13 @@ export class OperationsService {
 
     const created = await this.prisma.support_chat.create({
       data: {
-        chat_id: recipientId,
-        sender_id: actorUserId,
+        chat_id: toNullableIntId(recipientId),
+        sender_id: toNullableIntId(actorUserId),
         message,
         created_at: now,
-        created_by: actorUserId,
+        created_by: toIntId(actorUserId),
         updated_at: now,
-        updated_by: actorUserId,
+        updated_by: toIntId(actorUserId),
       },
     });
 
@@ -1064,13 +1078,17 @@ export class OperationsService {
         phone: input.phone,
         email,
         user_email: input.email,
-        course_id: String(input.courseId),
+        course_id: toNullableIntId(input.courseId),
         pipeline: input.pipeline,
-        pipeline_user: String(input.pipelineUser),
-        status: input.status,
-        added_under_centre: Number(centreId),
-        created_by: actorUserId,
-        updated_by: actorUserId,
+        pipeline_user: toNullableIntId(input.pipelineUser),
+        status: input.status as any,
+        added_under_centre: toIntId(centreId),
+        whatsapp_no: 0,
+        second_code: 0,
+        second_phone: '',
+        image: '',
+        created_by: toIntId(actorUserId),
+        updated_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -1092,7 +1110,7 @@ export class OperationsService {
     }
 
     const application = await this.prisma.applications.findFirst({
-      where: { id: applicationId, deleted_at: null, is_converted: 0 },
+      where: { id: toIntId(applicationId), deleted_at: null, is_converted: 0 },
     });
 
     if (!application) {
@@ -1107,7 +1125,7 @@ export class OperationsService {
       const now = new Date();
       const hashedPassword = await hashPassword('Temp@1234');
       const applicationEmail = toNullableString(application.user_email) ?? toNullableString(application.email) ?? '';
-      const courseId = toStringValue(application.course_id);
+      const courseIdNum = application.course_id;
       const enrolDate = toDateOnly(now);
 
       const student = await tx.users.create({
@@ -1120,26 +1138,31 @@ export class OperationsService {
           user_email: applicationEmail,
           password: hashedPassword,
           role_id: 2,
-          course_id: courseId || null,
+          course_id: courseIdNum ?? null,
           added_under_centre: application.added_under_centre,
           status: 1,
-          created_by: actorUserId,
-          updated_by: actorUserId,
+          gender: '',
+          dynamic_link: '',
+          image: '',
+          profile_picture: '',
+          application_id: 0,
+          created_by: toIntId(actorUserId),
+          updated_by: toIntId(actorUserId),
           created_at: now,
           updated_at: now,
         },
       });
 
-      if (courseId) {
+      if (courseIdNum) {
         await tx.enrol.create({
           data: {
             user_id: student.id,
-            course_id: courseId,
-            enrollment_date: new Date(enrolDate),
+            course_id: courseIdNum,
+            enrollment_date: enrolDate,
             enrollment_status: toStringValue(application.enrollment_status) || 'Active',
             mode_of_study: toStringValue(application.mode_of_study) || 'Online',
-            created_by: actorUserId,
-            updated_by: actorUserId,
+            created_by: toIntId(actorUserId),
+            updated_by: toIntId(actorUserId),
             created_at: now,
             updated_at: now,
           },
@@ -1147,11 +1170,11 @@ export class OperationsService {
       }
 
       await tx.applications.update({
-        where: { id: applicationId },
+        where: { id: toIntId(applicationId) },
         data: {
           is_converted: 1,
           status: 'converted',
-          updated_by: actorUserId,
+          updated_by: toIntId(actorUserId),
           updated_at: now,
         },
       });
@@ -1185,13 +1208,13 @@ export class OperationsService {
     };
 
     if (filters.courseId) {
-      where.course_id = filters.courseId;
+      where.course_id = toIntId(filters.courseId);
     }
     if (scope === 'centre') {
-      where.added_under_centre = Number(centreId);
+      where.added_under_centre = toIntId(centreId);
     }
     if (filters.centreId) {
-      where.added_under_centre = Number(filters.centreId);
+      where.added_under_centre = toIntId(filters.centreId);
     }
     if (filters.status) {
       const statusNum = filters.status === 'Active' ? 1 : filters.status === 'Inactive' ? 0 : filters.status === 'Graduated' ? 2 : filters.status === 'Dropped' ? 3 : undefined;
@@ -1202,10 +1225,10 @@ export class OperationsService {
     if (filters.search) {
       const q = filters.search.trim();
       where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { user_email: { contains: q, mode: 'insensitive' } },
+        { name: { contains: q } },
+        { user_email: { contains: q } },
         { phone: { contains: q } },
-        { student_id: { contains: q, mode: 'insensitive' } },
+        { student_id: { contains: q } },
       ];
     }
 
@@ -1223,24 +1246,29 @@ export class OperationsService {
     }) : [];
 
     // If batch filter, restrict to users who have enrolment in that batch
-    let filteredUserIds: Set<string> | null = null;
+    let filteredUserIds: Set<number> | null = null;
     if (filters.batchId) {
-      filteredUserIds = new Set(enrolments.filter(e => e.batch_id === filters.batchId).map(e => e.user_id));
+      const batchIdNum = toIntId(filters.batchId);
+      filteredUserIds = new Set(
+        enrolments
+          .filter(e => e.batch_id === batchIdNum && e.user_id !== null && e.user_id !== undefined)
+          .map(e => e.user_id as number),
+      );
     }
 
     const courseIds = [...new Set([
-      ...users.map(u => u.course_id).filter(Boolean),
-      ...enrolments.map(e => e.course_id).filter(Boolean),
-    ])] as string[];
+      ...users.map(u => u.course_id).filter((x): x is number => x !== null && x !== undefined),
+      ...enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined),
+    ])];
     const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
     const courseMap = new Map(courses.map(c => [c.id, c]));
 
     // Fetch centres for display
-    const centreNums = [...new Set(users.map(u => u.added_under_centre).filter(Boolean))] as number[];
+    const centreNums = [...new Set(users.map(u => u.added_under_centre).filter((x): x is number => x !== null && x !== undefined))];
     const centres = centreNums.length > 0 ? await this.prisma.centres.findMany({ where: { deleted_at: null }, select: { id: true, centre_name: true } }) : [];
 
     // Fetch batches for display
-    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter(Boolean))] as string[];
+    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
     const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
     const batchMap = new Map(batches.map(b => [b.id, b]));
 
@@ -1257,8 +1285,8 @@ export class OperationsService {
           batch_id: enrol?.batch_id ?? null,
           batch_title: enrol?.batch_id ? batchMap.get(enrol.batch_id)?.title ?? null : null,
           course_title: enrol?.course_id ? courseMap.get(enrol.course_id)?.title ?? null : null,
-          centre_name: centres.find(c => String(u.added_under_centre) === c.id)?.centre_name ?? null,
-          status_label: statusLabels[u.status] ?? 'Unknown',
+          centre_name: centres.find(c => u.added_under_centre !== null && u.added_under_centre !== undefined && c.id === u.added_under_centre)?.centre_name ?? null,
+          status_label: u.status !== null && u.status !== undefined ? (statusLabels[u.status] ?? 'Unknown') : 'Unknown',
         };
       }) as unknown as SqlRow[];
   }
@@ -1279,7 +1307,7 @@ export class OperationsService {
         })
       : [];
 
-    const countMap = new Map(studentCounts.map(sc => [String(sc.added_under_centre), sc._count.id]));
+    const countMap = new Map(studentCounts.map(sc => [sc.added_under_centre, sc._count.id]));
 
     return allCentres.map(c => ({
       ...c,
@@ -1317,18 +1345,20 @@ export class OperationsService {
 
       const centre = await tx.centres.create({
         data: {
-          centre_id: nextCentreCode,
+          centre_id: String(nextCentreCode),
           centre_name: input.centreName,
           contact_person: input.contactPerson,
           country_code: input.countryCode,
           phone: input.phone,
+          whatsapp: input.phone,
+          secondary_phone: '',
           email: input.email,
           address: input.address,
-          date_of_registration: toNullableString(input.registrationDate) ? new Date(input.registrationDate!) : null,
-          date_of_expiry: toNullableString(input.expiryDate) ? new Date(input.expiryDate!) : null,
-          wallet_balance: 0,
-          created_by: actorUserId,
-          updated_by: actorUserId,
+          date_of_registration: toNullableString(input.registrationDate),
+          date_of_expiry: toNullableString(input.expiryDate),
+          wallet_balance: '0',
+          created_by: toIntId(actorUserId),
+          updated_by: toIntId(actorUserId),
           created_at: now,
           updated_at: now,
         },
@@ -1343,11 +1373,16 @@ export class OperationsService {
           country_code: input.countryCode,
           phone: input.phone,
           role_id: 7,
-          centre_id: centre.id,
+          centre_id: String(centre.id),
           password: centrePassword,
           status: 1,
-          created_by: actorUserId,
-          updated_by: actorUserId,
+          gender: '',
+          dynamic_link: '',
+          image: '',
+          profile_picture: '',
+          application_id: 0,
+          created_by: toIntId(actorUserId),
+          updated_by: toIntId(actorUserId),
           created_at: now,
           updated_at: now,
         },
@@ -1370,10 +1405,10 @@ export class OperationsService {
   }
 
   async assignCentrePlan(actorUserId: string, input: CentrePlanInput): Promise<Record<string, unknown>> {
-    const centreIdStr = String(input.centreId);
-    const courseIdStr = String(input.courseId);
+    const centreIdInt = toIntId(input.centreId);
+    const courseIdInt = toIntId(input.courseId);
 
-    if (!centreIdStr || !courseIdStr) {
+    if (!centreIdInt || !courseIdInt) {
       return {
         status: 0,
         message: 'Centre or course is invalid',
@@ -1381,7 +1416,7 @@ export class OperationsService {
     }
 
     const duplicateCount = await this.prisma.centre_course_plans.count({
-      where: { centre_id: centreIdStr, course_id: courseIdStr, deleted_at: null },
+      where: { centre_id: centreIdInt, course_id: courseIdInt, deleted_at: null },
     });
 
     if (duplicateCount > 0) {
@@ -1395,13 +1430,13 @@ export class OperationsService {
 
     await this.prisma.centre_course_plans.create({
       data: {
-        centre_id: centreIdStr,
-        course_id: courseIdStr,
-        assigned_amount: input.assignedAmount,
+        centre_id: centreIdInt,
+        course_id: courseIdInt,
+        assigned_amount: String(input.assignedAmount),
         start_date: new Date(input.startDate),
         end_date: new Date(input.endDate),
-        created_by: actorUserId,
-        updated_by: actorUserId,
+        created_by: toIntId(actorUserId),
+        updated_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -3047,14 +3082,15 @@ export class OperationsService {
       }),
     ]);
 
-    const courseIds = [...new Set(enrolments.map(e => e.course_id))];
+    const courseIds = [...new Set(enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const courses = courseIds.length > 0
       ? await this.prisma.course.findMany({ where: { id: { in: courseIds }, deleted_at: null }, select: { id: true, title: true } })
       : [];
     const courseMap = new Map(courses.map(c => [c.id, c.title]));
 
-    const instructorCoursesMap = new Map<string, string[]>();
+    const instructorCoursesMap = new Map<number, string[]>();
     for (const e of enrolments) {
+      if (e.course_id === null || e.course_id === undefined || e.instructor_id === null || e.instructor_id === undefined) continue;
       const title = courseMap.get(e.course_id);
       if (title) {
         if (!instructorCoursesMap.has(e.instructor_id)) instructorCoursesMap.set(e.instructor_id, []);
@@ -3401,10 +3437,10 @@ export class OperationsService {
     const counsellorIds = counsellors.map(c => c.id);
     if (counsellorIds.length === 0) return [] as unknown as SqlRow[];
 
-    const centreIds = [...new Set(counsellors.map(c => c.centre_id).filter(Boolean))] as string[];
+    const centreIdInts = [...new Set(counsellors.map(c => toNullableIntId(c.centre_id)).filter((x): x is number => x !== null))];
 
     const [centres, referredCounts, convertedCounts] = await Promise.all([
-      centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
+      centreIdInts.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIdInts } }, select: { id: true, centre_name: true } }) : [],
       this.prisma.applications.groupBy({
         by: ['pipeline_user'],
         where: { pipeline_user: { in: counsellorIds }, deleted_at: null },
@@ -3421,21 +3457,24 @@ export class OperationsService {
     const referredMap = new Map(referredCounts.map(r => [r.pipeline_user, r._count.id]));
     const convertedMap = new Map(convertedCounts.map(r => [r.pipeline_user, r._count.id]));
 
-    return counsellors.map(u => ({
-      ...u,
-      centre_name: u.centre_id ? centreMap.get(u.centre_id) ?? null : null,
-      applications_referred: referredMap.get(u.id) ?? 0,
-      applications_converted: convertedMap.get(u.id) ?? 0,
-    })) as unknown as SqlRow[];
+    return counsellors.map(u => {
+      const centreIdNum = toNullableIntId(u.centre_id);
+      return {
+        ...u,
+        centre_name: centreIdNum !== null ? centreMap.get(centreIdNum) ?? null : null,
+        applications_referred: referredMap.get(u.id) ?? 0,
+        applications_converted: convertedMap.get(u.id) ?? 0,
+      };
+    }) as unknown as SqlRow[];
   }
 
   async listCounsellorTargets(): Promise<SqlRow[]> {
     const targets = await this.prisma.counsellor_target.findMany({
       where: { deleted_at: null },
-      orderBy: [{ period: 'desc' }, { id: 'desc' }],
+      orderBy: [{ from_date: 'desc' }, { counsellor_target_id: 'desc' }],
     });
 
-    const userIds = [...new Set(targets.map(t => t.user_id))];
+    const userIds = [...new Set(targets.map(t => t.counsellor_id))];
     const users = userIds.length > 0
       ? await this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } })
       : [];
@@ -3443,8 +3482,8 @@ export class OperationsService {
 
     return targets.map(t => ({
       ...t,
-      counsellor_name: userMap.get(t.user_id)?.name ?? null,
-      counsellor_email: userMap.get(t.user_id)?.user_email ?? null,
+      counsellor_name: userMap.get(t.counsellor_id)?.name ?? null,
+      counsellor_email: userMap.get(t.counsellor_id)?.user_email ?? null,
     })) as unknown as SqlRow[];
   }
 
@@ -3458,10 +3497,10 @@ export class OperationsService {
     const associateIds = associates.map(a => a.id);
     if (associateIds.length === 0) return [] as unknown as SqlRow[];
 
-    const centreIds = [...new Set(associates.map(a => a.centre_id).filter(Boolean))] as string[];
+    const centreIdInts = [...new Set(associates.map(a => toNullableIntId(a.centre_id)).filter((x): x is number => x !== null))];
 
     const [centres, referredCounts, convertedCounts] = await Promise.all([
-      centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
+      centreIdInts.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIdInts } }, select: { id: true, centre_name: true } }) : [],
       this.prisma.applications.groupBy({
         by: ['pipeline_user'],
         where: { pipeline_user: { in: associateIds }, deleted_at: null },
@@ -3478,21 +3517,24 @@ export class OperationsService {
     const referredMap = new Map(referredCounts.map(r => [r.pipeline_user, r._count.id]));
     const convertedMap = new Map(convertedCounts.map(r => [r.pipeline_user, r._count.id]));
 
-    return associates.map(u => ({
-      ...u,
-      centre_name: u.centre_id ? centreMap.get(u.centre_id) ?? null : null,
-      applications_referred: referredMap.get(u.id) ?? 0,
-      applications_converted: convertedMap.get(u.id) ?? 0,
-    })) as unknown as SqlRow[];
+    return associates.map(u => {
+      const centreIdNum = toNullableIntId(u.centre_id);
+      return {
+        ...u,
+        centre_name: centreIdNum !== null ? centreMap.get(centreIdNum) ?? null : null,
+        applications_referred: referredMap.get(u.id) ?? 0,
+        applications_converted: convertedMap.get(u.id) ?? 0,
+      };
+    }) as unknown as SqlRow[];
   }
 
   async listAssociateTargets(): Promise<SqlRow[]> {
-    const targets = await this.prisma.associate_target.findMany({
+    const targets = await this.prisma.associates_target.findMany({
       where: { deleted_at: null },
-      orderBy: [{ period: 'desc' }, { id: 'desc' }],
+      orderBy: [{ from_date: 'desc' }, { associate_target_id: 'desc' }],
     });
 
-    const userIds = [...new Set(targets.map(t => t.user_id))];
+    const userIds = [...new Set(targets.map(t => t.associate_id))];
     const users = userIds.length > 0
       ? await this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } })
       : [];
@@ -3500,8 +3542,8 @@ export class OperationsService {
 
     return targets.map(t => ({
       ...t,
-      associate_name: userMap.get(t.user_id)?.name ?? null,
-      associate_email: userMap.get(t.user_id)?.user_email ?? null,
+      associate_name: userMap.get(t.associate_id)?.name ?? null,
+      associate_email: userMap.get(t.associate_id)?.user_email ?? null,
     })) as unknown as SqlRow[];
   }
 
@@ -3865,6 +3907,11 @@ export class OperationsService {
         phone: input.phone?.trim() || null,
         role_id: 3,
         status: input.status ?? 1,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
         created_at: now,
         updated_at: now,
       },
@@ -3876,7 +3923,7 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     const now = new Date();
     await this.prisma.users.updateMany({
-      where: { id, deleted_at: null },
+      where: { id: toIntId(id), deleted_at: null },
       data: {
         name: input.name.trim(),
         phone: input.phone?.trim() || null,
@@ -3889,7 +3936,7 @@ export class OperationsService {
 
   async deleteInstructor(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Instructor deleted successfully.' };
   }
 
@@ -3911,6 +3958,11 @@ export class OperationsService {
         password: input.password,
         role_id: input.roleId,
         status: 1,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
         created_at: now,
         updated_at: now,
       },
@@ -3922,7 +3974,7 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     const now = new Date();
     await this.prisma.users.updateMany({
-      where: { id, deleted_at: null },
+      where: { id: toIntId(id), deleted_at: null },
       data: { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now },
     });
     return { status: 1, message: 'User updated successfully.' };
@@ -3930,7 +3982,7 @@ export class OperationsService {
 
   async deleteUser(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'User deleted successfully.' };
   }
 
@@ -3950,6 +4002,11 @@ export class OperationsService {
         phone: input.phone?.trim() || null,
         role_id: 10,
         status: input.status ?? 1,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
         created_at: now,
         updated_at: now,
       },
@@ -3960,16 +4017,14 @@ export class OperationsService {
   async addCounsellorTarget(actorUserId: string, input: AddTargetInput): Promise<Record<string, unknown>> {
     if (!input.userId) return { status: 0, message: 'Counsellor is required.' };
     const now = new Date();
-    const period = `${input.periodFrom} to ${input.periodTo}`;
     await this.prisma.counsellor_target.create({
       data: {
-        user_id: input.userId,
-        period,
-        target_type: input.targetType || 'applications',
-        target_value: input.targetValue,
-        achieved_value: 0,
-        remarks: input.remarks?.trim() || null,
-        created_by: actorUserId,
+        counsellor_id: toIntId(input.userId),
+        type: 1,
+        from_date: new Date(input.periodFrom),
+        to_date: new Date(input.periodTo),
+        value: input.targetValue,
+        created_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -3979,16 +4034,15 @@ export class OperationsService {
 
   async editCounsellorTarget(actorUserId: string, id: string, input: AddTargetInput): Promise<Record<string, unknown>> {
     const now = new Date();
-    const period = `${input.periodFrom} to ${input.periodTo}`;
     await this.prisma.counsellor_target.updateMany({
-      where: { id, deleted_at: null },
+      where: { counsellor_target_id: toIntId(id), deleted_at: null },
       data: {
-        user_id: input.userId,
-        period,
-        target_type: input.targetType || 'applications',
-        target_value: input.targetValue,
-        remarks: input.remarks?.trim() || null,
-        updated_by: actorUserId,
+        counsellor_id: toIntId(input.userId),
+        type: 1,
+        from_date: new Date(input.periodFrom),
+        to_date: new Date(input.periodTo),
+        value: input.targetValue,
+        updated_by: toIntId(actorUserId),
         updated_at: now,
       },
     });
@@ -3997,23 +4051,21 @@ export class OperationsService {
 
   async deleteCounsellorTarget(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.counsellor_target.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.counsellor_target.updateMany({ where: { counsellor_target_id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Target deleted successfully.' };
   }
 
   async addAssociateTarget(actorUserId: string, input: AddTargetInput): Promise<Record<string, unknown>> {
     if (!input.userId) return { status: 0, message: 'Associate is required.' };
     const now = new Date();
-    const period = `${input.periodFrom} to ${input.periodTo}`;
-    await this.prisma.associate_target.create({
+    await this.prisma.associates_target.create({
       data: {
-        user_id: input.userId,
-        period,
-        target_type: input.targetType || 'applications',
-        target_value: input.targetValue,
-        achieved_value: 0,
-        remarks: input.remarks?.trim() || null,
-        created_by: actorUserId,
+        associate_id: toIntId(input.userId),
+        type: 1,
+        from_date: new Date(input.periodFrom),
+        to_date: new Date(input.periodTo),
+        value: input.targetValue,
+        created_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -4023,16 +4075,15 @@ export class OperationsService {
 
   async editAssociateTarget(actorUserId: string, id: string, input: AddTargetInput): Promise<Record<string, unknown>> {
     const now = new Date();
-    const period = `${input.periodFrom} to ${input.periodTo}`;
-    await this.prisma.associate_target.updateMany({
-      where: { id, deleted_at: null },
+    await this.prisma.associates_target.updateMany({
+      where: { associate_target_id: toIntId(id), deleted_at: null },
       data: {
-        user_id: input.userId,
-        period,
-        target_type: input.targetType || 'applications',
-        target_value: input.targetValue,
-        remarks: input.remarks?.trim() || null,
-        updated_by: actorUserId,
+        associate_id: toIntId(input.userId),
+        type: 1,
+        from_date: new Date(input.periodFrom),
+        to_date: new Date(input.periodTo),
+        value: input.targetValue,
+        updated_by: toIntId(actorUserId),
         updated_at: now,
       },
     });
@@ -4041,7 +4092,7 @@ export class OperationsService {
 
   async deleteAssociateTarget(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.associate_target.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.associates_target.updateMany({ where: { associate_target_id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Target deleted successfully.' };
   }
 
@@ -4050,15 +4101,15 @@ export class OperationsService {
   async getApplication(id: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
 
-    const app = await this.prisma.applications.findFirst({ where: { id, deleted_at: null } });
+    const app = await this.prisma.applications.findFirst({ where: { id: toIntId(id), deleted_at: null } });
     if (!app) return { status: 0, message: 'Application not found.' };
 
     // Resolve related records
     const [course, pipelineUser, centre, payments] = await Promise.all([
       app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
       app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
-      app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: String(app.added_under_centre) }, select: { id: true, centre_name: true } }) : null,
-      this.prisma.student_payments.findMany({ where: { user_id: id, deleted_at: null }, orderBy: { id: 'desc' } }),
+      app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: app.added_under_centre }, select: { id: true, centre_name: true } }) : null,
+      this.prisma.student_payments.findMany({ where: { user_id: toIntId(id), deleted_at: null }, orderBy: { id: 'desc' } }),
     ]);
 
     // Resolve batch
@@ -4126,24 +4177,26 @@ export class OperationsService {
         guardian_name: input.guardianName || null,
         aadhar_no: input.aadharNo || null,
         passport_no: input.passportNo || null,
-        whatsapp_no: input.whatsappNo || null,
+        whatsapp_no: toIntId(input.whatsappNo),
         state: input.state || null,
         district: input.city || null,
         address: input.permanentAddress || (input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null),
         native_address: input.correspondenceAddress || null,
-        second_phone: input.alternatePhone || null,
-        course_id: input.courseId || null,
-        batch_id: input.batchId || null,
-        enrollment_date: input.enrollmentDate ? new Date(input.enrollmentDate) : null,
+        second_code: 0,
+        second_phone: input.alternatePhone || '',
+        image: '',
+        course_id: toNullableIntId(input.courseId),
+        batch_id: toNullableIntId(input.batchId),
+        enrollment_date: input.enrollmentDate || null,
         mode_of_study: input.modeOfStudy || null,
         preferred_language: input.language || null,
         marketing_source: input.leadSource || null,
-        pipeline_user: input.pipelineUser || null,
+        pipeline_user: toNullableIntId(input.pipelineUser),
         pipeline: input.pipeline || (input.pipelineUser ? '9' : null),
-        status: input.applicationStatus || 'pending',
-        added_under_centre: input.centreId ? Number(input.centreId) : null,
-        created_by: actorUserId,
-        updated_by: actorUserId,
+        status: (input.applicationStatus as any) || 'pending',
+        added_under_centre: toNullableIntId(input.centreId),
+        created_by: toIntId(actorUserId),
+        updated_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -4155,10 +4208,8 @@ export class OperationsService {
         data: {
           user_id: created.id,
           qualification: input.highestQualification || null,
-          institution: input.institutionName || null,
-          year_of_passing: input.yearOfPassing || null,
-          percentage_or_grade: input.percentageOrCgpa || null,
-          created_by: actorUserId,
+          percentage: input.percentageOrCgpa ? Number.parseInt(input.percentageOrCgpa, 10) || null : null,
+          created_by: toIntId(actorUserId),
           created_at: now,
           updated_at: now,
         },
@@ -4172,8 +4223,8 @@ export class OperationsService {
     if (!id) return { status: 0, message: 'Application ID is required.' };
     const now = new Date();
     const result = await this.prisma.applications.updateMany({
-      where: { id, deleted_at: null },
-      data: { deleted_by: actorUserId, deleted_at: now },
+      where: { id: toIntId(id), deleted_at: null },
+      data: { deleted_by: toIntId(actorUserId), deleted_at: now },
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
     return { status: 1, message: 'Application deleted successfully.' };
@@ -4183,12 +4234,12 @@ export class OperationsService {
     if (!id) return { status: 0, message: 'Application ID is required.' };
     if (!status) return { status: 0, message: 'Status is required.' };
     const now = new Date();
-    const data: Record<string, unknown> = { status, updated_by: actorUserId, updated_at: now };
+    const data: Record<string, unknown> = { status: status as any, updated_by: toIntId(actorUserId), updated_at: now };
     if (status === 'rejected' && rejectReason) {
       data.reject_reason = rejectReason;
     }
     const result = await this.prisma.applications.updateMany({
-      where: { id, deleted_at: null },
+      where: { id: toIntId(id), deleted_at: null },
       data,
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
@@ -4201,41 +4252,36 @@ export class OperationsService {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
 
     const user = await this.prisma.users.findFirst({
-      where: { id: studentId, role_id: 2, deleted_at: null },
+      where: { id: toIntId(studentId), role_id: 2, deleted_at: null },
     });
     if (!user) return { status: 0, message: 'Student not found.' };
 
     const enrolments = await this.prisma.enrol.findMany({
-      where: { user_id: studentId, deleted_at: null },
+      where: { user_id: toIntId(studentId), deleted_at: null },
     });
 
-    const courseIds = [...new Set(enrolments.map(e => e.course_id).filter(Boolean))] as string[];
+    const courseIds = [...new Set(enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
     const courseMap = new Map(courses.map(c => [c.id, c]));
 
-    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter(Boolean))] as string[];
+    const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
     const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
     const batchMap = new Map(batches.map(b => [b.id, b]));
 
     const payments = await this.prisma.payment_info.findMany({
-      where: { user_id: studentId, deleted_at: null },
+      where: { user_id: toIntId(studentId), deleted_at: null },
       orderBy: { payment_date: 'desc' },
     });
 
-    const studentFees = await this.prisma.student_fee.findMany({
-      where: { user_id: studentId },
-      orderBy: { due_date: 'desc' },
-    });
+    const studentFees: unknown[] = [];
 
     // LMS progress
     const videoProgress = await this.prisma.video_progress_status.findMany({
-      where: { user_id: studentId, deleted_at: null },
+      where: { user_id: toIntId(studentId), deleted_at: null },
     });
-    const materialProgress = await this.prisma.material_progress.findMany({
-      where: { user_id: studentId, deleted_at: null },
-    });
+    const materialProgress: unknown[] = [];
     const assignmentSubs = await this.prisma.assignment_submissions.findMany({
-      where: { user_id: studentId, deleted_at: null },
+      where: { user_id: toIntId(studentId), deleted_at: null },
     });
 
     // Profile completion calc
@@ -4267,13 +4313,13 @@ export class OperationsService {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
     if (!newUsername.trim()) return { status: 0, message: 'Username is required.' };
 
-    const existing = await this.prisma.users.findFirst({ where: { username: newUsername.trim(), deleted_at: null, id: { not: studentId } } });
+    const existing = await this.prisma.users.findFirst({ where: { username: newUsername.trim(), deleted_at: null, id: { not: toIntId(studentId) } } });
     if (existing) return { status: 0, message: 'Username already taken.' };
 
     const now = new Date();
     await this.prisma.users.updateMany({
-      where: { id: studentId, deleted_at: null },
-      data: { username: newUsername.trim(), updated_by: actorUserId, updated_at: now },
+      where: { id: toIntId(studentId), deleted_at: null },
+      data: { username: newUsername.trim(), updated_by: toIntId(actorUserId), updated_at: now },
     });
 
     return { status: 1, message: 'Username updated successfully.' };
@@ -4286,8 +4332,8 @@ export class OperationsService {
     const hashed = await hashPassword(newPassword);
     const now = new Date();
     await this.prisma.users.updateMany({
-      where: { id: studentId, deleted_at: null },
-      data: { password: hashed, updated_by: actorUserId, updated_at: now },
+      where: { id: toIntId(studentId), deleted_at: null },
+      data: { password: hashed, updated_by: toIntId(actorUserId), updated_at: now },
     });
 
     return { status: 1, message: 'Password updated successfully.' };
@@ -4299,8 +4345,8 @@ export class OperationsService {
 
     const now = new Date();
     const result = await this.prisma.enrol.updateMany({
-      where: { user_id: studentId, deleted_at: null },
-      data: { enrollment_id: newEnrollmentId.trim(), updated_by: actorUserId, updated_at: now },
+      where: { user_id: toIntId(studentId), deleted_at: null },
+      data: { enrollment_id: newEnrollmentId.trim(), updated_by: toIntId(actorUserId), updated_at: now },
     });
 
     if (result.count === 0) return { status: 0, message: 'No enrolment found for this student.' };
@@ -4312,8 +4358,8 @@ export class OperationsService {
 
     const now = new Date();
     await this.prisma.users.updateMany({
-      where: { id: studentId, deleted_at: null },
-      data: { name: name.trim(), phone: phone.trim(), updated_by: actorUserId, updated_at: now },
+      where: { id: toIntId(studentId), deleted_at: null },
+      data: { name: name.trim(), phone: phone.trim(), updated_by: toIntId(actorUserId), updated_at: now },
     });
 
     return { status: 1, message: 'Student info updated successfully.' };
@@ -4323,11 +4369,11 @@ export class OperationsService {
     if (!batchId) return [];
 
     const enrols = await this.prisma.enrol.findMany({
-      where: { batch_id: batchId, deleted_at: null },
+      where: { batch_id: toIntId(batchId), deleted_at: null },
       select: { user_id: true, course_id: true, enrollment_id: true },
     });
 
-    const userIds = [...new Set(enrols.map(e => e.user_id))];
+    const userIds = [...new Set(enrols.map(e => e.user_id).filter((x): x is number => x !== null && x !== undefined))];
     if (userIds.length === 0) return [];
 
     const users = await this.prisma.users.findMany({
@@ -4336,12 +4382,12 @@ export class OperationsService {
     });
 
     const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
-    const enrolMap = new Map(enrols.map(e => [e.user_id, e]));
+    const enrolMap = new Map(enrols.filter(e => e.user_id !== null && e.user_id !== undefined).map(e => [e.user_id as number, e]));
 
     return users.map(u => ({
       ...u,
       enrollment_id: enrolMap.get(u.id)?.enrollment_id ?? null,
-      status_label: statusLabels[u.status] ?? 'Unknown',
+      status_label: u.status !== null && u.status !== undefined ? statusLabels[u.status] ?? 'Unknown' : 'Unknown',
     })) as unknown as SqlRow[];
   }
 
@@ -4349,7 +4395,7 @@ export class OperationsService {
 
   async getCentre(centreId: string): Promise<Record<string, unknown>> {
     const centre = await this.prisma.centres.findFirst({
-      where: { id: centreId, deleted_at: null },
+      where: { id: toIntId(centreId), deleted_at: null },
     });
 
     if (!centre) {
@@ -4357,7 +4403,7 @@ export class OperationsService {
     }
 
     const coursePlans = await this.prisma.centre_course_plans.findMany({
-      where: { centre_id: centreId, deleted_at: null },
+      where: { centre_id: toIntId(centreId), deleted_at: null },
     });
 
     const courseIds = [...new Set(coursePlans.map(cp => cp.course_id))];
@@ -4369,13 +4415,13 @@ export class OperationsService {
       : [];
     const courseMap = new Map(courses.map(c => [c.id, c.title]));
 
-    const fundRequestCount = await this.prisma.centre_fundrequests.count({
-      where: { centre_id: centreId, deleted_at: null },
+    const fundRequestCount = await this.prisma.centre_fund_requests.count({
+      where: { centre_id: toIntId(centreId), deleted_at: null },
     });
 
-    const studentCount = centre.centre_id
+    const studentCount = centre.id
       ? await this.prisma.users.count({
-          where: { added_under_centre: centre.centre_id, role_id: { equals: 2 }, deleted_at: null },
+          where: { added_under_centre: centre.id, role_id: { equals: 2 }, deleted_at: null },
         })
       : 0;
 
@@ -4400,14 +4446,14 @@ export class OperationsService {
     const now = new Date();
 
     const existing = await this.prisma.centres.findFirst({
-      where: { id: centreId, deleted_at: null },
+      where: { id: toIntId(centreId), deleted_at: null },
     });
     if (!existing) {
       return { status: 0, message: 'Centre not found' };
     }
 
     await this.prisma.centres.update({
-      where: { id: centreId },
+      where: { id: toIntId(centreId) },
       data: {
         ...(input.centreName ? { centre_name: input.centreName } : {}),
         ...(input.contactPerson !== undefined ? { contact_person: input.contactPerson } : {}),
@@ -4415,9 +4461,9 @@ export class OperationsService {
         ...(input.email !== undefined ? { email: input.email } : {}),
         ...(input.address !== undefined ? { address: input.address } : {}),
         ...(input.affiliationDocument !== undefined ? { affiliation_document: input.affiliationDocument } : {}),
-        ...(input.registrationDate ? { date_of_registration: new Date(input.registrationDate) } : {}),
-        ...(input.expiryDate ? { date_of_expiry: new Date(input.expiryDate) } : {}),
-        updated_by: actorUserId,
+        ...(input.registrationDate ? { date_of_registration: input.registrationDate } : {}),
+        ...(input.expiryDate ? { date_of_expiry: input.expiryDate } : {}),
+        updated_by: toIntId(actorUserId),
         updated_at: now,
       },
     });
@@ -4429,15 +4475,15 @@ export class OperationsService {
     const now = new Date();
 
     const existing = await this.prisma.centres.findFirst({
-      where: { id: centreId, deleted_at: null },
+      where: { id: toIntId(centreId), deleted_at: null },
     });
     if (!existing) {
       return { status: 0, message: 'Centre not found' };
     }
 
     await this.prisma.centres.update({
-      where: { id: centreId },
-      data: { deleted_at: now, deleted_by: actorUserId, updated_at: now },
+      where: { id: toIntId(centreId) },
+      data: { deleted_at: now, deleted_by: toIntId(actorUserId), updated_at: now },
     });
 
     return { status: 1, message: 'Centre deleted successfully.' };
@@ -4446,8 +4492,8 @@ export class OperationsService {
   async approveFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
     const now = new Date();
 
-    const request = await this.prisma.centre_fundrequests.findFirst({
-      where: { id: requestId, deleted_at: null },
+    const request = await this.prisma.centre_fund_requests.findFirst({
+      where: { id: toIntId(requestId), deleted_at: null },
     });
     if (!request) {
       return { status: 0, message: 'Fund request not found' };
@@ -4457,9 +4503,9 @@ export class OperationsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.centre_fundrequests.update({
-        where: { id: requestId },
-        data: { status: 'approved', updated_by: actorUserId, updated_at: now },
+      await tx.centre_fund_requests.update({
+        where: { id: toIntId(requestId) },
+        data: { status: 'approved', updated_by: toIntId(actorUserId), updated_at: now },
       });
 
       await tx.wallet_transactions.create({
@@ -4467,19 +4513,21 @@ export class OperationsService {
           centre_id: request.centre_id,
           transaction_type: 'credit',
           amount: request.amount,
-          remarks: 'Fund request approved',
-          reference_id: requestId,
-          created_by: actorUserId,
+          remarks: `Fund request approved #${requestId}`,
+          created_by: toIntId(actorUserId),
           created_at: now,
           updated_at: now,
         },
       });
 
+      const centreRow = await tx.centres.findFirst({ where: { id: request.centre_id } });
+      const currentBalance = Number(centreRow?.wallet_balance ?? '0') || 0;
+      const addAmount = Number(request.amount) || 0;
       await tx.centres.update({
         where: { id: request.centre_id },
         data: {
-          wallet_balance: { increment: request.amount },
-          updated_by: actorUserId,
+          wallet_balance: String(currentBalance + addAmount),
+          updated_by: toIntId(actorUserId),
           updated_at: now,
         },
       });
@@ -4491,8 +4539,8 @@ export class OperationsService {
   async rejectFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
     const now = new Date();
 
-    const request = await this.prisma.centre_fundrequests.findFirst({
-      where: { id: requestId, deleted_at: null },
+    const request = await this.prisma.centre_fund_requests.findFirst({
+      where: { id: toIntId(requestId), deleted_at: null },
     });
     if (!request) {
       return { status: 0, message: 'Fund request not found' };
@@ -4501,9 +4549,9 @@ export class OperationsService {
       return { status: 0, message: 'Fund request is already ' + request.status };
     }
 
-    await this.prisma.centre_fundrequests.update({
-      where: { id: requestId },
-      data: { status: 'rejected', updated_by: actorUserId, updated_at: now },
+    await this.prisma.centre_fund_requests.update({
+      where: { id: toIntId(requestId) },
+      data: { status: 'rejected', updated_by: toIntId(actorUserId), updated_at: now },
     });
 
     return { status: 1, message: 'Fund request rejected.' };
@@ -4720,7 +4768,7 @@ export class OperationsService {
       orderBy: { _max: { created_at: 'desc' } },
     });
 
-    const chatIds = groups.map(g => g.chat_id);
+    const chatIds = groups.map(g => g.chat_id).filter((x): x is number => x !== null && x !== undefined);
     if (chatIds.length === 0) return { conversations: [] };
 
     const lastMessages = await Promise.all(
@@ -4732,7 +4780,8 @@ export class OperationsService {
         })
       )
     );
-    const lastMsgMap = new Map(chatIds.map((id, idx) => [id, lastMessages[idx]]));
+    const lastMsgMap = new Map<number, typeof lastMessages[number]>();
+    chatIds.forEach((id, idx) => { lastMsgMap.set(id, lastMessages[idx] ?? null); });
 
     const users = await this.prisma.users.findMany({
       where: { id: { in: chatIds } },
@@ -4741,8 +4790,9 @@ export class OperationsService {
     const userMap = new Map(users.map(u => [u.id, u]));
 
     const conversations = groups.map(g => {
-      const user = userMap.get(g.chat_id);
-      const lastMsg = lastMsgMap.get(g.chat_id);
+      const chatIdNum = g.chat_id;
+      const user = chatIdNum !== null && chatIdNum !== undefined ? userMap.get(chatIdNum) : undefined;
+      const lastMsg = chatIdNum !== null && chatIdNum !== undefined ? lastMsgMap.get(chatIdNum) : undefined;
       return {
         chat_id: g.chat_id,
         user_name: user?.name ?? 'Unknown',
@@ -4760,13 +4810,14 @@ export class OperationsService {
   }
 
   async getConversationMessages(chatId: string): Promise<Record<string, unknown>> {
+    const chatIdNum = toIntId(chatId);
     const messages = await this.prisma.support_chat.findMany({
-      where: { chat_id: chatId, deleted_at: null },
+      where: { chat_id: chatIdNum, deleted_at: null },
       orderBy: { created_at: 'asc' },
       select: { id: true, sender_id: true, message: true, created_at: true },
     });
 
-    const senderIds = [...new Set(messages.map(m => m.sender_id))];
+    const senderIds = [...new Set(messages.map(m => m.sender_id).filter((x): x is number => x !== null && x !== undefined))];
     const senders = senderIds.length > 0
       ? await this.prisma.users.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true, profile_picture: true } })
       : [];
@@ -4776,11 +4827,11 @@ export class OperationsService {
       messages: messages.map(m => ({
         id: m.id,
         sender_id: m.sender_id,
-        sender_name: senderMap.get(m.sender_id)?.name ?? 'Unknown',
-        sender_photo: senderMap.get(m.sender_id)?.profile_picture ?? null,
+        sender_name: m.sender_id !== null && m.sender_id !== undefined ? senderMap.get(m.sender_id)?.name ?? 'Unknown' : 'Unknown',
+        sender_photo: m.sender_id !== null && m.sender_id !== undefined ? senderMap.get(m.sender_id)?.profile_picture ?? null : null,
         message: m.message,
         created_at: m.created_at,
-        is_admin: m.sender_id !== chatId,
+        is_admin: m.sender_id !== chatIdNum,
       })),
     };
   }
@@ -4789,10 +4840,10 @@ export class OperationsService {
     const now = new Date();
     await this.prisma.support_chat.create({
       data: {
-        chat_id: chatId,
-        sender_id: actorUserId,
+        chat_id: toNullableIntId(chatId),
+        sender_id: toNullableIntId(actorUserId),
         message: messageText,
-        created_by: actorUserId,
+        created_by: toIntId(actorUserId),
         created_at: now,
         updated_at: now,
       },
@@ -4818,6 +4869,11 @@ export class OperationsService {
         phone: input.phone?.trim() || null,
         role_id: 9,
         status: input.status ?? 1,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
         created_at: now,
         updated_at: now,
       },
@@ -4830,13 +4886,13 @@ export class OperationsService {
     const now = new Date();
     const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
     if (input.status !== undefined) data.status = input.status;
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data });
     return { status: 1, message: 'Counsellor updated successfully.' };
   }
 
   async deleteCounsellor(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Counsellor deleted successfully.' };
   }
 
@@ -4847,13 +4903,13 @@ export class OperationsService {
     const now = new Date();
     const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
     if (input.status !== undefined) data.status = input.status;
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data });
     return { status: 1, message: 'Associate updated successfully.' };
   }
 
   async deleteAssociate(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     const now = new Date();
-    await this.prisma.users.updateMany({ where: { id, deleted_at: null }, data: { deleted_by: actorUserId, deleted_at: now } });
+    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Associate deleted successfully.' };
   }
 }
