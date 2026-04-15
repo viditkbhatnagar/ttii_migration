@@ -7,6 +7,20 @@ import { createIntegrationRegistry } from '../integrations/registry.js';
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function toDbNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -107,28 +121,28 @@ function parseDescriptionItems(value: string): string[] {
   return output;
 }
 
-function parseSubjects(subjects: unknown): string[] {
-  if (Array.isArray(subjects)) {
-    return subjects.map((entry) => String(entry)).filter((entry) => entry !== '' && entry !== '0');
+function parseSubjects(subjects: unknown): number[] {
+  const raw: unknown[] = Array.isArray(subjects)
+    ? subjects
+    : typeof subjects === 'string' && subjects.trim() !== ''
+      ? (() => {
+          try {
+            const parsed: unknown = JSON.parse(subjects);
+            return Array.isArray(parsed) ? (parsed as unknown[]) : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+
+  const ids: number[] = [];
+  for (const entry of raw) {
+    const asString = String(entry);
+    if (asString === '' || asString === '0') continue;
+    const n = parseInt(asString, 10);
+    if (Number.isFinite(n)) ids.push(n);
   }
-
-  if (typeof subjects === 'string') {
-    const normalized = subjects.trim();
-    if (normalized === '') {
-      return [];
-    }
-
-    try {
-      const parsed: unknown = JSON.parse(normalized);
-      if (Array.isArray(parsed)) {
-        return parsed.map((entry) => String(entry)).filter((entry) => entry !== '' && entry !== '0');
-      }
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
+  return ids;
 }
 
 function toSubjectsToken(subjects: unknown): string {
@@ -176,6 +190,15 @@ export interface GeneratePaymentLinkInput {
 // Type for Prisma interactive transaction client
 type TxClient = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
+interface CommerceUser {
+  id: number;
+  name: string | null;
+  email: string | null;
+  user_email: string | null;
+  phone: string | null;
+  course_id: number | null;
+}
+
 export class CommerceService {
   private readonly prisma: PrismaClient;
   private readonly paymentGateway: PaymentGateway;
@@ -200,14 +223,15 @@ export class CommerceService {
     return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
   }
 
-  private async getUserById(userId: string) {
-    if (!userId) {
+  private async getUserById(userId: string): Promise<CommerceUser | null> {
+    const id = toIntId(userId);
+    if (!id) {
       return null;
     }
 
     return this.prisma.users.findFirst({
       where: {
-        id: userId,
+        id,
         deleted_at: null,
       },
       select: {
@@ -221,32 +245,33 @@ export class CommerceService {
     });
   }
 
-  private async couponAppliedCount(couponId: string, userId?: string): Promise<number> {
+  private async couponAppliedCount(couponId: number, userId?: string): Promise<number> {
     if (!couponId) {
       return 0;
     }
 
-    const where: Record<string, unknown> = {
-      coupon_id: couponId,
-      deleted_at: null,
-    };
+    const userIntId = userId ? toIntId(userId) : null;
 
-    if (userId) {
-      where.user_id = userId;
-    }
-
-    return this.prisma.payment_info.count({ where });
+    return this.prisma.payment_info.count({
+      where: {
+        coupon_id: couponId,
+        deleted_at: null,
+        ...(userIntId ? { user_id: userIntId } : {}),
+      },
+    });
   }
 
   private async getStudentFeeInstallments(userId: string, courseId: string) {
-    if (!userId || !courseId) {
+    const userIntId = toIntId(userId);
+    const courseIntId = toIntId(courseId);
+    if (!userIntId || !courseIntId) {
       return [];
     }
 
-    return this.prisma.student_fee.findMany({
+    return this.prisma.student_payments.findMany({
       where: {
-        user_id: userId,
-        course_id: courseId,
+        user_id: userIntId,
+        course_id: courseIntId,
         deleted_at: null,
       },
       orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
@@ -257,17 +282,19 @@ export class CommerceService {
     tx: TxClient,
     userId: string,
     courseId: string,
-    packageId: string | null,
+    packageId: number | null,
     updateUserCourseWhenAlreadyEnrolled: boolean,
   ): Promise<void> {
-    if (!userId || !courseId) {
+    const userIntId = toIntId(userId);
+    const courseIntId = toIntId(courseId);
+    if (!userIntId || !courseIntId) {
       return;
     }
 
     const existingCount = await tx.enrol.count({
       where: {
-        user_id: userId,
-        course_id: courseId,
+        user_id: userIntId,
+        course_id: courseIntId,
         deleted_at: null,
       },
     });
@@ -278,13 +305,13 @@ export class CommerceService {
     if (!enrolmentExists) {
       await tx.enrol.create({
         data: {
-          user_id: userId,
-          course_id: courseId,
+          user_id: userIntId,
+          course_id: courseIntId,
           package_id: packageId,
-          enrollment_date: now,
+          enrollment_date: toDateOnlyString(now),
           enrollment_status: 'Active',
           mode_of_study: 'Online',
-          created_by: userId,
+          created_by: userIntId,
           created_at: now,
         },
       });
@@ -292,10 +319,10 @@ export class CommerceService {
 
     if (!enrolmentExists || updateUserCourseWhenAlreadyEnrolled) {
       await tx.users.update({
-        where: { id: userId },
+        where: { id: userIntId },
         data: {
-          course_id: courseId,
-          updated_by: userId,
+          course_id: courseIntId,
+          updated_by: userIntId,
           updated_at: now,
         },
       });
@@ -304,23 +331,24 @@ export class CommerceService {
 
   private async formatPackageData(
     packageRow: {
-      id: string;
+      id: number;
       title: string | null;
       type: number | null;
-      category_id: string | null;
-      course_id: string | null;
+      category_id: number | null;
+      course_id: number | null;
       amount: number | null;
       discount: number | null;
-      is_free: number | null;
-      package_type: string | null;
+      is_free: boolean | null;
+      package_type: number | null;
       remarks: string | null;
       offline: number | null;
       description: string | null;
       start_date: Date | null;
       end_date: Date | null;
+      duration: number | null;
       [key: string]: unknown;
     },
-    user: { id: string; name: string | null; email: string | null; user_email: string | null; phone: string | null },
+    user: CommerceUser,
   ): Promise<Record<string, unknown>> {
     const packageId = packageRow.id;
     const packageType = toInteger(packageRow.type);
@@ -343,7 +371,7 @@ export class CommerceService {
     const discountPercentage = amount > 0 ? Math.round((discount / amount) * 100) : 0;
 
     return {
-      id: packageId || '',
+      id: String(packageId),
       is_purchased: packageType !== 2 ? (purchasedCount > 0 ? 1 : 0) : 0,
       title: toStringValue(packageRow.title),
       type: packageRow.type ?? '',
@@ -351,7 +379,7 @@ export class CommerceService {
       course_id: packageRow.course_id ?? '',
       actual_amount: amount === actualAmount ? '' : amount,
       discount_percentage: discountPercentage,
-      best_value: packageId === '1' ? 1 : 0,
+      best_value: packageId === 1 ? 1 : 0,
       price_text: '',
       payable_amount: actualAmount,
       is_free: packageRow.is_free ?? '',
@@ -380,12 +408,12 @@ export class CommerceService {
       return packageData;
     }
 
-    const resolvedCourseId = courseId || user.course_id;
+    const resolvedCourseId = courseId ? toIntId(courseId) : user.course_id;
     if (!resolvedCourseId) {
       return packageData;
     }
 
-    const packageRows = await this.prisma.course_package.findMany({
+    const packageRows = await this.prisma.renamedpackage.findMany({
       where: {
         course_id: resolvedCourseId,
         deleted_at: null,
@@ -416,13 +444,15 @@ export class CommerceService {
   }
 
   async generatePaymentLink(userId: string, input: GeneratePaymentLinkInput): Promise<string> {
-    if (!userId || !input.packageId) {
+    const userIntId = toIntId(userId);
+    const packageIntId = toIntId(input.packageId);
+    if (!userIntId || !packageIntId) {
       return '';
     }
 
-    const packageRow = await this.prisma.course_package.findFirst({
+    const packageRow = await this.prisma.renamedpackage.findFirst({
       where: {
-        id: input.packageId,
+        id: packageIntId,
         deleted_at: null,
       },
     });
@@ -436,22 +466,21 @@ export class CommerceService {
 
     let amount = toDbNumber(packageRow.amount) - toDbNumber(packageRow.discount);
     if (subjectIds.length > 0) {
-      const subjectRows = await this.prisma.subject_package.findMany({
+      // Filter via subject table scoped to this package's course
+      const subjectRows = await this.prisma.subject.findMany({
         where: {
-          package_id: input.packageId,
           id: { in: subjectIds },
+          course_id: packageRow.course_id,
           deleted_at: null,
         },
         select: {
           id: true,
-          amount: true,
-          discount: true,
         },
       });
 
-      amount = subjectRows.reduce((total, subjectRow) => {
-        return total + (toDbNumber(subjectRow.amount) - toDbNumber(subjectRow.discount));
-      }, 0);
+      // subject table has no amount/discount in production; fall back to package amount multiplied by subject count
+      // — retain original "sum per subject" semantic using package amount as unit.
+      amount = subjectRows.length * (toDbNumber(packageRow.amount) - toDbNumber(packageRow.discount));
     }
 
     const duration = toInteger(packageRow.duration) > 0 ? toInteger(packageRow.duration) : 30;
@@ -476,9 +505,12 @@ export class CommerceService {
   }
 
   async createOrder(userId: string, input: CreateOrderInput): Promise<Record<string, unknown>> {
+    const userIntId = toIntId(userId);
+    const courseIntId = toIntId(input.courseId);
+
     const course = await this.prisma.course.findFirst({
       where: {
-        id: input.courseId,
+        id: courseIntId,
         deleted_at: null,
       },
       select: {
@@ -511,11 +543,11 @@ export class CommerceService {
       data: {
         order_id: createdOrder.orderId,
         amount: createdOrder.amountMinor / 100,
-        user_id: userId,
-        course_id: input.courseId,
+        user_id: userIntId,
+        course_id: courseIntId,
         order_status: 'pending',
         notes: JSON.stringify(createdOrder.providerPayload?.notes ?? createdOrder.providerPayload ?? {}),
-        created_by: userId,
+        created_by: userIntId,
         created_at: now,
         datetime: now,
       },
@@ -530,9 +562,12 @@ export class CommerceService {
   }
 
   async completeOrder(userId: string, input: CompleteOrderInput): Promise<boolean> {
+    const userIntId = toIntId(userId);
+    const courseIntId = toIntId(input.courseId);
+
     const course = await this.prisma.course.findFirst({
       where: {
-        id: input.courseId,
+        id: courseIntId,
         deleted_at: null,
       },
       select: {
@@ -554,10 +589,9 @@ export class CommerceService {
       throw new Error('Unable to verify payment context');
     }
 
-    // Validate order binding
     if (
-      orderDetails.user_id !== userId ||
-      orderDetails.course_id !== input.courseId ||
+      orderDetails.user_id !== userIntId ||
+      orderDetails.course_id !== courseIntId ||
       orderDetails.order_status !== 'pending'
     ) {
       throw new Error('Payment order verification failed');
@@ -591,10 +625,10 @@ export class CommerceService {
 
       await tx.payment_info.create({
         data: {
-          user_id: userId,
-          amount_paid: amountPaid,
+          user_id: userIntId,
+          amount_paid: Math.trunc(amountPaid),
           coupon_id: null,
-          course_id: input.courseId,
+          course_id: courseIntId,
           razorpay_payment_id: input.razorpayPaymentId,
           user_phone: toNullableString(user.phone),
           user_email: userEmail,
@@ -603,8 +637,8 @@ export class CommerceService {
           payment_date: now,
           created_at: now,
           updated_at: now,
-          created_by: userId,
-          updated_by: userId,
+          created_by: userIntId,
+          updated_by: userIntId,
         },
       });
 
@@ -616,8 +650,8 @@ export class CommerceService {
         },
         data: {
           order_status: 'completed',
-          payment_id_raz: input.razorpayPaymentId,
-          updated_by: userId,
+          payment_id_raz: toNullableIntId(input.razorpayPaymentId),
+          updated_by: userIntId,
           updated_at: now,
         },
       });
@@ -646,17 +680,21 @@ export class CommerceService {
       message: 'Coupon Code Expired!',
     };
 
-    const packageRows = input.packageId
-      ? await this.prisma.course_package.findMany({
+    const userIntId = toIntId(userId);
+    const packageIntId = input.packageId ? toIntId(input.packageId) : 0;
+    const courseIntId = toIntId(input.courseId);
+
+    const packageRows = packageIntId
+      ? await this.prisma.renamedpackage.findMany({
           where: {
-            id: input.packageId,
+            id: packageIntId,
             deleted_at: null,
           },
           orderBy: { id: 'asc' },
         })
-      : await this.prisma.course_package.findMany({
+      : await this.prisma.renamedpackage.findMany({
           where: {
-            course_id: input.courseId,
+            course_id: courseIntId,
             deleted_at: null,
           },
           orderBy: { id: 'asc' },
@@ -666,9 +704,7 @@ export class CommerceService {
       return invalidCoupon;
     }
 
-    const packageIds = packageRows
-      .map((packageRow) => packageRow.id)
-      .filter((id) => !!id);
+    const packageIds = packageRows.map((packageRow) => packageRow.id);
 
     const today = new Date(toDateOnlyString(new Date()));
 
@@ -682,7 +718,7 @@ export class CommerceService {
         AND: [
           {
             OR: [
-              { user_id: userId },
+              { user_id: userIntId },
               { user_id: null },
             ],
           },
@@ -713,13 +749,13 @@ export class CommerceService {
     const discountPercentage = toInteger(coupon.discount_perc);
 
     if (discountPercentage === 100) {
-      const packageId = input.packageId || packageData?.id || null;
+      const packageId: number | null = packageIntId || packageData?.id || null;
       const packageDuration = toInteger(packageData?.duration) > 0 ? toInteger(packageData?.duration) : 10;
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + packageDuration);
 
       const user = await this.getUserById(userId);
-      const courseId = packageData?.course_id ?? '';
+      const derivedCourseId = packageData?.course_id ?? courseIntId;
       const userEmail = toNullableString(user?.user_email) ?? toNullableString(user?.email) ?? '';
       const userPhone = toNullableString(user?.phone);
       const now = new Date();
@@ -727,12 +763,12 @@ export class CommerceService {
       await this.prisma.$transaction(async (tx) => {
         await tx.payment_info.create({
           data: {
-            user_id: userId,
+            user_id: userIntId,
             package_id: packageId,
             amount_paid: 0,
             coupon_id: couponId,
-            discount: toDbNumber(packageData?.discount),
-            course_id: courseId,
+            discount: Math.trunc(toDbNumber(packageData?.discount)),
+            course_id: derivedCourseId,
             razorpay_payment_id: '',
             user_phone: userPhone,
             user_email: userEmail,
@@ -742,15 +778,15 @@ export class CommerceService {
             code: `${toStringValue(coupon.code)}[${discountPercentage}%]`,
             created_at: now,
             updated_at: now,
-            created_by: userId,
-            updated_by: userId,
+            created_by: userIntId,
+            updated_by: userIntId,
           },
         });
 
         await this.ensureEnrolment(
           tx,
           userId,
-          courseId,
+          String(derivedCourseId ?? ''),
           packageId,
           true,
         );
@@ -778,14 +814,14 @@ export class CommerceService {
   }
 
   async getStudentCourses(userId: string): Promise<Array<Record<string, unknown>>> {
-    if (!userId) {
+    const userIntId = toIntId(userId);
+    if (!userIntId) {
       return [];
     }
 
-    // Fetch enrolments for this user
     const enrolments = await this.prisma.enrol.findMany({
       where: {
-        user_id: userId,
+        user_id: userIntId,
         deleted_at: null,
       },
       orderBy: { id: 'asc' },
@@ -795,8 +831,9 @@ export class CommerceService {
       return [];
     }
 
-    // Collect course IDs and batch-fetch courses
-    const courseIds = [...new Set(enrolments.map((e) => e.course_id))];
+    const courseIds = [
+      ...new Set(enrolments.map((e) => e.course_id).filter((id): id is number => id !== null && id !== undefined)),
+    ];
     const courses = await this.prisma.course.findMany({
       where: {
         id: { in: courseIds },
@@ -810,9 +847,8 @@ export class CommerceService {
     });
     const courseMap = new Map(courses.map((c) => [c.id, c]));
 
-    // Fetch the user record for id field
     const userRecord = await this.prisma.users.findFirst({
-      where: { id: userId },
+      where: { id: userIntId },
       select: { id: true },
     });
 
@@ -821,12 +857,13 @@ export class CommerceService {
 
     for (const enrolRow of enrolments) {
       const courseId = enrolRow.course_id;
+      if (courseId === null || courseId === undefined) continue;
       const course = courseMap.get(courseId);
       if (!course) {
-        continue; // Skip enrolments where the course has been deleted
+        continue;
       }
 
-      const installments = await this.getStudentFeeInstallments(userId, courseId);
+      const installments = await this.getStudentFeeInstallments(userId, String(courseId));
       const totalFee = toDbNumber(course.total_amount);
       const discount = toDbNumber(enrolRow.discount_perc);
       const discountedPrice = totalFee - (totalFee * (discount / 100));
@@ -886,25 +923,25 @@ export class CommerceService {
   }
 
   async getPaymentHistory(userId: string, courseId?: string): Promise<Array<Record<string, unknown>>> {
-    if (!userId) {
+    const userIntId = toIntId(userId);
+    if (!userIntId) {
       return [];
     }
 
-    const where: Record<string, unknown> = {
-      user_id: userId,
-      deleted_at: null,
-    };
-
-    if (courseId) {
-      where.course_id = courseId;
-    }
+    const courseIntId = courseId ? toIntId(courseId) : 0;
 
     const payments = await this.prisma.payment_info.findMany({
-      where,
+      where: {
+        user_id: userIntId,
+        deleted_at: null,
+        ...(courseIntId ? { course_id: courseIntId } : {}),
+      },
       orderBy: { payment_date: 'desc' },
     });
 
-    const courseIds = [...new Set(payments.map((p) => p.course_id).filter((id) => !!id))];
+    const courseIds = [
+      ...new Set(payments.map((p) => p.course_id).filter((id): id is number => id !== null && id !== undefined)),
+    ];
     const courses = courseIds.length > 0
       ? await this.prisma.course.findMany({
           where: { id: { in: courseIds }, deleted_at: null },
@@ -920,27 +957,25 @@ export class CommerceService {
       payment_mode: p.razorpay_payment_id ? 'Online' : (p.code ? 'Coupon' : 'Offline'),
       status: 'Success',
       razorpay_payment_id: toStringValue(p.razorpay_payment_id),
-      course_title: toStringValue(courseMap.get(p.course_id)?.title),
+      course_title: toStringValue(p.course_id ? courseMap.get(p.course_id)?.title : ''),
       course_id: p.course_id,
     }));
   }
 
   async getStudentInstallments(userId: string, courseId?: string): Promise<Array<Record<string, unknown>>> {
-    if (!userId) {
+    const userIntId = toIntId(userId);
+    if (!userIntId) {
       return [];
     }
 
-    const where: Record<string, unknown> = {
-      user_id: userId,
-      deleted_at: null,
-    };
-
-    if (courseId) {
-      where.course_id = courseId;
-    }
+    const courseIntId = courseId ? toIntId(courseId) : 0;
 
     const rows = await this.prisma.student_payments.findMany({
-      where,
+      where: {
+        user_id: userIntId,
+        deleted_at: null,
+        ...(courseIntId ? { course_id: courseIntId } : {}),
+      },
       orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
     });
 

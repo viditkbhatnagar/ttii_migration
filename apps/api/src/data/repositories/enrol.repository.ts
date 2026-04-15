@@ -5,6 +5,20 @@ import { toDataLayerError } from '../errors.js';
 
 type EnrolDelegate = PrismaClient['enrol'];
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function activeEnrolWhere(where: Prisma.enrolWhereInput, includeDeleted: boolean): Prisma.enrolWhereInput {
   if (includeDeleted) {
     return where;
@@ -39,8 +53,8 @@ export class EnrolRepository {
       const count = await this.enrolModel.count({
         where: activeEnrolWhere(
           {
-            user_id: userId,
-            course_id: courseId,
+            user_id: toIntId(userId),
+            course_id: toIntId(courseId),
           },
           false,
         ),
@@ -57,7 +71,7 @@ export class EnrolRepository {
       return await this.enrolModel.findMany({
         where: activeEnrolWhere(
           {
-            user_id: userId,
+            user_id: toIntId(userId),
           },
           includeDeleted,
         ),
@@ -75,14 +89,14 @@ export class EnrolRepository {
       const result = await this.enrolModel.updateMany({
         where: activeEnrolWhere(
           {
-            user_id: userId,
-            course_id: courseId,
+            user_id: toIntId(userId),
+            course_id: toIntId(courseId),
           },
           false,
         ),
         data: {
           deleted_at: new Date(),
-          deleted_by: deletedBy,
+          deleted_by: toNullableIntId(deletedBy),
         },
       });
 

@@ -18,6 +18,13 @@ function toStringValue(value: unknown): string {
   return value.trim();
 }
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function requestPayload(request: FastifyRequest): Record<string, unknown> {
   if (request.method === 'GET') {
     return (request.query as Record<string, unknown>) ?? {};
@@ -31,7 +38,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
 }
 
 function requestUserId(request: FastifyRequest): string {
-  return request.authContext?.user.id ?? '';
+  const id = request.authContext?.user.id;
+  return id !== undefined && id !== null ? String(id) : '';
 }
 
 function sendProfileError(reply: FastifyReply, error: unknown): void {
@@ -62,12 +70,10 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     image: row.image,
     academic_year: row.academic_year,
     username: row.username,
-    date_of_birth: row.date_of_birth,
+    date_of_birth: row.dob,
     gender: row.gender,
-    address_line_1: row.address_line_1,
-    city: row.city,
-    state: row.state,
-    pincode: row.pincode,
+    place: row.place,
+    pincode: row.pin_code,
   };
 }
 
@@ -79,7 +85,7 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
   const readProfile = async (userId: string): Promise<Record<string, unknown> | null> => {
     const user = await prisma.users.findFirst({
       where: {
-        id: userId,
+        id: toIntId(userId),
         deleted_at: null,
       },
       select: {
@@ -95,12 +101,10 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         image: true,
         academic_year: true,
         username: true,
-        date_of_birth: true,
+        dob: true,
         gender: true,
-        address_line_1: true,
-        city: true,
-        state: true,
-        pincode: true,
+        place: true,
+        pin_code: true,
       },
     });
 
@@ -130,8 +134,6 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
 
       const imageValue = toStringValue(payload.image);
 
-      // If image is empty, we need to preserve the existing value.
-      // Fetch current image first when needed.
       let imageToSet: string | undefined;
       if (imageValue !== '') {
         imageToSet = imageValue;
@@ -142,7 +144,7 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
 
       await prisma.users.updateMany({
         where: {
-          id: userId,
+          id: toIntId(userId),
           deleted_at: null,
         },
         data: {
@@ -153,13 +155,11 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
           country_code: toStringValue(payload.country_code),
           academic_year: toStringValue(payload.academic_year),
           ...(imageToSet !== undefined ? { image: imageToSet } : {}),
-          ...(dateOfBirth !== undefined && !Number.isNaN(dateOfBirth.getTime()) ? { date_of_birth: dateOfBirth } : {}),
+          ...(dateOfBirth !== undefined && !Number.isNaN(dateOfBirth.getTime()) ? { dob: dateOfBirth } : {}),
           ...(payload.gender !== undefined ? { gender: toStringValue(payload.gender) } : {}),
-          ...(payload.address_line_1 !== undefined ? { address_line_1: toStringValue(payload.address_line_1) } : {}),
-          ...(payload.city !== undefined ? { city: toStringValue(payload.city) } : {}),
-          ...(payload.state !== undefined ? { state: toStringValue(payload.state) } : {}),
-          ...(payload.pincode !== undefined ? { pincode: toStringValue(payload.pincode) } : {}),
-          updated_by: userId,
+          ...(payload.place !== undefined ? { place: toStringValue(payload.place) } : {}),
+          ...(payload.pincode !== undefined ? { pin_code: toStringValue(payload.pincode) } : {}),
+          updated_by: toIntId(userId),
           updated_at: now,
         },
       });
@@ -194,12 +194,12 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
 
       await prisma.users.updateMany({
         where: {
-          id: userId,
+          id: toIntId(userId),
           deleted_at: null,
         },
         data: {
           image,
-          updated_by: userId,
+          updated_by: toIntId(userId),
           updated_at: now,
         },
       });
@@ -246,12 +246,12 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
 
       await prisma.users.updateMany({
         where: {
-          id: userId,
+          id: toIntId(userId),
           deleted_at: null,
         },
         data: {
           password: passwordHash,
-          updated_by: userId,
+          updated_by: toIntId(userId),
           updated_at: now,
         },
       });

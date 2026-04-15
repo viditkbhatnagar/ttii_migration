@@ -1,11 +1,17 @@
-import { Prisma } from '@prisma/client';
-import type { notification, notification_read, PrismaClient } from '@prisma/client';
+import type { Prisma, notification, notification_read, PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../prisma-client.js';
 import { toDataLayerError } from '../errors.js';
 
 type NotificationDelegate = PrismaClient['notification'];
 type NotificationReadDelegate = PrismaClient['notification_read'];
+
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export class NotificationRepository {
   constructor(
@@ -33,8 +39,8 @@ export class NotificationRepository {
     try {
       const existing = await this.notificationReadModel.findFirst({
         where: {
-          user_id: userId,
-          notification_id: notificationId,
+          user_id: toIntId(userId),
+          notification_id: toIntId(notificationId),
           deleted_at: null,
         },
       });
@@ -45,10 +51,10 @@ export class NotificationRepository {
 
       return await this.notificationReadModel.create({
         data: {
-          user_id: userId,
-          notification_id: notificationId,
+          user_id: toIntId(userId),
+          notification_id: toIntId(notificationId),
           status: 1,
-          created_by: userId,
+          created_by: toIntId(userId),
           created_at: new Date(),
         },
       });
@@ -57,12 +63,12 @@ export class NotificationRepository {
     }
   }
 
-  async getUnreadCount(userId: string, courseId: string | null): Promise<number> {
+  async getUnreadCount(userId: string, _courseId: string | null): Promise<number> {
+    void _courseId;
     try {
-      // Get IDs of notifications already read by this user
       const readRecords = await this.notificationReadModel.findMany({
         where: {
-          user_id: userId,
+          user_id: toIntId(userId),
           deleted_at: null,
         },
         select: {
@@ -72,16 +78,9 @@ export class NotificationRepository {
 
       const readNotificationIds = readRecords.map((r) => r.notification_id);
 
-      // Build the course filter: match the given courseId or notifications with no course (null)
-      const courseFilter: Prisma.notificationWhereInput['course_id'] = courseId
-        ? { in: [courseId] }
-        : undefined;
-
-      // Count notifications that are not read and match course scope
       const unreadCount = await this.notificationModel.count({
         where: {
           deleted_at: null,
-          ...(courseFilter ? { course_id: courseFilter } : {}),
           ...(readNotificationIds.length > 0
             ? { id: { notIn: readNotificationIds } }
             : {}),

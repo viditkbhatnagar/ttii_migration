@@ -5,6 +5,20 @@ import { toDataLayerError } from '../errors.js';
 
 type UsersDelegate = PrismaClient['users'];
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function activeUsersWhere(where: Prisma.usersWhereInput, includeDeleted: boolean): Prisma.usersWhereInput {
   if (includeDeleted) {
     return where;
@@ -36,7 +50,7 @@ export class UsersRepository {
   async findById(id: string, includeDeleted = false): Promise<users | null> {
     try {
       return await this.usersModel.findFirst({
-        where: activeUsersWhere({ id }, includeDeleted),
+        where: activeUsersWhere({ id: toIntId(id) }, includeDeleted),
       });
     } catch (error: unknown) {
       throw toDataLayerError(error, 'users.findById');
@@ -76,7 +90,7 @@ export class UsersRepository {
         where: activeUsersWhere(where, false),
         data: {
           deleted_at: new Date(),
-          deleted_by: deletedBy,
+          deleted_by: toNullableIntId(deletedBy),
         },
       });
       return result.count;
@@ -88,7 +102,7 @@ export class UsersRepository {
   async restore(id: string): Promise<boolean> {
     try {
       const result = await this.usersModel.updateMany({
-        where: { id },
+        where: { id: toIntId(id) },
         data: {
           deleted_at: null,
           deleted_by: null,

@@ -55,7 +55,8 @@ function requestPayload(request: FastifyRequest): Record<string, unknown> {
 }
 
 function requestUserId(request: FastifyRequest): string {
-  return request.authContext?.user.id ?? '';
+  const id = request.authContext?.user.id;
+  return id !== undefined && id !== null ? String(id) : '';
 }
 
 function sendAssessmentError(reply: FastifyReply, error: unknown): void {
