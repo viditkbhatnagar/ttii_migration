@@ -332,7 +332,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
         throw new AuthError(401, 'User not authenticated!', 'UNAUTHORIZED');
       }
 
-      const issued = await authService.resendOtpForUser(authContext.user.id, requestMeta(request));
+      const issued = await authService.resendOtpForUser(String(authContext.user.id), requestMeta(request));
       reply.code(200).send({
         status: 1,
         message: 'OTP Send Successfully!',

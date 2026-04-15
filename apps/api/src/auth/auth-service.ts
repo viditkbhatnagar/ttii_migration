@@ -125,23 +125,24 @@ export class AuthService {
           gt: now,
         },
       },
-      include: {
-        users: true,
-      },
     });
 
     if (!session) {
       return null;
     }
 
-    if (session.users.deleted_at) {
+    const user = await this.prisma.users.findUnique({
+      where: { id: session.user_id },
+    });
+
+    if (!user || user.deleted_at) {
       return null;
     }
 
     return {
-      sessionId: session.id,
+      sessionId: String(session.id),
       tokenHash,
-      user: session.users,
+      user,
     };
   }
 
@@ -293,6 +294,14 @@ export class AuthService {
     });
   }
 
+  private parseUserId(userId: string): number {
+    const n = parseInt(userId, 10);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new AuthErrorClass(400, 'Invalid user id.', 'VALIDATION_ERROR');
+    }
+    return n;
+  }
+
   async requestPasswordReset(email: string, requestMeta: RequestMeta): Promise<{ token?: string }> {
     const normalizedEmail = normalizeEmail(email);
     if (!isTruthyString(normalizedEmail)) {
@@ -354,7 +363,7 @@ export class AuthService {
     }
 
     const generated = createSignedPasswordResetToken({
-      userId: user.id,
+      userId: String(user.id),
       email: canonicalEmail,
       currentPasswordHash: user.password,
       signingKey: env.PASSWORD_RESET_TOKEN_KEY,
@@ -378,7 +387,7 @@ export class AuthService {
       await this.emailProvider.sendEmail({
         to: canonicalEmail,
         subject: 'TTII Password Reset Link',
-        text: `Reset your password using this link: ${this.buildPasswordResetUrl(user.id, generated.token)}`,
+        text: `Reset your password using this link: ${this.buildPasswordResetUrl(String(user.id), generated.token)}`,
       });
     } catch {
       await this.writeAuditLog({
@@ -603,7 +612,7 @@ export class AuthService {
 
     const canonicalEmail = this.getCanonicalUserEmail(user);
     const generated = createSignedPasswordResetToken({
-      userId: user.id,
+      userId: String(user.id),
       email: canonicalEmail,
       currentPasswordHash: user.password,
       signingKey: env.PASSWORD_RESET_TOKEN_KEY,
@@ -657,7 +666,7 @@ export class AuthService {
     }
 
     return this.updatePasswordWithResetToken({
-      userId: user.id,
+      userId: String(user.id),
       email: this.getCanonicalUserEmail(user),
       token: input.resetToken,
       password: input.newPassword,
@@ -794,6 +803,11 @@ export class AuthService {
         password: passwordHash,
         role_id: 2,
         status: 0,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
         created_at: now,
         updated_at: now,
       },
@@ -828,7 +842,7 @@ export class AuthService {
       studentId: string;
       otp?: string | undefined;
     } = {
-      userId: created.id,
+      userId: String(created.id),
       studentId,
     };
 
@@ -899,7 +913,7 @@ export class AuthService {
   async resendOtpForUser(userId: string, requestMeta: RequestMeta): Promise<OtpIssueResult> {
     const user = await this.prisma.users.findFirst({
       where: {
-        id: userId,
+        id: this.parseUserId(userId),
         deleted_at: null,
       },
     });
@@ -919,6 +933,8 @@ export class AuthService {
       throw new AuthErrorClass(400, 'Invalid OTP request.', 'VALIDATION_ERROR');
     }
 
+    const userIdInt = this.parseUserId(input.userId);
+
     const rateLimitKey = toRateLimitKey('otp_verify', `${input.userId}:${purpose}`, input.ipAddress);
     const rateLimitResult = otpVerifyRateLimiter.consume(rateLimitKey, env.AUTH_OTP_VERIFY_RATE_LIMIT_MAX);
     if (!rateLimitResult.allowed) {
@@ -926,7 +942,7 @@ export class AuthService {
         event: 'OTP_VERIFY_RATE_LIMITED',
         success: false,
         identifier: String(input.userId),
-        userId: input.userId,
+        userId: userIdInt,
         requestMeta: input,
         details: {
           retry_after_seconds: rateLimitResult.retryAfterSeconds,
@@ -940,7 +956,7 @@ export class AuthService {
 
     const challenge = await this.prisma.otp_challenge.findFirst({
       where: {
-        user_id: input.userId,
+        user_id: userIdInt,
         purpose,
         used_at: null,
       },
@@ -954,7 +970,7 @@ export class AuthService {
         event: 'OTP_VERIFY_FAILED',
         success: false,
         identifier: String(input.userId),
-        userId: input.userId,
+        userId: userIdInt,
         requestMeta: input,
       });
       throw new AuthErrorClass(400, 'Invalid OTP!', 'INVALID_OTP');
@@ -965,13 +981,13 @@ export class AuthService {
         event: 'OTP_VERIFY_FAILED',
         success: false,
         identifier: String(input.userId),
-        userId: input.userId,
+        userId: userIdInt,
         requestMeta: input,
       });
       throw new AuthErrorClass(429, 'OTP attempts exceeded.', 'OTP_ATTEMPTS_EXCEEDED');
     }
 
-    const expectedOtpHash = this.hashOtp(challenge.user_id, challenge.purpose, normalizedOtp);
+    const expectedOtpHash = this.hashOtp(String(challenge.user_id), challenge.purpose, normalizedOtp);
     if (!safeHexEqual(expectedOtpHash, challenge.otp_hash)) {
       await this.prisma.otp_challenge.updateMany({
         where: {
@@ -988,7 +1004,7 @@ export class AuthService {
         event: 'OTP_VERIFY_FAILED',
         success: false,
         identifier: String(input.userId),
-        userId: input.userId,
+        userId: userIdInt,
         requestMeta: input,
       });
       throw new AuthErrorClass(401, 'Invalid OTP!', 'INVALID_OTP');
@@ -1010,7 +1026,7 @@ export class AuthService {
 
       await tx.users.updateMany({
         where: {
-          id: input.userId,
+          id: userIdInt,
           deleted_at: null,
         },
         data: {
@@ -1023,7 +1039,7 @@ export class AuthService {
 
     const user = await this.prisma.users.findFirst({
       where: {
-        id: input.userId,
+        id: userIdInt,
         deleted_at: null,
       },
     });
@@ -1039,7 +1055,7 @@ export class AuthService {
       event: 'OTP_VERIFY_SUCCESS',
       success: true,
       identifier: String(input.userId),
-      userId: input.userId,
+      userId: userIdInt,
       requestMeta: input,
       details: {
         challenge_id: challenge.id,
@@ -1048,7 +1064,7 @@ export class AuthService {
 
     return {
       userData,
-      redirectPath: resolveLegacyPortalPath(user.role_id),
+      redirectPath: resolveLegacyPortalPath(user.role_id ?? 0),
     };
   }
 
@@ -1062,7 +1078,7 @@ export class AuthService {
       event: 'RBAC_DENIED',
       success: false,
       identifier: null,
-      userId: input.userId,
+      userId: input.userId != null ? this.parseUserId(input.userId) : null,
       requestMeta: input.requestMeta,
       details: {
         required_roles: input.requiredRoles,
@@ -1113,7 +1129,7 @@ export class AuthService {
     });
   }
 
-  private async createSession(userId: string, requestMeta: RequestMeta): Promise<{ token: string; expiresAt: Date }> {
+  private async createSession(userId: number, requestMeta: RequestMeta): Promise<{ token: string; expiresAt: Date }> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + env.AUTH_SESSION_TTL_SECONDS * 1000);
     const token = generateOpaqueAuthToken();
@@ -1139,18 +1155,18 @@ export class AuthService {
 
   private toLegacyUserData(user: users, authToken: string): LegacyUserData {
     return {
-      user_id: user.id,
+      user_id: String(user.id),
       student_id: user.student_id ?? '',
       user_name: user.name ?? '',
       role_id: user.role_id ?? '',
-      course_id: user.course_id ?? '',
+      course_id: user.course_id != null ? String(user.course_id) : '',
       auth_token: authToken,
       user_email: this.getCanonicalUserEmail(user),
       user_phone: user.phone ?? '',
       device_id: user.device_id ?? '',
       course_name: '',
-      status: user.status,
-      academic_year: '',
+      status: user.status ?? 0,
+      academic_year: user.academic_year ?? '',
       user_image: '',
       privacy_policy: '/home/privacy_policy',
     };
@@ -1171,14 +1187,14 @@ export class AuthService {
   private async getValidPasswordResetState(
     userId: string,
     token: string,
-  ): Promise<{ user: users; tokenRecord: { id: string }; canonicalEmail: string }> {
+  ): Promise<{ user: users; tokenRecord: { id: number }; canonicalEmail: string }> {
     if (!isTruthyString(token)) {
       throw toLegacyPasswordResetError();
     }
 
     const user = await this.prisma.users.findFirst({
       where: {
-        id: userId,
+        id: this.parseUserId(userId),
         deleted_at: null,
       },
     });
@@ -1194,7 +1210,7 @@ export class AuthService {
 
     const validation = validateSignedPasswordResetToken({
       token,
-      expectedUserId: user.id,
+      expectedUserId: String(user.id),
       expectedEmail: canonicalEmail,
       currentPasswordHash: user.password,
       signingKey: env.PASSWORD_RESET_TOKEN_KEY,
@@ -1253,7 +1269,7 @@ export class AuthService {
         user_id: user.id,
         purpose,
         delivery_target: (user.phone ?? this.getCanonicalUserEmail(user)) || null,
-        otp_hash: this.hashOtp(user.id, purpose, otp),
+        otp_hash: this.hashOtp(String(user.id), purpose, otp),
         created_at: now,
         updated_at: now,
         expires_at: expiresAt,
@@ -1290,7 +1306,7 @@ export class AuthService {
 
     try {
       await this.otpProvider.sendOtp({
-        userId: user.id,
+        userId: String(user.id),
         target: deliveryTarget,
         otp,
         purpose,
@@ -1333,8 +1349,8 @@ export class AuthService {
     });
 
     const response: OtpIssueResult = {
-      userId: user.id,
-      challengeId: created.id,
+      userId: String(user.id),
+      challengeId: String(created.id),
     };
 
     if (env.NODE_ENV !== 'production') {
@@ -1367,7 +1383,7 @@ export class AuthService {
   private async writeAuditLog(input: {
     event: string;
     success: boolean;
-    userId: string | null;
+    userId: number | null;
     identifier: string | null;
     requestMeta: RequestMeta;
     details?: Record<string, unknown>;

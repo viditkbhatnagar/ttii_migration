@@ -18,7 +18,7 @@ The migration has ~1,200+ TypeScript errors to fix. A single chat can't do it al
 
 | # | File | Goal | Status |
 |---|------|------|--------|
-| 01 | [session-01-auth-service.md](session-01-auth-service.md) | Fix `apps/api/src/auth/auth-service.ts` (~49 errors) | ⏳ Pending |
+| 01 | [session-01-auth-service.md](session-01-auth-service.md) | Fix `apps/api/src/auth/auth-service.ts` (~49 errors) | ✅ Completed |
 | 02 | [session-02-operations-service-part1.md](session-02-operations-service-part1.md) | First half of operations-service.ts | ⏳ Pending |
 | 03 | [session-03-operations-service-part2.md](session-03-operations-service-part2.md) | Second half of operations-service.ts | ⏳ Pending |
 | 04 | [session-04-content-services.md](session-04-content-services.md) | content-service + asset + offering + program + certificate | ⏳ Pending |

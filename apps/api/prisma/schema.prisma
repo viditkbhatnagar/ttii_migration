@@ -2196,3 +2196,22 @@ model auth_audit_log {
   @@index([user_id])
   @@index([created_at])
 }
+
+model otp_challenge {
+  id                   Int       @id @default(autoincrement()) @db.UnsignedInt
+  user_id              Int       @db.UnsignedInt
+  purpose              String    @db.VarChar(64)
+  delivery_target      String?   @db.VarChar(255)
+  otp_hash             String    @db.VarChar(255)
+  created_at           DateTime? @default(now()) @db.DateTime(0)
+  updated_at           DateTime? @updatedAt @db.DateTime(0)
+  expires_at           DateTime  @db.DateTime(0)
+  used_at              DateTime? @db.DateTime(0)
+  attempt_count        Int       @default(0)
+  max_attempts         Int       @default(5)
+  requested_ip         String?   @db.VarChar(64)
+  requested_user_agent String?   @db.VarChar(500)
+
+  @@index([user_id, purpose, used_at])
+  @@index([expires_at])
+}
