@@ -1,0 +1,2555 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & Users ──────────────────────────────────────────────────────────────
+
+model users {
+  id                   String                 @id @default(auto()) @map("_id") @db.ObjectId
+  user_id              String?
+  student_id           String?
+  name                 String?
+  email                String?                @unique
+  user_email           String?                @unique
+  phone                String?
+  country_code         String?
+  role_id              Int?
+  user_designation_id  Int?
+  centre_id            String?                @db.ObjectId
+  added_under_centre   Int?
+  username             String?
+  password             String?
+  verification_code    String?
+  status               Int                    @default(0)
+  device_id            String?
+  course_id            String?                @db.ObjectId
+  notification_token   String?
+  profile_picture      String?
+  image                String?
+  academic_year        String?
+  date_of_birth        DateTime?
+  gender               String?
+  address_line_1       String?
+  city                 String?
+  state                String?
+  pincode              String?
+  premium              Int                    @default(0)
+  created_by           String?                @db.ObjectId
+  updated_by           String?                @db.ObjectId
+  deleted_by           String?                @db.ObjectId
+  created_at           DateTime?
+  updated_at           DateTime?
+  deleted_at           DateTime?
+  auth_audit_log       auth_audit_log[]
+  auth_session         auth_session[]
+  enrol                enrol[]
+  notification_read    notification_read[]
+  otp_challenge        otp_challenge[]
+  password_reset_token password_reset_token[]
+
+  @@index([deleted_at])
+  @@index([role_id])
+  @@index([phone])
+  @@index([course_id])
+  @@index([centre_id])
+  @@index([added_under_centre])
+}
+
+model auth_session {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  token_hash     String    @unique
+  created_at     DateTime?
+  updated_at     DateTime?
+  expires_at     DateTime
+  revoked_at     DateTime?
+  revoked_reason String?
+  ip_address     String?
+  user_agent     String?
+  users          users     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id, revoked_at])
+  @@index([expires_at])
+}
+
+model password_reset_token {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id              String    @db.ObjectId
+  token_hash           String    @unique
+  created_at           DateTime?
+  updated_at           DateTime?
+  expires_at           DateTime
+  used_at              DateTime?
+  requested_ip         String?
+  requested_user_agent String?
+  users                users     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id, used_at])
+  @@index([expires_at])
+}
+
+model otp_challenge {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id              String    @db.ObjectId
+  purpose              String
+  delivery_target      String?
+  otp_hash             String
+  created_at           DateTime?
+  updated_at           DateTime?
+  expires_at           DateTime
+  used_at              DateTime?
+  attempt_count        Int       @default(0)
+  max_attempts         Int       @default(5)
+  requested_ip         String?
+  requested_user_agent String?
+  users                users     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id, purpose, used_at])
+  @@index([expires_at])
+}
+
+model auth_audit_log {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String?   @db.ObjectId
+  event      String
+  identifier String?
+  success    Int       @default(0)
+  ip_address String?
+  user_agent String?
+  details    String?
+  created_at DateTime?
+  users      users?    @relation(fields: [user_id], references: [id])
+
+  @@index([event, created_at])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+// ─── Roles & Permissions ─────────────────────────────────────────────────────
+
+model role {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  date_added    DateTime?
+  last_modified DateTime?
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([deleted_at])
+}
+
+model permission {
+  id       String    @id @default(auto()) @map("_id") @db.ObjectId
+  title    String?
+  slug     String?
+  datetime DateTime?
+
+  @@index([slug])
+}
+
+model permission_relationship {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  permission_id String    @db.ObjectId
+  role_id       String    @db.ObjectId
+  master        Int       @default(0)
+  read          Int       @default(0)
+  write         Int       @default(0)
+  delete        Int       @default(0)
+  datetime      DateTime?
+
+  @@index([role_id])
+  @@index([permission_id])
+}
+
+// ─── Centres & Wallet ──────────────────────────────────────────────────────────
+
+model centres {
+  id                          String    @id @default(auto()) @map("_id") @db.ObjectId
+  centre_id                   Int?
+  centre_name                 String
+  country_id                  Int?
+  state_id                    Int?
+  district_id                 Int?
+  address                     String?
+  contact_person              String?
+  contact_person_designation  String?
+  country_code                String?
+  phone                       String?
+  whatsapp                    String?
+  secondary_phone             String?
+  email                       String?
+  registraion_certificate     String?
+  affiliation_document        String?
+  wallet_balance              Float     @default(0)
+  date_of_registration        DateTime?
+  date_of_expiry              DateTime?
+  created_by                  String?   @db.ObjectId
+  updated_by                  String?   @db.ObjectId
+  deleted_by                  String?   @db.ObjectId
+  created_at                  DateTime?
+  updated_at                  DateTime?
+  deleted_at                  DateTime?
+
+  @@index([centre_id])
+  @@index([country_code, phone])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model wallet_transactions {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  centre_id        String    @db.ObjectId
+  transaction_type String    @default("credit")
+  amount           Float     @default(0)
+  remarks          String?
+  reference_id     String?
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([centre_id])
+  @@index([transaction_type])
+  @@index([deleted_at])
+}
+
+model centre_fundrequests {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  centre_id           String    @db.ObjectId
+  user_id             String    @db.ObjectId
+  amount              Float     @default(0)
+  date                DateTime?
+  transaction_receipt  String?
+  description         String?
+  attachment_file     String?
+  status              String    @default("pending")
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([centre_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model centre_course_plans {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  centre_id       String    @db.ObjectId
+  course_id       String    @db.ObjectId
+  assigned_amount Float     @default(0)
+  start_date      DateTime?
+  end_date        DateTime?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([centre_id, course_id])
+  @@index([deleted_at])
+}
+
+// ─── Applications ──────────────────────────────────────────────────────────────
+
+model applications {
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  application_id        String?
+  name                  String
+  country_code          String?
+  phone                 String?
+  email                 String?
+  user_email            String?
+  username              String?
+  password              String?
+  image                 String?
+  status                String?   @default("pending")
+  is_converted          Int       @default(0)
+  pipeline              String?
+  pipeline_user         String?   @db.ObjectId
+  course_id             String?   @db.ObjectId
+  batch_id              String?   @db.ObjectId
+  enrollment_date       DateTime?
+  enrollment_status     String?
+  mode_of_study         String?
+  preferred_language    String?
+  date_of_birth         DateTime?
+  age                   Int?
+  gender                String?
+  nationality           String?
+  marital_status        String?
+  aadhar_no             String?
+  passport_no           String?
+  whatsapp_no           String?
+  second_code           String?
+  second_phone          String?
+  country_id            Int?
+  district              String?
+  state                 String?
+  address               String?
+  native_address        String?
+  father_name           String?
+  mother_name           String?
+  guardian_name          String?
+  emergency_name        String?
+  emergency_phone       String?
+  emergency_relation    String?
+  learning_disabilities String?
+  accessibility_needs   String?
+  marketing_source      String?
+  reject_reason         String?
+  added_under_centre    Int?
+  created_by            String?   @db.ObjectId
+  updated_by            String?   @db.ObjectId
+  deleted_by            String?   @db.ObjectId
+  created_at            DateTime?
+  updated_at            DateTime?
+  deleted_at            DateTime?
+
+  @@index([status])
+  @@index([is_converted])
+  @@index([course_id])
+  @@index([pipeline_user])
+  @@index([added_under_centre])
+  @@index([created_by])
+  @@index([deleted_at])
+  @@index([email, user_email])
+}
+
+// ─── Qualifications & Documents ────────────────────────────────────────────────
+
+model qualification {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id             String    @db.ObjectId
+  qualification       String?
+  institution         String?
+  year_of_passing     String?
+  percentage_or_grade String?
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model student_document {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  student_id String    @db.ObjectId
+  label      String?
+  file       String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([student_id])
+  @@index([deleted_at])
+}
+
+// ─── Resources (Folders & Files) ───────────────────────────────────────────────
+
+model folder {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  parent_id  String?   @db.ObjectId
+  centre_id  String?   @db.ObjectId
+  name       String
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([parent_id])
+  @@index([centre_id])
+  @@index([deleted_at])
+}
+
+model file {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  folder_id  String?   @db.ObjectId
+  centre_id  String?   @db.ObjectId
+  name       String
+  type       String?
+  size       Int?
+  path       String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([folder_id])
+  @@index([centre_id])
+  @@index([deleted_at])
+}
+
+// ─── Settings ──────────────────────────────────────────────────────────────────
+
+model settings {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  key        String    @unique
+  value      String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+model frontend_settings {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  key        String    @unique
+  value      String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+model app_version {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  app_version     String?
+  app_version_ios String?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([deleted_at])
+}
+
+// ─── Programs ─────────────────────────────────────────────────────────────────
+
+model program {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  code        String?
+  level       String?   // "certification" | "diploma" | "pg_diploma"
+  duration    String?
+  description String?
+  thumbnail   String?
+  status      String    @default("active")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+// Junction table: M:N Program ↔ Course
+model program_courses {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  program_id  String    @db.ObjectId
+  course_id   String    @db.ObjectId
+  order       Int       @default(0)
+  is_elective Int       @default(0)
+  created_by  String?   @db.ObjectId
+  created_at  DateTime?
+  deleted_at  DateTime?
+
+  @@unique([program_id, course_id])
+  @@index([program_id])
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+// ─── Categories & Courses ──────────────────────────────────────────────────────
+
+model category {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  code               String?
+  name               String?
+  parent             Int?
+  slug               String?
+  description        String?
+  short_description  String?
+  video_type         String?
+  video_url          String?
+  font_awesome_class String?
+  thumbnail          String?
+  category_icon      String?
+  status             String?
+  created_by         String?   @db.ObjectId
+  updated_by         String?   @db.ObjectId
+  deleted_by         String?   @db.ObjectId
+  created_at         DateTime?
+  updated_at         DateTime?
+  deleted_at         DateTime?
+
+  @@index([deleted_at])
+}
+
+model course {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  category_id    String?   @db.ObjectId
+  title          String
+  short_name     String?
+  label          String?
+  status         String?
+  price          Float?
+  sale_price     Float?
+  total_amount   Float?
+  description    String?
+  duration       String?
+  thumbnail      String?
+  course_icon    String?
+  features       String?
+  is_free_course Int       @default(0)
+  visibility     String    @default("public") // "public" | "private"
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([category_id])
+  @@index([deleted_at])
+}
+
+model course_package {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String?
+  description  String?
+  type         Int?
+  category_id  String?   @db.ObjectId
+  course_id    String?   @db.ObjectId
+  amount       Float?
+  discount     Float?
+  is_free      Int?
+  package_type String?
+  remarks      String?
+  offline      Int?
+  start_date   DateTime?
+  end_date     DateTime?
+  duration     Int?
+  created_by   String?   @db.ObjectId
+  updated_by   String?   @db.ObjectId
+  deleted_by   String?   @db.ObjectId
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+  @@index([start_date, end_date])
+  @@map("package")
+}
+
+model subject_package {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  package_id String    @db.ObjectId
+  subject_id String?   @db.ObjectId
+  amount     Float?
+  discount   Float?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([package_id])
+  @@index([deleted_at])
+}
+
+model package_features {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  package_id    String    @db.ObjectId
+  title         String?
+  value_type    String?
+  value         String?
+  listing_order Int?
+  created_on    DateTime?
+  updated_on    DateTime?
+
+  @@index([package_id])
+}
+
+model coupon_code {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  code          String
+  package_id    String?   @db.ObjectId
+  user_id       String?   @db.ObjectId
+  discount_perc Float     @default(0)
+  total_no      Int       @default(0)
+  per_user_no   Int       @default(0)
+  validity      Int       @default(1)
+  start_date    DateTime?
+  end_date      DateTime?
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([code])
+  @@index([package_id, user_id])
+  @@index([validity, start_date, end_date])
+  @@index([deleted_at])
+}
+
+model create_order {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  order_id       String    @unique
+  amount         Float     @default(0)
+  user_id        String    @db.ObjectId
+  course_id      String    @db.ObjectId
+  order_status   String    @default("pending")
+  notes          String?
+  payment_id_raz String?
+  datetime       DateTime?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, course_id])
+  @@index([order_status])
+  @@index([payment_id_raz])
+  @@index([deleted_at])
+}
+
+// ─── Content: Subjects, Lessons, Files ─────────────────────────────────────────
+
+// Junction table: M:N Course ↔ Subject (subjects are reusable across courses)
+model course_subjects {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id    String    @db.ObjectId
+  subject_id   String    @db.ObjectId
+  order        Int       @default(0)
+  is_mandatory Int       @default(1)
+  created_by   String?   @db.ObjectId
+  created_at   DateTime?
+  deleted_at   DateTime?
+
+  @@unique([course_id, subject_id])
+  @@index([course_id])
+  @@index([subject_id])
+  @@index([deleted_at])
+}
+
+model subject {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id         String?   @db.ObjectId // deprecated: use course_subjects junction instead
+  master_subject_id String?   @db.ObjectId // deprecated: subjects are now reusable via course_subjects
+  title             String
+  description       String?
+  thumbnail         String?
+  order             Int?
+  created_by        String?   @db.ObjectId
+  updated_by        String?   @db.ObjectId
+  deleted_by        String?   @db.ObjectId
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+
+  @@index([course_id])
+  @@index([master_subject_id])
+  @@index([deleted_at])
+}
+
+model lesson {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id  String?   @db.ObjectId // deprecated: derive course from subject via course_subjects
+  subject_id String    @db.ObjectId
+  title      String
+  summary    String?
+  free       String?
+  thumbnail  String?
+  order      Int?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id])
+  @@index([subject_id])
+  @@index([deleted_at])
+}
+
+model lesson_files {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_id       String    @db.ObjectId
+  parent_file_id  String?   @db.ObjectId
+  sub_title       String?
+  title           String?
+  summary         String?
+  duration        String?
+  lesson_provider String?
+  video_type      String?
+  video_url       String?
+  download_url    String?
+  lesson_type     String?
+  attachment_type String?
+  attachment      String?
+  audio_file      String?
+  thumbnail       String?
+  free            String?
+  order           Int?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([lesson_id])
+  @@index([attachment_type])
+  @@index([deleted_at])
+  @@index([parent_file_id])
+}
+
+// ─── Content Asset Library (Reusable Content) ────────────────────────────────
+
+model content_asset {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  summary      String?
+  asset_type   String    // "video" | "audio" | "document" | "article" | "quiz"
+  duration     String?
+  provider     String?   // "vimeo" | "youtube" | "s3" | "local"
+  video_url    String?
+  download_url String?
+  attachment   String?
+  audio_file   String?
+  thumbnail    String?
+  tags         String?   // JSON array of tag strings
+  created_by   String?   @db.ObjectId
+  updated_by   String?   @db.ObjectId
+  deleted_by   String?   @db.ObjectId
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([asset_type])
+  @@index([deleted_at])
+}
+
+// Junction: M:N Lesson ↔ Content Asset (content reusable across lessons)
+model lesson_content {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_id  String    @db.ObjectId
+  asset_id   String    @db.ObjectId
+  order      Int       @default(0)
+  free       String?   @default("off")
+  created_by String?   @db.ObjectId
+  created_at DateTime?
+  deleted_at DateTime?
+
+  @@unique([lesson_id, asset_id])
+  @@index([lesson_id])
+  @@index([asset_id])
+  @@index([deleted_at])
+}
+
+model module {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+// ─── Completion Policies & Certificates ───────────────────────────────────────
+
+model completion_policy {
+  id                      String    @id @default(auto()) @map("_id") @db.ObjectId
+  title                   String
+  course_id               String?   @db.ObjectId
+  offering_id             String?   @db.ObjectId
+  min_progress_pct        Int       @default(80)
+  min_exam_score_pct      Int?
+  require_all_assignments Int       @default(0)
+  require_all_exams       Int       @default(0)
+  min_attendance_pct      Int?
+  require_manual_approval Int       @default(0)
+  created_by              String?   @db.ObjectId
+  updated_by              String?   @db.ObjectId
+  created_at              DateTime?
+  updated_at              DateTime?
+  deleted_at              DateTime?
+
+  @@index([course_id])
+  @@index([offering_id])
+  @@index([deleted_at])
+}
+
+model certificate_template {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  template    String?   // HTML template or reference
+  signatory   String?
+  course_id   String?   @db.ObjectId
+  program_id  String?   @db.ObjectId
+  status      String    @default("active")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([course_id])
+  @@index([program_id])
+  @@index([deleted_at])
+}
+
+model certificate {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id         String    @db.ObjectId
+  offering_id     String?   @db.ObjectId
+  course_id       String?   @db.ObjectId
+  program_id      String?   @db.ObjectId
+  template_id     String?   @db.ObjectId
+  policy_id       String?   @db.ObjectId
+  certificate_no  String?
+  issued_date     DateTime?
+  expiry_date     DateTime?
+  status          String    @default("issued") // "issued" | "revoked" | "expired"
+  verification_code String?
+  pdf_url         String?
+  result_snapshot String?   // JSON snapshot of grades/marks at issuance time
+  created_by      String?   @db.ObjectId
+  created_at      DateTime?
+  deleted_at      DateTime?
+
+  @@unique([user_id, offering_id])
+  @@index([user_id])
+  @@index([offering_id])
+  @@index([course_id])
+  @@index([certificate_no])
+  @@index([verification_code])
+  @@index([deleted_at])
+}
+
+model topic {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String?
+  course_id  String?   @db.ObjectId
+  subject_id String?   @db.ObjectId
+  lesson_id  String?   @db.ObjectId
+  summary    String?
+  thumbnail  String?
+  order      Int?
+  free       String?
+  duration   String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id])
+  @@index([lesson_id])
+  @@index([deleted_at])
+}
+
+model demo_video {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id  String    @db.ObjectId
+  title      String?
+  video_type String?
+  video_url  String?
+  thumbnail  String?
+  order      Int?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+model training_videos {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String?
+  description String?
+  category    String?
+  video_type  String?
+  video_url   String?
+  thumbnail   String?
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([category])
+  @@index([deleted_at])
+}
+
+model vimeo_videolinks {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_file_id String    @db.ObjectId
+  quality        String?
+  rendition      String?
+  height         Int?
+  width          Int?
+  type           String?
+  link           String?
+  fps            Int?
+  size           Int?
+  public_name    String?
+  size_short     String?
+  download_link  String?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([lesson_file_id])
+  @@index([deleted_at])
+}
+
+// ─── Books & Library ──────────────────────────────────────────────────────────
+
+model books {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String?
+  author      String?
+  description String?
+  cover_image String?
+  status      String?   @default("Available")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model books_chapters {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  book_id     String    @db.ObjectId
+  chapter     String?
+  description String?
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([book_id])
+  @@index([deleted_at])
+}
+
+// ─── Short Content ────────────────────────────────────────────────────────────
+
+model short_videos {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  title           String?
+  course_id       String?   @db.ObjectId
+  thumbnail       String?
+  uploaded_video  String?
+  set_as_popular  Int       @default(0)
+  set_as_trending Int       @default(0)
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+model stories {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String?
+  course_id  String?   @db.ObjectId
+  date       DateTime?
+  image      String?
+  status     String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+// ─── Events ────────────────────────────────────────────────────────────────────
+
+model events {
+  id                       String    @id @default(auto()) @map("_id") @db.ObjectId
+  title                    String?
+  description              String?
+  event_date               DateTime?
+  from_time                String?
+  to_time                  String?
+  image                    String?
+  objectives               String?
+  duration                 String?
+  is_recording_available   Int       @default(0)
+  instructor_id            String?   @db.ObjectId
+  created_by               String?   @db.ObjectId
+  updated_by               String?   @db.ObjectId
+  deleted_by               String?   @db.ObjectId
+  created_at               DateTime?
+  updated_at               DateTime?
+  deleted_at               DateTime?
+
+  @@index([event_date])
+  @@index([instructor_id])
+  @@index([deleted_at])
+}
+
+model recorded_events {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  event_id   String    @db.ObjectId
+  title      String?
+  video_url  String?
+  duration   String?
+  summary    String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([event_id])
+  @@index([deleted_at])
+}
+
+model event_registration {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id       String    @db.ObjectId
+  event_id      String    @db.ObjectId
+  name          String?
+  phone         String?
+  attend_status String?
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([event_id, user_id])
+  @@index([deleted_at])
+}
+
+// ─── Feed ──────────────────────────────────────────────────────────────────────
+
+model feed {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  title            String?
+  content          String?
+  feed_category_id String?   @db.ObjectId
+  course_id        String?   @db.ObjectId
+  image            String?
+  instructor_id    String?   @db.ObjectId
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+model feed_category {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+model feed_watched {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  feed_id    String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id, user_id])
+  @@index([deleted_at])
+}
+
+model feed_like {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  feed_id    String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id, user_id])
+  @@index([deleted_at])
+}
+
+model feed_comments {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  feed_id    String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  comment    String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([feed_id])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model feed_bookmarks {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String    @db.ObjectId
+  feed_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id, feed_id])
+  @@index([deleted_at])
+}
+
+// ─── Reviews ───────────────────────────────────────────────────────────────────
+
+model review {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id  String?   @db.ObjectId
+  event_id   String?   @db.ObjectId
+  item_type  Int?
+  user_id    String?   @db.ObjectId
+  rating     Float?
+  review     String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([course_id])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model review_like {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  review_id  String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([review_id])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+// ─── Testimonials ─────────────────────────────────────────────────────────────
+
+model testimonial {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String?
+  designation String?
+  course_id   String?   @db.ObjectId
+  photo       String?
+  video_url   String?
+  date        DateTime?
+  review      String?
+  rating      Float?
+  order       Int?
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+// ─── Cohorts & Live Classes ────────────────────────────────────────────────────
+
+model instructor_enrol {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  instructor_id String    @db.ObjectId
+  course_id     String    @db.ObjectId
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([course_id])
+  @@index([instructor_id])
+  @@index([deleted_at])
+}
+
+model instructor_students {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  student_id    String    @db.ObjectId
+  instructor_id String    @db.ObjectId
+  course_id     String?   @db.ObjectId
+  status        String?
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([instructor_id])
+  @@index([student_id])
+  @@index([deleted_at])
+}
+
+// ─── Course Offerings (Delivery Layer) ────────────────────────────────────────
+
+model course_offering {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id        String    @db.ObjectId
+  program_id       String?   @db.ObjectId
+  centre_id        String?   @db.ObjectId
+  title            String?
+  offering_code    String?
+  delivery_mode    String    @default("cohort") // "self_paced" | "cohort" | "hybrid"
+  academic_year    String?
+  start_date       DateTime?
+  end_date         DateTime?
+  enrollment_start DateTime?
+  enrollment_end   DateTime?
+  max_enrollment   Int?
+  pricing_amount   Float?
+  language_id      String?   @db.ObjectId
+  status           String    @default("draft") // "draft" | "published" | "active" | "completed" | "archived"
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([course_id])
+  @@index([program_id])
+  @@index([centre_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model cohorts {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  offering_id   String?   @db.ObjectId // links cohort to a course offering
+  subject_id    String?   @db.ObjectId
+  course_id     String?   @db.ObjectId
+  language_id   String?   @db.ObjectId
+  centre_id     String?   @db.ObjectId
+  cohort_id     String?
+  title         String?
+  start_date    DateTime?
+  end_date      DateTime?
+  instructor_id String?   @db.ObjectId
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([offering_id])
+  @@index([subject_id])
+  @@index([centre_id])
+  @@index([deleted_at])
+}
+
+model live_class {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  cohort_id     String?   @db.ObjectId
+  session_id    String?
+  title         String?
+  date          DateTime?
+  fromTime      String?
+  toTime        String?
+  repeat_dates  String?
+  zoom_id       String?
+  password      String?
+  video_url     String?
+  is_repetitive Int       @default(0)
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([cohort_id, date])
+  @@index([deleted_at])
+}
+
+model cohort_students {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  cohort_id  String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id])
+  @@index([cohort_id])
+  @@index([deleted_at])
+}
+
+// ─── Batches ──────────────────────────────────────────────────────────────────
+
+model batch {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  status      String    @default("active")
+  created_by  String?   @db.ObjectId
+  updated_by  String?   @db.ObjectId
+  deleted_by  String?   @db.ObjectId
+  created_at  DateTime?
+  updated_at  DateTime?
+  deleted_at  DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model batch_students {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  batch_id   String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([batch_id])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+// ─── Payments & Enrolments ─────────────────────────────────────────────────────
+
+model enrol {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id            String    @db.ObjectId
+  course_id          String    @db.ObjectId
+  offering_id        String?   @db.ObjectId // links enrollment to a course offering
+  package_id         String?   @db.ObjectId
+  batch_id           String?   @db.ObjectId
+  enrollment_date    DateTime?
+  enrollment_id      String?
+  enrollment_status  String?
+  mode_of_study      String?
+  preferred_language String?
+  pipeline           String?
+  pipeline_user      String?   @db.ObjectId
+  discount_perc      Float?
+  created_by         String?   @db.ObjectId
+  updated_by         String?   @db.ObjectId
+  deleted_by         String?   @db.ObjectId
+  created_at         DateTime?
+  updated_at         DateTime?
+  deleted_at         DateTime?
+  users              users     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id, course_id])
+  @@index([offering_id])
+  @@index([enrollment_id])
+  @@index([deleted_at])
+}
+
+model payment_info {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id             String    @db.ObjectId
+  course_id           String    @db.ObjectId
+  account_id          String?   @db.ObjectId
+  package_id          String?   @db.ObjectId
+  amount_paid         Float?
+  discount            Float?
+  coupon_id           String?   @db.ObjectId
+  razorpay_payment_id String?
+  user_phone          String?
+  user_email          String?
+  razorpay_order_id   String?
+  razorpay_signature  String?
+  package_duration    Int?
+  code                String?
+  expiry_date         DateTime?
+  payment_date        DateTime?
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id, course_id])
+  @@index([expiry_date])
+  @@index([razorpay_payment_id])
+  @@index([coupon_id])
+  @@index([deleted_at])
+}
+
+model student_fee {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String    @db.ObjectId
+  course_id  String    @db.ObjectId
+  amount     Float     @default(0)
+  due_date   DateTime?
+  status     String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id, course_id])
+  @@index([due_date])
+  @@index([deleted_at])
+}
+
+model student_payments {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id             String    @db.ObjectId
+  course_id           String?   @db.ObjectId
+  installment_details String?
+  amount              Float?
+  due_date            DateTime?
+  payment_mode        String?
+  paid_date           DateTime?
+  payment_to          String?
+  status              String?   @default("Pending")
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id])
+  @@index([status])
+  @@index([due_date])
+  @@index([deleted_at])
+}
+
+model orders {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id       String    @db.ObjectId
+  title         String?
+  order_status  String?
+  remarks       String?
+  track_id      String?
+  order_date    DateTime?
+  delivery_date DateTime?
+  amount        Float?
+  date_time     DateTime?
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([user_id])
+  @@index([order_status])
+  @@index([deleted_at])
+}
+
+model salary_settings {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  course_id         String?   @db.ObjectId
+  instructor_salary Float?
+  cre_salary        Float?
+  created_on        DateTime?
+  updated_on        DateTime?
+
+  @@index([course_id])
+}
+
+// ─── Progress Tracking ─────────────────────────────────────────────────────────
+
+model video_progress_status {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  course_id      String    @db.ObjectId
+  lesson_file_id String    @db.ObjectId
+  total_duration String?
+  user_progress  String?
+  status         Int       @default(0)
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, lesson_file_id])
+  @@index([course_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model material_progress {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id         String    @db.ObjectId
+  course_id       String    @db.ObjectId
+  lesson_file_id  String    @db.ObjectId
+  attachment_type String?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([user_id, lesson_file_id])
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+model last_video {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String    @db.ObjectId
+  section_id String?   @db.ObjectId
+  video_id   String?   @db.ObjectId
+  progress   String?
+  created_at DateTime?
+  updated_at DateTime?
+
+  @@index([user_id])
+}
+
+// ─── Assessments: Quizzes, Exams, Practice ─────────────────────────────────────
+
+model quiz {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_file_id String    @db.ObjectId
+  question       String?
+  question_type  Int       @default(0)
+  answer_id      String?
+  answer_ids     String?
+  answers        String?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([lesson_file_id])
+  @@index([deleted_at])
+}
+
+model practice_attempt {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  lesson_id      String?
+  lesson_file_id String?   @db.ObjectId
+  question_no    Int       @default(0)
+  question_id    String?
+  start_time     DateTime?
+  end_time       DateTime?
+  time_taken     String?
+  correct        Int       @default(0)
+  incorrect      Int       @default(0)
+  skip           Int       @default(0)
+  score          Float     @default(0)
+  submit_status  Int       @default(0)
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id])
+  @@index([lesson_file_id])
+  @@index([submit_status])
+  @@index([deleted_at])
+}
+
+model practice_answer {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id          String    @db.ObjectId
+  attempt_id       String    @db.ObjectId
+  question_id      String    @db.ObjectId
+  answer_correct   String?
+  answer_submitted String?
+  answer_status    Int?
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([attempt_id])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model lesson_files_report {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  lesson_file_id String    @db.ObjectId
+  report_file    String?
+  file_type      String?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id, lesson_file_id])
+  @@index([deleted_at])
+}
+
+model exam {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  title          String?
+  description    String?
+  mark           Float?
+  duration       String?
+  from_date      DateTime?
+  to_date        DateTime?
+  from_time      String?
+  to_time        String?
+  course_id      String?   @db.ObjectId
+  subject_id     String?   @db.ObjectId
+  lesson_id      String?   @db.ObjectId
+  batch_id       String?   @db.ObjectId
+  free           String?
+  publish_result Int?
+  is_practice    Int?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([course_id])
+  @@index([subject_id])
+  @@index([lesson_id])
+  @@index([deleted_at])
+}
+
+model question_bank {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_id            String?   @db.ObjectId
+  subject_id           String?   @db.ObjectId
+  course_id            String?   @db.ObjectId
+  category_id          String?   @db.ObjectId
+  type                 Int?
+  q_type               Int?
+  title                String?
+  title_file           String?
+  hint                 String?
+  hint_file            String?
+  solution             String?
+  solution_file        String?
+  is_equation          Int?
+  is_equation_solution Int?
+  number_of_options    Int?
+  options              String?
+  correct_answers      String?
+  range_from           String?
+  range_to             String?
+  created_by           String?   @db.ObjectId
+  updated_by           String?   @db.ObjectId
+  deleted_by           String?   @db.ObjectId
+  created_at           DateTime?
+  updated_at           DateTime?
+  deleted_at           DateTime?
+
+  @@index([course_id])
+  @@index([subject_id])
+  @@index([lesson_id])
+  @@index([deleted_at])
+}
+
+model exam_questions {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  exam_id       String    @db.ObjectId
+  question_id   String    @db.ObjectId
+  question_no   Int?
+  mark          Float?
+  negative_mark Float?
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([exam_id])
+  @@index([question_id])
+  @@index([deleted_at])
+}
+
+model exam_attempt {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id       String    @db.ObjectId
+  exam_id       String    @db.ObjectId
+  question_no   Int       @default(0)
+  question_id   String?
+  start_time    DateTime?
+  end_time      DateTime?
+  time_taken    String?
+  correct       Int       @default(0)
+  incorrect     Int       @default(0)
+  skip          Int       @default(0)
+  score         Float     @default(0)
+  submit_status Int       @default(0)
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([user_id, exam_id])
+  @@index([submit_status])
+  @@index([deleted_at])
+}
+
+model exam_answer {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id          String    @db.ObjectId
+  exam_id          String    @db.ObjectId
+  attempt_id       String    @db.ObjectId
+  question_id      String    @db.ObjectId
+  answer_correct   String?
+  answer_submitted String?
+  answer_status    Int?
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([attempt_id])
+  @@index([user_id])
+  @@index([exam_id, question_id])
+  @@index([deleted_at])
+}
+
+// ─── Tasks (Lesson exercises) ──────────────────────────────────────────────────
+
+model tasks {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_id     String?   @db.ObjectId
+  task_type     Int?
+  title         String?
+  file_question String?
+  file_answer   String?
+  file_audio    String?
+  order         Int?
+  created_on    DateTime?
+  updated_on    DateTime?
+
+  @@index([lesson_id])
+}
+
+// ─── Assignments ───────────────────────────────────────────────────────────────
+
+model assignment {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String?
+  description  String?
+  total_marks  Float?
+  added_date   DateTime?
+  due_date     DateTime?
+  from_time    String?
+  to_time      String?
+  instructions String?
+  file         String?
+  course_id    String?   @db.ObjectId
+  cohort_id    String?   @db.ObjectId
+  created_by   String?   @db.ObjectId
+  updated_by   String?   @db.ObjectId
+  deleted_by   String?   @db.ObjectId
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id])
+  @@index([cohort_id])
+  @@index([due_date])
+  @@index([deleted_at])
+}
+
+model saved_assignments {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id       String    @db.ObjectId
+  assignment_id String    @db.ObjectId
+  created_by    String?   @db.ObjectId
+  updated_by    String?   @db.ObjectId
+  deleted_by    String?   @db.ObjectId
+  created_at    DateTime?
+  updated_at    DateTime?
+  deleted_at    DateTime?
+
+  @@index([user_id])
+  @@index([assignment_id])
+  @@index([deleted_at])
+}
+
+model assignment_submissions {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id          String    @db.ObjectId
+  cohort_id        String?   @db.ObjectId
+  assignment_id    String    @db.ObjectId
+  course_id        String?   @db.ObjectId
+  assignment_files String?
+  marks            String?
+  remarks          String?
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([user_id, assignment_id])
+  @@index([assignment_id])
+  @@index([deleted_at])
+}
+
+// ─── Notifications & Reminders ────────────────────────────────────────────────
+
+model notification {
+  id                String              @id @default(auto()) @map("_id") @db.ObjectId
+  title             String
+  description       String?
+  url               String?
+  course_id         String?             @db.ObjectId
+  is_read           Int                 @default(0)
+  created_by        String?             @db.ObjectId
+  updated_by        String?             @db.ObjectId
+  deleted_by        String?             @db.ObjectId
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+  notification_read notification_read[]
+
+  @@index([deleted_at])
+  @@index([course_id])
+}
+
+model notification_read {
+  id              String       @id @default(auto()) @map("_id") @db.ObjectId
+  notification_id String       @db.ObjectId
+  user_id         String       @db.ObjectId
+  status          Int          @default(1)
+  created_by      String?      @db.ObjectId
+  updated_by      String?      @db.ObjectId
+  deleted_by      String?      @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+  users           users        @relation(fields: [user_id], references: [id])
+  notification    notification @relation(fields: [notification_id], references: [id])
+
+  @@unique([notification_id, user_id])
+  @@index([deleted_at])
+}
+
+model assignment_reminders {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  assignment_id String    @db.ObjectId
+  user_id       String    @db.ObjectId
+  reminder_type String?
+  sent_at       DateTime?
+  created_at    DateTime?
+
+  @@index([assignment_id])
+  @@index([user_id])
+}
+
+model payment_reminders {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id       String    @db.ObjectId
+  course_id     String?   @db.ObjectId
+  reminder_type String?
+  sent_at       DateTime?
+  created_at    DateTime?
+
+  @@index([user_id])
+}
+
+model live_class_reminders {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  live_class_id String    @db.ObjectId
+  user_id       String    @db.ObjectId
+  reminder_type String?
+  sent_at       DateTime?
+  created_at    DateTime?
+
+  @@index([live_class_id])
+  @@index([user_id])
+}
+
+// ─── Support & Zoom ────────────────────────────────────────────────────────────
+
+model support_chat {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  chat_id    String    @db.ObjectId
+  sender_id  String    @db.ObjectId
+  message    String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([chat_id, sender_id])
+  @@index([deleted_at])
+}
+
+model zoom_history {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String    @db.ObjectId
+  live_id    String    @db.ObjectId
+  join_date  DateTime?
+  join_time  String?
+  leave_time String?
+  duration   String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([live_id, join_date])
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model live_settings {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  name            String?
+  meeting_id      String?
+  password        String?
+  api_client_id   String?
+  api_client_sec  String?
+  created_at      DateTime?
+  updated_at      DateTime?
+
+  @@index([meeting_id])
+}
+
+model zoom_settings {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  zak        String?
+  expiry     DateTime?
+  created_at DateTime?
+  updated_at DateTime?
+}
+
+// ─── Messaging ────────────────────────────────────────────────────────────────
+
+model message {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  thread_id  String    @db.ObjectId
+  sender_id  String    @db.ObjectId
+  message    String?
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([thread_id])
+  @@index([sender_id])
+  @@index([deleted_at])
+}
+
+model message_thread {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_one   String    @db.ObjectId
+  user_two   String    @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_one, user_two])
+  @@index([deleted_at])
+}
+
+model message_read_status {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  message_id String    @db.ObjectId
+  user_id    String    @db.ObjectId
+  read_at    DateTime?
+  created_at DateTime?
+
+  @@index([message_id])
+  @@index([user_id])
+}
+
+// ─── CRM: Enquiries, Leads, Sources ──────────────────────────────────────────
+
+model enquiry {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  name       String?
+  email      String?
+  phone      String?
+  address    String?
+  remarks    String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model enquiry_form {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  abroad_course_id   String?   @db.ObjectId
+  course_category_id String?   @db.ObjectId
+  university_id      String?   @db.ObjectId
+  first_name         String?
+  last_name          String?
+  email_id           String?
+  phone              String?
+  whatsapp           String?
+  created_by         String?   @db.ObjectId
+  updated_by         String?   @db.ObjectId
+  deleted_by         String?   @db.ObjectId
+  created_at         DateTime?
+  updated_at         DateTime?
+  deleted_at         DateTime?
+
+  @@index([deleted_at])
+}
+
+model contact_form {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  name       String?
+  email      String?
+  course_id  String?   @db.ObjectId
+  phone      String?
+  address    String?
+  remarks    String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+model source {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  source     String?
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+model refer_a_friend {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  name       String?
+  phone      String?
+  user_id    String    @db.ObjectId
+  status     String?   @default("pending")
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+// ─── User Extended Data ───────────────────────────────────────────────────────
+
+model user_details {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id             String    @db.ObjectId
+  date_of_birth       DateTime?
+  gender              String?
+  nationality         String?
+  marital_status      String?
+  aadhar_no           String?
+  passport_no         String?
+  address             String?
+  native_address      String?
+  father_name         String?
+  mother_name         String?
+  guardian_name        String?
+  emergency_name      String?
+  emergency_phone     String?
+  emergency_relation  String?
+  qualification       String?
+  institution         String?
+  year_of_passing     String?
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([user_id])
+  @@index([deleted_at])
+}
+
+model students {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id         String    @db.ObjectId
+  course_id       String?   @db.ObjectId
+  batch_id        String?   @db.ObjectId
+  enrollment_date DateTime?
+  enrollment_id   String?
+  grade           String?
+  gpa             Float?
+  semester        String?
+  fee_status      String?
+  total_fee       Float?
+  paid_fee        Float?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([user_id])
+  @@index([course_id])
+  @@index([deleted_at])
+}
+
+model premium {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id    String    @db.ObjectId
+  course_id  String?   @db.ObjectId
+  section_id String?   @db.ObjectId
+  unlock_all Int       @default(0)
+  premium    Int       @default(0)
+  date_added DateTime?
+
+  @@index([user_id])
+  @@index([course_id])
+}
+
+// ─── Banners, FAQs, Language ──────────────────────────────────────────────────
+
+model banners {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String?
+  image      String?
+  course_id  String?   @db.ObjectId
+  status     String    @default("active")
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model faq {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  question   String
+  answer     String?
+  status     String    @default("active")
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model language {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  title      String
+  code       String?
+  status     String    @default("active")
+  created_by String?   @db.ObjectId
+  updated_by String?   @db.ObjectId
+  deleted_by String?   @db.ObjectId
+  created_at DateTime?
+  updated_at DateTime?
+  deleted_at DateTime?
+
+  @@index([deleted_at])
+}
+
+// ─── Entrance Exam ─────────────────────────────────────────────────────────────
+
+model entrance_exam {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String?
+  description  String?
+  total_marks  Float?
+  duration     String?
+  exam_date    DateTime?
+  from_time    String?
+  to_time      String?
+  course_id    String?   @db.ObjectId
+  status       String    @default("draft")
+  question_ids String?
+  created_by   String?   @db.ObjectId
+  updated_by   String?   @db.ObjectId
+  deleted_by   String?   @db.ObjectId
+  created_at   DateTime?
+  updated_at   DateTime?
+  deleted_at   DateTime?
+
+  @@index([course_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model entrance_exam_registration {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  entrance_exam_id String    @db.ObjectId
+  name             String?
+  email            String?
+  phone            String?
+  country_code     String?
+  course_id        String?   @db.ObjectId
+  status           String    @default("registered")
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([entrance_exam_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model entrance_exam_result {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  entrance_exam_id String    @db.ObjectId
+  registration_id  String    @db.ObjectId
+  score            Float     @default(0)
+  total_marks      Float     @default(0)
+  correct          Int       @default(0)
+  incorrect        Int       @default(0)
+  skipped          Int       @default(0)
+  status           String    @default("pending")
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([entrance_exam_id])
+  @@index([registration_id])
+  @@index([deleted_at])
+}
+
+// ─── CRM Targets ──────────────────────────────────────────────────────────────
+
+model counsellor_target {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  period         String
+  target_type    String?   @default("applications")
+  target_value   Int       @default(0)
+  achieved_value Int       @default(0)
+  remarks        String?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id])
+  @@index([period])
+  @@index([deleted_at])
+}
+
+model associate_target {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  user_id        String    @db.ObjectId
+  period         String
+  target_type    String?   @default("applications")
+  target_value   Int       @default(0)
+  achieved_value Int       @default(0)
+  remarks        String?
+  created_by     String?   @db.ObjectId
+  updated_by     String?   @db.ObjectId
+  deleted_by     String?   @db.ObjectId
+  created_at     DateTime?
+  updated_at     DateTime?
+  deleted_at     DateTime?
+
+  @@index([user_id])
+  @@index([period])
+  @@index([deleted_at])
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+
+model document_request {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  student_id       String    @db.ObjectId
+  document_type    String
+  status           String?   @default("pending")
+  remarks          String?
+  tracking_number  String?
+  dispatch_date    DateTime?
+  delivery_date    DateTime?
+  delivery_address String?
+  courier_name     String?
+  created_by       String?   @db.ObjectId
+  updated_by       String?   @db.ObjectId
+  deleted_by       String?   @db.ObjectId
+  created_at       DateTime?
+  updated_at       DateTime?
+  deleted_at       DateTime?
+
+  @@index([student_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model circular {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  content         String?
+  target_audience String?   @default("all")
+  status          String?   @default("draft")
+  publish_date    DateTime?
+  expiry_date     DateTime?
+  attachment      String?
+  created_by      String?   @db.ObjectId
+  updated_by      String?   @db.ObjectId
+  deleted_by      String?   @db.ObjectId
+  created_at      DateTime?
+  updated_at      DateTime?
+  deleted_at      DateTime?
+
+  @@index([status])
+  @@index([deleted_at])
+}
+
+// ─── Mentorship ───────────────────────────────────────────────────────────────
+
+model mentorship_session {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  student_id          String    @db.ObjectId
+  mentor_type         String?   @default("ai")
+  topic               String?
+  summary             String?
+  messages_count      Int       @default(0)
+  duration_minutes    Int       @default(0)
+  satisfaction_rating Int?
+  created_by          String?   @db.ObjectId
+  updated_by          String?   @db.ObjectId
+  deleted_by          String?   @db.ObjectId
+  created_at          DateTime?
+  updated_at          DateTime?
+  deleted_at          DateTime?
+
+  @@index([student_id])
+  @@index([deleted_at])
+}
+
+// ─── Geographic Reference Data ─────────────────────────────────────────────────
+
+model countries {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  sortname   String?
+  name       String?
+  phonecode  Int?
+}
+
+model india_state {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  name       String?
+  country_id Int?
+
+  @@map("state")
+}
+
+model districts {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  name     String?
+  state_id Int?
+
+  @@index([state_id])
+}
+
+model currency {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  name   String?
+  code   String?
+  symbol String?
+}
+
+// ─── CMS & Website ────────────────────────────────────────────────────────────
+
+model about {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  description String?
+  image       String?
+  vision      String?
+  mission     String?
+  our_values  String?
+  created_at  DateTime?
+  updated_at  DateTime?
+}
+
+model features {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  title             String?
+  description       String?
+  short_description String?
+  image             String?
+  created_at        DateTime?
+  updated_at        DateTime?
+  deleted_at        DateTime?
+
+  @@index([deleted_at])
+}
+
+// ─── Engagement & Social ──────────────────────────────────────────────────────
+
+model favourites {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  item_id     String?   @db.ObjectId
+  item_type   String?
+  course_id   String?   @db.ObjectId
+  user_id     String    @db.ObjectId
+  create_date DateTime?
+
+  @@index([user_id])
+  @@index([item_id, item_type])
+}
+
+model flag {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  message    String?
+  user_id    String    @db.ObjectId
+  created_at DateTime?
+
+  @@index([user_id])
+}
+
+model flag_lesson {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  lesson_files_id String    @db.ObjectId
+  user_id         String    @db.ObjectId
+  message         String?
+  created_at      DateTime?
+
+  @@index([lesson_files_id])
+  @@index([user_id])
+}
