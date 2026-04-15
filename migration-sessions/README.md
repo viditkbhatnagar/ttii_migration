@@ -24,7 +24,7 @@ The migration has ~1,200+ TypeScript errors to fix. A single chat can't do it al
 | 04 | [session-04-content-services.md](session-04-content-services.md) | content-service + asset + offering + program + certificate | ✅ Completed |
 | 05 | [session-05-assessment-engagement.md](session-05-assessment-engagement.md) | assessment-service + engagement-service | ✅ Completed |
 | 06 | [session-06-commerce-routes-tests.md](session-06-commerce-routes-tests.md) | commerce-service + routes + backend tests | ✅ Completed — backend fully migrated |
-| 07 | [session-07-frontend.md](session-07-frontend.md) | Frontend API types + admin/student/centre pages | ⏳ Pending |
+| 07 | [session-07-frontend.md](session-07-frontend.md) | Frontend API types + admin/student/centre pages | ✅ Completed — backend adapter approach (old field names preserved), frontend typechecks and builds; dev server boots, web + api respond 200 |
 | 08 | [session-08-deploy-digitalocean.md](session-08-deploy-digitalocean.md) | Provision droplet, deploy Node.js, connect to live MySQL | ⏳ Pending |
 
 ## When a session is done
