@@ -1,0 +1,18 @@
+-- =============================================================
+-- Grant the new Node.js droplet remote access to lms_ttii via VPC private IP.
+-- Run on the EXISTING droplet (143.110.240.210) AFTER the new droplet is created
+-- and you have its VPC private IP.
+-- Replace <NEW_DROPLET_PRIVATE_IP> below.
+-- =============================================================
+
+-- The app needs SELECT/INSERT/UPDATE/DELETE on all tables in lms_ttii.
+-- DDL (CREATE/ALTER/DROP) is intentionally NOT granted — schema changes
+-- happen via reviewed migration scripts run by the DBA.
+
+CREATE USER 'lms_ttii'@'<NEW_DROPLET_PRIVATE_IP>' IDENTIFIED BY 'rsxH9#lB3-D-uEti';
+GRANT SELECT, INSERT, UPDATE, DELETE ON lms_ttii.* TO 'lms_ttii'@'<NEW_DROPLET_PRIVATE_IP>';
+FLUSH PRIVILEGES;
+
+-- Verify
+SELECT user, host FROM mysql.user WHERE user = 'lms_ttii';
+SHOW GRANTS FOR 'lms_ttii'@'<NEW_DROPLET_PRIVATE_IP>';
