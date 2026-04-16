@@ -155,6 +155,9 @@ function resolveApiBaseUrl(): string {
 
   // In production (single-service deploy), derive from current origin.
   // In dev, set VITE_API_BASE_URL=http://localhost:4000/api in .env
+  // SSR/test safety: when window is unavailable, fall back to a placeholder
+  // that will be overridden on the client's first real render.
+  if (typeof window === 'undefined') return '/api';
   return `${window.location.origin}/api`;
 }
 
