@@ -37,6 +37,17 @@ export default tseslint.config(
         },
       ],
       '@typescript-eslint/no-floating-promises': 'error',
+      // Standard ESLint convention: `_`-prefixed args/vars are intentionally unused.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
     },
   },
   {
