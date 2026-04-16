@@ -21,11 +21,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared packages (required for lint/type resolution)
+        run: |
+          npm run build -w @ttii/shared-types
+          npm run build -w @ttii/frontend-core
+          npm run build -w @ttii/ui
+
       - name: Lint
         run: npm run lint
 
       - name: Test
         run: npm run test
 
-      - name: Build
-        run: npm run build
+      - name: Build apps
+        run: |
+          npm run build -w @ttii/api
+          VITE_API_BASE_URL="" VITE_BASE_DOMAIN="teachersindia.in" npm run build -w @ttii/web
