@@ -11,7 +11,7 @@ describe('ShellCard', () => {
 
     expect(html).toContain('Phase 02');
     expect(html).toContain('Monorepo foundation');
-    expect(html).toContain('shell-card--dark');
+    expect(html).toContain('bg-gray-800'); // dark theme tailwind class
   });
 
   it('renders portal scaffold navigation and active state', () => {
@@ -32,7 +32,7 @@ describe('ShellCard', () => {
     );
 
     expect(html).toContain('Learning cockpit');
-    expect(html).toContain('portal-nav__item--active');
+    expect(html).toContain('border-cyan-300'); // active nav item tailwind class
     expect(html).toContain('Shell content');
   });
 
@@ -47,7 +47,7 @@ describe('ShellCard', () => {
     );
 
     expect(html).toContain('Pending approvals');
-    expect(html).toContain('metric-card--warning');
+    expect(html).toContain('bg-amber-50'); // warning tone tailwind class
     expect(html).toContain('Role guard checks are active.');
   });
 });
