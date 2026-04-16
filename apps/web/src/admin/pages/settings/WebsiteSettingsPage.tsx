@@ -149,7 +149,7 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
 
           <div className="flex justify-end">
             <Button
-              onClick={handleSave}
+              onClick={() => { void handleSave(); }}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               Save

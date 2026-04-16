@@ -20,7 +20,7 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
-export default function CentrePaymentsPage({ api, session, onNavigate }: AdminPageProps) {
+export default function CentrePaymentsPage({ api, session, onNavigate: _onNavigate }: AdminPageProps) {
   const [filterFromDate, setFilterFromDate] = useState('');
   const [filterToDate, setFilterToDate] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -253,7 +253,7 @@ export default function CentrePaymentsPage({ api, session, onNavigate }: AdminPa
             </Button>
             <Button
               variant={actionTarget?.action === 'approve' ? 'default' : 'destructive'}
-              onClick={handleConfirmAction}
+              onClick={() => { void handleConfirmAction(); }}
               disabled={processing}
             >
               {processing ? 'Processing...' : actionTarget?.action === 'approve' ? 'Approve' : 'Reject'}

@@ -56,7 +56,7 @@ export default function EntranceExamsPage({ api, session, onNavigate }: AdminPag
         actions={[
           {
             label: 'Delete',
-            onClick: (row) => { api.deleteEntranceExam(session.token, asString(row.id)); },
+            onClick: (row) => { void api.deleteEntranceExam(session.token, asString(row.id)); },
             variant: 'destructive',
           },
         ]}

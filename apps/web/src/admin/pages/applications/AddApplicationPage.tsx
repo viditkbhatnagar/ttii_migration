@@ -150,7 +150,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     () => api.loadBatches(session.token),
     [],
   );
-  const batches = useMemo(() => toRecords(batchesData), [batchesData]);
+  const _batches = useMemo(() => toRecords(batchesData), [batchesData]);
 
   const set = useCallback((key: keyof FormState, value: string) => {
     setForm((f) => {
@@ -646,7 +646,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
               disabled={saving}
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
             >
               {saving ? 'Submitting...' : 'Submit Application'}
             </Button>

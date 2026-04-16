@@ -18,21 +18,6 @@ interface RegisterCommerceRoutesOptions {
   [key: string]: unknown;
 }
 
-function toInteger(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
-}
-
 function toStringValue(value: unknown): string {
   if (typeof value !== 'string') {
     return '';

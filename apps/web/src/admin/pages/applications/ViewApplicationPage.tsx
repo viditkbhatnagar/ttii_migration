@@ -379,7 +379,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
             </Button>
             <Button
               variant="destructive"
-              onClick={handleRejectSubmit}
+              onClick={() => { void handleRejectSubmit(); }}
               disabled={submitting || !rejectReason.trim()}
             >
               {submitting ? 'Rejecting...' : 'Reject Application'}

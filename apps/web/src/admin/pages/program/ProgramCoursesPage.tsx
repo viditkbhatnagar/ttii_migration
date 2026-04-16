@@ -87,7 +87,7 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
     )},
     { key: 'order', label: 'Order', sortable: true },
     { key: 'status', label: 'Status', render: (v) => (
-      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{String(v || 'active')}</Badge>
+      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{asString(v) || 'active'}</Badge>
     )},
   ];
 
@@ -175,7 +175,7 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowLinkDialog(false); setSelectedCourseIds(new Set()); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleLinkSelected} disabled={saving || selectedCourseIds.size === 0}>
+            <Button onClick={() => { void handleLinkSelected(); }} disabled={saving || selectedCourseIds.size === 0}>
               {saving ? 'Adding...' : `Add ${selectedCourseIds.size > 0 ? `(${selectedCourseIds.size})` : ''} Selected`}
             </Button>
           </DialogFooter>

@@ -6,7 +6,7 @@ import { PageLoader } from '@/components/ui/page-loader';
 import { ArrowLeft } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -98,7 +98,7 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
       render: (value, row) => {
         const rowId = asString(row.id);
         const edited = getEdited(rowId);
-        const currentValue = edited?.marks ?? String(value ?? '');
+        const currentValue = edited?.marks ?? asString(value);
         return (
           <Input
             className="w-20 h-8 text-sm"

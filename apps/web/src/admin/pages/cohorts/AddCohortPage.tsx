@@ -161,7 +161,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               Cancel
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
               disabled={submitting || !title.trim()}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >

@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* eslint-disable */
+ 
 // TODO: re-enable after migration — fixtures and Fastify inject usage predate MySQL migration
 import { createHmac, randomUUID } from 'node:crypto';
 

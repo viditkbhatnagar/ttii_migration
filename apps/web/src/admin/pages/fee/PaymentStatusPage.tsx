@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate, formatCurrency } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber, formatDate, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -254,7 +254,7 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button>
-            <Button onClick={handleAction} disabled={actionLoading}>
+            <Button onClick={() => { void handleAction(); }} disabled={actionLoading}>
               {actionLoading ? 'Processing...' : 'Confirm'}
             </Button>
           </DialogFooter>

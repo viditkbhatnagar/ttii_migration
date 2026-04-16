@@ -33,11 +33,6 @@ function toNullableIntId(id: string | number | null | undefined): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
-function idString(id: string | number | null | undefined): string {
-  if (id === null || id === undefined) return '';
-  return String(id);
-}
-
 function timeColumnToString(value: Date | string | null | undefined): string {
   if (!value) return '';
   if (typeof value === 'string') return value;

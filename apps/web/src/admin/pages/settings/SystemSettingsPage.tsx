@@ -94,7 +94,7 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
           </div>
           <div className="mt-6 flex justify-end">
             <Button
-              onClick={handleSave}
+              onClick={() => { void handleSave(); }}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               Save

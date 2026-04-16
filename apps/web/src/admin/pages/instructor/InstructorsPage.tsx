@@ -291,7 +291,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
               disabled={saving || !form.name.trim() || !form.email.trim()}
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
             >
               {saving ? 'Saving...' : editingId ? 'Update' : 'Add Instructor'}
             </Button>

@@ -21,7 +21,7 @@ const TYPE_BADGE_MAP: Record<string, string> = {
 };
 
 function parsePeriod(period: unknown): { from: string; to: string } {
-  const str = period != null ? String(period) : '';
+  const str = asString(period);
   const parts = str.split(' to ');
   return { from: parts[0]?.trim() ?? '', to: parts[1]?.trim() ?? '' };
 }
@@ -143,7 +143,7 @@ export default function AssociateTargetPage({ api, session }: AdminPageProps) {
         key: 'target_type',
         label: 'Type',
         render: (v) => {
-          const typeStr = v != null ? String(v) : '';
+          const typeStr = asString(v);
           const badgeVariant = TYPE_BADGE_MAP[typeStr.toLowerCase()] ?? typeStr.toLowerCase();
           return <AdminStatusBadge status={badgeVariant || typeStr} />;
         },

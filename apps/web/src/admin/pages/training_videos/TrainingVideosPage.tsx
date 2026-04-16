@@ -268,7 +268,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>
+            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update Video' : 'Add Video'}
             </Button>
           </DialogFooter>
@@ -286,7 +286,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDeleteId(''); setDeleteTitle(''); }} disabled={saving}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+            <Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={saving}>
               {saving ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>

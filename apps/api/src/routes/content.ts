@@ -1145,7 +1145,7 @@ export function registerContentRoutes(
       const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const chunks: Buffer[] = [];
       for await (const chunk of file.file) {
-        chunks.push(Buffer.from(chunk));
+        chunks.push(Buffer.from(chunk as Uint8Array));
       }
       const body = Buffer.concat(chunks);
       const result = await storage.uploadObject({

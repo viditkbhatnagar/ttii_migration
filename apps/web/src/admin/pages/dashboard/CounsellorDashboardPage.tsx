@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { FileText, Target, TrendingUp, Users } from 'lucide-react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';

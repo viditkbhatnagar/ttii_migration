@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+ 
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyFile, rm } from 'node:fs/promises';

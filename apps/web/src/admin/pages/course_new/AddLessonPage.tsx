@@ -504,7 +504,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
             <Button variant="outline" onClick={() => setLessonDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveLesson} disabled={saving || !lessonForm.title.trim()}>
+            <Button onClick={() => { void handleSaveLesson(); }} disabled={saving || !lessonForm.title.trim()}>
               {saving ? 'Saving...' : editingLessonId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
@@ -612,7 +612,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
             <Button variant="outline" onClick={() => setFileDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveFile} disabled={saving || !fileForm.title.trim()}>
+            <Button onClick={() => { void handleSaveFile(); }} disabled={saving || !fileForm.title.trim()}>
               {saving ? 'Saving...' : editingFileId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>

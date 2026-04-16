@@ -234,7 +234,7 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
         <Button
           className="bg-ttii-primary hover:bg-ttii-primary/90"
           disabled={saving}
-          onClick={handleSubmit}
+          onClick={() => { void handleSubmit(); }}
         >
           {saving ? 'Saving...' : isEdit ? 'Update Exam' : 'Add Exam'}
         </Button>

@@ -34,7 +34,7 @@ export default function CertificatesPage({ api, session }: AdminPageProps) {
     { key: 'verification_code', label: 'Verification Code' },
     { key: 'issued_date', label: 'Issued', render: (v) => {
       if (!v) return '-';
-      const d = new Date(String(v));
+      const d = new Date(asString(v));
       return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
     }},
     { key: 'status', label: 'Status', render: (v) => (

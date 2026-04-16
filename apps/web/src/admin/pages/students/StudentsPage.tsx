@@ -32,7 +32,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   const [courseOptions, setCourseOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
-    api.loadCourses(session.token).then((courses) => {
+    void api.loadCourses(session.token).then((courses) => {
       setCourseOptions(
         courses.map((c) => ({ label: asString(c.title) || asString(c.course_title) || asString(c.name) || 'Untitled', value: asString(c._id) || asString(c.id) })),
       );
@@ -314,7 +314,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
             <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={handleEditSubmit}
+              onClick={() => { void handleEditSubmit(); }}
               disabled={dialogSubmitting}
             >
               {dialogSubmitting ? 'Saving...' : 'Save Changes'}

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   BookOpen, Users, Video, ClipboardList, Calendar, Megaphone,
   Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download,
-  CheckCircle2, FileText, X,
+  CheckCircle2, FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -622,7 +622,7 @@ function AssignmentsTab({
   onAddClick,
   onEditClick,
   onGradeClick,
-  onReload,
+  onReload: _onReload,
 }: {
   assignments: Record<string, unknown>[];
   cohortName: string;

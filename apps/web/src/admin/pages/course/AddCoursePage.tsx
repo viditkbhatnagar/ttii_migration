@@ -353,7 +353,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         <Button
           className="bg-ttii-primary hover:bg-ttii-primary/90"
           disabled={saving}
-          onClick={handleSubmit}
+          onClick={() => { void handleSubmit(); }}
         >
           {saving ? 'Saving...' : 'Save Course'}
         </Button>

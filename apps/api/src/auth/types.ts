@@ -16,7 +16,7 @@ export interface LegacyUserData {
   student_id: string;
   user_name: string;
   role_id: number | '';
-  course_id: string | '';
+  course_id: string;
   auth_token: string;
   user_email: string;
   user_phone: string;

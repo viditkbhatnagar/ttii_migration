@@ -196,7 +196,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={submitting}>
+            <Button onClick={() => { void handleSubmit(); }} disabled={submitting}>
               {submitting ? 'Saving...' : editingUser ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>

@@ -124,7 +124,7 @@ export default function AddEntranceExamPage({ api, session, onNavigate }: AdminP
               Cancel
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
               disabled={submitting || !title.trim()}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >

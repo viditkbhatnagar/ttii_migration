@@ -18,7 +18,7 @@ const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input b
 
 const Q_TYPE_LABELS: Record<number, string> = { 0: 'MCQ', 1: 'Descriptive', 2: 'Range' };
 
-export default function QuestionBankPage({ api, session, onNavigate }: AdminPageProps) {
+export default function QuestionBankPage({ api, session, onNavigate: _onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [lessonFilter, setLessonFilter] = useState('');
@@ -235,7 +235,7 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
         rows={questions}
         actions={[
           { label: 'Edit', onClick: (row) => openEditModal(row) },
-          { label: 'Delete', onClick: (row) => { api.deleteQuestion(session.token, asString(row.id)); }, variant: 'destructive' },
+          { label: 'Delete', onClick: (row) => { void api.deleteQuestion(session.token, asString(row.id)); }, variant: 'destructive' },
         ]}
       />
 

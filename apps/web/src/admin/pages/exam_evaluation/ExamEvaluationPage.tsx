@@ -93,7 +93,7 @@ export default function ExamEvaluationPage({ api, session }: AdminPageProps) {
         columns={columns}
         rows={evaluations}
         actions={[
-          { label: 'Evaluate', onClick: handleEvaluate },
+          { label: 'Evaluate', onClick: (row) => { void handleEvaluate(row); } },
         ]}
       />
     </div>
