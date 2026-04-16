@@ -20,6 +20,46 @@ const DEFAULT_COURSE_BENEFITS = [
 
 const DATE_FLOOR = '1970-01-01';
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function idString(id: string | number | null | undefined): string {
+  if (id === null || id === undefined) return '';
+  return String(id);
+}
+
+function timeColumnToString(value: Date | string | null | undefined): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  // Prisma returns @db.Time(0) values as Date anchored to 1970-01-01 UTC
+  const h = String(value.getUTCHours()).padStart(2, '0');
+  const m = String(value.getUTCMinutes()).padStart(2, '0');
+  const s = String(value.getUTCSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+function timeStringToDate(value: string): Date {
+  const seconds = (() => {
+    const parts = value.trim().split(':').map((s) => Number.parseInt(s, 10));
+    if (parts.some((p) => Number.isNaN(p))) return 0;
+    if (parts.length === 3) return (parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
+    if (parts.length === 2) return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+    return parts[0] ?? 0;
+  })();
+  return new Date(seconds * 1000);
+}
+
 function toDbNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -310,7 +350,7 @@ export class ContentService {
   private async getUserById(userId: string) {
     return this.prisma.users.findFirst({
       where: {
-        id: userId,
+        id: toIntId(userId),
         deleted_at: null,
       },
       select: {
@@ -333,7 +373,7 @@ export class ContentService {
   private async getCourseById(courseId: string) {
     return this.prisma.course.findFirst({
       where: {
-        id: courseId,
+        id: toIntId(courseId),
         deleted_at: null,
       },
     });
@@ -342,8 +382,8 @@ export class ContentService {
   private async isUserEnrolled(userId: string, courseId: string): Promise<boolean> {
     const total = await this.prisma.enrol.count({
       where: {
-        user_id: userId,
-        course_id: courseId,
+        user_id: toIntId(userId),
+        course_id: toIntId(courseId),
         deleted_at: null,
       },
     });
@@ -354,7 +394,7 @@ export class ContentService {
   private async averageRatingByCourse(courseId: string): Promise<string> {
     const result = await this.prisma.review.aggregate({
       where: {
-        course_id: courseId,
+        course_id: toIntId(courseId),
         rating: { not: null },
         deleted_at: null,
       },
@@ -363,14 +403,14 @@ export class ContentService {
       },
     });
 
-    const average = result._avg.rating ?? 0;
+    const average = result._avg?.rating ?? 0;
     return average.toFixed(2);
   }
 
   private async totalReviewsByCourse(courseId: string): Promise<number> {
     return this.prisma.review.count({
       where: {
-        course_id: courseId,
+        course_id: toIntId(courseId),
         deleted_at: null,
       },
     });
@@ -380,7 +420,7 @@ export class ContentService {
     const groups = await this.prisma.review.groupBy({
       by: ['rating'],
       where: {
-        course_id: courseId,
+        course_id: toIntId(courseId),
         rating: { not: null },
         deleted_at: null,
       },
@@ -391,24 +431,20 @@ export class ContentService {
 
     const rows: RatingRow[] = groups.map((g) => ({
       rating: g.rating ?? 0,
-      rating_count: g._count.rating,
+      rating_count: g._count?.rating ?? 0,
     }));
 
     return toRatingDistribution(rows);
   }
 
-  private async getCourseLessonIds(courseId: string): Promise<string[]> {
-    // Get subject IDs from course_subjects junction
-    const junctions = await this.prisma.course_subjects.findMany({
-      where: { course_id: courseId, deleted_at: null },
-      select: { subject_id: true },
-    });
-    const subjectIds = junctions.map((j) => j.subject_id);
-    if (subjectIds.length === 0) return [];
-
+  private async getCourseLessonIds(courseId: string): Promise<number[]> {
+    // course_subjects junction does not exist in MySQL; lesson.course_id
+    // is populated directly by the PHP app (dual-write pattern).
+    const courseIdInt = toNullableIntId(courseId);
+    if (courseIdInt === null) return [];
     const rows = await this.prisma.lesson.findMany({
       where: {
-        subject_id: { in: subjectIds },
+        course_id: courseIdInt,
         deleted_at: null,
       },
       select: { id: true },
@@ -418,10 +454,10 @@ export class ContentService {
     return rows.map((row) => row.id);
   }
 
-  private async getSubjectLessonIds(subjectId: string): Promise<string[]> {
+  private async getSubjectLessonIds(subjectId: string): Promise<number[]> {
     const rows = await this.prisma.lesson.findMany({
       where: {
-        subject_id: subjectId,
+        subject_id: toNullableIntId(subjectId),
         deleted_at: null,
       },
       select: { id: true },
@@ -434,7 +470,7 @@ export class ContentService {
   private async getLessonFilesForLesson(lessonId: string) {
     return this.prisma.lesson_files.findMany({
       where: {
-        lesson_id: lessonId,
+        lesson_id: toIntId(lessonId),
         deleted_at: null,
       },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
@@ -445,8 +481,8 @@ export class ContentService {
     if (lessonType === 'youtube_video' || lessonType === 'vimeo_video' || lessonType === 'audio') {
       const progressRow = await this.prisma.video_progress_status.findFirst({
         where: {
-          user_id: userId,
-          lesson_file_id: lessonFileId,
+          user_id: toNullableIntId(userId),
+          lesson_file_id: toNullableIntId(lessonFileId),
           deleted_at: null,
         },
         select: {
@@ -465,8 +501,8 @@ export class ContentService {
         return 100;
       }
 
-      const totalDuration = parseTimeToSeconds(progressRow.total_duration ?? '');
-      const userProgress = parseTimeToSeconds(progressRow.user_progress ?? '');
+      const totalDuration = parseTimeToSeconds(timeColumnToString(progressRow.total_duration));
+      const userProgress = parseTimeToSeconds(timeColumnToString(progressRow.user_progress));
       if (totalDuration <= 0) {
         return 0;
       }
@@ -475,22 +511,18 @@ export class ContentService {
     }
 
     if (lessonType === 'document' || lessonType === 'article') {
-      const completed = await this.prisma.material_progress.count({
-        where: {
-          user_id: userId,
-          lesson_file_id: lessonFileId,
-          deleted_at: null,
-        },
-      });
-      return completed > 0 ? 100 : 0;
+      // material_progress table does not exist in MySQL schema; treat
+      // document/article materials as "not completed" until we wire a
+      // replacement store.
+      return 0;
     }
 
     if (lessonType === 'quiz') {
       const completed = await this.prisma.practice_attempt.count({
         where: {
-          user_id: userId,
+          user_id: toNullableIntId(userId),
           lesson_file_id: lessonFileId,
-          submit_status: 1,
+          submit_status: true,
           deleted_at: null,
         },
       });
@@ -511,8 +543,7 @@ export class ContentService {
       return 0;
     }
 
-    const videoIds: string[] = [];
-    const materialIds: string[] = [];
+    const videoIds: number[] = [];
     const quizIds: string[] = [];
 
     for (const file of lessonFiles) {
@@ -522,12 +553,8 @@ export class ContentService {
         videoIds.push(file.id);
       }
 
-      if (attachmentType === 'pdf' || attachmentType === 'article') {
-        materialIds.push(file.id);
-      }
-
       if (attachmentType === 'quiz') {
-        quizIds.push(file.id);
+        quizIds.push(String(file.id));
       }
     }
 
@@ -535,10 +562,10 @@ export class ContentService {
     if (videoIds.length > 0) {
       const videoProgressRows = await this.prisma.video_progress_status.findMany({
         where: {
-          user_id: userId,
+          user_id: toNullableIntId(userId),
           status: 1,
           lesson_file_id: { in: videoIds },
-          ...(courseId ? { course_id: courseId } : {}),
+          ...(courseId ? { course_id: toNullableIntId(courseId) } : {}),
           deleted_at: null,
         },
         select: { lesson_file_id: true },
@@ -547,26 +574,15 @@ export class ContentService {
       videoCompleted = videoProgressRows.length;
     }
 
-    let materialCompleted = 0;
-    if (materialIds.length > 0) {
-      const materialProgressRows = await this.prisma.material_progress.findMany({
-        where: {
-          user_id: userId,
-          lesson_file_id: { in: materialIds },
-          deleted_at: null,
-        },
-        select: { lesson_file_id: true },
-        distinct: ['lesson_file_id'],
-      });
-      materialCompleted = materialProgressRows.length;
-    }
+    // material_progress table does not exist in MySQL; material completion
+    // is not currently tracked.
 
     let quizCompleted = 0;
     if (quizIds.length > 0) {
       const quizAttemptRows = await this.prisma.practice_attempt.findMany({
         where: {
-          user_id: userId,
-          submit_status: 1,
+          user_id: toNullableIntId(userId),
+          submit_status: true,
           lesson_file_id: { in: quizIds },
           deleted_at: null,
         },
@@ -576,7 +592,7 @@ export class ContentService {
       quizCompleted = quizAttemptRows.length;
     }
 
-    return videoCompleted + materialCompleted + quizCompleted;
+    return videoCompleted + quizCompleted;
   }
 
   private async getUserPurchaseStatus(userId: string, courseId: string): Promise<'on' | 'off'> {
@@ -605,8 +621,8 @@ export class ContentService {
     const now = new Date();
     const activePaymentCount = await this.prisma.payment_info.count({
       where: {
-        user_id: userId,
-        course_id: courseId,
+        user_id: toNullableIntId(userId),
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
         expiry_date: {
           not: null,
@@ -662,14 +678,14 @@ export class ContentService {
 
     const quizCount = await this.prisma.quiz.count({
       where: {
-        lesson_file_id: fileId,
+        lesson_file_id: toIntId(fileId),
         deleted_at: null,
       },
     });
 
     const videoFiles = await this.prisma.vimeo_videolinks.findMany({
       where: {
-        lesson_file_id: fileId,
+        lesson_file_id: toNullableIntId(fileId),
         deleted_at: null,
       },
       select: {
@@ -764,8 +780,8 @@ export class ContentService {
       },
     });
 
-    const videoIds: string[] = [];
-    const materialIds: string[] = [];
+    const videoIds: number[] = [];
+    const materialIds: number[] = [];
 
     for (const lessonFile of lessonFiles) {
       const attachmentType = (lessonFile.attachment_type ?? '').trim().toLowerCase();
@@ -787,7 +803,7 @@ export class ContentService {
     if (videoIds.length > 0) {
       const completedVideoRows = await this.prisma.video_progress_status.findMany({
         where: {
-          user_id: userId,
+          user_id: toNullableIntId(userId),
           status: 1,
           lesson_file_id: { in: videoIds },
           deleted_at: null,
@@ -798,33 +814,23 @@ export class ContentService {
       completedVideos = completedVideoRows.length;
     }
 
-    let completedMaterials = 0;
-    if (materialIds.length > 0) {
-      const completedMaterialRows = await this.prisma.material_progress.findMany({
-        where: {
-          user_id: userId,
-          lesson_file_id: { in: materialIds },
-          deleted_at: null,
-        },
-        select: { lesson_file_id: true },
-        distinct: ['lesson_file_id'],
-      });
-      completedMaterials = completedMaterialRows.length;
-    }
+    // material_progress table does not exist in MySQL schema.
+    const completedMaterials = 0;
 
+    const lessonIdsStr = lessonIds.map((id) => String(id));
     const totalPractice = await this.prisma.practice_attempt.count({
       where: {
-        user_id: userId,
-        lesson_id: { in: lessonIds },
+        user_id: toNullableIntId(userId),
+        lesson_id: { in: lessonIdsStr },
         deleted_at: null,
       },
     });
 
     const attemptedPracticeRows = await this.prisma.practice_attempt.findMany({
       where: {
-        user_id: userId,
-        lesson_id: { in: lessonIds },
-        submit_status: 1,
+        user_id: toNullableIntId(userId),
+        lesson_id: { in: lessonIdsStr },
+        submit_status: true,
         deleted_at: null,
       },
       select: { id: true },
@@ -853,21 +859,21 @@ export class ContentService {
 
     const enrolments = await this.prisma.enrol.count({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
     });
 
     const lessonsCount = await this.prisma.lesson.count({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
     });
 
     const subjectCount = await this.prisma.subject.count({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
     });
@@ -942,7 +948,7 @@ export class ContentService {
   async getCategoryDetails(categoryId: string): Promise<Record<string, unknown> | null> {
     const category = await this.prisma.category.findFirst({
       where: {
-        id: categoryId,
+        id: toIntId(categoryId),
         deleted_at: null,
       },
       select: {
@@ -960,7 +966,7 @@ export class ContentService {
 
     const courses = await this.prisma.course.findMany({
       where: {
-        category_id: categoryId,
+        category_id: toNullableIntId(categoryId),
         deleted_at: null,
       },
       orderBy: { id: 'asc' },
@@ -982,8 +988,8 @@ export class ContentService {
         ...course,
         thumbnail: this.toFileUrl(course.thumbnail),
         course_icon: this.toFileUrl(course.course_icon),
-        total_reviews: await this.totalReviewsByCourse(course.id),
-        total_rating: await this.averageRatingByCourse(course.id),
+        total_reviews: await this.totalReviewsByCourse(String(course.id)),
+        total_rating: await this.averageRatingByCourse(String(course.id)),
       });
     }
 
@@ -1024,7 +1030,7 @@ export class ContentService {
 
     const subjects = await this.prisma.subject.findMany({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
       select: {
@@ -1043,7 +1049,7 @@ export class ContentService {
 
     const demoVideos = await this.prisma.demo_video.findMany({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
       select: {
@@ -1067,15 +1073,15 @@ export class ContentService {
     // Reviews: separate queries instead of JOIN
     const reviewRows = await this.prisma.review.findMany({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
       orderBy: { id: 'asc' },
     });
 
     // Batch fetch related courses and users for reviews
-    const reviewCourseIds = [...new Set(reviewRows.map((r) => r.course_id).filter(Boolean))] as string[];
-    const reviewUserIds = [...new Set(reviewRows.map((r) => r.user_id).filter(Boolean))] as string[];
+    const reviewCourseIds = [...new Set(reviewRows.map((r) => r.course_id).filter((v): v is number => v !== null))];
+    const reviewUserIds = [...new Set(reviewRows.map((r) => r.user_id).filter((v): v is number => v !== null))];
 
     const [reviewCourses, reviewUsers] = await Promise.all([
       reviewCourseIds.length > 0
@@ -1107,13 +1113,13 @@ export class ContentService {
       const isLikedByUser = await this.prisma.review_like.count({
         where: {
           review_id: review.id,
-          user_id: userId,
+          user_id: toIntId(userId),
           deleted_at: null,
         },
       });
 
-      const reviewCourse = review.course_id ? courseMap.get(review.course_id) : null;
-      const reviewUser = review.user_id ? userMap.get(review.user_id) : null;
+      const reviewCourse = review.course_id !== null ? courseMap.get(review.course_id) : null;
+      const reviewUser = review.user_id !== null ? userMap.get(review.user_id) : null;
 
       reviewData.push({
         id: review.id,
@@ -1133,7 +1139,7 @@ export class ContentService {
     // Instructor: separate queries instead of JOIN
     const instructorEnrol = await this.prisma.instructor_enrol.findFirst({
       where: {
-        course_id: courseId,
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
       select: {
@@ -1142,7 +1148,7 @@ export class ContentService {
     });
 
     let instructorData: Record<string, unknown> = {};
-    if (instructorEnrol) {
+    if (instructorEnrol && instructorEnrol.instructor_id !== null) {
       const instructorUser = await this.prisma.users.findFirst({
         where: { id: instructorEnrol.instructor_id },
         select: { id: true, name: true, image: true },
@@ -1190,12 +1196,14 @@ export class ContentService {
   }
 
   private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
-    const subjectId = toStringValue(subject.id);
+    const subjectIdInt = toNullableIntId(toStringValue(subject.id));
+    if (subjectIdInt === null) return null;
 
-    // Find cohort_students for this user
+    // Find cohort_students for this user. cohort_students.cohort_id
+    // references cohorts.cohort_id (String identifier), not cohorts.id.
     const cohortStudents = await this.prisma.cohort_students.findMany({
       where: {
-        user_id: userId,
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
       select: { cohort_id: true },
@@ -1205,16 +1213,19 @@ export class ContentService {
       return null;
     }
 
-    const cohortIds = cohortStudents.map((cs) => cs.cohort_id);
+    const cohortIds = cohortStudents
+      .map((cs) => cs.cohort_id)
+      .filter((v): v is string => typeof v === 'string' && v !== '');
 
-    // Find cohorts that have this subject (direct match or via master_subject_id for legacy data)
+    if (cohortIds.length === 0) return null;
+
     const cohorts = await this.prisma.cohorts.findMany({
       where: {
-        id: { in: cohortIds },
+        cohort_id: { in: cohortIds },
         deleted_at: null,
         subject_id: { not: null },
       },
-      select: { id: true, subject_id: true },
+      select: { id: true, cohort_id: true, subject_id: true },
     });
 
     if (cohorts.length === 0) {
@@ -1223,13 +1234,18 @@ export class ContentService {
 
     // Direct match first
     for (const cohort of cohorts) {
-      if (cohort.subject_id === subjectId) {
-        return cohort.id;
+      if (cohort.subject_id === subjectIdInt) {
+        return idString(cohort.cohort_id ?? cohort.id);
       }
     }
 
     // Legacy fallback: check master_subject_id for cohort subjects that point to this subject
-    const cohortSubjectIds = cohorts.map((c) => c.subject_id).filter(Boolean) as string[];
+    const cohortSubjectIds = cohorts
+      .map((c) => c.subject_id)
+      .filter((v): v is number => v !== null);
+
+    if (cohortSubjectIds.length === 0) return null;
+
     const subjects = await this.prisma.subject.findMany({
       where: {
         id: { in: cohortSubjectIds },
@@ -1239,12 +1255,12 @@ export class ContentService {
     });
 
     for (const cohort of cohorts) {
-      if (!cohort.subject_id) continue;
+      if (cohort.subject_id === null) continue;
       const subjectRow = subjects.find((s) => s.id === cohort.subject_id);
       if (!subjectRow) continue;
       const effectiveId = subjectRow.master_subject_id ?? subjectRow.id;
-      if (effectiveId === subjectId) {
-        return cohort.id;
+      if (effectiveId === subjectIdInt) {
+        return idString(cohort.cohort_id ?? cohort.id);
       }
     }
 
@@ -1252,18 +1268,11 @@ export class ContentService {
   }
 
   async getSubjects(userId: string, courseId: string): Promise<Record<string, unknown>[]> {
-    // Get subjects through course_subjects junction
-    const junctions = await this.prisma.course_subjects.findMany({
-      where: { course_id: courseId, deleted_at: null },
-      select: { subject_id: true, order: true },
-      orderBy: [{ order: 'asc' }],
-    });
-    const subjectIds = junctions.map((j) => j.subject_id);
-    if (subjectIds.length === 0) return [];
-
+    // course_subjects junction does not exist in MySQL; filter subjects
+    // by their direct subject.course_id column instead.
     const subjects = await this.prisma.subject.findMany({
       where: {
-        id: { in: subjectIds },
+        course_id: toNullableIntId(courseId),
         deleted_at: null,
       },
       select: {
@@ -1271,17 +1280,16 @@ export class ContentService {
         title: true,
         description: true,
         thumbnail: true,
+        order: true,
       },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
 
-    // Maintain junction order
-    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
-    const orderedSubjects = subjectIds.map((id) => subjectMap.get(id)).filter(Boolean);
+    if (subjects.length === 0) return [];
 
     const subjectData: Record<string, unknown>[] = [];
 
-    for (const subject of orderedSubjects) {
-      if (!subject) continue;
+    for (const subject of subjects) {
       const cohortId = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
       const totalLessons = await this.prisma.lesson.count({
         where: {
@@ -1289,7 +1297,7 @@ export class ContentService {
           deleted_at: null,
         },
       });
-      const progress = await this.calculateUserProgress(userId, courseId, subject.id);
+      const progress = await this.calculateUserProgress(userId, courseId, String(subject.id));
 
       subjectData.push({
         id: subject.id,
@@ -1333,7 +1341,7 @@ export class ContentService {
 
     const videoCount = await this.prisma.lesson_files.count({
       where: {
-        lesson_id: lessonId,
+        lesson_id: toIntId(lessonId),
         lesson_type: 'video',
         deleted_at: null,
       },
@@ -1364,7 +1372,7 @@ export class ContentService {
   async getLessons(userId: string, subjectId: string): Promise<Record<string, unknown>[]> {
     const subject = await this.prisma.subject.findFirst({
       where: {
-        id: subjectId,
+        id: toIntId(subjectId),
         deleted_at: null,
       },
       select: {
@@ -1377,17 +1385,13 @@ export class ContentService {
       return [];
     }
 
-    // Derive courseId from course_subjects junction (fallback to legacy course_id)
-    const junction = await this.prisma.course_subjects.findFirst({
-      where: { subject_id: subjectId, deleted_at: null },
-      select: { course_id: true },
-    });
-    const courseId = junction?.course_id ?? subject.course_id ?? '';
-    const lessonSubjectId = subjectId;
+    // course_subjects junction does not exist in MySQL — rely on
+    // subject.course_id directly.
+    const courseId = idString(subject.course_id ?? '');
 
     const lessons = await this.prisma.lesson.findMany({
       where: {
-        subject_id: lessonSubjectId,
+        subject_id: toNullableIntId(subjectId),
         deleted_at: null,
       },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
@@ -1401,7 +1405,7 @@ export class ContentService {
         continue;
       }
 
-      const lessonCourseId = lesson.course_id ?? courseId;
+      const lessonCourseId = lesson.course_id !== null ? String(lesson.course_id) : courseId;
       const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
       lessonsData.push(await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId));
     }
@@ -1444,7 +1448,7 @@ export class ContentService {
   async getLessonIndex(userId: string, subjectId: string): Promise<Record<string, unknown>[]> {
     const lessons = await this.prisma.lesson.findMany({
       where: {
-        subject_id: subjectId,
+        subject_id: toNullableIntId(subjectId),
         deleted_at: null,
       },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
@@ -1458,7 +1462,7 @@ export class ContentService {
         continue;
       }
 
-      const lessonCourseId = lesson.course_id ?? '';
+      const lessonCourseId = idString(lesson.course_id);
       const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
       lessonData.push(
         await this.buildLessonData(
@@ -1477,7 +1481,7 @@ export class ContentService {
   async getLessonFileGroupedIndex(userId: string, lessonId: string): Promise<Record<string, unknown>[]> {
     const lesson = await this.prisma.lesson.findFirst({
       where: {
-        id: lessonId,
+        id: toIntId(lessonId),
         deleted_at: null,
       },
       select: {
@@ -1490,13 +1494,13 @@ export class ContentService {
       return [];
     }
 
-    const courseId = lesson.course_id ?? '';
+    const courseId = idString(lesson.course_id);
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
     const videosById = new Map<string, Record<string, unknown>>();
     const pendingRelatedFiles: Record<string, unknown>[] = [];
 
     for (const lessonFile of lessonFiles) {
-      const fileId = lessonFile.id;
+      const fileId = String(lessonFile.id);
       const attachmentType = normalizeAttachmentType((lessonFile.attachment_type ?? '').toLowerCase());
 
       if (attachmentType === 'video') {
@@ -1539,7 +1543,7 @@ export class ContentService {
 
     const lesson = await this.prisma.lesson.findFirst({
       where: {
-        id: lessonId,
+        id: toIntId(lessonId),
         deleted_at: null,
       },
       select: {
@@ -1552,49 +1556,17 @@ export class ContentService {
       return {};
     }
 
-    const courseId = lesson.course_id ?? '';
+    const courseId = idString(lesson.course_id);
     const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
 
-    const videos = await this.prisma.lesson_files.findMany({
-      where: {
-        lesson_id: lessonId,
-        attachment_type: 'url',
-        deleted_at: null,
-      },
-      select: { id: true },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
-    });
-
-    const orderedVideoIds = videos.map((entry) => entry.id);
-    const currentVideoId = toStringValue(video.id);
-    const currentVideoIndex = orderedVideoIds.indexOf(currentVideoId);
-
-    let free = purchaseStatus;
-    let lockMessage = '';
-
-    if (currentVideoIndex > 0) {
-      const previousVideoId = orderedVideoIds[currentVideoIndex - 1] ?? '';
-      if (previousVideoId) {
-        const previousReportCount = await this.prisma.lesson_files_report.count({
-          where: {
-            lesson_file_id: previousVideoId,
-            user_id: userId,
-            deleted_at: null,
-          },
-        });
-
-        if (previousReportCount > 0) {
-          free = 'on';
-        } else {
-          free = 'off';
-          lockMessage = 'Please upload report';
-        }
-      }
-    }
+    // lesson_files_report does not exist in MySQL schema — report upload
+    // gating is disabled until that feature is rewired.
+    const free = purchaseStatus;
+    const lockMessage = '';
 
     const attachment = await this.prisma.lesson_files.findFirst({
       where: {
-        lesson_id: lessonId,
+        lesson_id: toIntId(lessonId),
         attachment_type: 'pdf',
         deleted_at: null,
       },
@@ -1602,18 +1574,7 @@ export class ContentService {
       orderBy: { id: 'asc' },
     });
 
-    const report = await this.prisma.lesson_files_report.findFirst({
-      where: {
-        lesson_file_id: currentVideoId,
-        user_id: userId,
-        deleted_at: null,
-      },
-      select: {
-        report_file: true,
-        file_type: true,
-      },
-      orderBy: { id: 'desc' },
-    });
+    const currentVideoId = toStringValue(video.id);
 
     return {
       id: currentVideoId,
@@ -1630,9 +1591,9 @@ export class ContentService {
       free,
       attachment_url: this.toFileUrl(attachment?.attachment),
       vimeo_access_token: '',
-      is_submitted: report ? '1' : '0',
-      report_file: this.toFileUrl(report?.report_file),
-      file_type: report?.file_type ?? '',
+      is_submitted: '0',
+      report_file: '',
+      file_type: '',
       lock_message: lockMessage,
     };
   }
@@ -1640,7 +1601,7 @@ export class ContentService {
   async getLessonVideos(userId: string, lessonId: string): Promise<Record<string, unknown>[]> {
     const videos = await this.prisma.lesson_files.findMany({
       where: {
-        lesson_id: lessonId,
+        lesson_id: toIntId(lessonId),
         attachment_type: 'url',
         deleted_at: null,
       },
@@ -1660,13 +1621,13 @@ export class ContentService {
 
     const lesson = await this.prisma.lesson.findFirst({
       where: {
-        id: lessonId,
+        id: toIntId(lessonId),
         deleted_at: null,
       },
       select: { course_id: true },
     });
 
-    const courseId = lesson?.course_id ?? '';
+    const courseId = idString(lesson?.course_id);
     const purchaseStatus = courseId ? await this.getUserPurchaseStatus(userId, courseId) : 'off';
 
     return {
@@ -1686,9 +1647,9 @@ export class ContentService {
     const subjectId = filter.subjectId ?? '';
     const courseId = filter.courseId ?? '';
 
-    let lessonIds: string[] = [];
+    let lessonIds: number[] = [];
     if (lessonId !== '') {
-      lessonIds = [lessonId];
+      lessonIds = [toIntId(lessonId)];
     } else if (subjectId !== '') {
       lessonIds = await this.getSubjectLessonIds(subjectId);
     } else if (courseId !== '') {
@@ -1719,7 +1680,7 @@ export class ContentService {
   private async resolveCourseIdForLessonFile(lessonFileId: string): Promise<string | null> {
     const lessonFile = await this.prisma.lesson_files.findFirst({
       where: {
-        id: lessonFileId,
+        id: toIntId(lessonFileId),
         deleted_at: null,
       },
       select: { lesson_id: true },
@@ -1737,7 +1698,7 @@ export class ContentService {
       select: { course_id: true },
     });
 
-    return lesson?.course_id ?? null;
+    return lesson?.course_id !== null && lesson?.course_id !== undefined ? String(lesson.course_id) : null;
   }
 
   async saveVideoProgress(userId: string, input: SaveVideoProgressInput): Promise<void> {
@@ -1757,12 +1718,15 @@ export class ContentService {
     }
 
     const now = new Date();
+    const userIdInt = toNullableIntId(userId);
+    const courseIdInt = toNullableIntId(courseId);
+    const lessonFileIdInt = toNullableIntId(lessonFileId);
 
     const existingProgress = await this.prisma.video_progress_status.findFirst({
       where: {
-        user_id: userId,
-        lesson_file_id: lessonFileId,
-        course_id: courseId,
+        user_id: userIdInt,
+        lesson_file_id: lessonFileIdInt,
+        course_id: courseIdInt,
         deleted_at: null,
       },
       select: {
@@ -1778,15 +1742,15 @@ export class ContentService {
     const completed = requestedProgressSeconds + graceSeconds >= totalDurationSeconds;
 
     if (existingProgress) {
-      const existingProgressSeconds = parseTimeToSeconds(existingProgress.user_progress ?? '');
+      const existingProgressSeconds = parseTimeToSeconds(timeColumnToString(existingProgress.user_progress));
       if (requestedProgressSeconds + graceSeconds > existingProgressSeconds) {
         await this.prisma.video_progress_status.update({
           where: { id: existingProgress.id },
           data: {
-            total_duration: input.lessonDuration,
-            user_progress: input.userProgress,
+            total_duration: timeStringToDate(input.lessonDuration),
+            user_progress: timeStringToDate(input.userProgress),
             status: completed ? 1 : 0,
-            updated_by: userId,
+            updated_by: toNullableIntId(userId),
             updated_at: now,
           },
         });
@@ -1797,48 +1761,21 @@ export class ContentService {
 
     await this.prisma.video_progress_status.create({
       data: {
-        user_id: userId,
-        course_id: courseId,
-        lesson_file_id: lessonFileId,
-        total_duration: input.lessonDuration,
-        user_progress: input.userProgress,
+        user_id: userIdInt,
+        course_id: courseIdInt,
+        lesson_file_id: lessonFileIdInt,
+        total_duration: timeStringToDate(input.lessonDuration),
+        user_progress: timeStringToDate(input.userProgress),
         status: completed ? 1 : 0,
-        created_by: userId,
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
   }
 
-  async saveMaterialProgress(userId: string, input: SaveMaterialProgressInput): Promise<void> {
-    if (!input.lessonFileId || !input.courseId) {
-      return;
-    }
-
-    const existing = await this.prisma.material_progress.count({
-      where: {
-        user_id: userId,
-        lesson_file_id: input.lessonFileId,
-        course_id: input.courseId,
-        deleted_at: null,
-      },
-    });
-
-    if (existing > 0) {
-      return;
-    }
-
-    const now = new Date();
-
-    await this.prisma.material_progress.create({
-      data: {
-        user_id: userId,
-        course_id: input.courseId,
-        lesson_file_id: input.lessonFileId,
-        attachment_type: input.attachmentType,
-        created_by: userId,
-        created_at: now,
-      },
-    });
+  async saveMaterialProgress(_userId: string, _input: SaveMaterialProgressInput): Promise<void> {
+    // material_progress table does not exist in MySQL schema — no-op
+    // until a replacement store is wired. Kept for API/route compatibility.
   }
 
   async getStreakData(userId: string, fromDate?: string, toDate?: string): Promise<Record<string, number> | null> {
@@ -1855,7 +1792,7 @@ export class ContentService {
       };
     }
 
-    const lessonIds = await this.getCourseLessonIds(courseId);
+    const lessonIds = await this.getCourseLessonIds(String(courseId));
     if (lessonIds.length === 0) {
       return {
         total_streak: 0,
@@ -1954,24 +1891,32 @@ export class ContentService {
 
     const courseIds = courses.map((c) => c.id);
 
-    // Batch counts: subjects per course (via course_subjects junction)
-    const subjectCounts = await this.prisma.course_subjects.groupBy({
-      by: ['course_id'],
-      where: { course_id: { in: courseIds }, deleted_at: null },
-      _count: { id: true },
-    });
-    const subjectCountMap = new Map(subjectCounts.map((s) => [s.course_id, s._count.id]));
+    // Batch counts: subjects per course (via direct subject.course_id)
+    const subjectCounts = courseIds.length > 0
+      ? await this.prisma.subject.groupBy({
+          by: ['course_id'],
+          where: { course_id: { in: courseIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const subjectCountMap = new Map(
+      subjectCounts.map((s) => [s.course_id, s._count?.id ?? 0] as const),
+    );
 
     // Batch counts: enrolled students per course
-    const enrolCounts = await this.prisma.enrol.groupBy({
-      by: ['course_id'],
-      where: { course_id: { in: courseIds }, deleted_at: null },
-      _count: { id: true },
-    });
-    const enrolCountMap = new Map(enrolCounts.map((e) => [e.course_id, e._count.id]));
+    const enrolCounts = courseIds.length > 0
+      ? await this.prisma.enrol.groupBy({
+          by: ['course_id'],
+          where: { course_id: { in: courseIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const enrolCountMap = new Map(
+      enrolCounts.map((e) => [e.course_id, e._count?.id ?? 0] as const),
+    );
 
     // Batch fetch categories
-    const categoryIds = [...new Set(courses.map((c) => c.category_id).filter(Boolean))] as string[];
+    const categoryIds = [...new Set(courses.map((c) => c.category_id).filter((v): v is number => v !== null))];
     const categories = categoryIds.length > 0
       ? await this.prisma.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true } })
       : [];
@@ -1982,7 +1927,7 @@ export class ContentService {
       title: course.title,
       short_name: course.short_name ?? '',
       category_id: course.category_id ?? '',
-      category_name: categoryMap.get(course.category_id ?? '') ?? '',
+      category_name: course.category_id !== null ? (categoryMap.get(course.category_id) ?? '') : '',
       status: course.status ?? 'active',
       price: course.price ?? 0,
       sale_price: course.sale_price ?? 0,
@@ -1998,7 +1943,7 @@ export class ContentService {
 
   async getCourseAdmin(courseId: string): Promise<Record<string, unknown> | null> {
     const course = await this.prisma.course.findFirst({
-      where: { id: courseId, deleted_at: null },
+      where: { id: toIntId(courseId), deleted_at: null },
     });
 
     if (!course) {
@@ -2026,11 +1971,12 @@ export class ContentService {
   }
 
   async createCourse(actorUserId: string, input: AdminCourseInput): Promise<Record<string, unknown>> {
+    const visibilityInt = toNullableIntId(input.visibility);
     const course = await this.prisma.course.create({
       data: {
         title: input.title,
         short_name: toNullableString(input.short_name),
-        category_id: toNullableString(input.category_id),
+        category_id: toNullableIntId(input.category_id),
         description: toNullableString(input.description),
         duration: toNullableString(input.duration),
         thumbnail: toNullableString(input.thumbnail),
@@ -2040,8 +1986,8 @@ export class ContentService {
         features: toNullableString(input.features),
         label: toNullableString(input.label),
         status: input.status ?? 'active',
-        visibility: input.visibility ?? 'public',
-        created_by: actorUserId,
+        visibility: visibilityInt,
+        created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
         deleted_at: null,
@@ -2052,12 +1998,13 @@ export class ContentService {
   }
 
   async updateCourse(actorUserId: string, courseId: string, input: AdminCourseInput): Promise<Record<string, unknown>> {
+    const visibilityInt = toNullableIntId(input.visibility);
     await this.prisma.course.update({
-      where: { id: courseId },
+      where: { id: toIntId(courseId) },
       data: {
         title: input.title,
         short_name: toNullableString(input.short_name),
-        category_id: toNullableString(input.category_id),
+        category_id: toNullableIntId(input.category_id),
         description: toNullableString(input.description),
         duration: toNullableString(input.duration),
         thumbnail: toNullableString(input.thumbnail),
@@ -2067,8 +2014,8 @@ export class ContentService {
         features: toNullableString(input.features),
         label: toNullableString(input.label),
         status: input.status ?? 'active',
-        visibility: input.visibility ?? 'public',
-        updated_by: actorUserId,
+        visibility: visibilityInt,
+        updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
@@ -2078,10 +2025,10 @@ export class ContentService {
 
   async archiveCourse(actorUserId: string, courseId: string): Promise<void> {
     await this.prisma.course.update({
-      where: { id: courseId },
+      where: { id: toIntId(courseId) },
       data: {
         status: 'archived',
-        updated_by: actorUserId,
+        updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
@@ -2090,113 +2037,69 @@ export class ContentService {
   // ── Admin Subject CRUD ────────────────────────────────────────────
 
   async listCourseSubjectsAdmin(courseId: string): Promise<Record<string, unknown>[]> {
-    // Get subjects through course_subjects junction
-    const junctions = await this.prisma.course_subjects.findMany({
-      where: { course_id: courseId, deleted_at: null },
-      select: { subject_id: true, order: true },
-      orderBy: [{ order: 'asc' }],
-    });
-    const subjectIds = junctions.map((j) => j.subject_id);
-    if (subjectIds.length === 0) return [];
-
+    // course_subjects junction does not exist in MySQL — use direct
+    // subject.course_id column instead.
     const subjects = await this.prisma.subject.findMany({
-      where: { id: { in: subjectIds }, deleted_at: null },
+      where: { course_id: toNullableIntId(courseId), deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
-    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+    if (subjects.length === 0) return [];
 
-    // Batch lesson counts
+    const subjectIds = subjects.map((s) => s.id);
+
     const lessonCounts = await this.prisma.lesson.groupBy({
       by: ['subject_id'],
       where: { subject_id: { in: subjectIds }, deleted_at: null },
       _count: { id: true },
     });
-    const lessonCountMap = new Map(lessonCounts.map((l) => [l.subject_id, l._count.id]));
-
-    // Count how many courses each subject is used in
-    const usageCounts = await this.prisma.course_subjects.groupBy({
-      by: ['subject_id'],
-      where: { subject_id: { in: subjectIds }, deleted_at: null },
-      _count: { id: true },
-    });
-    const usageCountMap = new Map(usageCounts.map((u) => [u.subject_id, u._count.id]));
-
-    // Maintain junction order
-    const junctionOrderMap = new Map(junctions.map((j) => [j.subject_id, j.order]));
-
-    return subjectIds
-      .map((id) => {
-        const s = subjectMap.get(id);
-        if (!s) return null;
-        return {
-          id: s.id,
-          title: s.title,
-          description: s.description ?? '',
-          thumbnail: this.toFileUrl(s.thumbnail),
-          order: junctionOrderMap.get(s.id) ?? s.order ?? 0,
-          lesson_count: lessonCountMap.get(s.id) ?? 0,
-          course_count: usageCountMap.get(s.id) ?? 0,
-        };
-      })
-      .filter(Boolean) as Record<string, unknown>[];
-  }
-
-  async listAllSubjects(): Promise<Record<string, unknown>[]> {
-    const subjects = await this.prisma.subject.findMany({
-      where: { deleted_at: null },
-      select: { id: true, title: true, description: true },
-      orderBy: { title: 'asc' },
-    });
-
-    // Fetch course usage for each subject
-    const subjectIds = subjects.map((s) => s.id);
-    const usageCounts = subjectIds.length > 0
-      ? await this.prisma.course_subjects.groupBy({
-          by: ['subject_id'],
-          where: { subject_id: { in: subjectIds }, deleted_at: null },
-          _count: { id: true },
-        })
-      : [];
-    const usageMap = new Map(usageCounts.map((u) => [u.subject_id, u._count.id]));
+    const lessonCountMap = new Map(
+      lessonCounts.map((l) => [l.subject_id, l._count?.id ?? 0] as const),
+    );
 
     return subjects.map((s) => ({
       id: s.id,
       title: s.title,
       description: s.description ?? '',
-      course_count: usageMap.get(s.id) ?? 0,
+      thumbnail: this.toFileUrl(s.thumbnail),
+      order: s.order ?? 0,
+      lesson_count: lessonCountMap.get(s.id) ?? 0,
+      course_count: 1, // single-owner model in MySQL (no M:N reuse)
+    }));
+  }
+
+  async listAllSubjects(): Promise<Record<string, unknown>[]> {
+    const subjects = await this.prisma.subject.findMany({
+      where: { deleted_at: null },
+      select: { id: true, title: true, description: true, course_id: true },
+      orderBy: { title: 'asc' },
+    });
+
+    return subjects.map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description ?? '',
+      course_count: s.course_id !== null ? 1 : 0,
     }));
   }
 
   async addSubjectAdmin(actorUserId: string, input: AdminSubjectInput): Promise<Record<string, unknown>> {
-    // Get max order from course_subjects junction for this course
-    const existingJunctions = await this.prisma.course_subjects.findMany({
-      where: { course_id: input.course_id, deleted_at: null },
-      select: { order: true },
-      orderBy: { order: 'desc' },
-      take: 1,
+    const courseIdInt = toIntId(input.course_id);
+    const maxOrder = await this.prisma.subject.aggregate({
+      where: { course_id: courseIdInt, deleted_at: null },
+      _max: { order: true },
     });
-    const nextOrder = (existingJunctions[0]?.order ?? 0) + 1;
+    const nextOrder = (maxOrder._max?.order ?? 0) + 1;
 
     const subject = await this.prisma.subject.create({
       data: {
-        course_id: input.course_id, // dual-write for backward compat
+        course_id: courseIdInt,
         title: input.title,
         description: toNullableString(input.description),
         order: nextOrder,
-        created_by: actorUserId,
+        free: 'off',
+        created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
-        deleted_at: null,
-      },
-    });
-
-    // Create junction row
-    await this.prisma.course_subjects.create({
-      data: {
-        course_id: input.course_id,
-        subject_id: subject.id,
-        order: nextOrder,
-        created_by: actorUserId,
-        created_at: new Date(),
         deleted_at: null,
       },
     });
@@ -2204,80 +2107,51 @@ export class ContentService {
     return { id: subject.id };
   }
 
-  /** Link an existing subject to a course (M:N reuse) */
+  /** Link an existing subject to a course — MySQL has no junction table,
+   * so we overwrite subject.course_id. */
   async linkSubjectToCourse(actorUserId: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
-    // Check if already linked
-    const existing = await this.prisma.course_subjects.findFirst({
-      where: { course_id: courseId, subject_id: subjectId, deleted_at: null },
-    });
-    if (existing) return { id: existing.id, already_linked: true };
-
-    // Get next order
-    const existingJunctions = await this.prisma.course_subjects.findMany({
-      where: { course_id: courseId, deleted_at: null },
-      select: { order: true },
-      orderBy: { order: 'desc' },
-      take: 1,
-    });
-    const nextOrder = (existingJunctions[0]?.order ?? 0) + 1;
-
-    const junction = await this.prisma.course_subjects.create({
+    await this.prisma.subject.update({
+      where: { id: toIntId(subjectId) },
       data: {
-        course_id: courseId,
-        subject_id: subjectId,
-        order: nextOrder,
-        created_by: actorUserId,
-        created_at: new Date(),
-        deleted_at: null,
+        course_id: toIntId(courseId),
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
       },
     });
 
-    return { id: junction.id };
+    return { id: subjectId };
   }
 
-  /** Unlink a subject from a course (does not delete the subject itself) */
-  async unlinkSubjectFromCourse(actorUserId: string, courseId: string, subjectId: string): Promise<void> {
-    const junction = await this.prisma.course_subjects.findFirst({
-      where: { course_id: courseId, subject_id: subjectId, deleted_at: null },
-    });
-    if (junction) {
-      await this.prisma.course_subjects.update({
-        where: { id: junction.id },
-        data: { deleted_at: new Date() },
-      });
-    }
-  }
-
-  async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
+  /** Unlink a subject from a course — clears subject.course_id. */
+  async unlinkSubjectFromCourse(actorUserId: string, _courseId: string, subjectId: string): Promise<void> {
     await this.prisma.subject.update({
-      where: { id: subjectId },
+      where: { id: toIntId(subjectId) },
       data: {
-        title: input.title,
-        description: toNullableString(input.description),
-        ...(input.order != null ? { order: input.order } : {}),
-        updated_by: actorUserId,
+        course_id: null,
+        updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
   }
 
-  async deleteSubjectAdmin(actorUserId: string, subjectId: string, courseId?: string): Promise<void> {
-    if (courseId) {
-      // Unlink from this specific course
-      await this.unlinkSubjectFromCourse(actorUserId, courseId, subjectId);
-
-      // Only soft-delete the subject if no other courses reference it
-      const remainingLinks = await this.prisma.course_subjects.count({
-        where: { subject_id: subjectId, deleted_at: null },
-      });
-      if (remainingLinks > 0) return; // Still used elsewhere — don't delete
-    }
-
-    // No remaining links or no courseId provided — soft-delete the subject
+  async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
     await this.prisma.subject.update({
-      where: { id: subjectId },
+      where: { id: toIntId(subjectId) },
       data: {
-        deleted_by: actorUserId,
+        title: input.title,
+        description: toNullableString(input.description),
+        ...(input.order != null ? { order: input.order } : {}),
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async deleteSubjectAdmin(actorUserId: string, subjectId: string, _courseId?: string): Promise<void> {
+    await this.prisma.subject.update({
+      where: { id: toIntId(subjectId) },
+      data: {
+        deleted_by: toNullableIntId(actorUserId),
         deleted_at: new Date(),
       },
     });
@@ -2287,17 +2161,21 @@ export class ContentService {
 
   async listLessonsAdmin(subjectId: string): Promise<Record<string, unknown>[]> {
     const lessons = await this.prisma.lesson.findMany({
-      where: { subject_id: subjectId, deleted_at: null },
+      where: { subject_id: toNullableIntId(subjectId), deleted_at: null },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
 
     const lessonIds = lessons.map((l) => l.id);
-    const fileCounts = await this.prisma.lesson_files.groupBy({
-      by: ['lesson_id'],
-      where: { lesson_id: { in: lessonIds }, deleted_at: null },
-      _count: { id: true },
-    });
-    const fileCountMap = new Map(fileCounts.map((f) => [f.lesson_id, f._count.id]));
+    const fileCounts = lessonIds.length > 0
+      ? await this.prisma.lesson_files.groupBy({
+          by: ['lesson_id'],
+          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const fileCountMap = new Map(
+      fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const),
+    );
 
     return lessons.map((l) => ({
       id: l.id,
@@ -2313,30 +2191,32 @@ export class ContentService {
   }
 
   async addLessonAdmin(actorUserId: string, input: AdminLessonInput): Promise<Record<string, unknown>> {
+    const subjectIdInt = toIntId(input.subject_id);
     const maxOrder = await this.prisma.lesson.aggregate({
-      where: { subject_id: input.subject_id, deleted_at: null },
+      where: { subject_id: subjectIdInt, deleted_at: null },
       _max: { order: true },
     });
 
-    // Derive course_id from course_subjects junction if not provided
-    let courseId = input.course_id || null;
-    if (!courseId) {
-      const junction = await this.prisma.course_subjects.findFirst({
-        where: { subject_id: input.subject_id, deleted_at: null },
+    // Derive course_id from the subject itself if not provided (MySQL has
+    // no course_subjects junction — subject owns the course_id).
+    let courseId = toNullableIntId(input.course_id);
+    if (courseId === null) {
+      const subjectRow = await this.prisma.subject.findFirst({
+        where: { id: subjectIdInt, deleted_at: null },
         select: { course_id: true },
       });
-      courseId = junction?.course_id ?? null;
+      courseId = subjectRow?.course_id ?? null;
     }
 
     const lesson = await this.prisma.lesson.create({
       data: {
-        course_id: courseId, // dual-write for backward compat (nullable now)
-        subject_id: input.subject_id,
+        course_id: courseId,
+        subject_id: subjectIdInt,
         title: input.title,
         summary: toNullableString(input.summary),
         free: input.free ? 'on' : 'off',
-        order: (maxOrder._max.order ?? 0) + 1,
-        created_by: actorUserId,
+        order: (maxOrder._max?.order ?? 0) + 1,
+        created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
       },
@@ -2347,13 +2227,13 @@ export class ContentService {
 
   async editLessonAdmin(actorUserId: string, lessonId: string, input: AdminLessonInput): Promise<void> {
     await this.prisma.lesson.update({
-      where: { id: lessonId },
+      where: { id: toIntId(lessonId) },
       data: {
         title: input.title,
         summary: toNullableString(input.summary),
         free: input.free ? 'on' : 'off',
         ...(input.order != null ? { order: input.order } : {}),
-        updated_by: actorUserId,
+        updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
@@ -2361,9 +2241,9 @@ export class ContentService {
 
   async deleteLessonAdmin(actorUserId: string, lessonId: string): Promise<void> {
     await this.prisma.lesson.update({
-      where: { id: lessonId },
+      where: { id: toIntId(lessonId) },
       data: {
-        deleted_by: actorUserId,
+        deleted_by: toNullableIntId(actorUserId),
         deleted_at: new Date(),
       },
     });
@@ -2372,7 +2252,7 @@ export class ContentService {
   async reorderLessonsAdmin(lessonIds: string[]): Promise<void> {
     const updates = lessonIds.map((id, index) =>
       this.prisma.lesson.update({
-        where: { id },
+        where: { id: toIntId(id) },
         data: { order: index + 1, updated_at: new Date() },
       }),
     );
@@ -2383,7 +2263,7 @@ export class ContentService {
 
   async listLessonFilesAdmin(lessonId: string): Promise<Record<string, unknown>[]> {
     const files = await this.prisma.lesson_files.findMany({
-      where: { lesson_id: lessonId, deleted_at: null },
+      where: { lesson_id: toIntId(lessonId), deleted_at: null },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
 
@@ -2404,14 +2284,15 @@ export class ContentService {
   }
 
   async addLessonFileAdmin(actorUserId: string, input: AdminLessonFileInput): Promise<Record<string, unknown>> {
+    const lessonIdInt = toIntId(input.lesson_id);
     const maxOrder = await this.prisma.lesson_files.aggregate({
-      where: { lesson_id: input.lesson_id, deleted_at: null },
+      where: { lesson_id: lessonIdInt, deleted_at: null },
       _max: { order: true },
     });
 
     const file = await this.prisma.lesson_files.create({
       data: {
-        lesson_id: input.lesson_id,
+        lesson_id: lessonIdInt,
         title: input.title ?? null,
         summary: toNullableString(input.summary),
         duration: toNullableString(input.duration),
@@ -2420,8 +2301,10 @@ export class ContentService {
         attachment: toNullableString(input.attachment),
         audio_file: toNullableString(input.audio_file),
         free: input.free ? 'on' : 'off',
-        order: (maxOrder._max.order ?? 0) + 1,
-        created_by: actorUserId,
+        order: (maxOrder._max?.order ?? 0) + 1,
+        lesson_provider: '',
+        thumbnail: '',
+        created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
       },
@@ -2432,7 +2315,7 @@ export class ContentService {
 
   async editLessonFileAdmin(actorUserId: string, fileId: string, input: AdminLessonFileInput): Promise<void> {
     await this.prisma.lesson_files.update({
-      where: { id: fileId },
+      where: { id: toIntId(fileId) },
       data: {
         title: input.title ?? null,
         summary: toNullableString(input.summary),
@@ -2442,7 +2325,7 @@ export class ContentService {
         attachment: toNullableString(input.attachment),
         audio_file: toNullableString(input.audio_file),
         free: input.free ? 'on' : 'off',
-        updated_by: actorUserId,
+        updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
@@ -2450,9 +2333,9 @@ export class ContentService {
 
   async deleteLessonFileAdmin(actorUserId: string, fileId: string): Promise<void> {
     await this.prisma.lesson_files.update({
-      where: { id: fileId },
+      where: { id: toIntId(fileId) },
       data: {
-        deleted_by: actorUserId,
+        deleted_by: toNullableIntId(actorUserId),
         deleted_at: new Date(),
       },
     });

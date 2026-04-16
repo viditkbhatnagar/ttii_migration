@@ -18,6 +18,7 @@ describe('payment gateway integrations', () => {
       {
         apiKeyId: 'rzp_test_key',
         apiKeySecret: 'rzp_test_secret',
+        webhookSecret: undefined,
         apiBaseUrl: 'https://api.razorpay.com/v1',
       },
       logger,

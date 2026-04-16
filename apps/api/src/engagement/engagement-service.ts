@@ -19,6 +19,34 @@ const MONTH_NAMES_LONG = [
   'December',
 ];
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function idString(id: string | number | null | undefined): string {
+  if (id === null || id === undefined) return '';
+  return String(id);
+}
+
+function timeColumnToString(value: Date | string | null | undefined): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  const h = String(value.getUTCHours()).padStart(2, '0');
+  const m = String(value.getUTCMinutes()).padStart(2, '0');
+  const s = String(value.getUTCSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
 function toStringValue(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -269,17 +297,17 @@ export interface AddEventFeedbackInput {
 }
 
 type EventRow = {
-  id: string;
+  id: number;
   title: string | null;
   description: string | null;
   event_date: Date | null;
-  from_time: string | null;
-  to_time: string | null;
+  from_time: Date | null;
+  to_time: Date | null;
   image: string | null;
   objectives: string | null;
   duration: string | null;
-  is_recording_available: number;
-  instructor_id: string | null;
+  is_recording_available: number | null;
+  instructor_id: number | null;
   [key: string]: unknown;
 };
 
@@ -308,7 +336,7 @@ export class EngagementService {
 
     return this.prisma.users.findFirst({
       where: {
-        id: userId,
+        id: toIntId(userId),
         deleted_at: null,
       },
       select: {
@@ -413,10 +441,13 @@ export class EngagementService {
     const isRegistered = await this.prisma.event_registration.count({
       where: {
         event_id: eventId,
-        user_id: userId,
+        user_id: toIntId(userId),
         deleted_at: null,
       },
     });
+
+    const fromTime = timeColumnToString(eventRow.from_time);
+    const toTime = timeColumnToString(eventRow.to_time);
 
     return {
       id: eventId,
@@ -424,13 +455,13 @@ export class EngagementService {
       description: toStringValue(eventRow.description),
       date: formatLegacyDateDmy(eventRow.event_date),
       formatted_date: formatLegacyDateShortMonth(eventRow.event_date),
-      time: `${formatLegacyTime(eventRow.from_time)} - ${formatLegacyTime(eventRow.to_time)}`,
+      time: `${formatLegacyTime(fromTime)} - ${formatLegacyTime(toTime)}`,
       image: this.toFileUrl(eventRow.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
       objectives: parseObjectives(eventRow.objectives),
       duration: toStringValue(eventRow.duration),
       recording_status: eventRow.is_recording_available === 1 ? 'Available' : 'Not available',
       recordings,
-      status: this.eventStatus(eventRow.event_date, eventRow.from_time, eventRow.to_time),
+      status: this.eventStatus(eventRow.event_date, fromTime, toTime),
       is_registered: isRegistered,
       instructor_name: toStringValue(instructor?.name),
       instructor_image: this.toFileUrl(instructor?.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
@@ -460,7 +491,7 @@ export class EngagementService {
     });
 
     // Collect instructor IDs to batch-fetch users
-    const instructorIds = [...new Set(feedRows.map((f) => f.instructor_id).filter(Boolean))] as string[];
+    const instructorIds = [...new Set(feedRows.map((f) => f.instructor_id).filter((v): v is number => v !== null))];
     const instructors = instructorIds.length > 0
       ? await this.prisma.users.findMany({
           where: {
@@ -476,10 +507,10 @@ export class EngagementService {
     const feedIds = feedRows.map((f) => f.id);
 
     // Batch fetch: all likes for these feeds by this user
-    const userLikes = await this.prisma.feed_like.findMany({
+    const userLikes = await this.prisma.feed_likes.findMany({
       where: {
         feed_id: { in: feedIds },
-        user_id: userId,
+        user_id: toIntId(userId),
         deleted_at: null,
       },
       select: { feed_id: true },
@@ -487,7 +518,7 @@ export class EngagementService {
     const userLikedFeedIds = new Set(userLikes.map((l) => l.feed_id));
 
     // Batch fetch: total like counts per feed
-    const allLikes = await this.prisma.feed_like.groupBy({
+    const allLikes = await this.prisma.feed_likes.groupBy({
       by: ['feed_id'],
       where: {
         feed_id: { in: feedIds },
@@ -530,8 +561,8 @@ export class EngagementService {
 
     const watched = await this.prisma.feed_watched.count({
       where: {
-        feed_id: feedId,
-        user_id: userId,
+        feed_id: toNullableIntId(feedId),
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
     });
@@ -544,9 +575,9 @@ export class EngagementService {
 
     await this.prisma.feed_watched.create({
       data: {
-        feed_id: feedId,
-        user_id: userId,
-        created_by: userId,
+        feed_id: toNullableIntId(feedId),
+        user_id: toNullableIntId(userId),
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -557,10 +588,10 @@ export class EngagementService {
       return;
     }
 
-    const existing = await this.prisma.feed_like.findFirst({
+    const existing = await this.prisma.feed_likes.findFirst({
       where: {
-        feed_id: feedId,
-        user_id: userId,
+        feed_id: toNullableIntId(feedId),
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
       select: { id: true },
@@ -569,21 +600,21 @@ export class EngagementService {
     const now = new Date();
 
     if (existing) {
-      await this.prisma.feed_like.update({
+      await this.prisma.feed_likes.update({
         where: { id: existing.id },
         data: {
           deleted_at: now,
-          deleted_by: userId,
+          deleted_by: toNullableIntId(userId),
         },
       });
       return;
     }
 
-    await this.prisma.feed_like.create({
+    await this.prisma.feed_likes.create({
       data: {
-        feed_id: feedId,
-        user_id: userId,
-        created_by: userId,
+        feed_id: toNullableIntId(feedId),
+        user_id: toNullableIntId(userId),
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -598,10 +629,10 @@ export class EngagementService {
 
     await this.prisma.feed_comments.create({
       data: {
-        user_id: userId,
-        feed_id: feedId,
+        user_id: toNullableIntId(userId),
+        feed_id: toNullableIntId(feedId),
         comment,
-        created_by: userId,
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -615,7 +646,7 @@ export class EngagementService {
     // Fetch comments
     const comments = await this.prisma.feed_comments.findMany({
       where: {
-        feed_id: feedId,
+        feed_id: toNullableIntId(feedId),
         deleted_at: null,
       },
       orderBy: { id: 'asc' },
@@ -628,14 +659,14 @@ export class EngagementService {
     // Fetch the feed for this feedId
     const feedRow = await this.prisma.feed.findFirst({
       where: {
-        id: feedId,
+        id: toIntId(feedId),
         deleted_at: null,
       },
       select: { title: true, content: true },
     });
 
     // Collect user IDs and batch-fetch
-    const userIds = [...new Set(comments.map((c) => c.user_id))];
+    const userIds = [...new Set(comments.map((c) => c.user_id).filter((v): v is number => v !== null))];
     const users = await this.prisma.users.findMany({
       where: {
         id: { in: userIds },
@@ -646,7 +677,7 @@ export class EngagementService {
     const userMap = new Map(users.map((u) => [u.id, u]));
 
     return comments.map((row) => {
-      const user = userMap.get(row.user_id);
+      const user = row.user_id !== null ? userMap.get(row.user_id) : undefined;
       return {
         feed_id: row.feed_id,
         feed_title: toStringValue(feedRow?.title),
@@ -666,8 +697,8 @@ export class EngagementService {
 
     const existing = await this.prisma.review.findFirst({
       where: {
-        course_id: input.courseId,
-        user_id: userId,
+        course_id: toNullableIntId(input.courseId),
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
       select: { id: true },
@@ -679,7 +710,7 @@ export class EngagementService {
         data: {
           rating: input.rating,
           review: input.review,
-          updated_by: userId,
+          updated_by: toNullableIntId(userId),
           updated_at: now,
         },
       });
@@ -688,11 +719,11 @@ export class EngagementService {
 
     await this.prisma.review.create({
       data: {
-        user_id: userId,
-        course_id: input.courseId,
+        user_id: toNullableIntId(userId),
+        course_id: toNullableIntId(input.courseId),
         rating: input.rating,
         review: input.review,
-        created_by: userId,
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -701,8 +732,8 @@ export class EngagementService {
   async getUserReview(userId: string, courseId: string): Promise<Record<string, unknown> | null> {
     const row = await this.prisma.review.findFirst({
       where: {
-        course_id: courseId,
-        user_id: userId,
+        course_id: toNullableIntId(courseId),
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
       select: {
@@ -734,8 +765,8 @@ export class EngagementService {
 
     const existing = await this.prisma.review_like.findFirst({
       where: {
-        review_id: reviewId,
-        user_id: userId,
+        review_id: toIntId(reviewId),
+        user_id: toIntId(userId),
         deleted_at: null,
       },
       select: { id: true },
@@ -748,7 +779,7 @@ export class EngagementService {
         where: { id: existing.id },
         data: {
           deleted_at: now,
-          deleted_by: userId,
+          deleted_by: toIntId(userId),
         },
       });
       return;
@@ -756,9 +787,11 @@ export class EngagementService {
 
     await this.prisma.review_like.create({
       data: {
-        review_id: reviewId,
-        user_id: userId,
-        created_by: userId,
+        review_id: toIntId(reviewId),
+        user_id: toIntId(userId),
+        created_by: toIntId(userId),
+        updated_by: 0,
+        deleted_by: 0,
         created_at: now,
       },
     });
@@ -770,15 +803,9 @@ export class EngagementService {
       return [];
     }
 
-    const courseId = user.course_id;
-
     const rows = await this.prisma.notification.findMany({
       where: {
         deleted_at: null,
-        OR: [
-          ...(courseId ? [{ course_id: courseId }] : []),
-          { course_id: null },
-        ],
       },
       orderBy: { id: 'desc' },
       select: {
@@ -822,8 +849,8 @@ export class EngagementService {
 
     const existing = await this.prisma.notification_read.count({
       where: {
-        user_id: userId,
-        notification_id: notificationId,
+        user_id: toIntId(userId),
+        notification_id: toIntId(notificationId),
         deleted_at: null,
       },
     });
@@ -836,10 +863,10 @@ export class EngagementService {
 
     await this.prisma.notification_read.create({
       data: {
-        notification_id: notificationId,
-        user_id: userId,
+        notification_id: toIntId(notificationId),
+        user_id: toIntId(userId),
         status: 1,
-        created_by: userId,
+        created_by: toIntId(userId),
         created_at: now,
       },
     });
@@ -856,13 +883,13 @@ export class EngagementService {
 
     const result = await this.prisma.users.updateMany({
       where: {
-        id: userId,
+        id: toIntId(userId),
         deleted_at: null,
       },
       data: {
         notification_token: token,
         updated_at: now,
-        updated_by: userId,
+        updated_by: toNullableIntId(userId),
       },
     });
 
@@ -877,7 +904,7 @@ export class EngagementService {
       orderBy: { id: 'asc' },
     });
 
-    const filtered = this.filterEventsByWindow(rows as EventRow[], filter);
+    const filtered = this.filterEventsByWindow(rows as unknown as EventRow[], filter);
 
     const expired: unknown[] = [];
     const live: unknown[] = [];
@@ -910,7 +937,7 @@ export class EngagementService {
 
     const event = await this.prisma.events.findFirst({
       where: {
-        id: eventId,
+        id: toIntId(eventId),
         deleted_at: null,
       },
     });
@@ -919,7 +946,7 @@ export class EngagementService {
       return null;
     }
 
-    return this.toEventPayload(userId, event as EventRow);
+    return this.toEventPayload(userId, event as unknown as EventRow);
   }
 
   async registerEvent(
@@ -935,8 +962,8 @@ export class EngagementService {
 
     const existing = await this.prisma.event_registration.count({
       where: {
-        event_id: input.eventId,
-        user_id: userId,
+        event_id: toNullableIntId(input.eventId),
+        user_id: toIntId(userId),
         deleted_at: null,
       },
     });
@@ -952,12 +979,12 @@ export class EngagementService {
 
     await this.prisma.event_registration.create({
       data: {
-        user_id: userId,
+        user_id: toIntId(userId),
         name: input.name,
         phone: input.phone,
-        event_id: input.eventId,
-        attend_status: input.attendStatus,
-        created_by: userId,
+        event_id: toNullableIntId(input.eventId),
+        attend_status: toNullableIntId(input.attendStatus),
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -975,8 +1002,8 @@ export class EngagementService {
 
     const existing = await this.prisma.review.count({
       where: {
-        user_id: userId,
-        event_id: input.eventId,
+        user_id: toNullableIntId(userId),
+        event_id: toNullableIntId(input.eventId),
         deleted_at: null,
       },
     });
@@ -990,11 +1017,11 @@ export class EngagementService {
     await this.prisma.review.create({
       data: {
         rating: input.rating,
-        user_id: userId,
-        event_id: input.eventId,
+        user_id: toNullableIntId(userId),
+        event_id: toNullableIntId(input.eventId),
         review: input.review,
         item_type: 2,
-        created_by: userId,
+        created_by: toNullableIntId(userId),
         created_at: now,
       },
     });
@@ -1010,7 +1037,7 @@ export class EngagementService {
     // Find the user's cohort via cohort_students + cohorts
     const cohortStudent = await this.prisma.cohort_students.findFirst({
       where: {
-        user_id: userId,
+        user_id: toNullableIntId(userId),
         deleted_at: null,
       },
       select: {
@@ -1019,19 +1046,19 @@ export class EngagementService {
     });
 
     let cohort: {
-      id: string;
+      id: number;
       title: string | null;
       cohort_id: string | null;
-      course_id: string | null;
-      instructor_id: string | null;
+      course_id: number | null;
+      instructor_id: number | null;
       start_date: Date | null;
       end_date: Date | null;
     } | null = null;
 
-    if (cohortStudent) {
+    if (cohortStudent && cohortStudent.cohort_id) {
       cohort = await this.prisma.cohorts.findFirst({
         where: {
-          id: cohortStudent.cohort_id,
+          cohort_id: cohortStudent.cohort_id,
           deleted_at: null,
         },
         select: {
@@ -1056,7 +1083,7 @@ export class EngagementService {
 
       const liveClasses = await this.prisma.live_class.findMany({
         where: {
-          cohort_id: cohortId,
+          cohort_id: toNullableIntId(cohortId),
           date: {
             gte: dateStart,
             lte: dateEnd,
@@ -1106,7 +1133,7 @@ export class EngagementService {
 
       const assignments = await this.prisma.assignment.findMany({
         where: {
-          cohort_id: cohortId,
+          cohort_id: toNullableIntId(cohortId),
           due_date: {
             gte: dateStart,
             lte: dateEnd,
@@ -1177,7 +1204,7 @@ export class EngagementService {
 
     const rows = await this.prisma.support_chat.findMany({
       where: {
-        chat_id: userId,
+        chat_id: toNullableIntId(userId),
         deleted_at: null,
       },
       orderBy: { id: 'asc' },
@@ -1210,13 +1237,13 @@ export class EngagementService {
 
     await this.prisma.support_chat.create({
       data: {
-        chat_id: userId,
-        sender_id: userId,
+        chat_id: toNullableIntId(userId),
+        sender_id: toNullableIntId(userId),
         message,
         created_at: now,
-        created_by: userId,
+        created_by: toNullableIntId(userId),
         updated_at: now,
-        updated_by: userId,
+        updated_by: toNullableIntId(userId),
       },
     });
 

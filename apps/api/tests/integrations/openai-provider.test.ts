@@ -8,16 +8,16 @@ describe('openai integrations', () => {
     const logs: Array<{ level: string; details?: Record<string, unknown> }> = [];
     const logger: IntegrationLogger = {
       debug: (_message, details) => {
-        logs.push({ level: 'debug', details });
+        logs.push(details ? { level: 'debug', details } : { level: 'debug' });
       },
       info: (_message, details) => {
-        logs.push({ level: 'info', details });
+        logs.push(details ? { level: 'info', details } : { level: 'info' });
       },
       warn: (_message, details) => {
-        logs.push({ level: 'warn', details });
+        logs.push(details ? { level: 'warn', details } : { level: 'warn' });
       },
       error: (_message, details) => {
-        logs.push({ level: 'error', details });
+        logs.push(details ? { level: 'error', details } : { level: 'error' });
       },
     };
 

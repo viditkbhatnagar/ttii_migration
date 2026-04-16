@@ -95,7 +95,7 @@ export function requireLegacyRoles(
     const roleId = authContext.user.role_id;
     if (roleId === null || !allowedSet.has(roleId)) {
       await authService.logRbacDenied({
-        userId: authContext.user.id,
+        userId: String(authContext.user.id),
         requiredRoles: allowedRoles,
         requestMeta: toRequestMeta(request),
         path: requestPath(request),
