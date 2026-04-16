@@ -12,3 +12,8 @@ pnpm-debug.log*
 apps/api/prisma/*.db
 apps/api/prisma/*.db-*
 *.sql
+
+# Local-only deploy docs — contain production secrets, NEVER commit
+DEPLOYMENT.local.md
+*.secrets.md
+.secrets/

@@ -11,6 +11,8 @@ working on this repo should read this first.
 - **Do NOT edit files directly on the droplet.** Always go through git.
 - **Do NOT force-push `main` or rewrite history.**
 
+> **Credentials:** SSH keys, DB passwords, DO API token, MS Graph secrets, and rotation instructions live in `DEPLOYMENT.local.md` at the repo root. That file is **gitignored** (see `.gitignore`) and must never be committed or shared. If `DEPLOYMENT.local.md` is missing on a fresh clone, fetch the live values from `/opt/ttii-lms/.env` on the production droplet via SSH — that file is the authoritative source.
+
 ---
 
 ## Production infrastructure
