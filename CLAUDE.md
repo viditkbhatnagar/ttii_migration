@@ -2,12 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **For deployment, operations, and the production runbook, see [DEPLOYMENT.md](DEPLOYMENT.md).** That file is the source of truth for what runs where, how to ship changes, and what NOT to do. Read it before any deploy-adjacent task.
+
 ## Project Overview
 TTII (Teacher's Training Institute of India) LMS monorepo with admin dashboard, student portal, and centre portal.
 
 ## Tech Stack
 - **Frontend:** React 19 + Vite 7 + Tailwind CSS v4 + shadcn/ui (new-york, non-RSC)
-- **Backend:** Fastify 5 + Prisma 6 (MongoDB)
+- **Backend:** Fastify 5 + Prisma 6 (MySQL/MariaDB)
 - **Packages:** `@ttii/ui` (Tailwind components), `@ttii/frontend-core` (auth/routing), `@ttii/shared-types`
 - **Path alias:** `@/` → `apps/web/src/`
 - **Node:** >=24.0.0, **npm:** >=11.0.0
