@@ -419,11 +419,20 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
   return <RoleShellOverview route={route} pathname={pathname} guardStatus={guardStatus} />;
 }
 
+const SUBDOMAIN_DEFAULT_ROLE_ID: Record<string, string> = {
+  admin: '1',       // Super Admin
+  student: '2',     // Student (already default)
+  centre: '4',      // Centre
+};
+
 function LoginHome() {
   const { error, clearError, login, logout, session } = useAuthState();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [roleId, setRoleId] = useState('2');
+  const [roleId, setRoleId] = useState(() => {
+    const portal = detectPortalFromSubdomain();
+    return portal ? (SUBDOMAIN_DEFAULT_ROLE_ID[portal] ?? '2') : '2';
+  });
   const [loginError, setLoginError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -704,29 +713,28 @@ function PortalRouter({
 }) {
   const pathname = usePathname(initialPath);
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
-  const { authApi } = useAuthState();
+  const { authApi, session } = useAuthState();
 
-  // On subdomain, redirect root or wrong-portal paths to the correct portal
+  // On subdomain, redirect root or wrong-portal paths to the correct portal —
+  // but ONLY when the user is authenticated. Otherwise let `/` render the
+  // login form; auto-redirecting an unauthenticated user to a protected path
+  // lands them on the "Login required" guard screen instead of a login form.
   useEffect(() => {
     if (!subdomainPortal) return;
+    if (!session) return;
     const redirect = getSubdomainRedirectPath(subdomainPortal, pathname);
     if (redirect) {
       navigateTo(redirect);
     }
-  }, [subdomainPortal, pathname]);
+  }, [subdomainPortal, pathname, session]);
 
   // Forgot Password flow
   if (pathname === '/forgot-password') {
     return <ForgotPasswordFlow authApi={authApi} onBackToLogin={() => navigateTo('/')} />;
   }
 
-  if (pathname === '/' && !subdomainPortal) {
+  if (pathname === '/') {
     return <LoginHome />;
-  }
-
-  // Still loading redirect on subdomain
-  if (pathname === '/' && subdomainPortal) {
-    return null;
   }
 
   const route = findPortalRoute(pathname);
