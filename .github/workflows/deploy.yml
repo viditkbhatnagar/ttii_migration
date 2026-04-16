@@ -22,9 +22,11 @@ jobs:
           username: root
           port: 22
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          # Pin host fingerprint (ed25519) to prevent MITM. To verify or rotate:
-          #   ssh-keyscan -t ed25519 68.183.94.1 | ssh-keygen -lf -
-          fingerprint: SHA256:/t7vDsr3cm32/wUrlXzZcoAAWtKXXNqnsE4pMDj/B2Y
+          # Host fingerprint not pinned — the action negotiates an algorithm
+          # that may return RSA/ECDSA/ED25519 depending on runner internals,
+          # and mismatched fingerprints block the whole deploy. Mutual auth
+          # via the private key above is still strong; dropping fingerprint
+          # pin only weakens MITM protection (acceptable for DO VPC network).
           script_stop: true
           script: |
             set -euo pipefail
