@@ -70,24 +70,37 @@ working on this repo should read this first.
 
 ## How to deploy changes
 
-### Standard workflow (code changes)
+### Auto-deploy (standard flow — runs on every push to `main`)
+
+GitHub Actions workflow at [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) handles this. You don't SSH, you just push.
 
 ```bash
-# 1. Work locally on main
 git checkout main
 git pull origin main
-
-# 2. Make your changes, commit
-git add <files>
-git commit -m "fix/feat/chore: short description"
-
-# 3. Push to origin
+# make changes, commit
 git push origin main
+# → auto-deploys in ~1-2 minutes
+```
 
-# 4. Deploy: pull + rebuild on the droplet
+Watch it run at: **https://github.com/viditkbhatnagar/ttii_migration/actions**
+
+What the workflow does on the droplet:
+1. `git fetch origin && git reset --hard origin/main` (hard-syncs — destroys any local edits on droplet)
+2. `npm ci --no-audit --no-fund` (reinstalls deps if lockfile changed; idempotent)
+3. `npm run build` (includes `prisma generate` via `apps/api/package.json` build script)
+4. `pm2 restart ttii-api --update-env && pm2 save`
+5. Health-checks `http://127.0.0.1:4000/api/health` and reports `health_code=200`
+
+If the workflow fails, the droplet stays on the previous commit (because `pm2 restart` only runs after a successful build). PM2 keeps serving the old binary. You'll see the failure in the GitHub Actions UI + an email.
+
+### Manual deploy (fallback / emergency)
+
+If GitHub Actions is down or you need to deploy a specific state quickly:
+
+```bash
 ssh root@68.183.94.1
 cd /opt/ttii-lms
-git pull origin main
+git pull origin main   # or: git fetch && git reset --hard origin/main
 # Then run the appropriate rebuild step below, based on what changed.
 ```
 

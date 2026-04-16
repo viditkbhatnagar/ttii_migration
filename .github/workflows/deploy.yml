@@ -1,0 +1,54 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # allow manual trigger from Actions tab
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH + rebuild + pm2 restart
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Deploy via SSH to ttii-nodejs-lms
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 68.183.94.1
+          username: root
+          port: 22
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Pin host fingerprint (ed25519) to prevent MITM. To verify or rotate:
+          #   ssh-keyscan -t ed25519 68.183.94.1 | ssh-keygen -lf -
+          fingerprint: SHA256:/t7vDsr3cm32/wUrlXzZcoAAWtKXXNqnsE4pMDj/B2Y
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/ttii-lms
+            echo "=== before ==="
+            git log -1 --oneline
+            pm2 list | grep ttii-api || true
+            echo
+            echo "=== sync to origin/main ==="
+            git fetch origin
+            git reset --hard origin/main
+            git log -1 --oneline
+            echo
+            echo "=== install dependencies (npm ci is idempotent) ==="
+            npm ci --no-audit --no-fund
+            echo
+            echo "=== build all workspaces ==="
+            npm run build
+            echo
+            echo "=== restart API with fresh env ==="
+            pm2 restart ttii-api --update-env
+            pm2 save
+            echo
+            echo "=== post-deploy ==="
+            pm2 list | grep ttii-api
+            sleep 2
+            curl -sS -m 5 -w "\nhealth_code=%{http_code}\n" http://127.0.0.1:4000/api/health
