@@ -16,7 +16,7 @@ import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/comp
 import { AdminTabBar, type AdminTab } from '../../../admin/shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, asNumber, formatDate, formatCurrency, messageFromError } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asString, formatDate, formatCurrency, messageFromError } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CentrePageProps } from '../../routing/centre-routes.js';
 import type { CentreWalletSnapshot } from '../../centre-portal-api.js';
 

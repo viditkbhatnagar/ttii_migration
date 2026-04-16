@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -64,8 +64,8 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         end_date: toDateInput(asString(offering.end_date)),
         enrollment_start: toDateInput(asString(offering.enrollment_start)),
         enrollment_end: toDateInput(asString(offering.enrollment_end)),
-        max_enrollment: offering.max_enrollment ? String(offering.max_enrollment) : '',
-        pricing_amount: offering.pricing_amount ? String(offering.pricing_amount) : '',
+        max_enrollment: offering.max_enrollment ? String(asNumber(offering.max_enrollment)) : '',
+        pricing_amount: offering.pricing_amount ? String(asNumber(offering.pricing_amount)) : '',
         status: asString(offering.status) || 'draft',
       });
     }).catch(() => {/* ignore */});
@@ -210,7 +210,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => onNavigate('/admin/offerings/index')}>Cancel</Button>
-        <Button onClick={handleSave} disabled={saving || !form.course_id}>
+        <Button onClick={() => { void handleSave(); }} disabled={saving || !form.course_id}>
           {saving ? 'Saving...' : editId ? 'Update Offering' : 'Create Offering'}
         </Button>
       </div>

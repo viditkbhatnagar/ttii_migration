@@ -62,7 +62,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
   const [submitting, setSubmitting] = useState(false);
 
   // Derived data
-  const items = data?.snapshot.items ?? [];
+  const items = useMemo(() => data?.snapshot.items ?? [], [data]);
   const courses = data?.courses ?? [];
   const pendingCount = data?.snapshot.pendingCount ?? 0;
   const rejectedCount = data?.snapshot.rejectedCount ?? 0;
@@ -193,19 +193,21 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
     },
     {
       label: 'Convert',
-      onClick: async (row) => {
+      onClick: (row) => {
         const id = CentrePortalApi.getId(row);
         if (!id) return;
-        try {
-          const res = await api.convertApplication(session.token, id);
-          if (responseSuccess(res)) {
-            reload();
-          } else {
-            alert(asString(res.message) || 'Conversion failed.');
+        void (async () => {
+          try {
+            const res = await api.convertApplication(session.token, id);
+            if (responseSuccess(res)) {
+              reload();
+            } else {
+              alert(asString(res.message) || 'Conversion failed.');
+            }
+          } catch {
+            alert('Failed to convert application.');
           }
-        } catch {
-          alert('Failed to convert application.');
-        }
+        })();
       },
     },
     {
@@ -350,7 +352,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
               </Button>
               <Button
                 className="bg-ttii-primary hover:bg-ttii-primary/90"
-                onClick={handleSubmit}
+                onClick={() => { void handleSubmit(); }}
                 disabled={submitting || !formName.trim() || !formPhone.trim() || !formCourseId}
               >
                 {submitting ? 'Submitting...' : 'Submit'}

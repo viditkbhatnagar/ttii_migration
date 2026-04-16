@@ -34,5 +34,9 @@ export function useAdminPageData<T>(
     void load();
   }, [load]);
 
-  return { data, loading, error, reload: load };
+  const reload = useCallback(() => {
+    void load();
+  }, [load]);
+
+  return { data, loading, error, reload };
 }

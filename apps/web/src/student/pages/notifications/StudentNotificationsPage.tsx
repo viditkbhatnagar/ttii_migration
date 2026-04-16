@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Bell, CheckCheck, Loader2 } from 'lucide-react';
+import { Bell, CheckCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';

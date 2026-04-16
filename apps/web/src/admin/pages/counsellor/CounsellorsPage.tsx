@@ -145,15 +145,15 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
   const openEditDialog = useCallback((row: Record<string, unknown>) => {
     setDialogMode('edit');
     setEditRow(row);
-    setFormName(String(row.name ?? ''));
-    setFormGender(String(row.gender ?? ''));
-    setFormDob(String(row.dob ?? '').slice(0, 10));
-    setFormNationality(String(row.nationality ?? ''));
-    setFormLanguages(String(row.languages_spoken ?? ''));
-    setFormEmail(String(row.user_email ?? ''));
-    setFormPhone(String(row.phone ?? ''));
-    setFormQualification(String(row.highest_qualification ?? ''));
-    setFormDoj(String(row.doj ?? '').slice(0, 10));
+    setFormName(asString(row.name));
+    setFormGender(asString(row.gender));
+    setFormDob(asString(row.dob).slice(0, 10));
+    setFormNationality(asString(row.nationality));
+    setFormLanguages(asString(row.languages_spoken));
+    setFormEmail(asString(row.user_email));
+    setFormPhone(asString(row.phone));
+    setFormQualification(asString(row.highest_qualification));
+    setFormDoj(asString(row.doj).slice(0, 10));
     setFormPassword('');
     setFormStatus(String(asNumber(row.status)));
     setDialogOpen(true);
@@ -177,9 +177,9 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
       if (formPassword) payload.password = formPassword;
 
       if (dialogMode === 'add') {
-        await api.addCounsellor(session.token, payload as Parameters<typeof api.addCounsellor>[1]);
+        await api.addCounsellor(session.token, payload);
       } else if (editRow) {
-        await api.editCounsellor(session.token, String(editRow.id ?? editRow._id ?? ''), payload as Parameters<typeof api.editCounsellor>[2]);
+        await api.editCounsellor(session.token, asString(editRow.id) || asString(editRow._id), payload);
       }
       setDialogOpen(false);
       reload();
@@ -194,10 +194,10 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
-      const confirmed = window.confirm(`Are you sure you want to delete "${row.name}"?`);
+      const confirmed = window.confirm(`Are you sure you want to delete "${asString(row.name)}"?`);
       if (!confirmed) return;
       try {
-        await api.deleteCounsellor(session.token, String(row.id ?? row._id ?? ''));
+        await api.deleteCounsellor(session.token, asString(row.id) || asString(row._id));
         reload();
       } catch (err) {
         window.alert(`Failed to delete counsellor: ${err instanceof Error ? err.message : String(err)}`);
@@ -214,14 +214,16 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
       { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
       {
         label: 'Make Inactive',
-        onClick: async (row) => {
+        onClick: (row) => {
           if (window.confirm('Make this counsellor inactive?')) {
-            try {
-              await api.editCounsellor(session.token, String(row.id ?? row._id ?? ''), { status: 0 } as Parameters<typeof api.editCounsellor>[2]);
-              reload();
-            } catch (err) {
-              alert(err instanceof Error ? err.message : 'Failed to update status');
-            }
+            void (async () => {
+              try {
+                await api.editCounsellor(session.token, asString(row.id) || asString(row._id), { status: 0 } as Parameters<typeof api.editCounsellor>[2]);
+                reload();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Failed to update status');
+              }
+            })();
           }
         },
       },
@@ -329,7 +331,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
-              onClick={handleDialogSave}
+              onClick={() => { void handleDialogSave(); }}
               disabled={formSaving || !formName.trim() || (dialogMode === 'add' && !formEmail.trim())}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >

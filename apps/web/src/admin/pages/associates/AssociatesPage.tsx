@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -94,9 +94,9 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       const q = appliedSearch.toLowerCase();
       rows = rows.filter(
         (r) =>
-          String(r.name ?? '').toLowerCase().includes(q) ||
-          String(r.user_email ?? '').toLowerCase().includes(q) ||
-          String(r.phone ?? '').toLowerCase().includes(q),
+          asString(r.name).toLowerCase().includes(q) ||
+          asString(r.user_email).toLowerCase().includes(q) ||
+          asString(r.phone).toLowerCase().includes(q),
       );
     }
     if (appliedStatus !== '') {
@@ -146,15 +146,15 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const openEditDialog = useCallback((row: Record<string, unknown>) => {
     setDialogMode('edit');
     setEditRow(row);
-    setFormName(String(row.name ?? ''));
-    setFormGender(String(row.gender ?? ''));
-    setFormDob(String(row.dob ?? '').slice(0, 10));
-    setFormNationality(String(row.nationality ?? ''));
-    setFormLanguages(String(row.languages_spoken ?? ''));
-    setFormEmail(String(row.user_email ?? ''));
-    setFormPhone(String(row.phone ?? ''));
-    setFormQualification(String(row.highest_qualification ?? ''));
-    setFormDoj(String(row.doj ?? '').slice(0, 10));
+    setFormName(asString(row.name));
+    setFormGender(asString(row.gender));
+    setFormDob(asString(row.dob).slice(0, 10));
+    setFormNationality(asString(row.nationality));
+    setFormLanguages(asString(row.languages_spoken));
+    setFormEmail(asString(row.user_email));
+    setFormPhone(asString(row.phone));
+    setFormQualification(asString(row.highest_qualification));
+    setFormDoj(asString(row.doj).slice(0, 10));
     setFormPassword('');
     setFormStatus(String(asNumber(row.status)));
     setDialogOpen(true);
@@ -180,7 +180,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       if (dialogMode === 'add') {
         await api.addAssociate(session.token, payload);
       } else if (editRow) {
-        await api.editAssociate(session.token, String(editRow.id ?? editRow._id ?? ''), payload);
+        await api.editAssociate(session.token, asString(editRow.id) || asString(editRow._id), payload);
       }
       setDialogOpen(false);
       reload();
@@ -195,10 +195,10 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
-      const confirmed = window.confirm(`Are you sure you want to delete "${row.name}"?`);
+      const confirmed = window.confirm(`Are you sure you want to delete "${asString(row.name)}"?`);
       if (!confirmed) return;
       try {
-        await api.deleteAssociate(session.token, String(row.id ?? row._id ?? ''));
+        await api.deleteAssociate(session.token, asString(row.id) || asString(row._id));
         reload();
       } catch (err) {
         window.alert(`Failed to delete associate: ${err instanceof Error ? err.message : String(err)}`);
@@ -215,14 +215,16 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
       {
         label: 'Make Inactive',
-        onClick: async (row) => {
+        onClick: (row) => {
           if (window.confirm('Make this associate inactive?')) {
-            try {
-              await api.editAssociate(session.token, String(row.id ?? row._id ?? ''), { status: 0 });
-              reload();
-            } catch (err) {
-              alert(err instanceof Error ? err.message : 'Failed to update status');
-            }
+            void (async () => {
+              try {
+                await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
+                reload();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Failed to update status');
+              }
+            })();
           }
         },
       },
@@ -330,7 +332,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
-              onClick={handleDialogSave}
+              onClick={() => { void handleDialogSave(); }}
               disabled={formSaving || !formName.trim() || (dialogMode === 'add' && !formEmail.trim())}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >

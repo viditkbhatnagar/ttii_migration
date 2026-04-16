@@ -615,7 +615,7 @@ export class StudentPortalApi {
     };
   }
 
-  async loadPaymentHistory(authToken: string, courseId?: string | undefined): Promise<StudentPaymentHistoryItem[]> {
+  async loadPaymentHistory(authToken: string, courseId?: string  ): Promise<StudentPaymentHistoryItem[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/payment/get_payment_history', authToken, {
       ...(courseId ? { course_id: courseId } : {}),
     });
@@ -633,7 +633,7 @@ export class StudentPortalApi {
     });
   }
 
-  async loadInstallments(authToken: string, courseId?: string | undefined): Promise<StudentInstallmentItem[]> {
+  async loadInstallments(authToken: string, courseId?: string  ): Promise<StudentInstallmentItem[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/payment/get_installments', authToken, {
       ...(courseId ? { course_id: courseId } : {}),
     });

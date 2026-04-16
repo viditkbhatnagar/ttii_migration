@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
-import { Eye, EyeOff, Pencil, X, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Pencil, X } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -382,10 +382,10 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 function formatAddress(
-  line1?: string | undefined,
-  city?: string | undefined,
-  state?: string | undefined,
-  pincode?: string | undefined,
+  line1?: string  ,
+  city?: string  ,
+  state?: string  ,
+  pincode?: string  ,
 ): string {
   const parts = [line1, city, state, pincode].filter((p) => p && p.trim() !== '');
   return parts.join(', ');

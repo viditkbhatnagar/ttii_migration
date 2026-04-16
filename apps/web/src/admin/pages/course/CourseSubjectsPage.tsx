@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 
@@ -55,7 +55,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
   const courseTitle = useMemo(() => {
     if (!courseData) return '';
     if (Array.isArray(courseData)) return '';
-    return asString((courseData as Record<string, unknown>).title);
+    return asString((courseData).title);
   }, [courseData]);
 
   const handleOpenAdd = useCallback(() => {
@@ -69,7 +69,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
     setForm({
       title: asString(row.title),
       description: asString(row.description),
-      order: row.order != null ? String(row.order) : '',
+      order: row.order != null ? String(asNumber(row.order)) : '',
     });
     setShowForm(true);
   }, []);
@@ -161,7 +161,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
     },
     {
       label: 'Remove',
-      onClick: (row) => handleUnlink(row),
+      onClick: (row) => { void handleUnlink(row); },
       variant: 'destructive',
     },
   ];
@@ -222,7 +222,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>
+            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update Subject' : 'Add Subject'}
             </Button>
           </DialogFooter>
@@ -279,7 +279,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowSelectDialog(false); setSelectedSubjectIds(new Set()); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleLinkSelected} disabled={saving || selectedSubjectIds.size === 0}>
+            <Button onClick={() => { void handleLinkSelected(); }} disabled={saving || selectedSubjectIds.size === 0}>
               {saving ? 'Linking...' : `Link ${selectedSubjectIds.size > 0 ? `(${selectedSubjectIds.size})` : ''} Selected`}
             </Button>
           </DialogFooter>

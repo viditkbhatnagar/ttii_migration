@@ -97,14 +97,14 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
     { key: 'title', label: 'Program Name', sortable: true },
     { key: 'code', label: 'Code' },
     { key: 'level', label: 'Level', render: (v) => {
-      const l = String(v || '');
+      const l = asString(v);
       const labels: Record<string, string> = { certification: 'Certification', diploma: 'Diploma', pg_diploma: 'PG Diploma' };
       return labels[l] || l || '-';
     }},
     { key: 'duration', label: 'Duration' },
     { key: 'course_count', label: 'Courses' },
     { key: 'status', label: 'Status', render: (v) => (
-      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{String(v || 'active')}</Badge>
+      <Badge variant={v === 'active' ? 'default' : 'secondary'}>{asString(v) || 'active'}</Badge>
     )},
   ];
 
@@ -168,7 +168,7 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>
+            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>

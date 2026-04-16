@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -134,12 +134,12 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
       key: 'students_count',
       label: 'Total Students',
       sortable: true,
-      render: (value) => (value != null ? String(value) : '0'),
+      render: (value) => (value != null ? String(asNumber(value)) : '0'),
     },
     {
       key: 'fund_request_count',
       label: 'Fund Requests',
-      render: (value) => (value != null ? String(value) : '-'),
+      render: (value) => (value != null ? String(asNumber(value)) : '-'),
     },
     {
       key: 'wallet_balance',
@@ -236,7 +236,7 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+            <Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={deleting}>
               {deleting ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>

@@ -7,6 +7,7 @@ import { PageLoader } from '@/components/ui/page-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import type { StudentDashboardSnapshot } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 /* ─── SVG Progress Ring ──────────────────────────────────── */
@@ -86,7 +87,7 @@ function DashboardCard({
 
 interface QuickStatDef {
   label: string;
-  getValue: (d: Record<string, unknown>) => string;
+  getValue: (d: StudentDashboardSnapshot) => string;
   icon: React.ElementType;
   gradient: string;
   iconColor: string;
@@ -95,28 +96,28 @@ interface QuickStatDef {
 const QUICK_STATS: QuickStatDef[] = [
   {
     label: 'Courses',
-    getValue: (d) => String(d.coursesCount ?? 0),
+    getValue: (d) => String(d.coursesCount),
     icon: BookOpen,
     gradient: 'from-blue-500 to-blue-600',
     iconColor: 'text-blue-100',
   },
   {
     label: 'Assignments',
-    getValue: (d) => String(((d.currentAssignments as number) ?? 0) + ((d.upcomingAssignments as number) ?? 0)),
+    getValue: (d) => String(d.currentAssignments + d.upcomingAssignments),
     icon: ClipboardList,
     gradient: 'from-emerald-500 to-emerald-600',
     iconColor: 'text-emerald-100',
   },
   {
     label: 'Exams',
-    getValue: (d) => String(d.upcomingExams ?? 0),
+    getValue: (d) => String(d.upcomingExams),
     icon: FileText,
     gradient: 'from-violet-500 to-purple-600',
     iconColor: 'text-violet-100',
   },
   {
     label: 'Notifications',
-    getValue: (d) => String(d.notificationsCount ?? 0),
+    getValue: (d) => String(d.notificationsCount),
     icon: Bell,
     gradient: 'from-cyan-500 to-teal-600',
     iconColor: 'text-cyan-100',
@@ -125,13 +126,31 @@ const QUICK_STATS: QuickStatDef[] = [
 
 /* ─── Main Component ──────────────────────────────────────── */
 
+const EMPTY_DASHBOARD: StudentDashboardSnapshot = {
+  coursesCount: 0,
+  currentAssignments: 0,
+  upcomingAssignments: 0,
+  completedAssignments: 0,
+  upcomingExams: 0,
+  expiredExams: 0,
+  notificationsCount: 0,
+  scheduledTasks: 0,
+  overdueTasks: 0,
+  streakTotal: 0,
+  streakCurrent: 0,
+  primaryCourseTitle: '',
+  courseProgress: 0,
+  recentPaymentAmount: 0,
+  recentPaymentDate: '',
+};
+
 export default function StudentDashboardPage({ api, session, onNavigate }: StudentPageProps) {
   const { data, loading, error } = useAdminPageData(
     () => api.loadDashboard(session.token),
     [api, session.token],
   );
 
-  const dashboardData = useMemo(() => (data as unknown as Record<string, unknown>) ?? {}, [data]);
+  const dashboardData = useMemo(() => data ?? EMPTY_DASHBOARD, [data]);
 
   if (loading) {
     return (
@@ -150,8 +169,8 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     );
   }
 
-  const courseProgress = Number(data?.courseProgress ?? 0);
-  const recentPaymentAmount = Number(data?.recentPaymentAmount ?? 0);
+  const courseProgress = data?.courseProgress ?? 0;
+  const recentPaymentAmount = data?.recentPaymentAmount ?? 0;
   const recentPaymentDate = data?.recentPaymentDate ?? '';
 
   return (
@@ -196,7 +215,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
             iconBg="bg-blue-100"
             iconColor="text-blue-600"
             title="Continue Learning"
-            subtitle={String(data.primaryCourseTitle)}
+            subtitle={data.primaryCourseTitle}
             gradient="from-blue-50 via-blue-50/80 to-indigo-50"
           >
             <div className="flex items-center justify-center py-2">
@@ -310,7 +329,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold text-slate-800">{formatCurrency(recentPaymentAmount)}</span>
                 <span className="text-sm text-slate-500">
-                  on {recentPaymentDate ? formatDate(String(recentPaymentDate)) : 'N/A'}
+                  on {recentPaymentDate ? formatDate(recentPaymentDate) : 'N/A'}
                 </span>
               </div>
             ) : (

@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -168,11 +168,11 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
           },
           {
             label: 'Publish Result',
-            onClick: (row) => { api.publishExamResult(session.token, asString(row.id)); },
+            onClick: (row) => { void api.publishExamResult(session.token, asString(row.id)); },
           },
           {
             label: 'Delete',
-            onClick: (row) => { api.deleteExam(session.token, asString(row.id)); },
+            onClick: (row) => { void api.deleteExam(session.token, asString(row.id)); },
             variant: 'destructive',
           },
         ]}

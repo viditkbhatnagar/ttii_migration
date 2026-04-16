@@ -1,5 +1,6 @@
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import nodemailer, { type Transporter } from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 
 import type { EmailProvider, EmailSendRequest, IntegrationDeliveryResult, IntegrationLogger } from './contracts.js';
 
@@ -192,19 +193,20 @@ export class SmtpEmailProvider implements EmailProvider {
         ...(input.text ? { text: input.text } : {}),
       };
 
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = (await this.transporter.sendMail(mailOptions)) as SMTPTransport.SentMessageInfo;
+      const messageId: string | undefined = typeof info.messageId === 'string' ? info.messageId : undefined;
 
       this.logger.info('integration.email.send', {
         provider: this.name,
         to: maskEmail(input.to),
         subject: input.subject,
-        message_id: info.messageId,
+        message_id: messageId,
       });
 
       return {
         accepted: true,
         provider: this.name,
-        ...(info.messageId ? { providerMessageId: info.messageId } : {}),
+        ...(messageId ? { providerMessageId: messageId } : {}),
       };
     } catch (error) {
       this.logger.error('integration.email.send_failed', {

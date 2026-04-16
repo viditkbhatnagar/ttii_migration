@@ -44,68 +44,68 @@ export class CertificateService {
     this.prisma = getPrismaClient();
   }
 
-  async listPolicies(): Promise<Record<string, unknown>[]> {
-    return [];
+  listPolicies(): Promise<Record<string, unknown>[]> {
+    return Promise.resolve([]);
   }
 
-  async createPolicy(
+  createPolicy(
     _actorUserId: string,
     _input: CompletionPolicyInput,
   ): Promise<Record<string, unknown>> {
-    throw new Error('completion_policy table not present in MySQL schema');
+    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
   }
 
-  async updatePolicy(
+  updatePolicy(
     _actorUserId: string,
     _policyId: string,
     _input: CompletionPolicyInput,
   ): Promise<void> {
-    throw new Error('completion_policy table not present in MySQL schema');
+    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
   }
 
-  async deletePolicy(_actorUserId: string, _policyId: string): Promise<void> {
-    throw new Error('completion_policy table not present in MySQL schema');
+  deletePolicy(_actorUserId: string, _policyId: string): Promise<void> {
+    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
   }
 
-  async listTemplates(): Promise<Record<string, unknown>[]> {
-    return [];
+  listTemplates(): Promise<Record<string, unknown>[]> {
+    return Promise.resolve([]);
   }
 
-  async createTemplate(
+  createTemplate(
     _actorUserId: string,
     _input: CertificateTemplateInput,
   ): Promise<Record<string, unknown>> {
-    throw new Error('certificate_template table not present in MySQL schema');
+    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
   }
 
-  async updateTemplate(
+  updateTemplate(
     _actorUserId: string,
     _templateId: string,
     _input: CertificateTemplateInput,
   ): Promise<void> {
-    throw new Error('certificate_template table not present in MySQL schema');
+    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
   }
 
-  async deleteTemplate(_actorUserId: string, _templateId: string): Promise<void> {
-    throw new Error('certificate_template table not present in MySQL schema');
+  deleteTemplate(_actorUserId: string, _templateId: string): Promise<void> {
+    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
   }
 
-  async listCertificates(_filters?: {
+  listCertificates(_filters?: {
     userId?: string;
     courseId?: string;
     offeringId?: string;
   }): Promise<Record<string, unknown>[]> {
-    return [];
+    return Promise.resolve([]);
   }
 
-  async issueCertificate(
+  issueCertificate(
     _actorUserId: string,
     _input: IssueCertificateInput,
   ): Promise<Record<string, unknown>> {
-    throw new Error('certificate table not present in MySQL schema');
+    return Promise.reject(new Error('certificate table not present in MySQL schema'));
   }
 
-  async revokeCertificate(_actorUserId: string, _certId: string): Promise<void> {
-    throw new Error('certificate table not present in MySQL schema');
+  revokeCertificate(_actorUserId: string, _certId: string): Promise<void> {
+    return Promise.reject(new Error('certificate table not present in MySQL schema'));
   }
 }

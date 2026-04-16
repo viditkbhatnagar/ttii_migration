@@ -19,6 +19,19 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+function safeStringify(val: unknown): string {
+  if (val == null) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean' || typeof val === 'bigint') {
+    return String(val);
+  }
+  try {
+    return JSON.stringify(val);
+  } catch {
+    return '';
+  }
+}
+
 export interface DataTableColumn<T = Record<string, unknown>> {
   key: string;
   label: string;
@@ -50,7 +63,7 @@ function exportToCSV(columns: DataTableColumn[], rows: Record<string, unknown>[]
       columns
         .map((col) => {
           const val = row[col.key];
-          const str = val == null ? '' : String(val);
+          const str = safeStringify(val);
           return `"${str.replace(/"/g, '""')}"`;
         })
         .join(','),
@@ -86,7 +99,7 @@ export function AdminDataTable({
     return rows.filter((row) =>
       columns.some((col) => {
         const val = row[col.key];
-        return val != null && String(val).toLowerCase().includes(q);
+        return val != null && safeStringify(val).toLowerCase().includes(q);
       }),
     );
   }, [rows, search, columns]);
@@ -94,10 +107,8 @@ export function AdminDataTable({
   const sortedRows = useMemo(() => {
     if (!sortKey) return filteredRows;
     return [...filteredRows].sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
-      const aStr = aVal == null ? '' : String(aVal);
-      const bStr = bVal == null ? '' : String(bVal);
+      const aStr = safeStringify(a[sortKey]);
+      const bStr = safeStringify(b[sortKey]);
       const cmp = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -206,7 +217,7 @@ export function AdminDataTable({
                       <TableCell className="text-center text-xs text-gray-500">{globalIdx + 1}</TableCell>
                       {columns.map((col) => (
                         <TableCell key={col.key} className={cn('text-sm', col.className)}>
-                          {col.render ? col.render(row[col.key], row, globalIdx) : (row[col.key] != null ? String(row[col.key]) : '')}
+                          {col.render ? col.render(row[col.key], row, globalIdx) : safeStringify(row[col.key])}
                         </TableCell>
                       ))}
                       {actions && actions.length > 0 ? (

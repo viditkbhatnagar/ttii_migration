@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 
@@ -48,11 +48,11 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
     setForm({
       title: asString(row.title),
       course_id: asString(row.course_id),
-      min_progress_pct: String(row.min_progress_pct ?? 80),
-      min_exam_score_pct: String(row.min_exam_score_pct ?? ''),
+      min_progress_pct: row.min_progress_pct == null ? '80' : String(asNumber(row.min_progress_pct)),
+      min_exam_score_pct: row.min_exam_score_pct == null ? '' : String(asNumber(row.min_exam_score_pct)),
       require_all_assignments: Number(row.require_all_assignments) === 1,
       require_all_exams: Number(row.require_all_exams) === 1,
-      min_attendance_pct: String(row.min_attendance_pct ?? ''),
+      min_attendance_pct: row.min_attendance_pct == null ? '' : String(asNumber(row.min_attendance_pct)),
       require_manual_approval: Number(row.require_manual_approval) === 1,
     });
     setShowForm(true);
@@ -85,10 +85,10 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
 
   const columns: DataTableColumn[] = [
     { key: 'title', label: 'Policy Name', sortable: true },
-    { key: 'course_title', label: 'Course', render: (v) => String(v || 'All Courses') },
+    { key: 'course_title', label: 'Course', render: (v) => asString(v) || 'All Courses' },
     { key: 'min_progress_pct', label: 'Min Progress %' },
-    { key: 'min_exam_score_pct', label: 'Min Exam %', render: (v) => String(v || '-') },
-    { key: 'min_attendance_pct', label: 'Min Attendance %', render: (v) => String(v || '-') },
+    { key: 'min_exam_score_pct', label: 'Min Exam %', render: (v) => (v == null || v === '' ? '-' : String(asNumber(v))) },
+    { key: 'min_attendance_pct', label: 'Min Attendance %', render: (v) => (v == null || v === '' ? '-' : String(asNumber(v))) },
     { key: 'require_manual_approval', label: 'Manual Approval', render: (v) => Number(v) === 1 ? 'Yes' : 'No' },
   ];
 
@@ -129,7 +129,7 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>{saving ? 'Saving...' : editId ? 'Update' : 'Create'}</Button>
+            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>{saving ? 'Saving...' : editId ? 'Update' : 'Create'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

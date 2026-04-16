@@ -143,14 +143,15 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     { key: 'asset_type', label: 'Type', render: (v) => (
       <Badge variant={typeColors[String(v)] ?? 'secondary'}>{String(v)}</Badge>
     )},
-    { key: 'duration', label: 'Duration', render: (v) => String(v || '-') },
+    { key: 'duration', label: 'Duration', render: (v) => asString(v) || '-' },
     { key: 'lesson_count', label: 'Used In', render: (v) => {
       const n = Number(v ?? 0);
       return n > 0 ? `${n} lesson${n > 1 ? 's' : ''}` : 'Unused';
     }},
     { key: 'created_at', label: 'Created', render: (v) => {
-      if (!v) return '-';
-      const d = new Date(String(v));
+      const str = asString(v);
+      if (!str) return '-';
+      const d = new Date(str);
       return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
     }},
   ];
@@ -274,7 +275,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving || !form.title.trim()}>
+            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>

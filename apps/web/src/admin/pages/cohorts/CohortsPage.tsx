@@ -224,7 +224,7 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
         key: 'language',
         label: 'Language',
         sortable: true,
-        render: (v) => asString(v) || asString((v as unknown) as string) || '-',
+        render: (v) => asString(v) || asString((v) as string) || '-',
       },
       {
         key: 'instructor_name',

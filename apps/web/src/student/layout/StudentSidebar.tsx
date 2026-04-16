@@ -90,7 +90,7 @@ function getInitials(name: string): string {
     .toUpperCase() || 'ST';
 }
 
-export function StudentSidebar({ pathname, session, onNavigate, onLogout }: StudentSidebarProps) {
+export function StudentSidebar({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
   const { sidebarCollapsed } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
 
@@ -221,7 +221,7 @@ export function StudentSidebar({ pathname, session, onNavigate, onLogout }: Stud
 }
 
 /** Mobile sidebar content — rendered inside a Sheet */
-export function StudentSidebarMobile({ pathname, session, onNavigate, onLogout }: StudentSidebarProps) {
+export function StudentSidebarMobile({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
   const activeItemId = findActiveStudentNav(pathname);
   const displayName = 'Student';
 

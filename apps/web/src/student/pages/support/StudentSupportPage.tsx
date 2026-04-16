@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Send, MessageCircle, RefreshCw, Headphones, Mail, Phone, MapPin, Clock, Loader2 } from 'lucide-react';
+import { Send, MessageCircle, RefreshCw, Headphones, Mail, Phone, MapPin, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';

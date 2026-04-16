@@ -115,7 +115,7 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load conversations
-  const { data: rawConversations, loading, error, reload } = useAdminPageData(
+  const { data: rawConversations, loading, error } = useAdminPageData(
     () => api.loadChatConversations(session.token),
     [],
   );
@@ -163,7 +163,7 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
 
   useEffect(() => {
     if (selectedChatId) {
-      loadMessages(selectedChatId);
+      void loadMessages(selectedChatId);
     }
   }, [selectedChatId, loadMessages]);
 
@@ -289,7 +289,7 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => selectedChatId && loadMessages(selectedChatId)}
+                    onClick={() => { if (selectedChatId) void loadMessages(selectedChatId); }}
                   >
                     <RefreshCw className="size-4" />
                   </Button>
@@ -346,14 +346,14 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        handleSend();
+                        void handleSend();
                       }
                     }}
                   />
                   <Button
                     size="icon"
                     disabled={!messageText.trim() || sending}
-                    onClick={handleSend}
+                    onClick={() => { void handleSend(); }}
                   >
                     <Send className="size-4" />
                   </Button>

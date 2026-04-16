@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -369,7 +369,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
         <Button
           className="bg-ttii-primary hover:bg-ttii-primary/90"
           disabled={saving}
-          onClick={handleSubmit}
+          onClick={() => { void handleSubmit(); }}
         >
           {saving ? 'Saving...' : 'Save Centre'}
         </Button>

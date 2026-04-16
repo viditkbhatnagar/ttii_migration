@@ -205,7 +205,7 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
       {/* Status summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {STATUS_CARDS.map((card) => {
-          const amount = asNumber(counts[`${card.key}_amount` as keyof typeof counts]);
+          const amount = asNumber(counts[`${card.key}_amount`]);
           const count = asNumber(counts[card.key as keyof typeof counts]);
           return (
             <Card

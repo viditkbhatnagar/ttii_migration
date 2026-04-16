@@ -78,7 +78,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
   // Pre-fill form in edit mode
   useEffect(() => {
     if (!isEdit || !courseData) return;
-    const c = courseData as Record<string, unknown>;
+    const c = courseData;
     const isFree = c.is_free_course === true || c.is_free_course === 1 || asString(c.is_free_course) === '1';
     const isCohort = c.is_cohort_course === true || c.is_cohort_course === 1 || asString(c.is_cohort_course) === '1';
     const isPublic = c.is_public === true || c.is_public === 1 || asString(c.is_public) === '1' || asString(c.visibility) === 'public';
@@ -158,7 +158,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     return <PageLoader label="Loading add course..." />;
   }
 
-  const categoryList = (categories ?? []) as Record<string, unknown>[];
+  const categoryList = (categories ?? []);
 
   return (
     <div className="space-y-4">

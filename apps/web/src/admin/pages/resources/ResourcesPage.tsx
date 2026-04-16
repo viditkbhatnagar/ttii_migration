@@ -120,7 +120,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
             <DropdownMenuItem onClick={() => { setRenameTarget({ id: asString(row.id), type: 'file', name: asString(row.name) }); setRenameValue(asString(row.name)); }}>
               <Pencil className="mr-2 h-4 w-4" /> Rename
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(asString(row.id), 'file')}>
+            <DropdownMenuItem className="text-red-600" onClick={() => { void handleDelete(asString(row.id), 'file'); }}>
               <Trash2 className="mr-2 h-4 w-4" /> Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -197,7 +197,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
                     <DropdownMenuItem onClick={() => { setRenameTarget({ id: asString(folder.id), type: 'folder', name: asString(folder.name) }); setRenameValue(asString(folder.name)); }}>
                       <Pencil className="mr-2 h-4 w-4" /> Rename
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(asString(folder.id), 'folder')}>
+                    <DropdownMenuItem className="text-red-600" onClick={() => { void handleDelete(asString(folder.id), 'folder'); }}>
                       <Trash2 className="mr-2 h-4 w-4" /> Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -230,7 +230,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddFolder(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleAddFolder} disabled={saving || !newFolderName.trim()}>
+            <Button onClick={() => { void handleAddFolder(); }} disabled={saving || !newFolderName.trim()}>
               {saving ? 'Creating...' : 'Create Folder'}
             </Button>
           </DialogFooter>
@@ -257,7 +257,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddFile(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleAddFile} disabled={saving || !newFileName.trim()}>
+            <Button onClick={() => { void handleAddFile(); }} disabled={saving || !newFileName.trim()}>
               {saving ? 'Uploading...' : 'Upload File'}
             </Button>
           </DialogFooter>
@@ -276,7 +276,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameTarget(null)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleRename} disabled={saving || !renameValue.trim()}>
+            <Button onClick={() => { void handleRename(); }} disabled={saving || !renameValue.trim()}>
               {saving ? 'Renaming...' : 'Rename'}
             </Button>
           </DialogFooter>

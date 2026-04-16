@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -63,16 +62,17 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
   const columns: DataTableColumn[] = [
     { key: 'title', label: 'Offering', sortable: true },
     { key: 'course_title', label: 'Course' },
-    { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[String(v)] || String(v) },
+    { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[asString(v)] || asString(v) },
     { key: 'start_date', label: 'Start', render: (v) => {
-      if (!v) return '-';
-      const d = new Date(String(v));
+      const str = asString(v);
+      if (!str) return '-';
+      const d = new Date(str);
       return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
     }},
     { key: 'enrolled_count', label: 'Enrolled' },
     { key: 'cohort_count', label: 'Cohorts' },
     { key: 'status', label: 'Status', render: (v) => (
-      <Badge variant={statusColors[String(v)] ?? 'secondary'}>{String(v || 'draft')}</Badge>
+      <Badge variant={statusColors[asString(v)] ?? 'secondary'}>{asString(v) || 'draft'}</Badge>
     )},
   ];
 

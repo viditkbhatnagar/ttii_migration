@@ -79,7 +79,7 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
   // Pre-fill in edit mode
   useEffect(() => {
     if (!isEdit || !examData) return;
-    const e = examData as Record<string, unknown>;
+    const e = examData;
     setForm({
       title: asString(e.title),
       mark: asString(e.mark),

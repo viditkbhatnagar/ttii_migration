@@ -27,7 +27,7 @@ function useCurrentTime() {
   return time;
 }
 
-export function StudentNavbar({ session, onNavigate, onLogout }: StudentNavbarProps) {
+export function StudentNavbar({ session: _session, onNavigate, onLogout }: StudentNavbarProps) {
   const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar } = useStudentLayout();
   const now = useCurrentTime();
 

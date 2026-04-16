@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../../admin/shared/components/AdminDataTable.js';
@@ -190,7 +189,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: CentrePa
               <Button
                 className="bg-ttii-primary hover:bg-ttii-primary/90"
                 disabled={submitting || !form.title.trim() || !form.courseId.trim()}
-                onClick={handleSubmit}
+                onClick={() => { void handleSubmit(); }}
               >
                 {submitting ? 'Adding...' : 'Add Cohort'}
               </Button>

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import {
   OperationsService,
   type AddAssociateInput,

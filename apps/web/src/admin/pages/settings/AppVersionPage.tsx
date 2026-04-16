@@ -20,7 +20,7 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
 
   useEffect(() => {
     if (data?.appVersion) {
-      const ver = data.appVersion as Record<string, unknown>;
+      const ver = data.appVersion;
       setAppVersion(asString(ver.app_version));
       setAppVersionIos(asString(ver.app_version_ios));
     }

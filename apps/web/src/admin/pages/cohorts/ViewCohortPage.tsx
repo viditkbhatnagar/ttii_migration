@@ -664,7 +664,7 @@ function AssignmentsTab({
         await api.deleteAssignmentSubmission(token, submissionId);
         if (selectedId) {
           const fresh = await api.loadCohortAssignmentSubmissions(token, selectedId);
-          setSubmissionsData(fresh as Record<string, unknown>);
+          setSubmissionsData(fresh);
         }
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Failed to delete file');

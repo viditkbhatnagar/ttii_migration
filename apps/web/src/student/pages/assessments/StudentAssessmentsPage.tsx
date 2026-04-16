@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { ClipboardList, FileText, Calendar, Bookmark, BookmarkCheck, Eye, Award, MessageSquare, Link2, Search, Loader2 } from 'lucide-react';
+import { ClipboardList, FileText, Bookmark, BookmarkCheck, Eye, MessageSquare, Link2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import {

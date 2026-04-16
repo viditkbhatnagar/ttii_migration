@@ -42,7 +42,7 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
 
   const programTitle = useMemo(() => {
     if (!programData || Array.isArray(programData)) return '';
-    return asString((programData as Record<string, unknown>).title);
+    return asString((programData).title);
   }, [programData]);
 
   const handleRemoveCourse = useCallback(async (row: Record<string, unknown>) => {

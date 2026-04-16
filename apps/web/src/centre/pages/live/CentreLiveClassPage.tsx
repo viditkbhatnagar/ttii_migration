@@ -200,7 +200,7 @@ export default function CentreLiveClassPage({ api, session }: CentrePageProps) {
               <Button
                 className="bg-ttii-primary hover:bg-ttii-primary/90"
                 disabled={submitting || !form.cohortId.trim() || !form.title.trim()}
-                onClick={handleSubmit}
+                onClick={() => { void handleSubmit(); }}
               >
                 {submitting ? 'Adding...' : 'Add Session'}
               </Button>

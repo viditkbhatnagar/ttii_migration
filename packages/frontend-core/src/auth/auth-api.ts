@@ -108,7 +108,8 @@ export class LegacyAuthApi implements AuthApi {
     }
 
     const token = asString(response.userdata.auth_token);
-    const userId = asString(response.userdata.user_id) ?? String(response.userdata.user_id ?? '');
+    const rawUserId = response.userdata.user_id;
+    const userId = asString(rawUserId) ?? (typeof rawUserId === 'number' ? String(rawUserId) : '');
     const roleId = asNumber(response.userdata.role_id);
 
     if (!token || !userId || roleId === null) {
@@ -141,7 +142,8 @@ export class LegacyAuthApi implements AuthApi {
       });
     }
 
-    const userId = asString(response.data.user_id) ?? String(response.data.user_id ?? '');
+    const rawUserId = response.data.user_id;
+    const userId = asString(rawUserId) ?? (typeof rawUserId === 'number' ? String(rawUserId) : '');
     const roleId = asNumber(response.data.role_id);
 
     if (!userId || roleId === null) {

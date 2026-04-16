@@ -28,49 +28,49 @@ export class ContentAssetService {
     this.prisma = getPrismaClient();
   }
 
-  async listAssets(_filters?: {
+  listAssets(_filters?: {
     assetType?: string;
     search?: string;
   }): Promise<Record<string, unknown>[]> {
-    return [];
+    return Promise.resolve([]);
   }
 
-  async getAsset(_assetId: string): Promise<Record<string, unknown> | null> {
-    return null;
+  getAsset(_assetId: string): Promise<Record<string, unknown> | null> {
+    return Promise.resolve(null);
   }
 
-  async createAsset(
+  createAsset(
     _actorUserId: string,
     _input: ContentAssetInput,
   ): Promise<Record<string, unknown>> {
-    throw new Error('content_asset table not present in MySQL schema');
+    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
   }
 
-  async updateAsset(
+  updateAsset(
     _actorUserId: string,
     _assetId: string,
     _input: ContentAssetInput,
   ): Promise<void> {
-    throw new Error('content_asset table not present in MySQL schema');
+    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
   }
 
-  async deleteAsset(_actorUserId: string, _assetId: string): Promise<void> {
-    throw new Error('content_asset table not present in MySQL schema');
+  deleteAsset(_actorUserId: string, _assetId: string): Promise<void> {
+    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
   }
 
-  async listLessonAssets(_lessonId: string): Promise<Record<string, unknown>[]> {
-    return [];
+  listLessonAssets(_lessonId: string): Promise<Record<string, unknown>[]> {
+    return Promise.resolve([]);
   }
 
-  async linkAssetToLesson(
+  linkAssetToLesson(
     _actorUserId: string,
     _lessonId: string,
     _assetId: string,
   ): Promise<Record<string, unknown>> {
-    throw new Error('lesson_content table not present in MySQL schema');
+    return Promise.reject(new Error('lesson_content table not present in MySQL schema'));
   }
 
-  async unlinkAssetFromLesson(_lessonId: string, _assetId: string): Promise<void> {
-    throw new Error('lesson_content table not present in MySQL schema');
+  unlinkAssetFromLesson(_lessonId: string, _assetId: string): Promise<void> {
+    return Promise.reject(new Error('lesson_content table not present in MySQL schema'));
   }
 }

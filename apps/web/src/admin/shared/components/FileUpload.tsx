@@ -53,7 +53,13 @@ export function FileUpload({ value, onChange, onUpload, accept, placeholder }: F
         <Upload className="h-3.5 w-3.5" />
         {uploading ? 'Uploading...' : 'Upload'}
       </Button>
-      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={handleFileChange} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => { void handleFileChange(e); }}
+      />
     </div>
   );
 }

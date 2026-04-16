@@ -31,35 +31,35 @@ export class OfferingService {
     this.prisma = getPrismaClient();
   }
 
-  async listOfferings(_filters?: {
+  listOfferings(_filters?: {
     courseId?: string;
     centreId?: string;
     programId?: string;
     status?: string;
   }): Promise<Record<string, unknown>[]> {
-    return [];
+    return Promise.resolve([]);
   }
 
-  async getOffering(_offeringId: string): Promise<Record<string, unknown> | null> {
-    return null;
+  getOffering(_offeringId: string): Promise<Record<string, unknown> | null> {
+    return Promise.resolve(null);
   }
 
-  async createOffering(
+  createOffering(
     _actorUserId: string,
     _input: OfferingInput,
   ): Promise<Record<string, unknown>> {
-    throw new Error('course_offering table not present in MySQL schema');
+    return Promise.reject(new Error('course_offering table not present in MySQL schema'));
   }
 
-  async updateOffering(
+  updateOffering(
     _actorUserId: string,
     _offeringId: string,
     _input: OfferingInput,
   ): Promise<void> {
-    throw new Error('course_offering table not present in MySQL schema');
+    return Promise.reject(new Error('course_offering table not present in MySQL schema'));
   }
 
-  async deleteOffering(_actorUserId: string, _offeringId: string): Promise<void> {
-    throw new Error('course_offering table not present in MySQL schema');
+  deleteOffering(_actorUserId: string, _offeringId: string): Promise<void> {
+    return Promise.reject(new Error('course_offering table not present in MySQL schema'));
   }
 }

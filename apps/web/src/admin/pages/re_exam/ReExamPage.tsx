@@ -30,7 +30,7 @@ export default function ReExamPage({ api, session }: AdminPageProps) {
     [courseFilter, batchFilter],
   );
 
-  const exams = useMemo(() => (Array.isArray(data) ? data : []) as Record<string, unknown>[], [data]);
+  const exams = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const columns: DataTableColumn[] = useMemo(() => [
     { key: 'title', label: 'Exam Title', sortable: true },
