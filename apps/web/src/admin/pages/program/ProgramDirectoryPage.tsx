@@ -94,22 +94,21 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
   }, [api, session.token, reload]);
 
   const columns: DataTableColumn[] = [
-    { key: 'title', label: 'Program Name', sortable: true },
     { key: 'code', label: 'Code' },
-    { key: 'level', label: 'Level', render: (v) => {
-      const l = asString(v);
-      const labels: Record<string, string> = { certification: 'Certification', diploma: 'Diploma', pg_diploma: 'PG Diploma' };
-      return labels[l] || l || '-';
+    { key: 'title', label: 'Program Name', sortable: true },
+    { key: 'description', label: 'Description', render: (v) => {
+      const s = asString(v);
+      if (!s) return '-';
+      return s.length > 60 ? `${s.slice(0, 60)}…` : s;
     }},
-    { key: 'duration', label: 'Duration' },
-    { key: 'course_count', label: 'Courses' },
+    { key: 'course_count', label: 'No of Courses' },
     { key: 'status', label: 'Status', render: (v) => (
       <Badge variant={v === 'active' ? 'default' : 'secondary'}>{asString(v) || 'active'}</Badge>
     )},
   ];
 
   const actions: DataTableAction[] = [
-    { label: 'Courses', onClick: (row) => onNavigate(`/admin/programs/courses/${asString(row.id)}`) },
+    { label: 'View', onClick: (row) => onNavigate(`/admin/programs/view/${asString(row.id)}`) },
     { label: 'Edit', onClick: (row) => void handleOpenEdit(row) },
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];

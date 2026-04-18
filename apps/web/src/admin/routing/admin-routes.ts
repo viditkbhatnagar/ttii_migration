@@ -47,6 +47,7 @@ const WalletStatusPage = lazy(() => import('../pages/wallet/WalletStatusPage.js'
 const ResourcesPage = lazy(() => import('../pages/resources/ResourcesPage.js'));
 const ProgramDirectoryPage = lazy(() => import('../pages/program/ProgramDirectoryPage.js'));
 const ProgramCoursesPage = lazy(() => import('../pages/program/ProgramCoursesPage.js'));
+const ViewProgramPage = lazy(() => import('../pages/program/ViewProgramPage.js'));
 const OfferingsPage = lazy(() => import('../pages/offering/OfferingsPage.js'));
 const AddOfferingPage = lazy(() => import('../pages/offering/AddOfferingPage.js'));
 const ContentLibraryPage = lazy(() => import('../pages/content_library/ContentLibraryPage.js'));
@@ -142,6 +143,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Programs
   { path: '/admin/programs/index', aliases: ['/admin/programs'], pageComponent: ProgramDirectoryPage, title: 'Programs' },
+  { path: '/admin/programs/view/:id', pageComponent: ViewProgramPage, title: 'View Program' },
   { path: '/admin/programs/courses/:id', pageComponent: ProgramCoursesPage, title: 'Program Courses' },
 
   // Content Library
