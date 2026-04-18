@@ -83,6 +83,10 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
         onClick: (row) => onNavigate(`/admin/course/edit/${asString(row.id)}`),
       },
       {
+        label: 'Subjects',
+        onClick: (row) => onNavigate(`/admin/course/subjects/${asString(row.id)}`),
+      },
+      {
         label: 'Archive Course',
         variant: 'destructive',
         onClick: (row) => {

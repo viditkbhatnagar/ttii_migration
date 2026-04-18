@@ -67,6 +67,12 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
           Back to list
         </Button>
         <Button
+          variant="outline"
+          onClick={() => onNavigate(`/admin/course/subjects/${courseId}`)}
+        >
+          Manage Subjects
+        </Button>
+        <Button
           className="bg-ttii-primary hover:bg-ttii-primary/90"
           onClick={() => onNavigate(`/admin/course/edit/${courseId}`)}
         >

@@ -26,6 +26,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'applications', label: 'Applications', href: '/admin/applications/index' },
       { id: 'students', label: 'Students', href: '/admin/students/index' },
+      { id: 'enrollments', label: 'Enrollments', href: '/admin/enrol/index' },
     ],
   },
   {
