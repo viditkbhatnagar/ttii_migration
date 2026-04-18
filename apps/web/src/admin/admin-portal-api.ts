@@ -243,6 +243,8 @@ export interface AddAdminCohortInput {
   instructorId: string;
   startDate: string;
   endDate: string;
+  languageId?: string;
+  offeringIds?: string[];
 }
 
 export interface AdminPaymentStatusSnapshot {
@@ -1325,6 +1327,24 @@ export class AdminPortalApi {
       instructor_id: input.instructorId,
       start_date: input.startDate,
       end_date: input.endDate,
+      language_id: input.languageId,
+      offering_ids: input.offeringIds,
+    });
+  }
+
+  async editAdminCohort(authToken: string, cohortId: string, input: AddAdminCohortInput): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/cohorts/edit', authToken, {
+      id: cohortId,
+      title: input.title,
+      cohort_code: input.cohortCode,
+      course_id: input.courseId,
+      subject_id: input.subjectId,
+      centre_id: input.centreId,
+      instructor_id: input.instructorId,
+      start_date: input.startDate,
+      end_date: input.endDate,
+      language_id: input.languageId,
+      offering_ids: input.offeringIds,
     });
   }
 

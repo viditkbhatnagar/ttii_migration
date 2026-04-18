@@ -87,9 +87,7 @@ export class OfferingService {
     );
     const offeringIds = rows.map((r) => r.id);
 
-    // Reference offeringIds to satisfy eslint; cohort_offerings pivot is added in Phase G
-    void offeringIds;
-    const [courses, policies, templates, languages] = await Promise.all([
+    const [courses, policies, templates, languages, cohortCounts] = await Promise.all([
       courseIds.length
         ? this.prisma.course.findMany({
             where: { id: { in: courseIds } },
@@ -114,6 +112,13 @@ export class OfferingService {
             select: { id: true, title: true },
           })
         : Promise.resolve([]),
+      offeringIds.length
+        ? this.prisma.cohort_offerings.groupBy({
+            by: ['offering_id'],
+            where: { offering_id: { in: offeringIds } },
+            _count: { offering_id: true },
+          })
+        : Promise.resolve([] as { offering_id: number; _count: { offering_id: number } }[]),
     ]);
 
     const courseMap = new Map<number, string>();
@@ -124,13 +129,15 @@ export class OfferingService {
     for (const t of templates) templateMap.set(t.id, t.title ?? '');
     const languageMap = new Map<number, string>();
     for (const l of languages) languageMap.set(l.id, l.title ?? '');
+    const cohortCountMap = new Map<number, number>();
+    for (const c of cohortCounts) cohortCountMap.set(c.offering_id, c._count.offering_id);
 
     return rows.map((r) => this.serialize(r, {
       course_title: courseMap.get(r.course_id) ?? '',
       completion_policy_title: r.completion_policy_id ? policyMap.get(r.completion_policy_id) ?? '' : '',
       certificate_template_title: r.certificate_template_id ? templateMap.get(r.certificate_template_id) ?? '' : '',
       language_title: r.language_id ? languageMap.get(r.language_id) ?? '' : '',
-      cohort_count: 0,
+      cohort_count: cohortCountMap.get(r.id) ?? 0,
     }));
   }
 

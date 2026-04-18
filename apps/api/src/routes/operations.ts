@@ -175,6 +175,21 @@ function sendOperationsError(reply: FastifyReply, error: unknown): void {
   });
 }
 
+function buildCohortInput(payload: Record<string, unknown>): AdminCohortInput {
+  return {
+    title: toStringValue(payload.title),
+    cohortCode: toStringValue(payload.cohort_code),
+    courseId: toStringValue(payload.course_id),
+    subjectId: toStringValue(payload.subject_id),
+    centreId: toStringValue(payload.centre_id),
+    instructorId: toStringValue(payload.instructor_id),
+    startDate: toStringValue(payload.start_date),
+    endDate: toStringValue(payload.end_date),
+    languageId: toStringValue(payload.language_id),
+    offeringIds: toStringArray(payload.offering_ids),
+  };
+}
+
 export function registerOperationsRoutes(
   app: FastifyInstance,
   options: RegisterOperationsRoutesOptions = {},
@@ -1591,18 +1606,21 @@ export function registerOperationsRoutes(
   app.post('/admin/cohorts/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const input: AdminCohortInput = {
-        title: toStringValue(payload.title),
-        cohortCode: toStringValue(payload.cohort_code),
-        courseId: toStringValue(payload.course_id),
-        subjectId: toStringValue(payload.subject_id),
-        centreId: toStringValue(payload.centre_id),
-        instructorId: toStringValue(payload.instructor_id),
-        startDate: toStringValue(payload.start_date),
-        endDate: toStringValue(payload.end_date),
-      };
+      const input: AdminCohortInput = buildCohortInput(payload);
 
       const result = await operationsService.addAdminCohort(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/cohorts/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const cohortId = toStringValue(payload.id);
+      const input: AdminCohortInput = buildCohortInput(payload);
+      const result = await operationsService.editAdminCohort(requestUserId(request), cohortId, input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);

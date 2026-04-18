@@ -2272,6 +2272,17 @@ model certificate_templates {
   deleted_at  DateTime? @db.DateTime(0)
 }
 
+model cohort_offerings {
+  cohort_id   Int
+  offering_id Int
+  created_at  DateTime? @default(now()) @db.DateTime(0)
+  created_by  Int?
+
+  @@id([cohort_id, offering_id])
+  @@index([cohort_id])
+  @@index([offering_id])
+}
+
 model offerings {
   id                       Int       @id @default(autoincrement()) @db.UnsignedInt
   course_id                Int

@@ -374,6 +374,8 @@ export type AdminCohortInput = {
   instructorId?: string;
   startDate: string;
   endDate: string;
+  languageId?: string;
+  offeringIds?: string[];
 };
 
 export type FeeInstallmentFilters = {
@@ -2312,32 +2314,56 @@ export class OperationsService {
     const subjectIds = [...new Set(cohorts.map(c => c.subject_id).filter((x): x is number => x !== null && x !== undefined))];
     const centreIds = [...new Set(cohorts.map(c => c.centre_id).filter((x): x is number => x !== null && x !== undefined))];
     const instructorIds = [...new Set(cohorts.map(c => c.instructor_id).filter((x): x is number => x !== null && x !== undefined))];
+    const languageIds = [...new Set(cohorts.map(c => c.language_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, subjects, centres, instructors, studentCounts, assignmentCounts] = await Promise.all([
+    const [courses, subjects, centres, instructors, studentCounts, assignmentCounts, pivotRows, languageRows] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       subjectIds.length > 0 ? this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } }) : [],
       centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
       instructorIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: instructorIds } }, select: { id: true, name: true } }) : [],
       cohortIdStrs.length > 0 ? this.prisma.cohort_students.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIdStrs }, deleted_at: null }, _count: { id: true } }) : [],
       cohortIds.length > 0 ? this.prisma.assignment.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIds }, deleted_at: null }, _count: { id: true } }) : [],
+      cohortIds.length > 0 ? this.prisma.cohort_offerings.findMany({ where: { cohort_id: { in: cohortIds } }, select: { cohort_id: true, offering_id: true } }) : [],
+      languageIds.length > 0 ? this.prisma.languages.findMany({ where: { id: { in: languageIds } }, select: { id: true, title: true } }) : [],
     ]);
+
+    const offeringIds = [...new Set(pivotRows.map((p) => p.offering_id))];
+    const offerings = offeringIds.length > 0
+      ? await this.prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true } })
+      : [];
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const subjectMap = new Map(subjects.map(s => [s.id, s]));
     const centreMap = new Map(centres.map(c => [c.id, c]));
     const instructorMap = new Map(instructors.map(i => [i.id, i]));
+    const languageMap = new Map(languageRows.map((l) => [l.id, l.title ?? '']));
+    const offeringTitleMap = new Map(offerings.map((o) => [o.id, o.title ?? '']));
     const studentCountMap = new Map(studentCounts.map((sc) => [sc.cohort_id, sc._count?.id ?? 0]));
     const assignmentCountMap = new Map(assignmentCounts.map((ac) => [ac.cohort_id, ac._count?.id ?? 0]));
 
-    return cohorts.map(ch => ({
-      ...ch,
-      course_title: ch.course_id ? courseMap.get(ch.course_id)?.title ?? null : null,
-      subject_title: ch.subject_id ? subjectMap.get(ch.subject_id)?.title ?? null : null,
-      centre_name: ch.centre_id ? centreMap.get(ch.centre_id)?.centre_name ?? null : null,
-      instructor_name: ch.instructor_id ? instructorMap.get(ch.instructor_id)?.name ?? null : null,
-      student_count: studentCountMap.get(String(ch.id)) ?? 0,
-      assignment_count: assignmentCountMap.get(ch.id) ?? 0,
-    })) as unknown as SqlRow[];
+    const cohortPivotMap = new Map<number, { ids: number[]; titles: string[] }>();
+    for (const p of pivotRows) {
+      const entry = cohortPivotMap.get(p.cohort_id) ?? { ids: [], titles: [] };
+      entry.ids.push(p.offering_id);
+      entry.titles.push(offeringTitleMap.get(p.offering_id) ?? '');
+      cohortPivotMap.set(p.cohort_id, entry);
+    }
+
+    return cohorts.map(ch => {
+      const pivot = cohortPivotMap.get(ch.id);
+      return {
+        ...ch,
+        course_title: ch.course_id ? courseMap.get(ch.course_id)?.title ?? null : null,
+        subject_title: ch.subject_id ? subjectMap.get(ch.subject_id)?.title ?? null : null,
+        centre_name: ch.centre_id ? centreMap.get(ch.centre_id)?.centre_name ?? null : null,
+        instructor_name: ch.instructor_id ? instructorMap.get(ch.instructor_id)?.name ?? null : null,
+        language_title: ch.language_id ? languageMap.get(ch.language_id) ?? '' : '',
+        offering_ids: pivot?.ids ?? [],
+        offering_titles: pivot?.titles ?? [],
+        student_count: studentCountMap.get(String(ch.id)) ?? 0,
+        assignment_count: assignmentCountMap.get(ch.id) ?? 0,
+      };
+    }) as unknown as SqlRow[];
   }
 
   // ─── Phase 1: Admin Centre Payments (Fund Requests + Wallet Txns) ─────────
@@ -3075,8 +3101,9 @@ export class OperationsService {
 
     const cohortCode = input.cohortCode?.trim() || `COH-${Date.now()}`;
     const now = new Date();
+    const actor = toNullableIntId(actorUserId);
 
-    await this.prisma.cohorts.create({
+    const created = await this.prisma.cohorts.create({
       data: {
         title: input.title,
         cohort_id: cohortCode,
@@ -3084,15 +3111,68 @@ export class OperationsService {
         subject_id: toNullableIntId(input.subjectId),
         centre_id: toNullableIntId(input.centreId),
         instructor_id: toNullableIntId(input.instructorId),
+        language_id: toNullableIntId(input.languageId),
         start_date: input.startDate ? new Date(input.startDate) : null,
         end_date: input.endDate ? new Date(input.endDate) : null,
-        created_by: toNullableIntId(actorUserId),
+        created_by: actor,
         created_at: now,
         updated_at: now,
       },
     });
 
-    return { status: 1, message: 'Cohort created successfully.' };
+    if (input.offeringIds && input.offeringIds.length > 0) {
+      const pivotRows = input.offeringIds
+        .map((oid) => toNullableIntId(oid))
+        .filter((v): v is number => v !== null)
+        .map((oid) => ({ cohort_id: created.id, offering_id: oid, created_by: actor, created_at: now }));
+      if (pivotRows.length > 0) {
+        await this.prisma.cohort_offerings.createMany({ data: pivotRows, skipDuplicates: true });
+      }
+    }
+
+    return { status: 1, message: 'Cohort created successfully.', id: created.id };
+  }
+
+  async editAdminCohort(
+    actorUserId: string,
+    cohortId: string,
+    input: AdminCohortInput,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(cohortId);
+    if (!id) return { status: 0, message: 'Invalid cohort id.' };
+    const now = new Date();
+    const actor = toNullableIntId(actorUserId);
+
+    await this.prisma.cohorts.update({
+      where: { id },
+      data: {
+        title: input.title,
+        ...(input.cohortCode ? { cohort_id: input.cohortCode } : {}),
+        course_id: toNullableIntId(input.courseId),
+        subject_id: toNullableIntId(input.subjectId),
+        centre_id: toNullableIntId(input.centreId),
+        instructor_id: toNullableIntId(input.instructorId),
+        language_id: toNullableIntId(input.languageId),
+        start_date: input.startDate ? new Date(input.startDate) : null,
+        end_date: input.endDate ? new Date(input.endDate) : null,
+        updated_by: actor,
+        updated_at: now,
+      },
+    });
+
+    // Replace pivot rows
+    await this.prisma.cohort_offerings.deleteMany({ where: { cohort_id: id } });
+    if (input.offeringIds && input.offeringIds.length > 0) {
+      const pivotRows = input.offeringIds
+        .map((oid) => toNullableIntId(oid))
+        .filter((v): v is number => v !== null)
+        .map((oid) => ({ cohort_id: id, offering_id: oid, created_by: actor, created_at: now }));
+      if (pivotRows.length > 0) {
+        await this.prisma.cohort_offerings.createMany({ data: pivotRows, skipDuplicates: true });
+      }
+    }
+
+    return { status: 1, message: 'Cohort updated successfully.' };
   }
 
   async listCourseFees(): Promise<SqlRow[]> {

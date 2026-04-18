@@ -221,10 +221,20 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
       { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
       {
+        key: 'offering_titles',
+        label: 'Offerings',
+        render: (_v, row) => {
+          const titles = Array.isArray(row.offering_titles) ? (row.offering_titles as string[]) : [];
+          if (titles.length === 0) return '-';
+          const joined = titles.join(', ');
+          return joined.length > 50 ? `${joined.slice(0, 50)}…` : joined;
+        },
+      },
+      {
         key: 'language',
         label: 'Language',
         sortable: true,
-        render: (v) => asString(v) || asString((v) as string) || '-',
+        render: (_v, row) => asString(row.language_title) || asString(row.language) || '-',
       },
       {
         key: 'instructor_name',
