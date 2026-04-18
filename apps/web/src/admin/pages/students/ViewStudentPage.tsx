@@ -251,6 +251,55 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               </div>
             </CardContent>
           </Card>
+
+          {/* QA Correction2 round: additional sections (placeholder stubs) */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Documents</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">All student-uploaded documents (Aadhaar, Passport, Certificates, Photos) in one place.</p>
+                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Performance Analytics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">Learner-specific analytics: completion rate, quiz scores, attendance trends.</p>
+                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Certification</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">All institution-issued certificates for this learner in one view.</p>
+                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Communication</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">Email, WhatsApp and in-app notifications history with this learner.</p>
+                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base">Activity Log</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-500">Last login, device used, time spent on platform, session breakdown.</p>
+                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 

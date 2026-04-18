@@ -2313,20 +2313,21 @@ export class OperationsService {
     const centreIds = [...new Set(cohorts.map(c => c.centre_id).filter((x): x is number => x !== null && x !== undefined))];
     const instructorIds = [...new Set(cohorts.map(c => c.instructor_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, subjects, centres, instructors, studentCounts] = await Promise.all([
+    const [courses, subjects, centres, instructors, studentCounts, assignmentCounts] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       subjectIds.length > 0 ? this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } }) : [],
       centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
       instructorIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: instructorIds } }, select: { id: true, name: true } }) : [],
       cohortIdStrs.length > 0 ? this.prisma.cohort_students.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIdStrs }, deleted_at: null }, _count: { id: true } }) : [],
+      cohortIds.length > 0 ? this.prisma.assignment.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIds }, deleted_at: null }, _count: { id: true } }) : [],
     ]);
-    void cohortIds;
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const subjectMap = new Map(subjects.map(s => [s.id, s]));
     const centreMap = new Map(centres.map(c => [c.id, c]));
     const instructorMap = new Map(instructors.map(i => [i.id, i]));
     const studentCountMap = new Map(studentCounts.map((sc) => [sc.cohort_id, sc._count?.id ?? 0]));
+    const assignmentCountMap = new Map(assignmentCounts.map((ac) => [ac.cohort_id, ac._count?.id ?? 0]));
 
     return cohorts.map(ch => ({
       ...ch,
@@ -2335,6 +2336,7 @@ export class OperationsService {
       centre_name: ch.centre_id ? centreMap.get(ch.centre_id)?.centre_name ?? null : null,
       instructor_name: ch.instructor_id ? instructorMap.get(ch.instructor_id)?.name ?? null : null,
       student_count: studentCountMap.get(String(ch.id)) ?? 0,
+      assignment_count: assignmentCountMap.get(ch.id) ?? 0,
     })) as unknown as SqlRow[];
   }
 

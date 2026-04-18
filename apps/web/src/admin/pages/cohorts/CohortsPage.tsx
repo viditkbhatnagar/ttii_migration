@@ -255,6 +255,19 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
           );
         },
       },
+      {
+        key: 'assignment_count',
+        label: 'Assignments',
+        sortable: true,
+        render: (_v, row) => {
+          const count = asNumber(row.assignment_count) || asNumber(row.assignments_count) || 0;
+          return (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+              {count}
+            </span>
+          );
+        },
+      },
     ],
     [onNavigate],
   );
