@@ -67,7 +67,7 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
   };
 
   const columns: DataTableColumn[] = [
-    { key: '__row_num', label: '#', render: (_v, _row, index) => String(index + 1) },
+    // AdminDataTable renders its own '#' index column; do not add another here.
     { key: 'title', label: 'Offering', sortable: true },
     { key: 'course_title', label: 'Course' },
     { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[asString(v)] || asString(v) },

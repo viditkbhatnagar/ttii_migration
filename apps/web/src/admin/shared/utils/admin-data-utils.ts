@@ -10,10 +10,16 @@ export function asArray(value: unknown): unknown[] {
 }
 
 export function asString(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '';
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  // Coerce numbers, bigints, and booleans into their string form. Prisma
+  // returns numeric IDs as `number`; without this coercion, route builders
+  // like `/admin/course/view/${asString(row.id)}` would produce a trailing
+  // slash and the router would normalize to `/admin/course/view` → 404.
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    return String(value);
   }
-  return value.trim();
+  return '';
 }
 
 export function asNumber(value: unknown): number {

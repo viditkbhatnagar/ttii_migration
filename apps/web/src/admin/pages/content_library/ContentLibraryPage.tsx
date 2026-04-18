@@ -187,9 +187,18 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     } catch { /* ignore */ }
   }, [api, session.token, reload]);
 
-  const handlePreview = useCallback((row: Record<string, unknown>) => {
+  const handlePreview = useCallback(async (row: Record<string, unknown>) => {
+    // Show the list row immediately for fast feedback, then fetch the full
+    // asset so the quiz preview can render its nested `questions` array
+    // (which listAssets omits in favor of a question_count).
     setPreviewAsset(row);
-  }, []);
+    if (asString(row.asset_type) === 'quiz') {
+      try {
+        const full = await api.getContentAsset(session.token, asString(row.id));
+        if (full) setPreviewAsset(full);
+      } catch { /* keep the row-level preview */ }
+    }
+  }, [api, session.token]);
 
   const updateQuestion = useCallback((index: number, patch: Partial<QuestionForm>) => {
     setForm((prev) => ({
@@ -223,7 +232,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const columns: DataTableColumn[] = [
     { key: 'content_id', label: 'Content ID', render: (v, row) => asString(v) || `CA-${asString(row.id).padStart(5, '0')}` },
     { key: 'preview', label: 'Preview', render: (_v, row) => (
-      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" onClick={() => handlePreview(row)}>
+      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" onClick={() => { void handlePreview(row); }}>
         <Eye className="h-4 w-4" />
       </button>
     )},
@@ -244,7 +253,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   ];
 
   const actions: DataTableAction[] = [
-    { label: 'Preview', onClick: (row) => handlePreview(row) },
+    { label: 'Preview', onClick: (row) => { void handlePreview(row); } },
     { label: 'Edit', onClick: (row) => void handleOpenEdit(row) },
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];

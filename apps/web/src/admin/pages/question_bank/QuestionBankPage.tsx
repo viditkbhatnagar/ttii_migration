@@ -150,7 +150,7 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
   const questions = useMemo(() => toRecords(data), [data]);
 
   const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'id', label: '#' },
+    // AdminDataTable renders its own '#' index column; do not add another here.
     {
       key: 'title',
       label: 'Question',
