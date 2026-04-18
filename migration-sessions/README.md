@@ -26,6 +26,9 @@ The migration has ~1,200+ TypeScript errors to fix. A single chat can't do it al
 | 06 | [session-06-commerce-routes-tests.md](session-06-commerce-routes-tests.md) | commerce-service + routes + backend tests | ✅ Completed — backend fully migrated |
 | 07 | [session-07-frontend.md](session-07-frontend.md) | Frontend API types + admin/student/centre pages | ✅ Completed — backend adapter approach (old field names preserved), frontend typechecks and builds; dev server boots, web + api respond 200 |
 | 08 | [session-08-deploy-digitalocean.md](session-08-deploy-digitalocean.md) | Provision droplet, deploy Node.js, connect to live MySQL | ✅ Completed 2026-04-16 — live at https://admin.teachersindia.in / learn. / admissions. (Let's Encrypt SSL, auto-renewing) |
+| 09 | — (ad-hoc session, no superprompt) | CI hardening — zero lint errors, unit tests green, auto-deploy stable | ✅ Completed 2026-04-16 |
+| 10 | — (ad-hoc session, no superprompt) | Correction2.docx Phases A/B/C/E — double-`+` fix, Course Directory + Subjects field expansion, Enrollments filters, View Student placeholders, Cohort Assignments col | ✅ Completed 2026-04-18 |
+| 11 | [session-11-admin-qa-round2-remainder.md](session-11-admin-qa-round2-remainder.md) | Correction2.docx Phases F/G/H/I/J — Programs enhancement, Cohorts Language+Offerings, Offering Access/Rules, Content Library + Quiz subsystem, View Student data wiring | ⏳ Pending — paste the superprompt into a fresh Claude Code chat in plan mode |
 
 ## When a session is done
 Update the status column above. Commit the change. Then the next session will pick up cleanly.
