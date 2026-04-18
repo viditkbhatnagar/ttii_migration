@@ -5,7 +5,7 @@ import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
 import { ProgramService, type ProgramInput } from '../content/program-service.js';
 import { OfferingService, type OfferingInput } from '../content/offering-service.js';
-import { ContentAssetService, type ContentAssetInput } from '../content/content-asset-service.js';
+import { ContentAssetService, type ContentAssetInput, type QuizQuestionInput } from '../content/content-asset-service.js';
 import { CertificateService, type CompletionPolicyInput, type CertificateTemplateInput, type IssueCertificateInput } from '../content/certificate-service.js';
 import {
   ContentService,
@@ -66,6 +66,68 @@ function toOptionalNumber(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function toOptionalBool(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const v = value.toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
+  }
+  return undefined;
+}
+
+function parseQuizQuestions(value: unknown): QuizQuestionInput[] | undefined {
+  let arr: unknown = value;
+  if (typeof arr === 'string') {
+    const trimmed = arr.trim();
+    if (!trimmed) return undefined;
+    try {
+      arr = JSON.parse(trimmed) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(arr)) return undefined;
+  return arr
+    .filter((q): q is Record<string, unknown> => typeof q === 'object' && q !== null)
+    .map((q) => ({
+      ...(typeof q.id === 'string' || typeof q.id === 'number' ? { id: String(q.id) } : {}),
+      question: toStringValue(q.question),
+      option_a: toStringValue(q.option_a) || undefined,
+      option_b: toStringValue(q.option_b) || undefined,
+      option_c: toStringValue(q.option_c) || undefined,
+      option_d: toStringValue(q.option_d) || undefined,
+      correct_answer: toStringValue(q.correct_answer) || 'A',
+      ...(q.sort_order !== undefined && q.sort_order !== null ? { sort_order: Number(q.sort_order) } : {}),
+    }))
+    .filter((q) => q.question);
+}
+
+function buildContentAssetInput(payload: Record<string, unknown>): ContentAssetInput {
+  return {
+    title: toStringValue(payload.title),
+    summary: toStringValue(payload.summary) || undefined,
+    asset_type: toStringValue(payload.asset_type) || 'video',
+    subject_tag: toStringValue(payload.subject_tag) || undefined,
+    lesson_tag: toStringValue(payload.lesson_tag) || undefined,
+    language: toStringValue(payload.language) || undefined,
+    duration: toStringValue(payload.duration) || undefined,
+    provider: toStringValue(payload.provider) || undefined,
+    video_url: toStringValue(payload.video_url) || undefined,
+    download_url: toStringValue(payload.download_url) || undefined,
+    attachment: toStringValue(payload.attachment) || undefined,
+    audio_file: toStringValue(payload.audio_file) || undefined,
+    thumbnail: toStringValue(payload.thumbnail) || undefined,
+    tags: toStringValue(payload.tags) || undefined,
+    time_limit_seconds: toOptionalNumber(payload.time_limit_seconds),
+    attempts_allowed: toOptionalNumber(payload.attempts_allowed),
+    pass_marks: toOptionalNumber(payload.pass_marks),
+    shuffle_questions: toOptionalBool(payload.shuffle_questions),
+    questions: parseQuizQuestions(payload.questions),
+  };
 }
 
 function buildOfferingInput(payload: Record<string, unknown>): OfferingInput {
@@ -919,9 +981,15 @@ export function registerContentRoutes(
       const payload = requestPayload(request);
       const assetType = toStringValue(payload.asset_type) || undefined;
       const search = toStringValue(payload.search) || undefined;
+      const subjectTag = toStringValue(payload.subject_tag) || undefined;
+      const lessonTag = toStringValue(payload.lesson_tag) || undefined;
+      const language = toStringValue(payload.language) || undefined;
       const assets = await contentAssetService.listAssets({
         ...(assetType ? { assetType } : {}),
         ...(search ? { search } : {}),
+        ...(subjectTag ? { subjectTag } : {}),
+        ...(lessonTag ? { lessonTag } : {}),
+        ...(language ? { language } : {}),
       });
       reply.code(200).send({ status: 1, message: 'success', data: assets });
     } catch (error: unknown) {
@@ -942,18 +1010,7 @@ export function registerContentRoutes(
   app.post('/admin/content-assets/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const input: ContentAssetInput = {
-        title: toStringValue(payload.title),
-        summary: toStringValue(payload.summary) || undefined,
-        asset_type: toStringValue(payload.asset_type) || 'video',
-        duration: toStringValue(payload.duration) || undefined,
-        provider: toStringValue(payload.provider) || undefined,
-        video_url: toStringValue(payload.video_url) || undefined,
-        download_url: toStringValue(payload.download_url) || undefined,
-        attachment: toStringValue(payload.attachment) || undefined,
-        audio_file: toStringValue(payload.audio_file) || undefined,
-        tags: toStringValue(payload.tags) || undefined,
-      };
+      const input: ContentAssetInput = buildContentAssetInput(payload);
       const result = await contentAssetService.createAsset(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Asset created', data: result });
     } catch (error: unknown) {
@@ -965,18 +1022,7 @@ export function registerContentRoutes(
     try {
       const payload = requestPayload(request);
       const assetId = toStringValue(payload.id);
-      const input: ContentAssetInput = {
-        title: toStringValue(payload.title),
-        summary: toStringValue(payload.summary) || undefined,
-        asset_type: toStringValue(payload.asset_type) || 'video',
-        duration: toStringValue(payload.duration) || undefined,
-        provider: toStringValue(payload.provider) || undefined,
-        video_url: toStringValue(payload.video_url) || undefined,
-        download_url: toStringValue(payload.download_url) || undefined,
-        attachment: toStringValue(payload.attachment) || undefined,
-        audio_file: toStringValue(payload.audio_file) || undefined,
-        tags: toStringValue(payload.tags) || undefined,
-      };
+      const input: ContentAssetInput = buildContentAssetInput(payload);
       await contentAssetService.updateAsset(requestUserId(request), assetId, input);
       reply.code(200).send({ status: 1, message: 'Asset updated', data: {} });
     } catch (error: unknown) {

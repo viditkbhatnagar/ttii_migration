@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,20 +22,50 @@ const typeColors: Record<string, 'default' | 'secondary' | 'outline' | 'destruct
   video: 'default', audio: 'secondary', article: 'outline', document: 'outline', quiz: 'destructive',
 };
 
+type CorrectAnswer = 'A' | 'B' | 'C' | 'D';
+
+interface QuestionForm {
+  question: string;
+  option_a: string;
+  option_b: string;
+  option_c: string;
+  option_d: string;
+  correct_answer: CorrectAnswer;
+}
+
 interface AssetForm {
   title: string;
   summary: string;
   asset_type: string;
+  subject_tag: string;
+  lesson_tag: string;
+  language: string;
   duration: string;
   video_url: string;
   attachment: string;
   audio_file: string;
   tags: string;
+  time_limit_minutes: string;
+  attempts_allowed: string;
+  pass_marks: string;
+  shuffle_questions: boolean;
+  questions: QuestionForm[];
 }
 
-const emptyForm: AssetForm = {
-  title: '', summary: '', asset_type: 'video', duration: '', video_url: '', attachment: '', audio_file: '', tags: '',
+const emptyQuestion: QuestionForm = {
+  question: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A',
 };
+
+const emptyForm: AssetForm = {
+  title: '', summary: '', asset_type: 'video', subject_tag: '', lesson_tag: '', language: '',
+  duration: '', video_url: '', attachment: '', audio_file: '', tags: '',
+  time_limit_minutes: '', attempts_allowed: '', pass_marks: '', shuffle_questions: false,
+  questions: [],
+};
+
+function isDocPdf(url: string): boolean {
+  return /\.pdf($|\?)/i.test(url);
+}
 
 export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const [showForm, setShowForm] = useState(false);
@@ -55,8 +85,10 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     () => api.listContentAssets(session.token, filters),
     [filterType],
   );
+  const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
 
   const rows = useMemo(() => toRecords(data), [data]);
+  const languages = useMemo(() => toRecords(languagesData), [languagesData]);
 
   const handleOpenAdd = useCallback(() => {
     setEditId('');
@@ -67,36 +99,74 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const handleOpenEdit = useCallback(async (row: Record<string, unknown>) => {
     const id = asString(row.id);
     const asset = await api.getContentAsset(session.token, id);
-    if (asset) {
-      setEditId(id);
-      setForm({
-        title: asString(asset.title),
-        summary: asString(asset.summary),
-        asset_type: asString(asset.asset_type) || 'video',
-        duration: asString(asset.duration),
-        video_url: asString(asset.video_url),
-        attachment: asString(asset.attachment),
-        audio_file: asString(asset.audio_file),
-        tags: asString(asset.tags),
-      });
-      setShowForm(true);
-    }
+    if (!asset) return;
+    const timeLimit = Number(asset.time_limit_seconds ?? 0);
+    const questionsRaw = Array.isArray(asset.questions) ? asset.questions as Record<string, unknown>[] : [];
+    const questions: QuestionForm[] = questionsRaw.map((q) => ({
+      question: asString(q.question),
+      option_a: asString(q.option_a),
+      option_b: asString(q.option_b),
+      option_c: asString(q.option_c),
+      option_d: asString(q.option_d),
+      correct_answer: (asString(q.correct_answer).toUpperCase() as CorrectAnswer) || 'A',
+    }));
+    setEditId(id);
+    setForm({
+      title: asString(asset.title),
+      summary: asString(asset.summary),
+      asset_type: asString(asset.asset_type) || 'video',
+      subject_tag: asString(asset.subject_tag),
+      lesson_tag: asString(asset.lesson_tag),
+      language: asString(asset.language),
+      duration: asString(asset.duration),
+      video_url: asString(asset.video_url),
+      attachment: asString(asset.attachment),
+      audio_file: asString(asset.audio_file),
+      tags: asString(asset.tags),
+      time_limit_minutes: timeLimit > 0 ? String(Math.floor(timeLimit / 60)) : '',
+      attempts_allowed: asString(asset.attempts_allowed),
+      pass_marks: asString(asset.pass_marks),
+      shuffle_questions: Boolean(asset.shuffle_questions),
+      questions,
+    });
+    setShowForm(true);
   }, [api, session.token]);
 
   const handleSave = useCallback(async () => {
     if (!form.title.trim()) return;
     setSaving(true);
     try {
-      const payload = {
+      const timeLimitSec = form.time_limit_minutes ? Number(form.time_limit_minutes) * 60 : undefined;
+      const payload: Record<string, unknown> = {
         title: form.title.trim(),
         summary: form.summary.trim() || undefined,
         asset_type: form.asset_type,
+        subject_tag: form.subject_tag.trim() || undefined,
+        lesson_tag: form.lesson_tag.trim() || undefined,
+        language: form.language || undefined,
         duration: form.duration.trim() || undefined,
         video_url: form.video_url.trim() || undefined,
         attachment: form.attachment.trim() || undefined,
         audio_file: form.audio_file.trim() || undefined,
         tags: form.tags.trim() || undefined,
       };
+      if (form.asset_type === 'quiz') {
+        payload.time_limit_seconds = timeLimitSec;
+        payload.attempts_allowed = form.attempts_allowed ? Number(form.attempts_allowed) : undefined;
+        payload.pass_marks = form.pass_marks ? Number(form.pass_marks) : undefined;
+        payload.shuffle_questions = form.shuffle_questions;
+        payload.questions = form.questions
+          .filter((q) => q.question.trim())
+          .map((q, idx) => ({
+            question: q.question.trim(),
+            option_a: q.option_a,
+            option_b: q.option_b,
+            option_c: q.option_c,
+            option_d: q.option_d,
+            correct_answer: q.correct_answer,
+            sort_order: idx,
+          }));
+      }
       if (editId) {
         await api.updateContentAsset(session.token, editId, payload);
       } else {
@@ -110,11 +180,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   }, [api, session.token, editId, form, reload]);
 
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    const count = Number(row.lesson_count ?? 0);
-    const msg = count > 0
-      ? `This asset is used in ${count} lesson(s). Deleting it will remove it from all lessons. Continue?`
-      : `Delete asset "${asString(row.title)}"?`;
-    if (!window.confirm(msg)) return;
+    if (!window.confirm(`Delete asset "${asString(row.title)}"?`)) return;
     try {
       await api.deleteContentAsset(session.token, asString(row.id));
       reload();
@@ -122,19 +188,41 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   }, [api, session.token, reload]);
 
   const handlePreview = useCallback((row: Record<string, unknown>) => {
-    const type = asString(row.asset_type);
-    if (type === 'article') {
-      setPreviewAsset(row);
-    } else {
-      const url = type === 'video' ? asString(row.video_url)
-        : type === 'audio' ? asString(row.audio_file)
-        : asString(row.attachment);
-      if (url) window.open(url, '_blank');
-    }
+    setPreviewAsset(row);
+  }, []);
+
+  const updateQuestion = useCallback((index: number, patch: Partial<QuestionForm>) => {
+    setForm((prev) => ({
+      ...prev,
+      questions: prev.questions.map((q, i) => (i === index ? { ...q, ...patch } : q)),
+    }));
+  }, []);
+
+  const addQuestion = useCallback(() => {
+    setForm((prev) => ({ ...prev, questions: [...prev.questions, { ...emptyQuestion }] }));
+  }, []);
+
+  const removeQuestion = useCallback((index: number) => {
+    setForm((prev) => ({ ...prev, questions: prev.questions.filter((_, i) => i !== index) }));
+  }, []);
+
+  const moveQuestion = useCallback((index: number, dir: -1 | 1) => {
+    setForm((prev) => {
+      const next = [...prev.questions];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      const a = next[index];
+      const b = next[target];
+      if (!a || !b) return prev;
+      next[index] = b;
+      next[target] = a;
+      return { ...prev, questions: next };
+    });
   }, []);
 
   const columns: DataTableColumn[] = [
-    { key: 'id', label: '', render: (_v, row) => (
+    { key: 'content_id', label: 'Content ID', render: (v, row) => asString(v) || `CA-${asString(row.id).padStart(5, '0')}` },
+    { key: 'preview', label: 'Preview', render: (_v, row) => (
       <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" onClick={() => handlePreview(row)}>
         <Eye className="h-4 w-4" />
       </button>
@@ -143,12 +231,11 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     { key: 'asset_type', label: 'Type', render: (v) => (
       <Badge variant={typeColors[String(v)] ?? 'secondary'}>{String(v)}</Badge>
     )},
+    { key: 'subject_tag', label: 'Subject Tag', render: (v) => asString(v) || '-' },
+    { key: 'lesson_tag', label: 'Lesson Tag', render: (v) => asString(v) || '-' },
     { key: 'duration', label: 'Duration', render: (v) => asString(v) || '-' },
-    { key: 'lesson_count', label: 'Used In', render: (v) => {
-      const n = Number(v ?? 0);
-      return n > 0 ? `${n} lesson${n > 1 ? 's' : ''}` : 'Unused';
-    }},
-    { key: 'created_at', label: 'Created', render: (v) => {
+    { key: 'created_by_name', label: 'Created By', render: (v) => asString(v) || '-' },
+    { key: 'created_at', label: 'Created On', render: (v) => {
       const str = asString(v);
       if (!str) return '-';
       const d = new Date(str);
@@ -169,6 +256,11 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   if (error) {
     return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
   }
+
+  const previewType = previewAsset ? asString(previewAsset.asset_type) : '';
+  const previewQuestions = previewAsset && Array.isArray(previewAsset.questions)
+    ? previewAsset.questions as Record<string, unknown>[]
+    : [];
 
   return (
     <div className="space-y-4">
@@ -195,7 +287,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
 
       {/* Add/Edit Asset Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editId ? 'Edit Asset' : 'New Content Asset'}</DialogTitle>
           </DialogHeader>
@@ -204,7 +296,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               <Label>Title *</Label>
               <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Asset title" />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div>
                 <Label>Type</Label>
                 <select className={selectClass} value={form.asset_type} onChange={(e) => setForm((f) => ({ ...f, asset_type: e.target.value }))}>
@@ -219,14 +311,31 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 <Label>Duration</Label>
                 <Input value={form.duration} onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} placeholder="e.g. 10:30" />
               </div>
+              <div>
+                <Label>Language</Label>
+                <select className={selectClass} value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}>
+                  <option value="">-- Any --</option>
+                  {languages.map((l) => <option key={asString(l.id)} value={asString(l.title)}>{asString(l.title)}</option>)}
+                </select>
+              </div>
             </div>
-            {(form.asset_type === 'video') && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Subject Tag</Label>
+                <Input value={form.subject_tag} onChange={(e) => setForm((f) => ({ ...f, subject_tag: e.target.value }))} placeholder="e.g. Child Development" />
+              </div>
+              <div>
+                <Label>Lesson Tag</Label>
+                <Input value={form.lesson_tag} onChange={(e) => setForm((f) => ({ ...f, lesson_tag: e.target.value }))} placeholder="e.g. Introduction" />
+              </div>
+            </div>
+            {form.asset_type === 'video' && (
               <div>
                 <Label>Video URL</Label>
                 <Input value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://..." />
               </div>
             )}
-            {(form.asset_type === 'audio') && (
+            {form.asset_type === 'audio' && (
               <div>
                 <Label>Audio File</Label>
                 <FileUpload
@@ -238,7 +347,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 />
               </div>
             )}
-            {(form.asset_type === 'document') && (
+            {form.asset_type === 'document' && (
               <div>
                 <Label>File</Label>
                 <FileUpload
@@ -258,7 +367,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                   onChange={(html) => setForm((f) => ({ ...f, summary: html }))}
                 />
               </div>
-            ) : (
+            ) : form.asset_type !== 'quiz' ? (
               <div>
                 <Label>Summary</Label>
                 <textarea
@@ -267,11 +376,106 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                   onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
                 />
               </div>
-            )}
+            ) : null}
             <div>
               <Label>Tags (comma-separated)</Label>
               <Input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="e.g. montessori, child-development" />
             </div>
+
+            {form.asset_type === 'quiz' && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="font-medium">Quiz Settings</div>
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <div>
+                    <Label>Time Limit (min)</Label>
+                    <Input type="number" value={form.time_limit_minutes} onChange={(e) => setForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="0" />
+                  </div>
+                  <div>
+                    <Label>Attempts</Label>
+                    <Input type="number" value={form.attempts_allowed} onChange={(e) => setForm((f) => ({ ...f, attempts_allowed: e.target.value }))} placeholder="1" />
+                  </div>
+                  <div>
+                    <Label>Pass Marks</Label>
+                    <Input type="number" value={form.pass_marks} onChange={(e) => setForm((f) => ({ ...f, pass_marks: e.target.value }))} placeholder="0" />
+                  </div>
+                  <div>
+                    <Label>Shuffle</Label>
+                    <div className="flex h-10 items-center">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={form.shuffle_questions}
+                        onChange={(e) => setForm((f) => ({ ...f, shuffle_questions: e.target.checked }))}
+                      />
+                      <span className="ml-2 text-sm">Shuffle Questions</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">
+                    Questions ({form.questions.length})
+                  </div>
+                  <Button type="button" size="sm" variant="outline" onClick={addQuestion}>
+                    <Plus className="mr-1 h-3 w-3" /> Add Question
+                  </Button>
+                </div>
+
+                {form.questions.length === 0 ? (
+                  <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+                    No questions added yet.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {form.questions.map((q, idx) => (
+                      <div key={idx} className="rounded-md border p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-xs font-semibold text-muted-foreground">Q{idx + 1}</div>
+                          <div className="flex gap-1">
+                            <Button type="button" size="icon" variant="ghost" onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}>
+                              <ChevronUp className="h-3 w-3" />
+                            </Button>
+                            <Button type="button" size="icon" variant="ghost" onClick={() => moveQuestion(idx, 1)} disabled={idx === form.questions.length - 1}>
+                              <ChevronDown className="h-3 w-3" />
+                            </Button>
+                            <Button type="button" size="icon" variant="ghost" onClick={() => removeQuestion(idx)}>
+                              <Trash2 className="h-3 w-3 text-red-600" />
+                            </Button>
+                          </div>
+                        </div>
+                        <textarea
+                          className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={q.question}
+                          placeholder="Question text"
+                          onChange={(e) => updateQuestion(idx, { question: e.target.value })}
+                        />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {(['A', 'B', 'C', 'D'] as CorrectAnswer[]).map((letter) => {
+                            const key = `option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d';
+                            return (
+                              <label key={letter} className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="radio"
+                                  name={`correct-${idx}`}
+                                  checked={q.correct_answer === letter}
+                                  onChange={() => updateQuestion(idx, { correct_answer: letter })}
+                                />
+                                <span className="w-4 font-semibold">{letter}</span>
+                                <Input
+                                  value={q[key]}
+                                  onChange={(e) => updateQuestion(idx, { [key]: e.target.value } as Partial<QuestionForm>)}
+                                  placeholder={`Option ${letter}`}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
@@ -282,13 +486,109 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Article Preview Dialog */}
+      {/* Unified Preview Dialog */}
       <Dialog open={!!previewAsset} onOpenChange={(open) => { if (!open) setPreviewAsset(null); }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{asString(previewAsset?.title)}</DialogTitle>
           </DialogHeader>
-          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: asString(previewAsset?.summary) }} />
+          {previewType === 'video' && (
+            <div className="aspect-video w-full">
+              {(() => {
+                const url = asString(previewAsset?.video_url);
+                if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No video URL set.</p>;
+                if (/\.mp4($|\?)/i.test(url) || /\.webm($|\?)/i.test(url)) {
+                  return <video src={url} controls className="h-full w-full" />;
+                }
+                return <iframe src={url} className="h-full w-full" allow="fullscreen" />;
+              })()}
+            </div>
+          )}
+          {previewType === 'audio' && (
+            <div className="py-4">
+              {asString(previewAsset?.audio_file) ? (
+                <audio src={asString(previewAsset?.audio_file)} controls className="w-full" />
+              ) : (
+                <p className="text-center text-sm text-muted-foreground">No audio file uploaded.</p>
+              )}
+            </div>
+          )}
+          {previewType === 'document' && (
+            <div className="space-y-3">
+              {(() => {
+                const url = asString(previewAsset?.attachment) || asString(previewAsset?.download_url);
+                if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No file uploaded.</p>;
+                return (
+                  <>
+                    {isDocPdf(url) ? (
+                      <iframe src={url} className="h-[60vh] w-full rounded border" />
+                    ) : (
+                      <p className="py-6 text-center text-sm text-muted-foreground">
+                        Preview not available for this file type. Use Download below.
+                      </p>
+                    )}
+                    <div className="flex justify-end">
+                      <Button asChild variant="default" size="sm">
+                        <a href={url} target="_blank" rel="noopener noreferrer" download>
+                          <Download className="mr-2 h-4 w-4" /> Download
+                        </a>
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          {previewType === 'article' && (
+            <div
+              className="prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: asString(previewAsset?.summary) }}
+            />
+          )}
+          {previewType === 'quiz' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                {Number(previewAsset?.time_limit_seconds ?? 0) > 0 && (
+                  <Badge variant="secondary">Time: {Math.floor(Number(previewAsset?.time_limit_seconds) / 60)}m</Badge>
+                )}
+                <Badge variant="secondary">Attempts: {asString(previewAsset?.attempts_allowed) || '—'}</Badge>
+                <Badge variant="secondary">Pass Marks: {asString(previewAsset?.pass_marks) || '—'}</Badge>
+                <Badge variant="secondary">Shuffle: {previewAsset?.shuffle_questions ? 'Yes' : 'No'}</Badge>
+                <Badge variant="secondary">{previewQuestions.length} question{previewQuestions.length === 1 ? '' : 's'}</Badge>
+              </div>
+              {previewQuestions.length === 0 ? (
+                <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+                  No questions added.
+                </p>
+              ) : (
+                <ol className="space-y-3">
+                  {previewQuestions.map((q, idx) => {
+                    const correct = asString(q.correct_answer).toUpperCase();
+                    return (
+                      <li key={idx} className="rounded border p-3">
+                        <div className="mb-2 text-sm font-semibold">Q{idx + 1}. {asString(q.question)}</div>
+                        <ul className="space-y-1">
+                          {(['A', 'B', 'C', 'D'] as CorrectAnswer[]).map((letter) => {
+                            const key = `option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d';
+                            const text = asString(q[key]);
+                            if (!text) return null;
+                            const isCorrect = letter === correct;
+                            return (
+                              <li key={letter} className={`flex items-start gap-2 text-sm ${isCorrect ? 'text-green-700' : ''}`}>
+                                {isCorrect ? <Check className="mt-0.5 h-4 w-4" /> : <span className="w-4" />}
+                                <span className="w-4 font-semibold">{letter}.</span>
+                                <span>{text}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

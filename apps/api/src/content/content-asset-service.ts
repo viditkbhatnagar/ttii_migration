@@ -1,16 +1,24 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, content_asset, quiz_question } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 
-// The content_asset and lesson_content tables are not present in the
-// production MySQL schema. Production uses lesson_files directly for
-// per-lesson media. The service is retained as a stub so routes
-// compile; a later session will either rewire the routes or introduce
-// content_asset/lesson_content tables.
+export type QuizQuestionInput = {
+  id?: string | undefined;
+  question: string;
+  option_a?: string | undefined;
+  option_b?: string | undefined;
+  option_c?: string | undefined;
+  option_d?: string | undefined;
+  correct_answer: string;
+  sort_order?: number | undefined;
+};
 
 export type ContentAssetInput = {
   title: string;
   summary?: string | undefined;
   asset_type: string;
+  subject_tag?: string | undefined;
+  lesson_tag?: string | undefined;
+  language?: string | undefined;
   duration?: string | undefined;
   provider?: string | undefined;
   video_url?: string | undefined;
@@ -19,7 +27,93 @@ export type ContentAssetInput = {
   audio_file?: string | undefined;
   thumbnail?: string | undefined;
   tags?: string | undefined;
+  time_limit_seconds?: number | undefined;
+  attempts_allowed?: number | undefined;
+  pass_marks?: number | undefined;
+  shuffle_questions?: boolean | undefined;
+  questions?: QuizQuestionInput[] | undefined;
 };
+
+export type ContentAssetFilters = {
+  assetType?: string;
+  search?: string;
+  subjectTag?: string;
+  lessonTag?: string;
+  language?: string;
+};
+
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function serializeQuestion(row: quiz_question): Record<string, unknown> {
+  return {
+    id: String(row.id),
+    asset_id: String(row.asset_id),
+    question: row.question,
+    option_a: row.option_a ?? '',
+    option_b: row.option_b ?? '',
+    option_c: row.option_c ?? '',
+    option_d: row.option_d ?? '',
+    correct_answer: row.correct_answer,
+    sort_order: row.sort_order ?? 0,
+  };
+}
+
+function serializeAsset(
+  row: content_asset,
+  extras: {
+    question_count?: number | undefined;
+    questions?: Record<string, unknown>[] | undefined;
+    created_by_name?: string | undefined;
+  } = {},
+): Record<string, unknown> {
+  const { question_count, questions, created_by_name } = extras;
+  const out: Record<string, unknown> = {
+    id: String(row.id),
+    content_id: `CA-${String(row.id).padStart(5, '0')}`,
+    title: row.title,
+    summary: row.summary ?? '',
+    asset_type: row.asset_type,
+    subject_tag: row.subject_tag ?? '',
+    lesson_tag: row.lesson_tag ?? '',
+    language: row.language ?? '',
+    duration: row.duration ?? '',
+    provider: row.provider ?? '',
+    video_url: row.video_url ?? '',
+    download_url: row.download_url ?? '',
+    attachment: row.attachment ?? '',
+    audio_file: row.audio_file ?? '',
+    thumbnail: row.thumbnail ?? '',
+    tags: row.tags ?? '',
+    time_limit_seconds: row.time_limit_seconds ?? null,
+    attempts_allowed: row.attempts_allowed ?? null,
+    pass_marks: row.pass_marks ?? null,
+    shuffle_questions: Boolean(row.shuffle_questions),
+    created_by: row.created_by,
+    created_by_name: created_by_name ?? '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+  if (question_count !== undefined) out.question_count = question_count;
+  if (questions !== undefined) out.questions = questions;
+  return out;
+}
+
+function normalizeCorrectAnswer(v: string): string {
+  const upper = (v || '').toUpperCase();
+  return ['A', 'B', 'C', 'D'].includes(upper) ? upper : 'A';
+}
 
 export class ContentAssetService {
   private prisma: PrismaClient;
@@ -28,37 +122,192 @@ export class ContentAssetService {
     this.prisma = getPrismaClient();
   }
 
-  listAssets(_filters?: {
-    assetType?: string;
-    search?: string;
-  }): Promise<Record<string, unknown>[]> {
-    return Promise.resolve([]);
+  async listAssets(filters?: ContentAssetFilters): Promise<Record<string, unknown>[]> {
+    const where: Record<string, unknown> = { deleted_at: null };
+    if (filters?.assetType) where.asset_type = filters.assetType;
+    if (filters?.subjectTag) where.subject_tag = filters.subjectTag;
+    if (filters?.lessonTag) where.lesson_tag = filters.lessonTag;
+    if (filters?.language) where.language = filters.language;
+    if (filters?.search) where.title = { contains: filters.search };
+
+    const rows = await this.prisma.content_asset.findMany({
+      where,
+      orderBy: { id: 'desc' },
+    });
+    if (rows.length === 0) return [];
+
+    const quizIds = rows.filter((r) => r.asset_type === 'quiz').map((r) => r.id);
+    const userIds = Array.from(
+      new Set(rows.map((r) => r.created_by).filter((v): v is number => typeof v === 'number')),
+    );
+
+    const [questionCounts, users] = await Promise.all([
+      quizIds.length
+        ? this.prisma.quiz_question.groupBy({
+            by: ['asset_id'],
+            where: { asset_id: { in: quizIds } },
+            _count: { id: true },
+          })
+        : Promise.resolve([] as { asset_id: number; _count: { id: number } }[]),
+      userIds.length
+        ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+        : Promise.resolve([] as { id: number; name: string | null }[]),
+    ]);
+
+    const questionCountMap = new Map<number, number>();
+    for (const q of questionCounts) questionCountMap.set(q.asset_id, q._count.id);
+    const userMap = new Map<number, string>();
+    for (const u of users) userMap.set(u.id, u.name ?? '');
+
+    return rows.map((r) =>
+      serializeAsset(r, {
+        question_count: r.asset_type === 'quiz' ? questionCountMap.get(r.id) ?? 0 : undefined,
+        created_by_name: r.created_by ? userMap.get(r.created_by) ?? '' : '',
+      }),
+    );
   }
 
-  getAsset(_assetId: string): Promise<Record<string, unknown> | null> {
-    return Promise.resolve(null);
+  async getAsset(assetId: string): Promise<Record<string, unknown> | null> {
+    const id = toIntId(assetId);
+    if (!id) return null;
+    const row = await this.prisma.content_asset.findFirst({ where: { id, deleted_at: null } });
+    if (!row) return null;
+    let questions: Record<string, unknown>[] = [];
+    if (row.asset_type === 'quiz') {
+      const qs = await this.prisma.quiz_question.findMany({
+        where: { asset_id: id },
+        orderBy: { sort_order: 'asc' },
+      });
+      questions = qs.map(serializeQuestion);
+    }
+    const createdByName = row.created_by
+      ? (await this.prisma.users.findFirst({ where: { id: row.created_by }, select: { name: true } }))?.name ?? ''
+      : '';
+    return serializeAsset(row, {
+      questions,
+      question_count: questions.length,
+      created_by_name: createdByName,
+    });
   }
 
-  createAsset(
-    _actorUserId: string,
-    _input: ContentAssetInput,
-  ): Promise<Record<string, unknown>> {
-    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
+  async createAsset(actorUserId: string, input: ContentAssetInput): Promise<Record<string, unknown>> {
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    const created = await this.prisma.$transaction(async (tx) => {
+      const asset = await tx.content_asset.create({
+        data: {
+          title: input.title,
+          summary: input.summary ?? null,
+          asset_type: input.asset_type,
+          subject_tag: input.subject_tag ?? null,
+          lesson_tag: input.lesson_tag ?? null,
+          language: input.language ?? null,
+          duration: input.duration ?? null,
+          provider: input.provider ?? null,
+          video_url: input.video_url ?? null,
+          download_url: input.download_url ?? null,
+          attachment: input.attachment ?? null,
+          audio_file: input.audio_file ?? null,
+          thumbnail: input.thumbnail ?? null,
+          tags: input.tags ?? null,
+          time_limit_seconds: input.time_limit_seconds ?? null,
+          attempts_allowed: input.attempts_allowed ?? null,
+          pass_marks: input.pass_marks ?? null,
+          shuffle_questions: input.shuffle_questions ? 1 : 0,
+          created_by: actor,
+          updated_by: actor,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+      if (input.asset_type === 'quiz' && input.questions && input.questions.length > 0) {
+        await tx.quiz_question.createMany({
+          data: input.questions.map((q, idx) => ({
+            asset_id: asset.id,
+            question: q.question,
+            option_a: q.option_a ?? null,
+            option_b: q.option_b ?? null,
+            option_c: q.option_c ?? null,
+            option_d: q.option_d ?? null,
+            correct_answer: normalizeCorrectAnswer(q.correct_answer),
+            sort_order: q.sort_order ?? idx,
+            created_at: now,
+            updated_at: now,
+          })),
+        });
+      }
+      return asset;
+    });
+    return serializeAsset(created);
   }
 
-  updateAsset(
-    _actorUserId: string,
-    _assetId: string,
-    _input: ContentAssetInput,
-  ): Promise<void> {
-    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
+  async updateAsset(actorUserId: string, assetId: string, input: ContentAssetInput): Promise<void> {
+    const id = toIntId(assetId);
+    if (!id) throw new Error('Invalid asset id');
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.content_asset.update({
+        where: { id },
+        data: {
+          title: input.title,
+          summary: input.summary ?? null,
+          asset_type: input.asset_type,
+          subject_tag: input.subject_tag ?? null,
+          lesson_tag: input.lesson_tag ?? null,
+          language: input.language ?? null,
+          duration: input.duration ?? null,
+          provider: input.provider ?? null,
+          video_url: input.video_url ?? null,
+          download_url: input.download_url ?? null,
+          attachment: input.attachment ?? null,
+          audio_file: input.audio_file ?? null,
+          thumbnail: input.thumbnail ?? null,
+          tags: input.tags ?? null,
+          time_limit_seconds: input.time_limit_seconds ?? null,
+          attempts_allowed: input.attempts_allowed ?? null,
+          pass_marks: input.pass_marks ?? null,
+          shuffle_questions: input.shuffle_questions ? 1 : 0,
+          updated_by: actor,
+          updated_at: now,
+        },
+      });
+      if (input.asset_type === 'quiz' && input.questions) {
+        await tx.quiz_question.deleteMany({ where: { asset_id: id } });
+        if (input.questions.length > 0) {
+          await tx.quiz_question.createMany({
+            data: input.questions.map((q, idx) => ({
+              asset_id: id,
+              question: q.question,
+              option_a: q.option_a ?? null,
+              option_b: q.option_b ?? null,
+              option_c: q.option_c ?? null,
+              option_d: q.option_d ?? null,
+              correct_answer: normalizeCorrectAnswer(q.correct_answer),
+              sort_order: q.sort_order ?? idx,
+              created_at: now,
+              updated_at: now,
+            })),
+          });
+        }
+      }
+    });
   }
 
-  deleteAsset(_actorUserId: string, _assetId: string): Promise<void> {
-    return Promise.reject(new Error('content_asset table not present in MySQL schema'));
+  async deleteAsset(actorUserId: string, assetId: string): Promise<void> {
+    const id = toIntId(assetId);
+    if (!id) throw new Error('Invalid asset id');
+    await this.prisma.content_asset.update({
+      where: { id },
+      data: {
+        deleted_at: new Date(),
+        deleted_by: toNullableIntId(actorUserId),
+      },
+    });
   }
 
   listLessonAssets(_lessonId: string): Promise<Record<string, unknown>[]> {
+    // lesson_content table not created in this session — returns empty.
     return Promise.resolve([]);
   }
 

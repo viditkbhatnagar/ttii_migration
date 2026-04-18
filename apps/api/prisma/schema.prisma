@@ -2272,6 +2272,53 @@ model certificate_templates {
   deleted_at  DateTime? @db.DateTime(0)
 }
 
+model content_asset {
+  id                 Int       @id @default(autoincrement()) @db.UnsignedInt
+  title              String    @db.VarChar(255)
+  summary            String?   @db.Text
+  asset_type         String    @db.VarChar(30)
+  subject_tag        String?   @db.VarChar(100)
+  lesson_tag         String?   @db.VarChar(100)
+  language           String?   @db.VarChar(50)
+  duration           String?   @db.VarChar(30)
+  provider           String?   @db.VarChar(30)
+  video_url          String?   @db.VarChar(500)
+  download_url       String?   @db.VarChar(500)
+  attachment         String?   @db.VarChar(500)
+  audio_file         String?   @db.VarChar(500)
+  thumbnail          String?   @db.VarChar(500)
+  tags               String?   @db.VarChar(500)
+  time_limit_seconds Int?
+  attempts_allowed   Int?
+  pass_marks         Int?
+  shuffle_questions  Int?      @default(0) @db.TinyInt
+  created_by         Int?
+  updated_by         Int?
+  deleted_by         Int?
+  created_at         DateTime? @default(now()) @db.DateTime(0)
+  updated_at         DateTime? @default(now()) @db.DateTime(0)
+  deleted_at         DateTime? @db.DateTime(0)
+
+  @@index([asset_type])
+  @@index([subject_tag])
+}
+
+model quiz_question {
+  id             Int       @id @default(autoincrement()) @db.UnsignedInt
+  asset_id       Int       @db.UnsignedInt
+  question       String    @db.Text
+  option_a       String?   @db.Text
+  option_b       String?   @db.Text
+  option_c       String?   @db.Text
+  option_d       String?   @db.Text
+  correct_answer String    @db.VarChar(1)
+  sort_order     Int?      @default(0)
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  updated_at     DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([asset_id])
+}
+
 model cohort_offerings {
   cohort_id   Int
   offering_id Int
