@@ -308,6 +308,23 @@ export type AdminSubjectInput = {
   description?: string | undefined;
   order?: number | undefined;
   subject_id?: string | undefined; // for linking existing subject to course
+  // QA Correction2 additions
+  subject_code?: string | undefined;
+  short_name?: string | undefined;
+  subject_type?: string | undefined;  // 'core' | 'elective'
+  duration_hours?: number | undefined;
+  version?: string | undefined;
+  learning_outcomes?: string | undefined;
+  skills_covered?: string | undefined;
+  assignment_max_marks?: number | undefined;
+  assignment_pass_marks?: number | undefined;
+  examination_max_marks?: number | undefined;
+  examination_pass_marks?: number | undefined;
+  project_max_marks?: number | undefined;
+  project_pass_marks?: number | undefined;
+  viva_max_marks?: number | undefined;
+  viva_pass_marks?: number | undefined;
+  status?: string | undefined; // 'draft' | 'active' | 'archived'
 };
 
 export type AdminLessonInput = {
@@ -2093,10 +2110,27 @@ export class ContentService {
     return subjects.map((s) => ({
       id: s.id,
       title: s.title,
+      subject_code: s.subject_code ?? '',
+      short_name: s.short_name ?? '',
+      subject_type: s.subject_type ?? '',
+      duration_hours: s.duration_hours ?? null,
+      version: s.version ?? '',
       description: s.description ?? '',
+      learning_outcomes: s.learning_outcomes ?? '',
+      skills_covered: s.skills_covered ?? '',
+      assignment_max_marks: s.assignment_max_marks ?? null,
+      assignment_pass_marks: s.assignment_pass_marks ?? null,
+      examination_max_marks: s.examination_max_marks ?? null,
+      examination_pass_marks: s.examination_pass_marks ?? null,
+      project_max_marks: s.project_max_marks ?? null,
+      project_pass_marks: s.project_pass_marks ?? null,
+      viva_max_marks: s.viva_max_marks ?? null,
+      viva_pass_marks: s.viva_pass_marks ?? null,
+      status: s.status ?? 'draft',
       thumbnail: this.toFileUrl(s.thumbnail),
       order: s.order ?? 0,
       lesson_count: lessonCountMap.get(s.id) ?? 0,
+      total_lessons: lessonCountMap.get(s.id) ?? 0, // QA spec alias
       course_count: 1, // single-owner model in MySQL (no M:N reuse)
     }));
   }
@@ -2128,7 +2162,23 @@ export class ContentService {
       data: {
         course_id: courseIdInt,
         title: input.title,
+        subject_code: toNullableString(input.subject_code),
+        short_name: toNullableString(input.short_name),
+        subject_type: toNullableString(input.subject_type),
+        duration_hours: input.duration_hours ?? null,
+        version: toNullableString(input.version),
         description: toNullableString(input.description),
+        learning_outcomes: toNullableString(input.learning_outcomes),
+        skills_covered: toNullableString(input.skills_covered),
+        assignment_max_marks: input.assignment_max_marks ?? null,
+        assignment_pass_marks: input.assignment_pass_marks ?? null,
+        examination_max_marks: input.examination_max_marks ?? null,
+        examination_pass_marks: input.examination_pass_marks ?? null,
+        project_max_marks: input.project_max_marks ?? null,
+        project_pass_marks: input.project_pass_marks ?? null,
+        viva_max_marks: input.viva_max_marks ?? null,
+        viva_pass_marks: input.viva_pass_marks ?? null,
+        status: input.status ?? 'draft',
         order: nextOrder,
         free: 'off',
         created_by: toNullableIntId(actorUserId),
@@ -2173,7 +2223,23 @@ export class ContentService {
       where: { id: toIntId(subjectId) },
       data: {
         title: input.title,
+        subject_code: toNullableString(input.subject_code),
+        short_name: toNullableString(input.short_name),
+        subject_type: toNullableString(input.subject_type),
+        duration_hours: input.duration_hours ?? null,
+        version: toNullableString(input.version),
         description: toNullableString(input.description),
+        learning_outcomes: toNullableString(input.learning_outcomes),
+        skills_covered: toNullableString(input.skills_covered),
+        assignment_max_marks: input.assignment_max_marks ?? null,
+        assignment_pass_marks: input.assignment_pass_marks ?? null,
+        examination_max_marks: input.examination_max_marks ?? null,
+        examination_pass_marks: input.examination_pass_marks ?? null,
+        project_max_marks: input.project_max_marks ?? null,
+        project_pass_marks: input.project_pass_marks ?? null,
+        viva_max_marks: input.viva_max_marks ?? null,
+        viva_pass_marks: input.viva_pass_marks ?? null,
+        ...(input.status ? { status: input.status } : {}),
         ...(input.order != null ? { order: input.order } : {}),
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),

@@ -1803,24 +1803,40 @@ model students {
 }
 
 model subject {
-  id                Int       @id @default(autoincrement())
-  title             String?   @db.VarChar(255)
-  description       String?   @db.MediumText
-  course_id         Int?
-  order             Int       @default(0)
-  thumbnail         String?   @db.VarChar(500)
-  background        String?   @db.VarChar(500)
-  icon              String?   @db.VarChar(500)
-  free              String    @db.VarChar(10)
-  master_subject_id Int?
-  created_on        Int?
-  updated_on        Int?
-  created_by        Int?
-  updated_by        Int?
-  deleted_by        Int?
-  created_at        DateTime? @db.DateTime(0)
-  updated_at        DateTime? @db.DateTime(0)
-  deleted_at        DateTime? @db.DateTime(0)
+  id                     Int       @id @default(autoincrement())
+  title                  String?   @db.VarChar(255)
+  subject_code           String?   @db.VarChar(50)
+  short_name             String?   @db.VarChar(100)
+  subject_type           String?   @db.VarChar(20)
+  duration_hours         Int?
+  version                String?   @db.VarChar(20)
+  description            String?   @db.MediumText
+  learning_outcomes      String?   @db.Text
+  skills_covered         String?   @db.Text
+  assignment_max_marks   Int?
+  assignment_pass_marks  Int?
+  examination_max_marks  Int?
+  examination_pass_marks Int?
+  project_max_marks      Int?
+  project_pass_marks     Int?
+  viva_max_marks         Int?
+  viva_pass_marks        Int?
+  status                 String?   @default("draft") @db.VarChar(20)
+  course_id              Int?
+  order                  Int       @default(0)
+  thumbnail              String?   @db.VarChar(500)
+  background             String?   @db.VarChar(500)
+  icon                   String?   @db.VarChar(500)
+  free                   String    @db.VarChar(10)
+  master_subject_id      Int?
+  created_on             Int?
+  updated_on             Int?
+  created_by             Int?
+  updated_by             Int?
+  deleted_by             Int?
+  created_at             DateTime? @db.DateTime(0)
+  updated_at             DateTime? @db.DateTime(0)
+  deleted_at             DateTime? @db.DateTime(0)
 
   @@index([master_subject_id], map: "idx_master_subject_id")
 }
