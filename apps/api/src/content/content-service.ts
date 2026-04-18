@@ -280,6 +280,7 @@ export interface SaveMaterialProgressInput {
 
 export type AdminCourseInput = {
   title: string;
+  course_code?: string | undefined;
   short_name?: string | undefined;
   category_id?: string | undefined;
   description?: string | undefined;
@@ -292,6 +293,13 @@ export type AdminCourseInput = {
   label?: string | undefined;
   status?: string | undefined;
   visibility?: string | undefined;
+  // QA Correction2 additions — map to existing + new course columns.
+  level?: string | undefined;
+  version?: string | undefined;
+  total_learning_hours?: number | undefined;
+  outcomes?: string | undefined;        // learning outcomes
+  requirements?: string | undefined;    // prerequisites
+  language?: string | undefined;
 };
 
 export type AdminSubjectInput = {
@@ -1925,6 +1933,7 @@ export class ContentService {
     return courses.map((course) => ({
       id: course.id,
       title: course.title,
+      course_code: course.course_code ?? '',
       short_name: course.short_name ?? '',
       category_id: course.category_id ?? '',
       category_name: course.category_id !== null ? (categoryMap.get(course.category_id) ?? '') : '',
@@ -1932,6 +1941,10 @@ export class ContentService {
       price: course.price ?? 0,
       sale_price: course.sale_price ?? 0,
       duration: course.duration ?? '',
+      level: course.level ?? '',
+      version: course.version ?? '',
+      total_learning_hours: course.total_learning_hours ?? null,
+      language: course.language ?? '',
       is_free_course: course.is_free_course,
       thumbnail: this.toFileUrl(course.thumbnail),
       subject_count: subjectCountMap.get(course.id) ?? 0,
@@ -1953,6 +1966,7 @@ export class ContentService {
     return {
       id: course.id,
       title: course.title,
+      course_code: course.course_code ?? '',
       short_name: course.short_name ?? '',
       label: course.label ?? '',
       category_id: course.category_id ?? '',
@@ -1962,6 +1976,12 @@ export class ContentService {
       total_amount: course.total_amount ?? 0,
       description: course.description ?? '',
       duration: course.duration ?? '',
+      level: course.level ?? '',
+      version: course.version ?? '',
+      total_learning_hours: course.total_learning_hours ?? null,
+      outcomes: course.outcomes ?? '',
+      requirements: course.requirements ?? '',
+      language: course.language ?? '',
       thumbnail: this.toFileUrl(course.thumbnail),
       course_icon: this.toFileUrl(course.course_icon),
       features: course.features ?? '',
@@ -1975,10 +1995,17 @@ export class ContentService {
     const course = await this.prisma.course.create({
       data: {
         title: input.title,
+        course_code: toNullableString(input.course_code),
         short_name: toNullableString(input.short_name),
         category_id: toNullableIntId(input.category_id),
         description: toNullableString(input.description),
         duration: toNullableString(input.duration),
+        level: toNullableString(input.level),
+        version: toNullableString(input.version),
+        total_learning_hours: input.total_learning_hours ?? null,
+        outcomes: toNullableString(input.outcomes),
+        requirements: toNullableString(input.requirements),
+        language: toNullableString(input.language),
         thumbnail: toNullableString(input.thumbnail),
         is_free_course: input.is_free_course ? 1 : 0,
         price: input.price ?? null,
@@ -2003,10 +2030,17 @@ export class ContentService {
       where: { id: toIntId(courseId) },
       data: {
         title: input.title,
+        course_code: toNullableString(input.course_code),
         short_name: toNullableString(input.short_name),
         category_id: toNullableIntId(input.category_id),
         description: toNullableString(input.description),
         duration: toNullableString(input.duration),
+        level: toNullableString(input.level),
+        version: toNullableString(input.version),
+        total_learning_hours: input.total_learning_hours ?? null,
+        outcomes: toNullableString(input.outcomes),
+        requirements: toNullableString(input.requirements),
+        language: toNullableString(input.language),
         thumbnail: toNullableString(input.thumbnail),
         is_free_course: input.is_free_course ? 1 : 0,
         price: input.price ?? null,

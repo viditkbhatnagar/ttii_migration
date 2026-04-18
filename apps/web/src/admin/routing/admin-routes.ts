@@ -54,6 +54,7 @@ const CompletionPoliciesPage = lazy(() => import('../pages/certificates/Completi
 const CertificatesPage = lazy(() => import('../pages/certificates/CertificatesPage.js'));
 const CourseDirectoryPage = lazy(() => import('../pages/course/CourseDirectoryPage.js'));
 const AddCoursePage = lazy(() => import('../pages/course/AddCoursePage.js'));
+const ViewCoursePage = lazy(() => import('../pages/course/ViewCoursePage.js'));
 const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
 const AddLessonPage = lazy(() => import('../pages/course_new/AddLessonPage.js'));
 const AppVersionPage = lazy(() => import('../pages/settings/AppVersionPage.js'));
@@ -159,6 +160,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/course/index', aliases: ['/admin/course'], pageComponent: CourseDirectoryPage, title: 'Course Directory' },
   { path: '/admin/course/add', pageComponent: AddCoursePage, title: 'Add Course' },
   { path: '/admin/course/edit/:id', pageComponent: AddCoursePage, title: 'Edit Course' },
+  { path: '/admin/course/view/:id', pageComponent: ViewCoursePage, title: 'View Course' },
   { path: '/admin/course/subjects/:id', pageComponent: CourseSubjectsPage, title: 'Course Subjects' },
   { path: '/admin/course_new/index', aliases: ['/admin/course_new'], pageComponent: AddLessonPage, title: 'Add Lesson' },
 

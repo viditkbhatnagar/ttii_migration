@@ -1,0 +1,125 @@
+import { useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { PageLoader } from '@/components/ui/page-loader';
+import type { AdminPageProps } from '../../routing/admin-routes.js';
+import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
+import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
+import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1">
+      <p className="text-xs uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="text-sm text-gray-900">{value || <span className="text-gray-400">—</span>}</p>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+export default function ViewCoursePage({ api, session, onNavigate }: AdminPageProps) {
+  const courseId = useMemo(() => {
+    const match = window.location.pathname.match(/\/admin\/course\/view\/(.+)/);
+    return match?.[1] ?? '';
+  }, []);
+
+  const { data, loading, error } = useAdminPageData(
+    () => (courseId ? api.getCourse(session.token, courseId) : Promise.resolve(null)),
+    [courseId],
+  );
+
+  if (loading) return <PageLoader label="Loading course..." />;
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+      </Card>
+    );
+  }
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-gray-600">Course not found.</CardContent>
+      </Card>
+    );
+  }
+
+  const c = data;
+  const totalHours = asNumber(c.total_learning_hours);
+  const price = asNumber(c.price);
+  const salePrice = asNumber(c.sale_price);
+
+  return (
+    <div className="space-y-4">
+      <AdminPageHeader title="View Course">
+        <Button variant="outline" onClick={() => onNavigate('/admin/course/index')}>
+          Back to list
+        </Button>
+        <Button
+          className="bg-ttii-primary hover:bg-ttii-primary/90"
+          onClick={() => onNavigate(`/admin/course/edit/${courseId}`)}
+        >
+          Edit Course
+        </Button>
+      </AdminPageHeader>
+
+      <Section title={asString(c.title) || 'Course'}>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="Course Code" value={asString(c.course_code)} />
+          <Field label="Short Name" value={asString(c.short_name)} />
+          <div className="grid gap-1">
+            <p className="text-xs uppercase tracking-wide text-gray-500">Status</p>
+            <div>
+              <AdminStatusBadge status={asString(c.status) || 'draft'} />
+            </div>
+          </div>
+          <Field label="Course Level" value={asString(c.level)} />
+          <Field label="Course Version" value={asString(c.version)} />
+          <Field label="Course Duration" value={asString(c.duration)} />
+          <Field label="Total Learning Hours" value={totalHours ? String(totalHours) : ''} />
+          <Field label="Language" value={asString(c.language)} />
+          <Field label="Pricing" value={asString(c.is_free_course) === '1' || c.is_free_course === true ? 'Free' : `Paid — ₹${price}${salePrice ? ` (sale ₹${salePrice})` : ''}`} />
+        </div>
+      </Section>
+
+      <Section title="Description">
+        <div className="prose max-w-none text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: asString(c.description) || '<em>No description</em>' }} />
+      </Section>
+
+      {asString(c.outcomes).trim() && (
+        <Section title="Learning Outcome">
+          <p className="whitespace-pre-line text-sm text-gray-800">{asString(c.outcomes)}</p>
+        </Section>
+      )}
+
+      {asString(c.features).trim() && (
+        <Section title="Who Should Enroll">
+          <p className="whitespace-pre-line text-sm text-gray-800">{asString(c.features)}</p>
+        </Section>
+      )}
+
+      {asString(c.requirements).trim() && (
+        <Section title="Prerequisites">
+          <p className="whitespace-pre-line text-sm text-gray-800">{asString(c.requirements)}</p>
+        </Section>
+      )}
+
+      {asString(c.thumbnail) && (
+        <Section title="Thumbnail">
+          <img src={asString(c.thumbnail)} alt="Course thumbnail" className="max-h-60 rounded-md border border-gray-200" />
+        </Section>
+      )}
+    </div>
+  );
+}

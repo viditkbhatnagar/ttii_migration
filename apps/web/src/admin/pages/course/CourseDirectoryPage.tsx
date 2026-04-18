@@ -26,23 +26,23 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
 
   const columns: DataTableColumn[] = useMemo(
     () => [
+      { key: 'course_code', label: 'Course Code', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'title',
-        label: 'Title',
+        label: 'Course Title',
         sortable: true,
         render: (value, row) => (
           <button
             type="button"
             className="text-left font-medium text-blue-700 hover:underline"
-            onClick={() => onNavigate(`/admin/course/subjects/${asString(row.id)}`)}
+            onClick={() => onNavigate(`/admin/course/view/${asString(row.id)}`)}
           >
             {asString(value)}
           </button>
         ),
       },
-      { key: 'category_name', label: 'Category', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'subject_count', label: 'Subjects', sortable: true, render: (v) => String(Number(v) || 0) },
-      { key: 'enrolled_students', label: 'Enrolled Students', sortable: true, render: (v) => String(Number(v) || 0) },
+      { key: 'level', label: 'Course Level', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'duration', label: 'Course Duration', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'status',
         label: 'Status',
@@ -75,21 +75,27 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
   const actions: DataTableAction[] = useMemo(
     () => [
       {
+        label: 'View',
+        onClick: (row) => onNavigate(`/admin/course/view/${asString(row.id)}`),
+      },
+      {
         label: 'Edit',
-        onClick: (row) => onNavigate(`/admin/course/add/${asString(row.id)}`),
+        onClick: (row) => onNavigate(`/admin/course/edit/${asString(row.id)}`),
       },
       {
         label: 'Archive Course',
         variant: 'destructive',
-        onClick: async (row) => {
+        onClick: (row) => {
           const id = asString(row.id);
           if (!window.confirm(`Archive course "${asString(row.title)}"?`)) return;
-          try {
-            await api.archiveCourse(session.token, id);
-            reload();
-          } catch (err) {
-            alert(err instanceof Error ? err.message : 'Failed to archive course');
-          }
+          void (async () => {
+            try {
+              await api.archiveCourse(session.token, id);
+              reload();
+            } catch (err) {
+              alert(err instanceof Error ? err.message : 'Failed to archive course');
+            }
+          })();
         },
       },
     ],

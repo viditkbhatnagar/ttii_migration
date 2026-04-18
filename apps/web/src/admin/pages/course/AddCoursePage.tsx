@@ -15,10 +15,17 @@ const textareaClass = 'flex min-h-[100px] w-full rounded-md border border-input 
 
 interface FormState {
   title: string;
+  course_code: string;
   short_name: string;
   category_id: string;
   duration: string;
+  total_learning_hours: string;
+  level: string;
+  version: string;
+  language: string;
   description: string;
+  outcomes: string;
+  requirements: string;
   thumbnail: string;
   is_free_course: string;
   is_cohort_course: string;
@@ -33,10 +40,17 @@ interface FormState {
 
 const emptyForm: FormState = {
   title: '',
+  course_code: '',
   short_name: '',
   category_id: '',
   duration: '',
+  total_learning_hours: '',
+  level: '',
+  version: '',
+  language: '',
   description: '',
+  outcomes: '',
+  requirements: '',
   thumbnail: '',
   is_free_course: 'free',
   is_cohort_course: 'cohort',
@@ -84,10 +98,17 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     const isPublic = c.is_public === true || c.is_public === 1 || asString(c.is_public) === '1' || asString(c.visibility) === 'public';
     setForm({
       title: asString(c.title),
+      course_code: asString(c.course_code),
       short_name: asString(c.short_name),
       category_id: asString(c.category_id),
       duration: asString(c.duration),
+      total_learning_hours: asString(c.total_learning_hours),
+      level: asString(c.level),
+      version: asString(c.version),
+      language: asString(c.language),
       description: asString(c.description),
+      outcomes: asString(c.outcomes),
+      requirements: asString(c.requirements),
       thumbnail: asString(c.thumbnail),
       is_free_course: isFree ? 'free' : 'paid',
       is_cohort_course: isCohort ? 'cohort' : 'non_cohort',
@@ -115,10 +136,17 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     try {
       const payload: Record<string, unknown> = {
         title: form.title.trim(),
+        course_code: form.course_code.trim(),
         short_name: form.short_name.trim(),
         category_id: form.category_id || null,
         duration: form.duration.trim(),
+        total_learning_hours: form.total_learning_hours ? Number(form.total_learning_hours) : null,
+        level: form.level.trim(),
+        version: form.version.trim(),
+        language: form.language.trim(),
         description: form.description.trim(),
+        outcomes: form.outcomes.trim(),
+        requirements: form.requirements.trim(),
         thumbnail: form.thumbnail.trim(),
         is_free_course: form.is_free_course === 'free',
         is_cohort_course: form.is_cohort_course === 'cohort',
@@ -176,12 +204,32 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
           {/* Basic Info */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
+              <Label>Course Code</Label>
+              <Input value={form.course_code} onChange={(e) => set('course_code', e.target.value)} placeholder="e.g. PGDTT-001" />
+            </div>
+            <div className="grid gap-2">
               <Label>Course Title *</Label>
               <Input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Enter course title" />
             </div>
             <div className="grid gap-2">
               <Label>Course Short Name *</Label>
               <Input value={form.short_name} onChange={(e) => set('short_name', e.target.value)} placeholder="e.g. PGDM" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Course Level</Label>
+              <select className={selectClass} value={form.level} onChange={(e) => set('level', e.target.value)}>
+                <option value="">Select Level</option>
+                <option value="Certificate">Certificate</option>
+                <option value="Diploma">Diploma</option>
+                <option value="PG Diploma">PG Diploma</option>
+                <option value="Beginner">Beginner</option>
+                <option value="Intermediate">Intermediate</option>
+                <option value="Advanced">Advanced</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Course Version</Label>
+              <Input value={form.version} onChange={(e) => set('version', e.target.value)} placeholder="e.g. 1.0" />
             </div>
             <div className="grid gap-2">
               <Label>Course Category *</Label>
@@ -193,8 +241,24 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               </select>
             </div>
             <div className="grid gap-2">
-              <Label>Course duration *</Label>
+              <Label>Course Duration *</Label>
               <Input value={form.duration} onChange={(e) => set('duration', e.target.value)} placeholder="e.g. 1 Year" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Total Learning Hours</Label>
+              <Input type="number" min="0" value={form.total_learning_hours} onChange={(e) => set('total_learning_hours', e.target.value)} placeholder="e.g. 120" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Language</Label>
+              <select className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
+                <option value="">Select Language</option>
+                <option value="English">English</option>
+                <option value="Hindi">Hindi</option>
+                <option value="Malayalam">Malayalam</option>
+                <option value="Tamil">Tamil</option>
+                <option value="Kannada">Kannada</option>
+                <option value="Telugu">Telugu</option>
+              </select>
             </div>
             <div className="grid gap-2 md:col-span-2">
               <Label>Course Description</Label>
@@ -207,12 +271,30 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               <p className="text-xs text-gray-500">Rich text description (supports HTML)</p>
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Who should enrol (points per line)</Label>
+              <Label>Learning Outcome</Label>
+              <textarea
+                className={textareaClass}
+                value={form.outcomes}
+                onChange={(e) => set('outcomes', e.target.value)}
+                placeholder="What learners will be able to do after completing this course"
+              />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Who Should Enroll (points per line)</Label>
               <textarea
                 className={textareaClass}
                 value={form.features}
                 onChange={(e) => set('features', e.target.value)}
                 placeholder="Enter one bullet point per line"
+              />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Prerequisites</Label>
+              <textarea
+                className={textareaClass}
+                value={form.requirements}
+                onChange={(e) => set('requirements', e.target.value)}
+                placeholder="Required prior qualifications or knowledge"
               />
             </div>
             <div className="grid gap-2 md:col-span-2">

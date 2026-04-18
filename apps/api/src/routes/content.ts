@@ -364,6 +364,7 @@ export function registerContentRoutes(
       const payload = requestPayload(request);
       const input: AdminCourseInput = {
         title: toStringValue(payload.title),
+        course_code: toStringValue(payload.course_code),
         short_name: toStringValue(payload.short_name),
         category_id: toStringValue(payload.category_id),
         description: toStringValue(payload.description),
@@ -376,6 +377,12 @@ export function registerContentRoutes(
         label: toStringValue(payload.label),
         status: toStringValue(payload.status) || 'active',
         visibility: toStringValue(payload.visibility) || 'public',
+        level: toStringValue(payload.level),
+        version: toStringValue(payload.version),
+        total_learning_hours: toNumber(payload.total_learning_hours),
+        outcomes: toStringValue(payload.outcomes),
+        requirements: toStringValue(payload.requirements),
+        language: toStringValue(payload.language),
       };
       const result = await contentService.createCourse(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Course created', data: result });
@@ -390,6 +397,7 @@ export function registerContentRoutes(
       const courseId = toStringValue(payload.id);
       const input: AdminCourseInput = {
         title: toStringValue(payload.title),
+        course_code: toStringValue(payload.course_code),
         short_name: toStringValue(payload.short_name),
         category_id: toStringValue(payload.category_id),
         description: toStringValue(payload.description),
@@ -402,6 +410,12 @@ export function registerContentRoutes(
         label: toStringValue(payload.label),
         status: toStringValue(payload.status) || 'active',
         visibility: toStringValue(payload.visibility) || 'public',
+        level: toStringValue(payload.level),
+        version: toStringValue(payload.version),
+        total_learning_hours: toNumber(payload.total_learning_hours),
+        outcomes: toStringValue(payload.outcomes),
+        requirements: toStringValue(payload.requirements),
+        language: toStringValue(payload.language),
       };
       const result = await contentService.updateCourse(requestUserId(request), courseId, input);
       reply.code(200).send({ status: 1, message: 'Course updated', data: result });

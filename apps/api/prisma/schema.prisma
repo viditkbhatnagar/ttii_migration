@@ -499,6 +499,7 @@ model coupon_code_new {
 model course {
   id                    Int       @id @default(autoincrement()) @db.UnsignedInt
   title                 String?   @db.VarChar(255)
+  course_code           String?   @db.VarChar(50)
   short_name            String?   @db.VarChar(255)
   label                 String?   @db.VarChar(260)
   status                String    @default("active") @db.VarChar(255)
@@ -519,6 +520,8 @@ model course {
   fee_structure         String?   @db.LongText
   total_amount          Int?
   level                 String?   @db.VarChar(50)
+  version               String?   @db.VarChar(20)
+  total_learning_hours  Int?
   discounted_price      Int?
   user_id               Int?
   thumbnail             String?   @db.VarChar(255)

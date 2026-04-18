@@ -12,6 +12,8 @@ pnpm-debug.log*
 apps/api/prisma/*.db
 apps/api/prisma/*.db-*
 *.sql
+# Exception: deploy/migrations are reviewed, committed SQL artifacts
+!deploy/migrations/*.sql
 
 # Local-only deploy docs — contain production secrets, NEVER commit
 DEPLOYMENT.local.md
