@@ -2234,3 +2234,76 @@ model otp_challenge {
   @@index([user_id, purpose, used_at])
   @@index([expires_at])
 }
+
+model completion_policies {
+  id                       Int       @id @default(autoincrement()) @db.UnsignedInt
+  title                    String    @db.VarChar(255)
+  course_id                Int?
+  offering_id              Int?
+  min_progress_pct         Int?
+  min_exam_score_pct       Int?
+  require_all_assignments  Int?      @default(0) @db.TinyInt
+  require_all_exams        Int?      @default(0) @db.TinyInt
+  min_attendance_pct       Int?
+  require_manual_approval  Int?      @default(0) @db.TinyInt
+  created_by               Int?
+  updated_by               Int?
+  deleted_by               Int?
+  created_at               DateTime? @default(now()) @db.DateTime(0)
+  updated_at               DateTime? @default(now()) @db.DateTime(0)
+  deleted_at               DateTime? @db.DateTime(0)
+
+  @@index([course_id])
+}
+
+model certificate_templates {
+  id          Int       @id @default(autoincrement()) @db.UnsignedInt
+  title       String    @db.VarChar(255)
+  description String?   @db.Text
+  template    String?   @db.VarChar(500)
+  signatory   String?   @db.VarChar(255)
+  course_id   Int?
+  program_id  Int?
+  created_by  Int?
+  updated_by  Int?
+  deleted_by  Int?
+  created_at  DateTime? @default(now()) @db.DateTime(0)
+  updated_at  DateTime? @default(now()) @db.DateTime(0)
+  deleted_at  DateTime? @db.DateTime(0)
+}
+
+model offerings {
+  id                       Int       @id @default(autoincrement()) @db.UnsignedInt
+  course_id                Int
+  title                    String?   @db.VarChar(255)
+  offering_code            String?   @db.VarChar(100)
+  delivery_mode            String    @default("cohort") @db.VarChar(30)
+  academic_year            String?   @db.VarChar(20)
+  start_date               DateTime? @db.Date
+  end_date                 DateTime? @db.Date
+  enrollment_start         DateTime? @db.Date
+  enrollment_end           DateTime? @db.Date
+  max_enrollment           Int?
+  pricing_amount           Decimal?  @db.Decimal(10, 2)
+  language_id              Int?
+  status                   String    @default("draft") @db.VarChar(30)
+  fee_category             String?   @default("paid") @db.VarChar(10)
+  base_fee                 Decimal?  @db.Decimal(10, 2)
+  discount                 Decimal?  @db.Decimal(10, 2)
+  offered_fee              Decimal?  @db.Decimal(10, 2)
+  course_expiry_days       Int?
+  content_release_strategy String?   @default("full") @db.VarChar(30)
+  completion_policy_id     Int?
+  certificate_template_id  Int?
+  publish_type             String?   @default("public") @db.VarChar(10)
+  created_by               Int?
+  updated_by               Int?
+  deleted_by               Int?
+  created_at               DateTime? @default(now()) @db.DateTime(0)
+  updated_at               DateTime? @default(now()) @db.DateTime(0)
+  deleted_at               DateTime? @db.DateTime(0)
+
+  @@index([course_id])
+  @@index([status])
+  @@index([delivery_mode])
+}

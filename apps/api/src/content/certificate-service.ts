@@ -1,10 +1,9 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, completion_policies, certificate_templates } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 
-// Certificates, certificate templates, and completion policies are not
-// present in the production MySQL schema. The service is retained as a
-// stub so routes compile; implementations will be wired in a later
-// session once a decision is made on certificate storage.
+// Completion policies and certificate templates are now backed by real
+// tables (session 11, phase H). `certificates` issuance is not yet backed
+// — kept as an empty list until a later session adds that table.
 
 export type CompletionPolicyInput = {
   title: string;
@@ -37,6 +36,49 @@ export type IssueCertificateInput = {
   result_snapshot?: string | undefined;
 };
 
+function toIntId(id: string | number | null | undefined): number {
+  if (typeof id === 'number') return id;
+  if (!id) return 0;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableIntId(id: string | number | null | undefined): number | null {
+  if (id === null || id === undefined || id === '') return null;
+  if (typeof id === 'number') return id;
+  const n = parseInt(String(id), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function serializePolicy(row: completion_policies): Record<string, unknown> {
+  return {
+    id: String(row.id),
+    title: row.title,
+    course_id: row.course_id ? String(row.course_id) : '',
+    offering_id: row.offering_id ? String(row.offering_id) : '',
+    min_progress_pct: row.min_progress_pct,
+    min_exam_score_pct: row.min_exam_score_pct,
+    require_all_assignments: row.require_all_assignments ?? 0,
+    require_all_exams: row.require_all_exams ?? 0,
+    min_attendance_pct: row.min_attendance_pct,
+    require_manual_approval: row.require_manual_approval ?? 0,
+    created_at: row.created_at,
+  };
+}
+
+function serializeTemplate(row: certificate_templates): Record<string, unknown> {
+  return {
+    id: String(row.id),
+    title: row.title,
+    description: row.description ?? '',
+    template: row.template ?? '',
+    signatory: row.signatory ?? '',
+    course_id: row.course_id ? String(row.course_id) : '',
+    program_id: row.program_id ? String(row.program_id) : '',
+    created_at: row.created_at,
+  };
+}
+
 export class CertificateService {
   private prisma: PrismaClient;
 
@@ -44,50 +86,124 @@ export class CertificateService {
     this.prisma = getPrismaClient();
   }
 
-  listPolicies(): Promise<Record<string, unknown>[]> {
-    return Promise.resolve([]);
+  async listPolicies(): Promise<Record<string, unknown>[]> {
+    const rows = await this.prisma.completion_policies.findMany({
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+    return rows.map(serializePolicy);
   }
 
-  createPolicy(
-    _actorUserId: string,
-    _input: CompletionPolicyInput,
-  ): Promise<Record<string, unknown>> {
-    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
+  async createPolicy(actorUserId: string, input: CompletionPolicyInput): Promise<Record<string, unknown>> {
+    const actor = toNullableIntId(actorUserId);
+    const created = await this.prisma.completion_policies.create({
+      data: {
+        title: input.title,
+        course_id: toNullableIntId(input.course_id),
+        offering_id: toNullableIntId(input.offering_id),
+        min_progress_pct: input.min_progress_pct ?? null,
+        min_exam_score_pct: input.min_exam_score_pct ?? null,
+        require_all_assignments: input.require_all_assignments ?? 0,
+        require_all_exams: input.require_all_exams ?? 0,
+        min_attendance_pct: input.min_attendance_pct ?? null,
+        require_manual_approval: input.require_manual_approval ?? 0,
+        created_by: actor,
+        updated_by: actor,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+    return serializePolicy(created);
   }
 
-  updatePolicy(
-    _actorUserId: string,
-    _policyId: string,
-    _input: CompletionPolicyInput,
-  ): Promise<void> {
-    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
+  async updatePolicy(actorUserId: string, policyId: string, input: CompletionPolicyInput): Promise<void> {
+    const id = toIntId(policyId);
+    if (!id) throw new Error('Invalid policy id');
+    await this.prisma.completion_policies.update({
+      where: { id },
+      data: {
+        title: input.title,
+        course_id: toNullableIntId(input.course_id),
+        offering_id: toNullableIntId(input.offering_id),
+        min_progress_pct: input.min_progress_pct ?? null,
+        min_exam_score_pct: input.min_exam_score_pct ?? null,
+        require_all_assignments: input.require_all_assignments ?? 0,
+        require_all_exams: input.require_all_exams ?? 0,
+        min_attendance_pct: input.min_attendance_pct ?? null,
+        require_manual_approval: input.require_manual_approval ?? 0,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
   }
 
-  deletePolicy(_actorUserId: string, _policyId: string): Promise<void> {
-    return Promise.reject(new Error('completion_policy table not present in MySQL schema'));
+  async deletePolicy(actorUserId: string, policyId: string): Promise<void> {
+    const id = toIntId(policyId);
+    if (!id) throw new Error('Invalid policy id');
+    await this.prisma.completion_policies.update({
+      where: { id },
+      data: {
+        deleted_at: new Date(),
+        deleted_by: toNullableIntId(actorUserId),
+      },
+    });
   }
 
-  listTemplates(): Promise<Record<string, unknown>[]> {
-    return Promise.resolve([]);
+  async listTemplates(): Promise<Record<string, unknown>[]> {
+    const rows = await this.prisma.certificate_templates.findMany({
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+    return rows.map(serializeTemplate);
   }
 
-  createTemplate(
-    _actorUserId: string,
-    _input: CertificateTemplateInput,
-  ): Promise<Record<string, unknown>> {
-    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
+  async createTemplate(actorUserId: string, input: CertificateTemplateInput): Promise<Record<string, unknown>> {
+    const actor = toNullableIntId(actorUserId);
+    const created = await this.prisma.certificate_templates.create({
+      data: {
+        title: input.title,
+        description: input.description ?? null,
+        template: input.template ?? null,
+        signatory: input.signatory ?? null,
+        course_id: toNullableIntId(input.course_id),
+        program_id: toNullableIntId(input.program_id),
+        created_by: actor,
+        updated_by: actor,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+    return serializeTemplate(created);
   }
 
-  updateTemplate(
-    _actorUserId: string,
-    _templateId: string,
-    _input: CertificateTemplateInput,
-  ): Promise<void> {
-    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
+  async updateTemplate(actorUserId: string, templateId: string, input: CertificateTemplateInput): Promise<void> {
+    const id = toIntId(templateId);
+    if (!id) throw new Error('Invalid template id');
+    await this.prisma.certificate_templates.update({
+      where: { id },
+      data: {
+        title: input.title,
+        description: input.description ?? null,
+        template: input.template ?? null,
+        signatory: input.signatory ?? null,
+        course_id: toNullableIntId(input.course_id),
+        program_id: toNullableIntId(input.program_id),
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
   }
 
-  deleteTemplate(_actorUserId: string, _templateId: string): Promise<void> {
-    return Promise.reject(new Error('certificate_template table not present in MySQL schema'));
+  async deleteTemplate(actorUserId: string, templateId: string): Promise<void> {
+    const id = toIntId(templateId);
+    if (!id) throw new Error('Invalid template id');
+    await this.prisma.certificate_templates.update({
+      where: { id },
+      data: {
+        deleted_at: new Date(),
+        deleted_by: toNullableIntId(actorUserId),
+      },
+    });
   }
 
   listCertificates(_filters?: {
@@ -95,6 +211,7 @@ export class CertificateService {
     courseId?: string;
     offeringId?: string;
   }): Promise<Record<string, unknown>[]> {
+    // certificates table not yet created — returns empty list (Phase J empty-state)
     return Promise.resolve([]);
   }
 

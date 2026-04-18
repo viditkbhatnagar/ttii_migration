@@ -62,6 +62,41 @@ function sendContentError(reply: FastifyReply, error: unknown): void {
   });
 }
 
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function buildOfferingInput(payload: Record<string, unknown>): OfferingInput {
+  return {
+    course_id: toStringValue(payload.course_id),
+    program_id: toStringValue(payload.program_id) || undefined,
+    centre_id: toStringValue(payload.centre_id) || undefined,
+    title: toStringValue(payload.title) || undefined,
+    offering_code: toStringValue(payload.offering_code) || undefined,
+    delivery_mode: toStringValue(payload.delivery_mode) || undefined,
+    academic_year: toStringValue(payload.academic_year) || undefined,
+    start_date: toStringValue(payload.start_date) || undefined,
+    end_date: toStringValue(payload.end_date) || undefined,
+    enrollment_start: toStringValue(payload.enrollment_start) || undefined,
+    enrollment_end: toStringValue(payload.enrollment_end) || undefined,
+    max_enrollment: toOptionalNumber(payload.max_enrollment),
+    pricing_amount: toOptionalNumber(payload.pricing_amount),
+    language_id: toStringValue(payload.language_id) || undefined,
+    status: toStringValue(payload.status) || undefined,
+    fee_category: toStringValue(payload.fee_category) || undefined,
+    base_fee: toOptionalNumber(payload.base_fee),
+    discount: toOptionalNumber(payload.discount),
+    offered_fee: toOptionalNumber(payload.offered_fee),
+    course_expiry_days: toOptionalNumber(payload.course_expiry_days),
+    content_release_strategy: toStringValue(payload.content_release_strategy) || undefined,
+    completion_policy_id: toStringValue(payload.completion_policy_id) || undefined,
+    certificate_template_id: toStringValue(payload.certificate_template_id) || undefined,
+    publish_type: toStringValue(payload.publish_type) || undefined,
+  };
+}
+
 export function registerContentRoutes(
   app: FastifyInstance,
   options: RegisterContentRoutesOptions = {},
@@ -844,23 +879,7 @@ export function registerContentRoutes(
   app.post('/admin/offerings/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const input: OfferingInput = {
-        course_id: toStringValue(payload.course_id),
-        program_id: toStringValue(payload.program_id) || undefined,
-        centre_id: toStringValue(payload.centre_id) || undefined,
-        title: toStringValue(payload.title) || undefined,
-        offering_code: toStringValue(payload.offering_code) || undefined,
-        delivery_mode: toStringValue(payload.delivery_mode) || undefined,
-        academic_year: toStringValue(payload.academic_year) || undefined,
-        start_date: toStringValue(payload.start_date) || undefined,
-        end_date: toStringValue(payload.end_date) || undefined,
-        enrollment_start: toStringValue(payload.enrollment_start) || undefined,
-        enrollment_end: toStringValue(payload.enrollment_end) || undefined,
-        max_enrollment: payload.max_enrollment ? Number(payload.max_enrollment) : undefined,
-        pricing_amount: payload.pricing_amount ? Number(payload.pricing_amount) : undefined,
-        language_id: toStringValue(payload.language_id) || undefined,
-        status: toStringValue(payload.status) || undefined,
-      };
+      const input: OfferingInput = buildOfferingInput(payload);
       const result = await offeringService.createOffering(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Offering created', data: result });
     } catch (error: unknown) {
@@ -872,23 +891,7 @@ export function registerContentRoutes(
     try {
       const payload = requestPayload(request);
       const offeringId = toStringValue(payload.id);
-      const input: OfferingInput = {
-        course_id: toStringValue(payload.course_id),
-        program_id: toStringValue(payload.program_id) || undefined,
-        centre_id: toStringValue(payload.centre_id) || undefined,
-        title: toStringValue(payload.title) || undefined,
-        offering_code: toStringValue(payload.offering_code) || undefined,
-        delivery_mode: toStringValue(payload.delivery_mode) || undefined,
-        academic_year: toStringValue(payload.academic_year) || undefined,
-        start_date: toStringValue(payload.start_date) || undefined,
-        end_date: toStringValue(payload.end_date) || undefined,
-        enrollment_start: toStringValue(payload.enrollment_start) || undefined,
-        enrollment_end: toStringValue(payload.enrollment_end) || undefined,
-        max_enrollment: payload.max_enrollment ? Number(payload.max_enrollment) : undefined,
-        pricing_amount: payload.pricing_amount ? Number(payload.pricing_amount) : undefined,
-        language_id: toStringValue(payload.language_id) || undefined,
-        status: toStringValue(payload.status) || undefined,
-      };
+      const input: OfferingInput = buildOfferingInput(payload);
       await offeringService.updateOffering(requestUserId(request), offeringId, input);
       reply.code(200).send({ status: 1, message: 'Offering updated', data: {} });
     } catch (error: unknown) {

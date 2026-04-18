@@ -59,18 +59,26 @@ export default function OfferingsPage({ api, session, onNavigate }: AdminPagePro
     } catch { /* ignore */ }
   }, [api, session.token, reload]);
 
+  const renderDate = (v: unknown) => {
+    const str = asString(v);
+    if (!str) return '-';
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
+  };
+
   const columns: DataTableColumn[] = [
+    { key: '__row_num', label: '#', render: (_v, _row, index) => String(index + 1) },
     { key: 'title', label: 'Offering', sortable: true },
     { key: 'course_title', label: 'Course' },
     { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[asString(v)] || asString(v) },
-    { key: 'start_date', label: 'Start', render: (v) => {
-      const str = asString(v);
-      if (!str) return '-';
-      const d = new Date(str);
-      return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
+    { key: 'start_date', label: 'Start Date', render: renderDate },
+    { key: 'end_date', label: 'End Date', render: renderDate },
+    { key: 'enrollment_end', label: 'Enrolments Ends', render: renderDate },
+    { key: 'fee_category', label: 'Pricing Type', render: (v) => {
+      const s = asString(v) || 'paid';
+      return s === 'free' ? 'Free' : 'Paid';
     }},
-    { key: 'enrolled_count', label: 'Enrolled' },
-    { key: 'cohort_count', label: 'Cohorts' },
+    { key: 'enrolled_count', label: 'Enrollments' },
     { key: 'status', label: 'Status', render: (v) => (
       <Badge variant={statusColors[asString(v)] ?? 'secondary'}>{asString(v) || 'draft'}</Badge>
     )},
