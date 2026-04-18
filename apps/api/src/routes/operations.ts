@@ -2128,6 +2128,14 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  app.get('/admin/students/analytics', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getStudentAnalytics(toStringValue(payload.id));
+      reply.code(200).send(data);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/students/change_username', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

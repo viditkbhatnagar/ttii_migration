@@ -1733,6 +1733,11 @@ export class AdminPortalApi {
     return payload;
   }
 
+  async getStudentAnalytics(authToken: string, studentId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<Record<string, unknown>>('/admin/students/analytics', authToken, { id: studentId });
+    return payload;
+  }
+
   async changeStudentUsername(authToken: string, studentId: string, username: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/change_username', authToken, { id: studentId, username });
   }

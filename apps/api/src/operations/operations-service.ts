@@ -4187,6 +4187,130 @@ export class OperationsService {
     };
   }
 
+  async getStudentAnalytics(studentId: string): Promise<Record<string, unknown>> {
+    const uid = toIntId(studentId);
+    if (!uid) return { status: 0, message: 'Invalid student id.' };
+
+    const [
+      documents,
+      examAgg,
+      practiceAgg,
+      assignments,
+      videoProgress,
+      notificationReads,
+      activityRows,
+    ] = await Promise.all([
+      this.prisma.student_document.findMany({
+        where: { student_id: uid, deleted_at: null },
+        orderBy: { created_at: 'desc' },
+      }),
+      this.prisma.exam_attempt.aggregate({
+        where: { user_id: uid, submit_status: true, deleted_at: null },
+        _avg: { score: true },
+        _count: { id: true },
+      }),
+      this.prisma.practice_attempt.aggregate({
+        where: { user_id: uid, submit_status: true, deleted_at: null },
+        _avg: { score: true },
+        _count: { id: true },
+      }),
+      this.prisma.assignment_submissions.findMany({
+        where: { user_id: uid, deleted_at: null },
+        select: { id: true, marks: true, created_at: true },
+      }),
+      this.prisma.video_progress_status.findMany({
+        where: { user_id: uid, deleted_at: null },
+        select: { status: true },
+      }),
+      this.prisma.notification_read.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { created_at: 'desc' },
+        take: 50,
+      }),
+      this.prisma.auth_audit_log.findMany({
+        where: { user_id: uid },
+        orderBy: { created_at: 'desc' },
+        take: 50,
+      }),
+    ]);
+
+    // Assignment average
+    const assignmentScores: number[] = [];
+    for (const a of assignments) {
+      if (a.marks === null || a.marks === undefined) continue;
+      const n = parseFloat(a.marks);
+      if (Number.isFinite(n)) assignmentScores.push(n);
+    }
+    const assignmentAvg = assignmentScores.length > 0
+      ? assignmentScores.reduce((s, v) => s + v, 0) / assignmentScores.length
+      : 0;
+
+    // Video completion
+    const totalVideos = videoProgress.length;
+    const videosCompleted = videoProgress.filter((v) => v.status === 1).length;
+    const videoCompletionPct = totalVideos > 0 ? Math.round((videosCompleted / totalVideos) * 100) : 0;
+
+    // Notifications: join to notification table
+    const notificationIds = Array.from(new Set(notificationReads.map((n) => n.notification_id)));
+    const notifications = notificationIds.length > 0
+      ? await this.prisma.notification.findMany({
+          where: { id: { in: notificationIds }, deleted_at: null },
+          orderBy: { created_at: 'desc' },
+        })
+      : [];
+    const notificationMap = new Map(notifications.map((n) => [n.id, n]));
+    const comms: Record<string, unknown>[] = [];
+    for (const nr of notificationReads) {
+      const n = notificationMap.get(nr.notification_id);
+      if (!n) continue;
+      comms.push({
+        id: String(nr.id),
+        title: n.title,
+        description: n.description,
+        read_at: nr.status === 1 ? nr.updated_at ?? nr.created_at : null,
+        sent_at: n.created_at,
+        status: nr.status === 1 ? 'read' : 'unread',
+      });
+    }
+
+    return {
+      status: 1,
+      message: 'success',
+      documents: documents.map((d) => ({
+        id: String(d.student_document_id),
+        label: d.label ?? '',
+        file: d.file ?? '',
+        uploaded_at: d.created_at,
+      })),
+      performance: {
+        quiz_avg_score: examAgg._avg?.score ? Number(examAgg._avg.score) : 0,
+        quiz_attempts: examAgg._count?.id ?? 0,
+        practice_avg_score: practiceAgg._avg?.score ? Number(practiceAgg._avg.score) : 0,
+        practice_attempts: practiceAgg._count?.id ?? 0,
+        assignment_avg_score: Number(assignmentAvg.toFixed(2)),
+        assignment_submissions: assignmentScores.length,
+        video_completion_pct: videoCompletionPct,
+        videos_watched: videosCompleted,
+        total_videos: totalVideos,
+      },
+      certificates: [],
+      communication: {
+        notifications: comms,
+        email_log: [],
+        whatsapp_log: [],
+      },
+      activity: activityRows.map((a) => ({
+        id: String(a.id),
+        event: a.event,
+        identifier: a.identifier ?? '',
+        success: Boolean(a.success),
+        ip_address: a.ip_address ?? '',
+        user_agent: a.user_agent ?? '',
+        created_at: a.created_at,
+      })),
+    };
+  }
+
   async changeStudentUsername(actorUserId: string, studentId: string, newUsername: string): Promise<Record<string, unknown>> {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
     if (!newUsername.trim()) return { status: 0, message: 'Username is required.' };

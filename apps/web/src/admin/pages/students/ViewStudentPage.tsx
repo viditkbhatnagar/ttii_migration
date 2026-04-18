@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
+import { MetricCard } from '@ttii/ui';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -35,6 +37,23 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     () => api.getStudentDetail(session.token, studentId),
     [studentId],
   );
+
+  const { data: analyticsData } = useAdminPageData(
+    () => api.getStudentAnalytics(session.token, studentId),
+    [studentId],
+  );
+
+  const documents = useMemo(() => toRecords(analyticsData?.documents), [analyticsData]);
+  const performance = useMemo(() => {
+    const p = analyticsData?.performance;
+    return typeof p === 'object' && p !== null ? (p as Record<string, unknown>) : null;
+  }, [analyticsData]);
+  const communicationData = useMemo(() => {
+    const c = analyticsData?.communication;
+    return typeof c === 'object' && c !== null ? (c as Record<string, unknown>) : null;
+  }, [analyticsData]);
+  const notifications = useMemo(() => toRecords(communicationData?.notifications), [communicationData]);
+  const activityRows = useMemo(() => toRecords(analyticsData?.activity), [analyticsData]);
 
   const student = useMemo(() => {
     if (!data) return null;
@@ -252,51 +271,143 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             </CardContent>
           </Card>
 
-          {/* QA Correction2 round: additional sections (placeholder stubs) */}
+          {/* QA Correction2 round: wire 5 sections to backend analytics */}
           <div className="grid gap-4 md:grid-cols-2">
+            {/* Documents */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Documents</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Documents</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">All student-uploaded documents (Aadhaar, Passport, Certificates, Photos) in one place.</p>
-                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+                {documents.length === 0 ? (
+                  <p className="text-sm text-gray-500">No documents uploaded.</p>
+                ) : (
+                  <AdminDataTable
+                    columns={[
+                      { key: 'label', label: 'Label', render: (v) => asString(v) || '-' },
+                      {
+                        key: 'file',
+                        label: 'File',
+                        render: (v) => {
+                          const url = asString(v);
+                          if (!url) return '-';
+                          return (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:underline"
+                            >
+                              View
+                            </a>
+                          );
+                        },
+                      },
+                      { key: 'uploaded_at', label: 'Uploaded', render: (v) => formatDate(v) },
+                    ]}
+                    rows={documents}
+                  />
+                )}
               </CardContent>
             </Card>
+
+            {/* Performance Analytics */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Performance Analytics</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Performance Analytics</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">Learner-specific analytics: completion rate, quiz scores, attendance trends.</p>
-                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+                {performance === null ? (
+                  <p className="text-sm text-gray-500">No performance data yet.</p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricCard
+                      label="Quiz Avg Score"
+                      value={String(Number(performance.quiz_avg_score ?? 0).toFixed(1))}
+                      detail={`${asNumber(performance.quiz_attempts)} attempts`}
+                      tone="info"
+                    />
+                    <MetricCard
+                      label="Assignment Avg"
+                      value={String(Number(performance.assignment_avg_score ?? 0).toFixed(1))}
+                      detail={`${asNumber(performance.assignment_submissions)} submitted`}
+                      tone="success"
+                    />
+                    <MetricCard
+                      label="Video Completion"
+                      value={`${asNumber(performance.video_completion_pct)}%`}
+                      detail={`${asNumber(performance.videos_watched)}/${asNumber(performance.total_videos)}`}
+                      tone={asNumber(performance.video_completion_pct) >= 50 ? 'success' : 'warning'}
+                    />
+                    <MetricCard
+                      label="Practice Avg"
+                      value={String(Number(performance.practice_avg_score ?? 0).toFixed(1))}
+                      detail={`${asNumber(performance.practice_attempts)} attempts`}
+                      tone="neutral"
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Certification — empty state pending table */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Certification</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Certification</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">All institution-issued certificates for this learner in one view.</p>
-                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+                <p className="text-sm text-gray-500">No certificates issued yet.</p>
               </CardContent>
             </Card>
+
+            {/* Communication */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Communication</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Communication</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">Email, WhatsApp and in-app notifications history with this learner.</p>
-                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+                {notifications.length === 0 ? (
+                  <p className="text-sm text-gray-500">No in-app notifications yet.</p>
+                ) : (
+                  <ul className="space-y-2 border-l border-gray-200 pl-4">
+                    {notifications.slice(0, 10).map((n, idx) => (
+                      <li key={idx} className="relative">
+                        <span className="absolute -left-[17px] top-1.5 h-2 w-2 rounded-full bg-blue-500" />
+                        <div className="text-sm font-medium text-gray-900">{asString(n.title)}</div>
+                        <div className="text-xs text-gray-500">{asString(n.description)}</div>
+                        <div className="mt-0.5 text-[11px] text-gray-400">{formatDate(n.sent_at)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-3 text-xs text-gray-400 italic">
+                  Email and WhatsApp logs not yet available.
+                </p>
               </CardContent>
             </Card>
+
+            {/* Activity Log */}
             <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-base">Activity Log</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Activity Log</CardTitle></CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">Last login, device used, time spent on platform, session breakdown.</p>
-                <p className="mt-2 text-xs text-gray-400 italic">Coming soon.</p>
+                {activityRows.length === 0 ? (
+                  <p className="text-sm text-gray-500">No activity recorded yet.</p>
+                ) : (
+                  <ul className="space-y-2 border-l border-gray-200 pl-4">
+                    {activityRows.slice(0, 25).map((a, idx) => {
+                      const event = asString(a.event);
+                      const success = Boolean(a.success);
+                      const variant: 'default' | 'secondary' | 'destructive' =
+                        event.includes('FAIL') || event.includes('REJECT') ? 'destructive' : success ? 'default' : 'secondary';
+                      const ua = asString(a.user_agent);
+                      return (
+                        <li key={idx} className="relative">
+                          <span className={`absolute -left-[17px] top-1.5 h-2 w-2 rounded-full ${success ? 'bg-green-500' : 'bg-red-500'}`} />
+                          <div className="flex items-center gap-2">
+                            <Badge variant={variant} className="text-[10px] uppercase">{event}</Badge>
+                            <span className="text-xs text-gray-500">{asString(a.ip_address) || '—'}</span>
+                          </div>
+                          {ua ? (
+                            <div className="text-[11px] text-gray-400 truncate max-w-[600px]">{ua}</div>
+                          ) : null}
+                          <div className="text-[11px] text-gray-400">{formatDate(a.created_at)}</div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </CardContent>
             </Card>
           </div>
