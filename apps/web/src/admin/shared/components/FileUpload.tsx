@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +25,7 @@ export function FileUpload({ value, onChange, onUpload, accept, placeholder }: F
         const url = await onUpload(file);
         onChange(url);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Upload failed');
+        toast.error(err instanceof Error ? err.message : 'Upload failed');
       } finally {
         setUploading(false);
         if (inputRef.current) inputRef.current.value = '';
