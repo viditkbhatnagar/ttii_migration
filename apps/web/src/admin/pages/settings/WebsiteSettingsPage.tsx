@@ -38,6 +38,7 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [cookieStatus, setCookieStatus] = useState<'active' | 'inactive'>('inactive');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (data) {
@@ -54,11 +55,14 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
   }, [data]);
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       await api.updateWebsiteSettings(session.token, { ...form, cookie_status: cookieStatus });
       toast.success('Website settings saved successfully.');
     } catch {
       toast.error('Failed to save website settings.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -90,72 +94,83 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
           <CardTitle className="text-base">Content</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {TEXT_FIELDS.map((field) => (
-            <div key={field.key} className="space-y-1">
-              <Label className="text-sm font-medium text-gray-700">{field.label}</Label>
-              {field.type === 'textarea' ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            {TEXT_FIELDS.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <Label htmlFor={field.key} className="text-sm font-medium text-gray-700">{field.label}</Label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    id={field.key}
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={form[field.key] ?? ''}
+                    onChange={(e) => updateField(field.key, e.target.value)}
+                  />
+                ) : (
+                  <Input
+                    id={field.key}
+                    value={form[field.key] ?? ''}
+                    onChange={(e) => updateField(field.key, e.target.value)}
+                  />
+                )}
+              </div>
+            ))}
+
+            {RICH_TEXT_FIELDS.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <Label htmlFor={field.key} className="text-sm font-medium text-gray-700">{field.label}</Label>
                 <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={form[field.key] ?? ''}
-                  onChange={(e) => updateField(field.key, e.target.value)}
-                />
-              ) : (
-                <Input
                   id={field.key}
+                  className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   value={form[field.key] ?? ''}
                   onChange={(e) => updateField(field.key, e.target.value)}
+                  placeholder="Supports HTML"
                 />
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
 
-          {RICH_TEXT_FIELDS.map((field) => (
-            <div key={field.key} className="space-y-1">
-              <Label className="text-sm font-medium text-gray-700">{field.label}</Label>
-              <textarea
-                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={form[field.key] ?? ''}
-                onChange={(e) => updateField(field.key, e.target.value)}
-                placeholder="Supports HTML"
-              />
-            </div>
-          ))}
+            {/* Cookie Status radio */}
+            <fieldset className="space-y-1">
+              <legend className="text-sm font-medium text-gray-700">Cookie Status *</legend>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="cookie_status"
+                    value="active"
+                    checked={cookieStatus === 'active'}
+                    onChange={() => setCookieStatus('active')}
+                  />
+                  Active
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="cookie_status"
+                    value="inactive"
+                    checked={cookieStatus === 'inactive'}
+                    onChange={() => setCookieStatus('inactive')}
+                  />
+                  Inactive
+                </label>
+              </div>
+            </fieldset>
 
-          {/* Cookie Status radio */}
-          <div className="space-y-1">
-            <Label className="text-sm font-medium text-gray-700">Cookie Status *</Label>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="cookie_status"
-                  value="active"
-                  checked={cookieStatus === 'active'}
-                  onChange={() => setCookieStatus('active')}
-                />
-                Active
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="cookie_status"
-                  value="inactive"
-                  checked={cookieStatus === 'inactive'}
-                  onChange={() => setCookieStatus('inactive')}
-                />
-                Inactive
-              </label>
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
             </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              onClick={() => { void handleSave(); }}
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-            >
-              Save
-            </Button>
-          </div>
+          </form>
         </CardContent>
       </Card>
 

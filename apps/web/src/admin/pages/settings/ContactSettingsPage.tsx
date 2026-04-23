@@ -24,6 +24,7 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
   );
 
   const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (data) {
@@ -37,11 +38,14 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
   }, [data]);
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       await api.updateContactSettings(session.token, form);
       toast.success('Contact settings saved successfully.');
     } catch {
       toast.error('Failed to save contact settings.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -64,29 +68,38 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
       <AdminPageHeader title="Contact Settings" />
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {CONTACT_FIELDS.map((field) => (
-              <div key={field.key} className="space-y-1">
-                <Label className="text-sm font-medium text-gray-700">
-                  {field.label}
-                </Label>
-                <Input
-                  value={form[field.key] ?? ''}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex justify-end">
-            <Button
-              onClick={() => { void handleSave(); }}
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-            >
-              Save
-            </Button>
-          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {CONTACT_FIELDS.map((field) => (
+                <div key={field.key} className="space-y-1">
+                  <Label htmlFor={field.key} className="text-sm font-medium text-gray-700">
+                    {field.label}
+                  </Label>
+                  <Input
+                    id={field.key}
+                    value={form[field.key] ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>

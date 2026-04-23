@@ -29,6 +29,7 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
   );
 
   const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (data) {
@@ -42,11 +43,14 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
   }, [data]);
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       await api.updateSystemSettings(session.token, form);
       toast.success('System settings saved successfully.');
     } catch {
       toast.error('Failed to save system settings.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -69,38 +73,47 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
       <AdminPageHeader title="System Settings" />
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {SYSTEM_FIELDS.map((field) => (
-              <div key={field.key} className={`space-y-1 ${field.type === 'textarea' ? 'md:col-span-2' : ''}`}>
-                <Label className="text-sm font-medium text-gray-700">{field.label}</Label>
-                {field.type === 'textarea' ? (
-                  <textarea
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={form[field.key] ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                  />
-                ) : (
-                  <Input
-                    id={field.key}
-                    value={form[field.key] ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex justify-end">
-            <Button
-              onClick={() => { void handleSave(); }}
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-            >
-              Save
-            </Button>
-          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {SYSTEM_FIELDS.map((field) => (
+                <div key={field.key} className={`space-y-1 ${field.type === 'textarea' ? 'md:col-span-2' : ''}`}>
+                  <Label htmlFor={field.key} className="text-sm font-medium text-gray-700">{field.label}</Label>
+                  {field.type === 'textarea' ? (
+                    <textarea
+                      id={field.key}
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={form[field.key] ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                    />
+                  ) : (
+                    <Input
+                      id={field.key}
+                      value={form[field.key] ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </div>
