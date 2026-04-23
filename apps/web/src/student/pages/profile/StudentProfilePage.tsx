@@ -153,7 +153,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
     .toUpperCase();
 
   const completionColor = profileCompletion >= 80 ? 'text-emerald-600' : profileCompletion >= 50 ? 'text-amber-600' : 'text-red-600';
-  const completionBarColor = profileCompletion >= 80 ? 'from-emerald-500 to-teal-500' : profileCompletion >= 50 ? 'from-amber-500 to-orange-500' : 'from-red-500 to-pink-500';
+  const completionBarColor = profileCompletion >= 80 ? 'bg-emerald-500' : profileCompletion >= 50 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
     <div className="space-y-6">
@@ -170,43 +170,48 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
       ) : null}
 
       {/* Profile Completion */}
-      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Avatar className="size-16 shadow-md">
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <Avatar className="size-14">
               {profile?.image ? (
-                <AvatarImage src={profile.image} alt={profile.name} />
+                <AvatarImage src={profile.image} alt="" />
               ) : null}
-              <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-lg text-white font-bold">
+              <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-base text-white font-semibold">
                 {initials}
               </AvatarFallback>
             </Avatar>
-            <div>
-              <h2 className="text-xl font-bold text-student-text">{profile?.name || 'Student'}</h2>
-              <p className="text-sm text-student-muted">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-student-text truncate">{profile?.name || 'Student'}</h2>
+              <p className="text-sm text-student-muted truncate">
                 {profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`}
               </p>
             </div>
           </div>
-          <div className="text-right">
-            <p className={`text-3xl font-bold ${completionColor}`}>{profileCompletion}%</p>
-            <p className="text-xs text-student-muted">Profile Complete</p>
+          <div className="text-right shrink-0">
+            <p className={`text-2xl font-semibold ${completionColor}`}>{profileCompletion}%</p>
+            <p className="text-xs text-student-muted">Complete</p>
           </div>
         </div>
-        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-200">
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className={`h-full rounded-full bg-gradient-to-r ${completionBarColor} transition-all duration-700 ease-out`}
+            className={`h-full rounded-full ${completionBarColor} transition-all duration-500 ease-out`}
             style={{ width: `${profileCompletion}%` }}
+            role="progressbar"
+            aria-valuenow={profileCompletion}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Profile ${profileCompletion}% complete`}
           />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Personal Information */}
-        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+        <Card className="rounded-xl border-slate-200 bg-white shadow-none">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Personal Information</CardTitle>
+              <CardTitle className="text-base">Personal Information</CardTitle>
               {!editing ? (
                 <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="rounded-xl gap-1.5">
                   <Pencil aria-hidden="true" className="size-3.5" />
@@ -318,9 +323,9 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
         </Card>
 
         {/* Change Password */}
-        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm h-fit">
+        <Card className="rounded-xl border-slate-200 bg-white shadow-none h-fit">
           <CardHeader>
-            <CardTitle className="text-lg">Change Password</CardTitle>
+            <CardTitle className="text-base">Change Password</CardTitle>
             <CardDescription>Update your account password</CardDescription>
           </CardHeader>
           <Separator />
