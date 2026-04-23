@@ -62,7 +62,7 @@ export default function CounsellorDashboardPage({ api, session }: AdminPageProps
       <p className="text-sm text-gray-500 -mt-4">Counsellor performance overview</p>
         <Card className="bg-white">
           <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
+            <p role="alert" className="text-sm text-red-600">{error}</p>
           </CardContent>
         </Card>
       </div>

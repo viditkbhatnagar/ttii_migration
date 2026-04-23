@@ -255,7 +255,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
         </CardContent>
       </Card>
@@ -267,7 +267,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
     <div>
       <AdminPageHeader title="Students" addLabel="Add Students" onAdd={() => onNavigate('/admin/students/add')}>
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
-          <Download className="size-4" />
+          <Download className="size-4" aria-hidden="true" />
           Export
         </Button>
       </AdminPageHeader>

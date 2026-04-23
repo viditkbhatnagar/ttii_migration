@@ -215,7 +215,7 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }

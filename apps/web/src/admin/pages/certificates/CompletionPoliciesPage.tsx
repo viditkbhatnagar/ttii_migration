@@ -98,7 +98,7 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
   ];
 
   if (loading) return <PageLoader label="Loading completion policies..." />;
-  if (error) return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
+  if (error) return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
 
   return (
     <div className="space-y-4">

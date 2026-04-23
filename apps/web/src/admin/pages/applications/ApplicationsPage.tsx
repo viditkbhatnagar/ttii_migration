@@ -205,7 +205,7 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
         </CardContent>
       </Card>

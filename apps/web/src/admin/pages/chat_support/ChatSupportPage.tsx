@@ -194,7 +194,7 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
@@ -335,8 +335,8 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
 
                 {/* Input bar */}
                 <div className="bg-white border-t border-gray-200 px-4 py-3 flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="shrink-0 text-gray-400" disabled>
-                    <Paperclip className="size-4" />
+                  <Button variant="ghost" size="icon" className="shrink-0 text-gray-400" aria-label="Attach file" disabled>
+                    <Paperclip className="size-4" aria-hidden="true" />
                   </Button>
                   <Input
                     value={messageText}
@@ -352,10 +352,11 @@ export default function ChatSupportPage({ api, session }: AdminPageProps) {
                   />
                   <Button
                     size="icon"
+                    aria-label="Send message"
                     disabled={!messageText.trim() || sending}
                     onClick={() => { void handleSend(); }}
                   >
-                    <Send className="size-4" />
+                    <Send className="size-4" aria-hidden="true" />
                   </Button>
                 </div>
               </>

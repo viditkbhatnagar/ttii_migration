@@ -158,7 +158,7 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
@@ -166,8 +166,8 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => onNavigate('/admin/assignment')}>
-          <ArrowLeft className="h-5 w-5" />
+        <Button variant="ghost" size="icon" aria-label="Back to assignments" onClick={() => onNavigate('/admin/assignment')}>
+          <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </Button>
         <AdminPageHeader title="Assignment Submissions" />
       </div>

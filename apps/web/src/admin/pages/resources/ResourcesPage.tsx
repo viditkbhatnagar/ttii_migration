@@ -107,8 +107,8 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
       render: (_v: unknown, row: Record<string, unknown>) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <MoreHorizontal className="h-4 w-4" />
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="Open row actions">
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -136,7 +136,7 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
         </CardContent>
       </Card>
@@ -189,8 +189,8 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                      <MoreHorizontal className="h-3 w-3" />
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="Open folder actions">
+                      <MoreHorizontal className="h-3 w-3" aria-hidden="true" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">

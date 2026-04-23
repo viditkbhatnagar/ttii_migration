@@ -151,7 +151,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
 
   if (loading) return <PageLoader label="Loading Teams meeting hosts..." />;
   if (error) {
-    return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
+    return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
   }
 
   return (

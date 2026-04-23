@@ -119,7 +119,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }
@@ -192,17 +192,17 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
                 </div>
                 <div className="flex items-center gap-1 pt-1">
                   {asString(video.video_url) && (
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Play video" asChild>
                       <a href={asString(video.video_url)} target="_blank" rel="noopener noreferrer">
-                        <Play className="h-3.5 w-3.5" />
+                        <Play className="h-3.5 w-3.5" aria-hidden="true" />
                       </a>
                     </Button>
                   )}
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleOpenEdit(video)}>
-                    <Pencil className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="Edit video" onClick={() => handleOpenEdit(video)}>
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => { setDeleteId(asString(video.id)); setDeleteTitle(asString(video.title)); }}>
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" aria-label="Delete video" onClick={() => { setDeleteId(asString(video.id)); setDeleteTitle(asString(video.title)); }}>
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>

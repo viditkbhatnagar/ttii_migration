@@ -516,8 +516,8 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                               <Input value={row.percentage} onChange={(e) => updateEducationRow(idx, 'percentage', e.target.value)} placeholder="e.g. 85%" className="h-8 text-sm" />
                             </td>
                             <td className="px-2 py-1.5">
-                              <Button type="button" variant="ghost" size="sm" className="size-7 p-0 text-red-500 hover:text-red-700" onClick={() => removeEducationRow(idx)}>
-                                <Trash2 className="size-3.5" />
+                              <Button type="button" variant="ghost" size="sm" className="size-7 p-0 text-red-500 hover:text-red-700" aria-label="Remove education row" onClick={() => removeEducationRow(idx)}>
+                                <Trash2 className="size-3.5" aria-hidden="true" />
                               </Button>
                             </td>
                           </tr>

@@ -152,7 +152,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   if (error || !student) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error || 'Student not found.'}
         </CardContent>
       </Card>

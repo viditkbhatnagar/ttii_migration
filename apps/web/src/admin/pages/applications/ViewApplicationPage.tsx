@@ -114,7 +114,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   if (error || !app) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error || 'Application not found.'}
         </CardContent>
       </Card>

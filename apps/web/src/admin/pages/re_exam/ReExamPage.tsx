@@ -65,7 +65,7 @@ export default function ReExamPage({ api, session }: AdminPageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
       </Card>
     );
   }

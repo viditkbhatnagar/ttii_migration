@@ -32,7 +32,7 @@ export default function ViewProgramPage({ api, session, onNavigate }: AdminPageP
 
   if (programLoading) return <PageLoader label="Loading program..." />;
   if (programError) {
-    return <Card><CardContent className="py-8 text-center text-sm text-red-600">{programError}</CardContent></Card>;
+    return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{programError}</CardContent></Card>;
   }
   if (!program) {
     return <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Program not found.</CardContent></Card>;

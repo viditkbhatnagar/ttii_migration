@@ -88,7 +88,7 @@ export default function ViewCentrePage({ api, session, onNavigate }: AdminPagePr
   if (error || !centre) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error || 'Centre not found.'}
         </CardContent>
       </Card>

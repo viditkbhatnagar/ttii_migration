@@ -63,7 +63,7 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
         <AdminPageHeader title="Dashboard" />
         <Card className="bg-white">
           <CardContent className="py-12 text-center">
-            <p className="text-sm text-red-600">{error}</p>
+            <p role="alert" className="text-sm text-red-600">{error}</p>
           </CardContent>
         </Card>
       </div>

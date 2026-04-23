@@ -81,7 +81,7 @@ export default function ViewCohortPage({ api, session, onNavigate }: AdminPagePr
   if (error || !cohort) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-red-600">{error || 'Cohort not found.'}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error || 'Cohort not found.'}</CardContent>
       </Card>
     );
   }
@@ -452,8 +452,9 @@ function LearnersTab({
                     className="text-red-500 hover:bg-red-50 hover:text-red-700"
                     onClick={() => void handleRemove(learner)}
                     title="Remove"
+                    aria-label="Remove learner"
                   >
-                    <Trash2 className="size-4" />
+                    <Trash2 className="size-4" aria-hidden="true" />
                   </Button>
                 </div>
               );
@@ -627,14 +628,14 @@ function LiveSessionsTab({
                     <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
                       <CheckCircle2 className="size-3" /> Uploaded
                     </span>
-                    <Button variant="ghost" size="icon" title="View Recording" onClick={() => recording && window.open(recording, '_blank')}>
-                      <Eye className="size-4 text-blue-600" />
+                    <Button variant="ghost" size="icon" title="View Recording" aria-label="View recording" onClick={() => recording && window.open(recording, '_blank')}>
+                      <Eye className="size-4 text-blue-600" aria-hidden="true" />
                     </Button>
-                    <Button variant="ghost" size="icon" title="Edit Link" onClick={() => onEditRecordingClick(id, recording)}>
-                      <Pencil className="size-4 text-gray-600" />
+                    <Button variant="ghost" size="icon" title="Edit Link" aria-label="Edit recording link" onClick={() => onEditRecordingClick(id, recording)}>
+                      <Pencil className="size-4 text-gray-600" aria-hidden="true" />
                     </Button>
-                    <Button variant="ghost" size="icon" title="Delete" onClick={() => void handleDelete(s)}>
-                      <Trash2 className="size-4 text-red-500" />
+                    <Button variant="ghost" size="icon" title="Delete" aria-label="Delete session" onClick={() => void handleDelete(s)}>
+                      <Trash2 className="size-4 text-red-500" aria-hidden="true" />
                     </Button>
                   </div>
                 );
@@ -751,12 +752,13 @@ function AssignmentsTab({
                       variant="ghost"
                       size="icon"
                       className="shrink-0"
+                      aria-label="Edit assignment"
                       onClick={(e) => {
                         e.stopPropagation();
                         onEditClick(a);
                       }}
                     >
-                      <Pencil className="size-3.5" />
+                      <Pencil className="size-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 </button>
@@ -878,27 +880,30 @@ function AssignmentsTab({
                                     variant="ghost"
                                     size="icon-sm"
                                     title="Grade"
+                                    aria-label="Grade submission"
                                     onClick={() => onGradeClick(sub, asNumber(selected.total_marks))}
                                   >
-                                    <Pencil className="size-3 text-blue-600" />
+                                    <Pencil className="size-3 text-blue-600" aria-hidden="true" />
                                   </Button>
                                   {asString(sub.file) ? (
                                     <Button
                                       variant="ghost"
                                       size="icon-sm"
                                       title="View File"
+                                      aria-label="View submission file"
                                       onClick={() => window.open(asString(sub.file), '_blank')}
                                     >
-                                      <FileText className="size-3 text-gray-600" />
+                                      <FileText className="size-3 text-gray-600" aria-hidden="true" />
                                     </Button>
                                   ) : null}
                                   <Button
                                     variant="ghost"
                                     size="icon-sm"
                                     title="Delete"
+                                    aria-label="Delete submission"
                                     onClick={() => void handleDeleteSubFile(asString(sub.id))}
                                   >
-                                    <Trash2 className="size-3 text-red-500" />
+                                    <Trash2 className="size-3 text-red-500" aria-hidden="true" />
                                   </Button>
                                 </div>
                               </td>
@@ -1026,11 +1031,11 @@ function AnnouncementsTab({
                     <td className="px-4 py-3 max-w-[300px] truncate">{asString(a.description) || '-'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="icon-sm" onClick={() => onEditClick(a)} title="Edit">
-                          <Pencil className="size-3.5 text-blue-600" />
+                        <Button variant="ghost" size="icon-sm" aria-label="Edit announcement" onClick={() => onEditClick(a)} title="Edit">
+                          <Pencil className="size-3.5 text-blue-600" aria-hidden="true" />
                         </Button>
-                        <Button variant="ghost" size="icon-sm" onClick={() => void handleDelete(a)} title="Delete">
-                          <Trash2 className="size-3.5 text-red-500" />
+                        <Button variant="ghost" size="icon-sm" aria-label="Delete announcement" onClick={() => void handleDelete(a)} title="Delete">
+                          <Trash2 className="size-3.5 text-red-500" aria-hidden="true" />
                         </Button>
                       </div>
                     </td>

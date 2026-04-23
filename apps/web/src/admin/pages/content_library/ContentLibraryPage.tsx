@@ -232,8 +232,8 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const columns: DataTableColumn[] = [
     { key: 'content_id', label: 'Content ID', render: (v, row) => asString(v) || `CA-${asString(row.id).padStart(5, '0')}` },
     { key: 'preview', label: 'Preview', render: (_v, row) => (
-      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" onClick={() => { void handlePreview(row); }}>
-        <Eye className="h-4 w-4" />
+      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" aria-label="Preview content" onClick={() => { void handlePreview(row); }}>
+        <Eye className="h-4 w-4" aria-hidden="true" />
       </button>
     )},
     { key: 'title', label: 'Title', sortable: true },
@@ -263,7 +263,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   }
 
   if (error) {
-    return <Card><CardContent className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
+    return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
   }
 
   const previewType = previewAsset ? asString(previewAsset.asset_type) : '';
@@ -441,14 +441,14 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                         <div className="flex items-start justify-between gap-2">
                           <div className="text-xs font-semibold text-muted-foreground">Q{idx + 1}</div>
                           <div className="flex gap-1">
-                            <Button type="button" size="icon" variant="ghost" onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}>
-                              <ChevronUp className="h-3 w-3" />
+                            <Button type="button" size="icon" variant="ghost" aria-label="Move question up" onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}>
+                              <ChevronUp className="h-3 w-3" aria-hidden="true" />
                             </Button>
-                            <Button type="button" size="icon" variant="ghost" onClick={() => moveQuestion(idx, 1)} disabled={idx === form.questions.length - 1}>
-                              <ChevronDown className="h-3 w-3" />
+                            <Button type="button" size="icon" variant="ghost" aria-label="Move question down" onClick={() => moveQuestion(idx, 1)} disabled={idx === form.questions.length - 1}>
+                              <ChevronDown className="h-3 w-3" aria-hidden="true" />
                             </Button>
-                            <Button type="button" size="icon" variant="ghost" onClick={() => removeQuestion(idx)}>
-                              <Trash2 className="h-3 w-3 text-red-600" />
+                            <Button type="button" size="icon" variant="ghost" aria-label="Remove question" onClick={() => removeQuestion(idx)}>
+                              <Trash2 className="h-3 w-3 text-red-600" aria-hidden="true" />
                             </Button>
                           </div>
                         </div>
