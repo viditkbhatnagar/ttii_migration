@@ -132,23 +132,23 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
       </div>
 
       {/* Overview Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
-          { label: 'Courses', value: courses.length, icon: BookOpen, gradient: 'from-blue-500 to-blue-600', iconColor: 'text-blue-100' },
-          { label: 'Subjects', value: subjects.length, icon: FileText, gradient: 'from-purple-500 to-purple-600', iconColor: 'text-purple-100' },
-          { label: 'Lessons', value: lessons.length, icon: BookOpen, gradient: 'from-emerald-500 to-emerald-600', iconColor: 'text-emerald-100' },
-          { label: 'Overall Progress', value: `${overallCompletion}%`, icon: BarChart3, gradient: 'from-student-primary to-blue-700', iconColor: 'text-blue-100' },
+          { label: 'Courses', value: courses.length, icon: BookOpen, iconTint: 'bg-blue-50 text-blue-600' },
+          { label: 'Subjects', value: subjects.length, icon: FileText, iconTint: 'bg-violet-50 text-violet-600' },
+          { label: 'Lessons', value: lessons.length, icon: BookOpen, iconTint: 'bg-emerald-50 text-emerald-600' },
+          { label: 'Overall Progress', value: `${overallCompletion}%`, icon: BarChart3, iconTint: 'bg-student-primary/10 text-student-primary' },
         ].map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className={`rounded-2xl bg-gradient-to-br ${stat.gradient} p-5 text-white shadow-md`}>
+            <div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-3xl font-bold">{stat.value}</p>
-                  <p className="mt-1 text-sm font-medium text-white/80">{stat.label}</p>
+                  <p className="text-2xl font-semibold text-student-text">{stat.value}</p>
+                  <p className="mt-0.5 text-xs font-medium text-student-muted">{stat.label}</p>
                 </div>
-                <div className="rounded-xl bg-white/20 p-3">
-                  <Icon className={`size-6 ${stat.iconColor}`} />
+                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.iconTint}`}>
+                  <Icon aria-hidden="true" className="size-5" />
                 </div>
               </div>
             </div>
@@ -158,19 +158,19 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
 
       {/* Course Progress Bar */}
       {courses.length > 0 ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-blue-50 via-blue-50/80 to-indigo-50 p-6">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-slate-800 text-lg">
+              <h3 className="font-semibold text-student-text">
                 {asString(courses[0]?.title) || 'Course Progress'}
               </h3>
-              <p className="mt-0.5 text-sm text-slate-500">{overallCompletion}% complete</p>
+              <p className="mt-0.5 text-xs text-student-muted">{overallCompletion}% complete</p>
             </div>
-            <span className="text-3xl font-bold text-student-primary">{overallCompletion}%</span>
+            <span className="text-2xl font-semibold text-student-primary">{overallCompletion}%</span>
           </div>
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200">
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-700 ease-out"
+              className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
               style={{ width: `${Math.min(overallCompletion, 100)}%` }}
             />
           </div>
@@ -193,15 +193,18 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                 <AccordionItem
                   key={sp.id}
                   value={sp.id}
-                  className="rounded-2xl border border-slate-200 bg-white overflow-hidden data-[state=open]:border-2 data-[state=open]:border-blue-200 data-[state=open]:bg-blue-50/30"
+                  className="rounded-xl border border-slate-200 bg-white overflow-hidden"
                 >
-                  <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                  <AccordionTrigger className="px-5 py-4 hover:no-underline">
                     <div className="flex items-center gap-3 flex-1">
-                      <div className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                        sp.averageCompletion === 100
-                          ? 'bg-green-100 text-green-600'
-                          : 'bg-blue-100 text-blue-600'
-                      }`}>
+                      <div
+                        aria-hidden="true"
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                          sp.averageCompletion === 100
+                            ? 'bg-emerald-50 text-emerald-600'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
                         {sp.averageCompletion === 100 ? (
                           <CheckCircle className="size-4" />
                         ) : (
@@ -209,59 +212,45 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                         )}
                       </div>
                       <div className="text-left">
-                        <p className="font-semibold text-slate-800">{sp.title}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="font-medium text-student-text">{sp.title}</p>
+                        <p className="text-xs text-student-muted">
                           {sp.completedLessons}/{sp.totalLessons} lessons &middot; {sp.averageCompletion}% complete
                         </p>
                       </div>
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent className="px-6 pb-4">
+                  <AccordionContent className="border-t border-slate-100 bg-slate-50/50 px-5 pb-5 pt-4">
                     {/* Progress bar */}
-                    <div className="mb-4">
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-700"
-                          style={{ width: `${Math.min(sp.averageCompletion, 100)}%` }}
-                        />
-                      </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-student-primary transition-all duration-500"
+                        style={{ width: `${Math.min(sp.averageCompletion, 100)}%` }}
+                      />
                     </div>
 
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                      <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                        <p className="text-lg font-bold text-slate-800">{sp.totalLessons}</p>
-                        <p className="text-xs text-slate-500">Total</p>
-                      </div>
-                      <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                        <p className="text-lg font-bold text-green-600">{sp.completedLessons}</p>
-                        <p className="text-xs text-slate-500">Done</p>
-                      </div>
-                      <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                        <p className="text-lg font-bold text-blue-600">{sp.totalLessons - sp.completedLessons}</p>
-                        <p className="text-xs text-slate-500">Remaining</p>
-                      </div>
-                      <div className="rounded-xl bg-white border border-slate-100 p-3 text-center">
-                        <p className="text-lg font-bold text-student-primary">{sp.averageCompletion}%</p>
-                        <p className="text-xs text-slate-500">Progress</p>
-                      </div>
+                    {/* Stats Row — flat inline labels */}
+                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-student-muted">
+                      <span><span className="font-semibold text-student-text">{sp.totalLessons}</span> total</span>
+                      <span><span className="font-semibold text-emerald-600">{sp.completedLessons}</span> done</span>
+                      <span><span className="font-semibold text-student-text">{sp.totalLessons - sp.completedLessons}</span> remaining</span>
+                      <span className="ml-auto"><span className="font-semibold text-student-primary">{sp.averageCompletion}%</span> progress</span>
                     </div>
 
                     {/* Lessons List */}
                     {subjectLessons.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="mt-4 space-y-2">
                         {subjectLessons.map((lesson) => (
                           <LessonRow key={asString(lesson.id)} lesson={lesson} />
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-500 text-center py-4">No lessons in this subject yet.</p>
+                      <p className="mt-4 text-sm text-student-muted text-center py-4">No lessons in this subject yet.</p>
                     )}
 
                     {/* Lesson Files for this subject */}
                     {subjectFiles.length > 0 ? (
                       <div className="mt-4 space-y-2">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Materials</p>
+                        <p className="text-xs font-semibold text-student-muted uppercase tracking-wider">Materials</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {subjectFiles.map((file) => (
                             <FileRow key={asString(file.id)} file={file} />
@@ -273,17 +262,17 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                     {/* CTA */}
                     {sp.averageCompletion < 100 ? (
                       <Button
-                        className="mt-4 rounded-xl bg-student-primary hover:bg-student-primary/90"
+                        className="mt-4 rounded-lg bg-student-primary hover:bg-student-primary/90"
                         size="sm"
                         onClick={() => onNavigate('/student/courses')}
                       >
                         Continue Learning
-                        <ArrowRight className="ml-1 size-3.5" />
+                        <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
                       </Button>
                     ) : (
                       <Button
                         variant="outline"
-                        className="mt-4 rounded-xl"
+                        className="mt-4 rounded-lg"
                         size="sm"
                         onClick={() => onNavigate('/student/courses')}
                       >
@@ -344,9 +333,9 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
               const title = asString(course.title) || `Course ${id}`;
               const description = asString(course.description);
               return (
-                <div key={id} className="rounded-2xl border border-slate-200/80 bg-white p-5 transition-all hover:shadow-md">
-                  <h3 className="font-semibold text-slate-800">{title}</h3>
-                  {description ? <p className="mt-1 text-sm text-slate-500 line-clamp-2">{description}</p> : null}
+                <div key={id} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h3 className="font-medium text-student-text">{title}</h3>
+                  {description ? <p className="mt-1 text-sm text-student-muted line-clamp-2">{description}</p> : null}
                 </div>
               );
             })}
@@ -356,10 +345,10 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
 
       {/* Empty State */}
       {courses.length === 0 && lessons.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-          <BookOpen className="mx-auto size-12 text-slate-300 mb-4" />
-          <h3 className="text-lg font-semibold text-slate-700">No courses found</h3>
-          <p className="text-slate-500 mt-1">You haven't been enrolled in any courses yet.</p>
+        <div role="status" className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+          <BookOpen aria-hidden="true" className="mx-auto size-12 text-slate-300 mb-4" />
+          <h3 className="text-base font-semibold text-student-text">No courses found</h3>
+          <p className="text-sm text-student-muted mt-1">You haven't been enrolled in any courses yet.</p>
         </div>
       ) : null}
     </div>
