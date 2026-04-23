@@ -15,6 +15,7 @@ import {
 import type { PortalSurface } from '@ttii/shared-types';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 
 import { detectPortalFromSubdomain, getSubdomainRedirectPath } from './lib/subdomain.js';
@@ -467,24 +468,24 @@ function LoginHome() {
   /* If already logged in, show a quick redirect card */
   if (session) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
-          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-100">
-            <svg className="size-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          <div aria-hidden="true" className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-100">
+            <Check className="size-8 text-emerald-600" strokeWidth={2.5} />
           </div>
-          <h2 className="text-xl font-bold text-gray-900">Session Active</h2>
-          <p className="mt-2 text-sm text-gray-500">Logged in as role <strong>{session.roleId}</strong></p>
+          <h2 className="text-xl font-bold text-slate-900">Session Active</h2>
+          <p className="mt-2 text-sm text-slate-500">Logged in as role <strong>{session.roleId}</strong></p>
           <div className="mt-6 flex gap-3 justify-center">
             <button
               type="button"
-              className="rounded-full bg-gradient-to-r from-[#5b7fea] to-[#6c63ff] px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 hover:-translate-y-0.5 transition-transform"
+              className="rounded-full bg-gradient-to-r from-[#5b7fea] to-[#6c63ff] px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#6c63ff]"
               onClick={() => navigateTo(resolveShellPathForRole(session.roleId))}
             >
               Open Portal
             </button>
             <button
               type="button"
-              className="rounded-full border border-gray-300 bg-white px-6 py-2.5 text-sm font-semibold text-gray-700 hover:-translate-y-0.5 transition-transform"
+              className="rounded-full border border-slate-300 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
               onClick={() => { void logout(); }}
             >
               Logout
@@ -521,16 +522,16 @@ function LoginHome() {
           </h1>
 
           {/* Sparkle decorations (4-pointed stars) */}
-          <svg className="absolute pointer-events-none" style={{ top: '55%', left: '18%', width: '55px', height: '55px', opacity: 0.3 }} viewBox="0 0 50 50" fill="none">
+          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ top: '55%', left: '18%', width: '55px', height: '55px', opacity: 0.3 }} viewBox="0 0 50 50" fill="none">
             <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
           </svg>
-          <svg className="absolute pointer-events-none" style={{ bottom: '14%', left: '38%', width: '90px', height: '90px', opacity: 0.32 }} viewBox="0 0 50 50" fill="none">
+          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ bottom: '14%', left: '38%', width: '90px', height: '90px', opacity: 0.32 }} viewBox="0 0 50 50" fill="none">
             <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
           </svg>
-          <svg className="absolute pointer-events-none" style={{ top: '32%', right: '14%', width: '38px', height: '38px', opacity: 0.28 }} viewBox="0 0 50 50" fill="none">
+          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ top: '32%', right: '14%', width: '38px', height: '38px', opacity: 0.28 }} viewBox="0 0 50 50" fill="none">
             <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
           </svg>
-          <svg className="absolute pointer-events-none" style={{ bottom: '38%', right: '22%', width: '45px', height: '45px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
+          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ bottom: '38%', right: '22%', width: '45px', height: '45px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
             <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
           </svg>
         </div>
@@ -540,20 +541,20 @@ function LoginHome() {
           <div className="w-full max-w-sm">
             {/* Heading */}
             <div className="mb-8 text-center">
-              <h2 className="font-extrabold text-[#111111]" style={{ fontSize: '40px', lineHeight: '1.1', letterSpacing: '-0.5px' }}>Welcome</h2>
-              <p className="mt-2.5 text-sm text-[#666666]">Enter Your LMS Credentials To Continue.</p>
+              <h2 className="font-extrabold text-slate-900" style={{ fontSize: '40px', lineHeight: '1.1', letterSpacing: '-0.5px' }}>Welcome</h2>
+              <p className="mt-2.5 text-sm text-slate-500">Enter Your LMS Credentials To Continue.</p>
             </div>
 
           {/* Error messages */}
           {error ? (
-            <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               <p>{error.message}</p>
-              <button type="button" className="mt-1 text-xs font-semibold text-red-600 underline" onClick={clearError}>Dismiss</button>
+              <button type="button" className="mt-1 text-xs font-semibold text-red-600 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded" onClick={clearError}>Dismiss</button>
             </div>
           ) : null}
 
           {loginError ? (
-            <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {loginError}
             </div>
           ) : null}
@@ -568,11 +569,9 @@ function LoginHome() {
           >
             {/* Email Field */}
             <div className="space-y-1.5">
-              <label htmlFor="login-email" className="text-sm font-semibold text-gray-800">Email Address</label>
+              <label htmlFor="login-email" className="text-sm font-semibold text-slate-800">Email Address</label>
               <div className="relative">
-                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                </svg>
+                <Mail aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <input
                   id="login-email"
                   name="email"
@@ -581,18 +580,16 @@ function LoginHome() {
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="Enter Your Mail"
                   autoComplete="username"
-                  className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
               </div>
             </div>
 
             {/* Password Field */}
             <div className="space-y-1.5">
-              <label htmlFor="login-password" className="text-sm font-semibold text-gray-800">Password</label>
+              <label htmlFor="login-password" className="text-sm font-semibold text-slate-800">Password</label>
               <div className="relative">
-                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                </svg>
+                <Lock aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <input
                   id="login-password"
                   name="password"
@@ -601,35 +598,33 @@ function LoginHome() {
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter Your Password"
                   autoComplete="current-password"
-                  className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-12 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
                 <button
                   type="button"
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  aria-controls="login-password"
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-xl text-slate-400 transition-colors hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                   onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
                 >
-                  {showPassword ? (
-                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
-                  ) : (
-                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  )}
+                  {showPassword
+                    ? <EyeOff aria-hidden="true" className="size-4" />
+                    : <Eye aria-hidden="true" className="size-4" />}
                 </button>
               </div>
             </div>
 
             {/* Role Selector */}
             <div className="space-y-1.5">
-              <label htmlFor="login-role" className="text-sm font-semibold text-gray-800">Login As</label>
+              <label htmlFor="login-role" className="text-sm font-semibold text-slate-800">Login As</label>
               <div className="relative">
-                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
+                <User aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <select
                   id="login-role"
                   value={roleId}
                   onChange={(event) => setRoleId(event.target.value)}
-                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-10 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="1">Super Admin</option>
                   <option value="2">Student</option>
@@ -640,24 +635,24 @@ function LoginHome() {
                   <option value="9">Counsellor</option>
                   <option value="10">Associate</option>
                 </select>
-                <svg className="absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
 
             {/* Remember Me + Forgot Password */}
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="size-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="size-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-offset-0 focus:ring-blue-400"
                 />
-                <span className="text-sm text-gray-600">Remember Me</span>
+                <span className="text-sm text-slate-600">Remember Me</span>
               </label>
               <button
                 type="button"
-                className="text-sm font-semibold text-gray-800 hover:text-blue-600 transition-colors"
+                className="rounded text-sm font-semibold text-slate-800 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                 onClick={() => navigateTo('/forgot-password')}
               >
                 Forgot Password?
@@ -667,7 +662,7 @@ function LoginHome() {
             {/* Sign In Button */}
             <button
               type="submit"
-              className="w-full h-12 rounded-full text-white font-semibold tracking-wide border-none transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0"
+              className="h-12 w-full rounded-full border-none font-semibold tracking-wide text-white transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#4A6EDB] disabled:cursor-not-allowed disabled:opacity-65 disabled:hover:translate-y-0"
               style={{
                 background: 'linear-gradient(90deg, #6B8FEF 0%, #4A6EDB 100%)',
                 boxShadow: '0 8px 24px rgba(74, 110, 219, 0.40)',
@@ -675,6 +670,7 @@ function LoginHome() {
                 letterSpacing: '0.02em',
               }}
               disabled={submitting}
+              aria-busy={submitting}
             >
               {submitting ? 'Signing in...' : 'Sign In'}
             </button>
@@ -682,9 +678,14 @@ function LoginHome() {
 
           {/* Need Help */}
           <div className="mt-6 text-center">
-            <p className="text-sm text-[#666666]">Need Help?</p>
-            <p className="text-sm font-bold text-[#222222] mt-1">Contact Support</p>
-            <a href="mailto:support@teachersindia.in" className="text-sm text-[#666666] hover:text-[#4B6EDB]">support@teachersindia.in</a>
+            <p className="text-sm text-slate-500">Need Help?</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">Contact Support</p>
+            <a
+              href="mailto:support@teachersindia.in"
+              className="rounded text-sm text-slate-500 transition-colors hover:text-[#4B6EDB] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              support@teachersindia.in
+            </a>
           </div>
           </div>
         </div>
