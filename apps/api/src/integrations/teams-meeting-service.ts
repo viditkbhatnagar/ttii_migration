@@ -78,9 +78,60 @@ export class TeamsMeetingService {
     return result.accessToken;
   }
 
+  /**
+   * Resolves a UPN (email) to the user's Azure AD object ID.
+   *
+   * The Graph `/users/{id}/onlineMeetings` endpoint — unlike most other
+   * `/users/{id}/...` endpoints — rejects UPNs with 404 "UnknownError"
+   * when called with app-only auth. It requires the user's GUID object ID.
+   * We resolve it here and cache per-process.
+   */
+  private readonly objectIdCache = new Map<string, string>();
+
+  private async resolveObjectId(upn: string, token: string): Promise<string> {
+    const cached = this.objectIdCache.get(upn.toLowerCase());
+    if (cached) return cached;
+
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(upn)}?$select=id`;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      throw new TeamsMeetingError('network', `Graph user lookup failed: ${(err as Error).message}`);
+    }
+
+    if (response.status === 404) {
+      throw new TeamsMeetingError('user_not_found', `User ${upn} not found in the M365 tenant.`, 404);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new TeamsMeetingError('unauthorized', `Graph user lookup rejected (${response.status}) — check app permissions (User.Read.All).`, response.status);
+    }
+    if (!response.ok) {
+      const body = await response.text();
+      throw new TeamsMeetingError('unknown', `Graph user lookup failed (${response.status}): ${body.substring(0, 200)}`, response.status);
+    }
+
+    const data = (await response.json()) as { id?: string };
+    if (!data.id) {
+      throw new TeamsMeetingError('unknown', `Graph user lookup returned no id for ${upn}.`);
+    }
+    this.objectIdCache.set(upn.toLowerCase(), data.id);
+    return data.id;
+  }
+
+  /** Verifies the host exists + is resolvable by Graph. Used by Test Policy. */
+  async resolveHost(upn: string): Promise<string> {
+    const token = await this.getAccessToken();
+    return this.resolveObjectId(upn, token);
+  }
+
   async createMeeting(input: CreateTeamsMeetingInput): Promise<CreateTeamsMeetingResult> {
     const token = await this.getAccessToken();
-    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(input.hostEmail)}/onlineMeetings`;
+    const objectId = await this.resolveObjectId(input.hostEmail, token);
+    const url = `https://graph.microsoft.com/v1.0/users/${objectId}/onlineMeetings`;
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
@@ -102,21 +153,19 @@ export class TeamsMeetingService {
     if (!response.ok) {
       const body = await response.text();
       const code = this.classifyError(response.status, body);
-      const lower = body.toLowerCase();
       const hint =
         code === 'policy_missing'
           ? ` — assign a CsApplicationAccessPolicy to ${input.hostEmail} (PowerShell: Grant-CsApplicationAccessPolicy -PolicyName <name> -Identity ${input.hostEmail}).`
           : code === 'unauthorized'
             ? ' — verify OnlineMeetings.ReadWrite.All application permission is granted + admin-consented.'
             : code === 'user_not_found'
-              ? ` — user ${input.hostEmail} not found in the M365 tenant.`
+              ? ` — user ${input.hostEmail} (objectId=${objectId}) rejected by onlineMeetings endpoint. Likely missing Teams license or CsApplicationAccessPolicy propagation.`
               : '';
       throw new TeamsMeetingError(
         code,
         `Graph online-meeting create failed (${response.status}): ${body.substring(0, 200)}${hint}`,
         response.status,
       );
-      void lower;
     }
 
     const data = (await response.json()) as {
