@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { FileText, Target, TrendingUp, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { PageLoader } from '@/components/ui/page-loader';
+import { Skeleton } from '@/components/ui/skeleton';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -52,7 +52,32 @@ export default function CounsellorDashboardPage({ api, session }: AdminPageProps
   const conversionRate = totalApps > 0 ? Math.round((convertedApps / totalApps) * 100) : 0;
 
   if (loading) {
-    return <PageLoader label="Loading counsellor dashboard..." />;
+    return (
+      <div aria-busy="true" className="space-y-6">
+        <AdminPageHeader title="My Dashboard" />
+        <p className="-mt-4 text-sm text-gray-500">Counsellor performance overview</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="bg-white">
+              <CardContent className="flex items-center gap-4 p-5">
+                <Skeleton className="size-10 shrink-0 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-7 w-12" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-5 w-44" />
+            <Skeleton className="h-48 w-full rounded-xl" />
+          </div>
+        ))}
+        <span className="sr-only" role="status">Loading counsellor dashboard</span>
+      </div>
+    );
   }
 
   if (error) {
@@ -87,7 +112,7 @@ export default function CounsellorDashboardPage({ api, session }: AdminPageProps
           return (
             <Card key={stat.label} className={`bg-white border-l-4 ${stat.borderColor}`}>
               <CardContent className="flex items-center gap-4 p-5">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-primary/10">
+                <div aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-primary/10">
                   <Icon className="size-5 text-ttii-primary" />
                 </div>
                 <div>

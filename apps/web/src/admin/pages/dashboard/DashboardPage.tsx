@@ -4,7 +4,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { PageLoader } from '@/components/ui/page-loader';
+import { Skeleton } from '@/components/ui/skeleton';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -55,7 +55,36 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
   const recentStudents = useMemo(() => toRecords(data?.recent_students), [data]);
   const upcomingEvents = useMemo(() => toRecords(data?.upcoming_events), [data]);
 
-  if (loading) return <PageLoader label="Loading dashboard..." />;
+  if (loading) {
+    return (
+      <div aria-busy="true" className="space-y-6">
+        <AdminPageHeader title="Dashboard" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5"
+            >
+              <Skeleton className="size-12 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-7 w-12" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-44" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+        <span className="sr-only" role="status">Loading dashboard</span>
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -84,9 +113,10 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
               key={stat.key}
               type="button"
               onClick={() => onNavigate(stat.href)}
-              className="group flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-ttii-primary/30 hover:shadow-md"
+              aria-label={`${value} ${stat.label} — open`}
+              className="group flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-ttii-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ttii-primary focus-visible:ring-offset-2"
             >
-              <div className={`flex size-12 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}>
+              <div aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}>
                 <Icon className={`size-6 ${stat.iconColor}`} />
               </div>
               <div className="min-w-0 flex-1">
