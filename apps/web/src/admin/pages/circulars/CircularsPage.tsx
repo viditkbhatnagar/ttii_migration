@@ -182,65 +182,72 @@ export default function CircularsPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Circular Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Circular' : 'Add Circular'}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 py-2 md:grid-cols-2">
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Title *</Label>
-              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Circular title" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Circular' : 'Add Circular'}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-3 py-2 md:grid-cols-2">
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Title *</Label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Circular title" />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Image *</Label>
+                <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Description</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mDescription}
+                  onChange={(e) => setMDescription(e.target.value)}
+                  placeholder="Description"
+                />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Instructor</Label>
+                <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
+                  <option value="">Choose Instructor</option>
+                  {instructors.map((i) => (
+                    <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
+                      {asString(i.name)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Date</Label>
+                <Input type="date" value={mEventDate} onChange={(e) => setMEventDate(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Duration</Label>
+                <Input value={mDuration} onChange={(e) => setMDuration(e.target.value)} placeholder="e.g. 1 hour" />
+              </div>
+              <div className="grid gap-2">
+                <Label>From Time</Label>
+                <Input type="time" value={mFromTime} onChange={(e) => setMFromTime(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>To Time</Label>
+                <Input type="time" value={mToTime} onChange={(e) => setMToTime(e.target.value)} />
+              </div>
             </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Image *</Label>
-              <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Description</Label>
-              <textarea
-                className={textareaClass}
-                value={mDescription}
-                onChange={(e) => setMDescription(e.target.value)}
-                placeholder="Description"
-              />
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Instructor</Label>
-              <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
-                <option value="">Choose Instructor</option>
-                {instructors.map((i) => (
-                  <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
-                    {asString(i.name)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Date</Label>
-              <Input type="date" value={mEventDate} onChange={(e) => setMEventDate(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Duration</Label>
-              <Input value={mDuration} onChange={(e) => setMDuration(e.target.value)} placeholder="e.g. 1 hour" />
-            </div>
-            <div className="grid gap-2">
-              <Label>From Time</Label>
-              <Input type="time" value={mFromTime} onChange={(e) => setMFromTime(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>To Time</Label>
-              <Input type="time" value={mToTime} onChange={(e) => setMToTime(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

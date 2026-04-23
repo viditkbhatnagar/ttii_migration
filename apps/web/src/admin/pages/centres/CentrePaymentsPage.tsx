@@ -236,29 +236,36 @@ export default function CentrePaymentsPage({ api, session, onNavigate: _onNaviga
       {/* Approve/Reject Confirmation Dialog */}
       <Dialog open={actionTarget !== null} onOpenChange={(open) => { if (!open) setActionTarget(null); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {actionTarget?.action === 'approve' ? 'Approve Fund Request' : 'Reject Fund Request'}
-            </DialogTitle>
-            <DialogDescription>
-              Are you sure you want to {actionTarget?.action} the fund request
-              {actionTarget ? ` of ${formatCurrency(actionTarget.row.amount)}` : ''}
-              {actionTarget ? ` from ${asString(actionTarget.row.centre_name)}` : ''}?
-              This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActionTarget(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button
-              variant={actionTarget?.action === 'approve' ? 'default' : 'destructive'}
-              onClick={() => { void handleConfirmAction(); }}
-              disabled={processing}
-            >
-              {processing ? 'Processing...' : actionTarget?.action === 'approve' ? 'Approve' : 'Reject'}
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleConfirmAction();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {actionTarget?.action === 'approve' ? 'Approve Fund Request' : 'Reject Fund Request'}
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to {actionTarget?.action} the fund request
+                {actionTarget ? ` of ${formatCurrency(actionTarget.row.amount)}` : ''}
+                {actionTarget ? ` from ${asString(actionTarget.row.centre_name)}` : ''}?
+                This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setActionTarget(null)} disabled={processing}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant={actionTarget?.action === 'approve' ? 'default' : 'destructive'}
+                disabled={processing}
+              >
+                {processing ? 'Processing...' : actionTarget?.action === 'approve' ? 'Approve' : 'Reject'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

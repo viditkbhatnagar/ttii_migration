@@ -111,25 +111,32 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
       {/* Add/Edit Language Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Language' : 'Add Language'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid gap-2">
-              <Label>Title *</Label>
-              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="e.g. English, Malayalam" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Language' : 'Add Language'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid gap-2">
+                <Label>Title *</Label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="e.g. English, Malayalam" />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

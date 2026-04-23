@@ -116,39 +116,46 @@ export default function FaqPage({ api, session }: AdminPageProps) {
       {/* Add/Edit FAQ Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Faq' : 'Add Faq'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid gap-2">
-              <Label>Question *</Label>
-              <textarea
-                className={textareaClass}
-                value={mQuestion}
-                onChange={(e) => setMQuestion(e.target.value)}
-                placeholder="Enter question"
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Faq' : 'Add Faq'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid gap-2">
+                <Label>Question *</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mQuestion}
+                  onChange={(e) => setMQuestion(e.target.value)}
+                  placeholder="Enter question"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Answer *</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mAnswer}
+                  onChange={(e) => setMAnswer(e.target.value)}
+                  placeholder="Enter answer"
+                />
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label>Answer *</Label>
-              <textarea
-                className={textareaClass}
-                value={mAnswer}
-                onChange={(e) => setMAnswer(e.target.value)}
-                placeholder="Enter answer"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

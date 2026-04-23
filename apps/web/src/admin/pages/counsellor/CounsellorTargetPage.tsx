@@ -237,6 +237,12 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Target' : 'Add Target'}</DialogTitle>
           </DialogHeader>
@@ -313,17 +319,18 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
               Cancel
             </Button>
             <Button
-              onClick={() => void handleSubmit()}
+              type="submit"
               disabled={submitting || !formUserId || !formType || !formValue || !formFrom || !formTo}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               {submitting ? 'Saving...' : editingId ? 'Update' : 'Add'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

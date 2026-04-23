@@ -290,37 +290,44 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       {/* ── Edit Student Dialog ──────────────────────────────────────────── */}
       <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Student</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label className="mb-1 text-sm">Name</Label>
-              <Input
-                value={dialogName}
-                onChange={(e) => setDialogName(e.target.value)}
-                placeholder="Student name"
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleEditSubmit();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Edit Student</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="mb-1 text-sm">Name</Label>
+                <Input
+                  value={dialogName}
+                  onChange={(e) => setDialogName(e.target.value)}
+                  placeholder="Student name"
+                />
+              </div>
+              <div>
+                <Label className="mb-1 text-sm">Phone</Label>
+                <Input
+                  value={dialogPhone}
+                  onChange={(e) => setDialogPhone(e.target.value)}
+                  placeholder="Phone number"
+                />
+              </div>
             </div>
-            <div>
-              <Label className="mb-1 text-sm">Phone</Label>
-              <Input
-                value={dialogPhone}
-                onChange={(e) => setDialogPhone(e.target.value)}
-                placeholder="Phone number"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => { void handleEditSubmit(); }}
-              disabled={dialogSubmitting}
-            >
-              {dialogSubmitting ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={dialogSubmitting}
+              >
+                {dialogSubmitting ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

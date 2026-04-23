@@ -138,6 +138,13 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
       {/* Link Courses Dialog */}
       <Dialog open={showLinkDialog} onOpenChange={(open) => { if (!open) { setShowLinkDialog(false); setSelectedCourseIds(new Set()); } }}>
         <DialogContent className="max-h-[80vh] overflow-hidden flex flex-col">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleLinkSelected();
+            }}
+            className="flex flex-col flex-1 min-h-0"
+          >
           <DialogHeader>
             <DialogTitle>Add Courses to Program</DialogTitle>
           </DialogHeader>
@@ -181,11 +188,12 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowLinkDialog(false); setSelectedCourseIds(new Set()); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleLinkSelected(); }} disabled={saving || selectedCourseIds.size === 0}>
+            <Button type="button" variant="outline" onClick={() => { setShowLinkDialog(false); setSelectedCourseIds(new Set()); }} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving || selectedCourseIds.size === 0}>
               {saving ? 'Adding...' : `Add ${selectedCourseIds.size > 0 ? `(${selectedCourseIds.size})` : ''} Selected`}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

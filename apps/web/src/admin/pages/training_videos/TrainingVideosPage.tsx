@@ -214,82 +214,96 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Video Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editId ? 'Edit Video' : 'Add Video'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="Video title" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editId ? 'Edit Video' : 'Add Video'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>Title *</Label>
+                <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="Video title" />
+              </div>
+              <div>
+                <Label>Category *</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={form.category}
+                  onChange={(e) => updateField('category', e.target.value)}
+                >
+                  <option value="">Choose Category</option>
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Video Type *</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={form.videoType}
+                  onChange={(e) => updateField('videoType', e.target.value)}
+                >
+                  <option value="">Choose Type</option>
+                  {VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Video URL (YouTube/Vimeo link)</Label>
+                <Input value={form.videoUrl} onChange={(e) => updateField('videoUrl', e.target.value)} placeholder="https://..." />
+              </div>
+              <div>
+                <Label>Thumbnail (optional — upload to override auto-fetch)</Label>
+                <Input value={form.thumbnail} onChange={(e) => updateField('thumbnail', e.target.value)} placeholder="https://..." />
+                <p className="mt-1 text-xs text-gray-500">Auto-fetch thumbnail preview from YouTube/Vimeo URL</p>
+                {form.thumbnail ? (
+                  <img src={form.thumbnail} alt="Thumbnail preview" className="mt-2 h-24 w-auto rounded border object-contain" />
+                ) : null}
+              </div>
+              <div>
+                <Label>Description</Label>
+                <textarea
+                  className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={form.description}
+                  onChange={(e) => updateField('description', e.target.value)}
+                  placeholder="Video description (supports HTML)"
+                />
+              </div>
             </div>
-            <div>
-              <Label>Category *</Label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.category}
-                onChange={(e) => updateField('category', e.target.value)}
-              >
-                <option value="">Choose Category</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label>Video Type *</Label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.videoType}
-                onChange={(e) => updateField('videoType', e.target.value)}
-              >
-                <option value="">Choose Type</option>
-                {VIDEO_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label>Video URL (YouTube/Vimeo link)</Label>
-              <Input value={form.videoUrl} onChange={(e) => updateField('videoUrl', e.target.value)} placeholder="https://..." />
-            </div>
-            <div>
-              <Label>Thumbnail (optional — upload to override auto-fetch)</Label>
-              <Input value={form.thumbnail} onChange={(e) => updateField('thumbnail', e.target.value)} placeholder="https://..." />
-              <p className="mt-1 text-xs text-gray-500">Auto-fetch thumbnail preview from YouTube/Vimeo URL</p>
-              {form.thumbnail ? (
-                <img src={form.thumbnail} alt="Thumbnail preview" className="mt-2 h-24 w-auto rounded border object-contain" />
-              ) : null}
-            </div>
-            <div>
-              <Label>Description</Label>
-              <textarea
-                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.description}
-                onChange={(e) => updateField('description', e.target.value)}
-                placeholder="Video description (supports HTML)"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
-              {saving ? 'Saving...' : editId ? 'Update Video' : 'Add Video'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving || !form.title.trim()}>
+                {saving ? 'Saving...' : editId ? 'Update Video' : 'Add Video'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) { setDeleteId(''); setDeleteTitle(''); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Video</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete <strong>{deleteTitle}</strong>? This action cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeleteId(''); setDeleteTitle(''); }} disabled={saving}>Cancel</Button>
-            <Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={saving}>
-              {saving ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleDelete();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Delete Video</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600">
+              Are you sure you want to delete <strong>{deleteTitle}</strong>? This action cannot be undone.
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setDeleteId(''); setDeleteTitle(''); }} disabled={saving}>Cancel</Button>
+              <Button type="submit" variant="destructive" disabled={saving}>
+                {saving ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

@@ -304,6 +304,12 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Asset Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editId ? 'Edit Asset' : 'New Content Asset'}</DialogTitle>
           </DialogHeader>
@@ -494,11 +500,12 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
+            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

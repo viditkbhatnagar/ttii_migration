@@ -228,18 +228,25 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Centre</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete <strong>{deleteTarget ? asString(deleteTarget.centre_name) : ''}</strong>? This action cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
-            <Button variant="destructive" onClick={() => { void handleDelete(); }} disabled={deleting}>
-              {deleting ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleDelete();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Delete Centre</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600">
+              Are you sure you want to delete <strong>{deleteTarget ? asString(deleteTarget.centre_name) : ''}</strong>? This action cannot be undone.
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+              <Button type="submit" variant="destructive" disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

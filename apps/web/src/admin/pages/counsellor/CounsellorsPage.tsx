@@ -280,6 +280,12 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
       {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleDialogSave();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{dialogMode === 'add' ? 'Add counsellor' : 'Update counsellor Details'}</DialogTitle>
           </DialogHeader>
@@ -338,15 +344,16 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
-              onClick={() => { void handleDialogSave(); }}
+              type="submit"
               disabled={formSaving || !formName.trim() || (dialogMode === 'add' && !formEmail.trim())}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               {formSaving ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

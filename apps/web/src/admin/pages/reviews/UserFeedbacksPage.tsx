@@ -154,58 +154,65 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Review Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Review' : 'Add Review'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid gap-2">
-              <Label>Course *</Label>
-              <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
-                <option value="">Select Course</option>
-                {courses.map((c) => (
-                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                ))}
-              </select>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Review' : 'Add Review'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid gap-2">
+                <Label>Course *</Label>
+                <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
+                  <option value="">Select Course</option>
+                  {courses.map((c) => (
+                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Student *</Label>
+                <select className={selectClass} value={mUserId} onChange={(e) => setMUserId(e.target.value)}>
+                  <option value="">Select Student</option>
+                  {students.map((s) => (
+                    <option key={asString(s._id) || asString(s.id)} value={asString(s._id) || asString(s.id)}>
+                      {asString(s.name) || asString(s.student_name)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Rating</Label>
+                <Input
+                  value={mRating}
+                  onChange={(e) => setMRating(e.target.value)}
+                  placeholder="e.g. 4 or 5"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Review</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mReview}
+                  onChange={(e) => setMReview(e.target.value)}
+                  placeholder="Enter review text"
+                />
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label>Student *</Label>
-              <select className={selectClass} value={mUserId} onChange={(e) => setMUserId(e.target.value)}>
-                <option value="">Select Student</option>
-                {students.map((s) => (
-                  <option key={asString(s._id) || asString(s.id)} value={asString(s._id) || asString(s.id)}>
-                    {asString(s.name) || asString(s.student_name)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Rating</Label>
-              <Input
-                value={mRating}
-                onChange={(e) => setMRating(e.target.value)}
-                placeholder="e.g. 4 or 5"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Review</Label>
-              <textarea
-                className={textareaClass}
-                value={mReview}
-                onChange={(e) => setMReview(e.target.value)}
-                placeholder="Enter review text"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

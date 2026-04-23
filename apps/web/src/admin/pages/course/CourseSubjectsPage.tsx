@@ -272,6 +272,12 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       {/* Add / Edit Subject Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editId ? 'Edit Subject' : 'Add Subject'}</DialogTitle>
           </DialogHeader>
@@ -380,17 +386,25 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
             </section>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
+            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update Subject' : 'Add Subject'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       {/* Select Subject from DB Dialog */}
       <Dialog open={showSelectDialog} onOpenChange={(open) => { if (!open) { setShowSelectDialog(false); setSelectedSubjectIds(new Set()); } }}>
         <DialogContent className="max-h-[80vh] overflow-hidden flex flex-col">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleLinkSelected();
+            }}
+            className="flex flex-col flex-1 min-h-0"
+          >
           <DialogHeader>
             <DialogTitle>Link Existing Subjects</DialogTitle>
           </DialogHeader>
@@ -421,11 +435,12 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowSelectDialog(false); setSelectedSubjectIds(new Set()); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleLinkSelected(); }} disabled={saving || selectedSubjectIds.size === 0}>
+            <Button type="button" variant="outline" onClick={() => { setShowSelectDialog(false); setSelectedSubjectIds(new Set()); }} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving || selectedSubjectIds.size === 0}>
               {saving ? 'Linking...' : `Link ${selectedSubjectIds.size > 0 ? `(${selectedSubjectIds.size})` : ''} Selected`}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

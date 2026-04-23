@@ -1146,6 +1146,12 @@ function AddLearnerModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
         <DialogHeader>
           <DialogTitle>Add Learner</DialogTitle>
         </DialogHeader>
@@ -1210,15 +1216,16 @@ function AddLearnerModal({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
+            type="submit"
             disabled={submitting || selected.size === 0}
-            onClick={() => void handleSubmit()}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Assigning...' : 'Assign Selected'}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1307,6 +1314,12 @@ function AddLiveSessionModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
         <DialogHeader>
           <DialogTitle>Add Live Session</DialogTitle>
         </DialogHeader>
@@ -1408,15 +1421,16 @@ function AddLiveSessionModal({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
+            type="submit"
             disabled={submitting || !sessionId || !title || !date || !fromTime || !toTime}
-            onClick={() => void handleSubmit()}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1452,23 +1466,30 @@ function EditRecordingModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Recorded link</DialogTitle>
-        </DialogHeader>
-        <div className="py-2">
-          <Label className="mb-1 text-xs">Vimeo Link *</Label>
-          <Input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://vimeo.com/..." />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            disabled={submitting || !link}
-            onClick={() => void handleSubmit()}
-            className="bg-ttii-primary hover:bg-ttii-primary/90"
-          >
-            {submitting ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Edit Recorded link</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Label className="mb-1 text-xs">Vimeo Link *</Label>
+            <Input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://vimeo.com/..." />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button
+              type="submit"
+              disabled={submitting || !link}
+              className="bg-ttii-primary hover:bg-ttii-primary/90"
+            >
+              {submitting ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1532,6 +1553,12 @@ function AssignmentModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
         <DialogHeader>
           <DialogTitle>{assignment ? 'Edit Assignment' : 'Add Assignment'}</DialogTitle>
         </DialogHeader>
@@ -1578,15 +1605,16 @@ function AssignmentModal({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
+            type="submit"
             disabled={submitting || !title || !dueDate}
-            onClick={() => void handleSubmit()}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1624,29 +1652,36 @@ function GradeSubmissionModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Remarks</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div>
-            <Label className="mb-1 text-xs">Marks * <span className="text-gray-400">(Assignment Mark: {assignmentMarks})</span></Label>
-            <Input type="number" value={marks} onChange={(e) => setMarks(e.target.value)} />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Edit Remarks</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="mb-1 text-xs">Marks * <span className="text-gray-400">(Assignment Mark: {assignmentMarks})</span></Label>
+              <Input type="number" value={marks} onChange={(e) => setMarks(e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">Remarks *</Label>
+              <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <Label className="mb-1 text-xs">Remarks *</Label>
-            <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            disabled={submitting || !marks || !remarks}
-            onClick={() => void handleSubmit()}
-            className="bg-ttii-primary hover:bg-ttii-primary/90"
-          >
-            {submitting ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button
+              type="submit"
+              disabled={submitting || !marks || !remarks}
+              className="bg-ttii-primary hover:bg-ttii-primary/90"
+            >
+              {submitting ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1701,6 +1736,12 @@ function AnnouncementModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
         <DialogHeader>
           <DialogTitle>{announcement ? 'Edit Announcement' : 'Add Announcement'}</DialogTitle>
         </DialogHeader>
@@ -1729,15 +1770,16 @@ function AnnouncementModal({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
+            type="submit"
             disabled={submitting || !title || !content}
-            onClick={() => void handleSubmit()}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

@@ -159,6 +159,12 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); resetForm(); } }}>
         <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editingUser ? 'Edit User' : 'Create Super Admin'}</DialogTitle>
           </DialogHeader>
@@ -203,11 +209,12 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
-            <Button onClick={() => { void handleSubmit(); }} disabled={submitting}>
+            <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>
               {submitting ? 'Saving...' : editingUser ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

@@ -194,35 +194,42 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit Assignment</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="edit-title">Title</Label>
-              <Input id="edit-title" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleEditSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Edit Assignment</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1">
+                <Label htmlFor="edit-title">Title</Label>
+                <Input id="edit-title" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-description">Description</Label>
+                <Input id="edit-description" value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-marks">Total Marks</Label>
+                <Input id="edit-marks" type="number" value={editForm.totalMarks} onChange={(e) => setEditForm((f) => ({ ...f, totalMarks: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-due">Due Date</Label>
+                <Input id="edit-due" type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-instructions">Instructions</Label>
+                <Input id="edit-instructions" value={editForm.instructions} onChange={(e) => setEditForm((f) => ({ ...f, instructions: e.target.value }))} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-description">Description</Label>
-              <Input id="edit-description" value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-marks">Total Marks</Label>
-              <Input id="edit-marks" type="number" value={editForm.totalMarks} onChange={(e) => setEditForm((f) => ({ ...f, totalMarks: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-due">Due Date</Label>
-              <Input id="edit-due" type="date" value={editForm.dueDate} onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-instructions">Instructions</Label>
-              <Input id="edit-instructions" value={editForm.instructions} onChange={(e) => setEditForm((f) => ({ ...f, instructions: e.target.value }))} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => { void handleEditSave(); }}>Save</Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button type="submit">Save</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

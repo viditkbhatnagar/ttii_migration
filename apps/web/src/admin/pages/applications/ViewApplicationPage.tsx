@@ -368,35 +368,42 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       {/* Reject Dialog with Reason */}
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => { if (!open) { setRejectDialogOpen(false); setRejectReason(''); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Application</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-gray-600">
-              Are you sure you want to reject this application? Please provide a reason below.
-            </p>
-            <div>
-              <Label className="mb-1 text-sm">Reason for Rejection *</Label>
-              <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Enter reason for rejection"
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleRejectSubmit();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Reject Application</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-gray-600">
+                Are you sure you want to reject this application? Please provide a reason below.
+              </p>
+              <div>
+                <Label className="mb-1 text-sm">Reason for Rejection *</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Enter reason for rejection"
+                />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setRejectDialogOpen(false); setRejectReason(''); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => { void handleRejectSubmit(); }}
-              disabled={submitting || !rejectReason.trim()}
-            >
-              {submitting ? 'Rejecting...' : 'Reject Application'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setRejectDialogOpen(false); setRejectReason(''); }}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={submitting || !rejectReason.trim()}
+              >
+                {submitting ? 'Rejecting...' : 'Reject Application'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

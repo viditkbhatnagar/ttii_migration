@@ -146,54 +146,61 @@ export default function BannersPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Banner Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Banner' : 'Add Banner'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid gap-2">
-              <Label>Title *</Label>
-              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Banner title" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Image *</Label>
-              <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
-              <p className="text-xs text-gray-500">Image Aspect ratio should be 1200x628 - Max File size 100KB</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={mIsCourseBanner}
-                onChange={(e) => setMIsCourseBanner(e.target.checked)}
-                className="size-4"
-              />
-              Is Course related banner?
-            </label>
-            {mIsCourseBanner ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Banner' : 'Add Banner'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
               <div className="grid gap-2">
-                <Label>Select course</Label>
-                <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
-                  <option value="">None</option>
-                  {courses.map((c) => (
-                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                  ))}
-                </select>
+                <Label>Title *</Label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Banner title" />
               </div>
-            ) : null}
-            <div className="grid gap-2">
-              <Label>Url</Label>
-              <Input value={mUrl} onChange={(e) => setMUrl(e.target.value)} placeholder="https://..." />
+              <div className="grid gap-2">
+                <Label>Image *</Label>
+                <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
+                <p className="text-xs text-gray-500">Image Aspect ratio should be 1200x628 - Max File size 100KB</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={mIsCourseBanner}
+                  onChange={(e) => setMIsCourseBanner(e.target.checked)}
+                  className="size-4"
+                />
+                Is Course related banner?
+              </label>
+              {mIsCourseBanner ? (
+                <div className="grid gap-2">
+                  <Label>Select course</Label>
+                  <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
+                    <option value="">None</option>
+                    {courses.map((c) => (
+                      <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              <div className="grid gap-2">
+                <Label>Url</Label>
+                <Input value={mUrl} onChange={(e) => setMUrl(e.target.value)} placeholder="https://..." />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

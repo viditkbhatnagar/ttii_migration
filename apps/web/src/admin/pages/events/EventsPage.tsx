@@ -193,85 +193,92 @@ export default function EventsPage({ api, session, onNavigate }: AdminPageProps)
       {/* Add/Edit Event Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Event' : 'Add Event'}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 py-2 md:grid-cols-2">
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Title *</Label>
-              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Event title" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Edit Event' : 'Add Event'}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-3 py-2 md:grid-cols-2">
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Title *</Label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Event title" />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Image *</Label>
+                <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Description</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mDescription}
+                  onChange={(e) => setMDescription(e.target.value)}
+                  placeholder="Event description"
+                />
+              </div>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Instructors *</Label>
+                <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
+                  <option value="">Choose Instructor</option>
+                  {instructors.map((i) => (
+                    <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
+                      {asString(i.name)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Event Date *</Label>
+                <Input type="date" value={mEventDate} onChange={(e) => setMEventDate(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Duration *</Label>
+                <Input value={mDuration} onChange={(e) => setMDuration(e.target.value)} placeholder="e.g. 1 hour" />
+              </div>
+              <div className="grid gap-2">
+                <Label>From Time *</Label>
+                <Input type="time" value={mFromTime} onChange={(e) => setMFromTime(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>To Time *</Label>
+                <Input type="time" value={mToTime} onChange={(e) => setMToTime(e.target.value)} />
+              </div>
+              <label className="flex items-center gap-2 text-sm md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={mIsRecording}
+                  onChange={(e) => setMIsRecording(e.target.checked)}
+                  className="size-4"
+                />
+                Is Recording Available?
+              </label>
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Number of Objectives</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={mNumObjectives}
+                  onChange={(e) => setMNumObjectives(e.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-xs text-gray-500">Sets how many objective text fields will be generated.</p>
+              </div>
             </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Image *</Label>
-              <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Description</Label>
-              <textarea
-                className={textareaClass}
-                value={mDescription}
-                onChange={(e) => setMDescription(e.target.value)}
-                placeholder="Event description"
-              />
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Instructors *</Label>
-              <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
-                <option value="">Choose Instructor</option>
-                {instructors.map((i) => (
-                  <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
-                    {asString(i.name)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Event Date *</Label>
-              <Input type="date" value={mEventDate} onChange={(e) => setMEventDate(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Duration *</Label>
-              <Input value={mDuration} onChange={(e) => setMDuration(e.target.value)} placeholder="e.g. 1 hour" />
-            </div>
-            <div className="grid gap-2">
-              <Label>From Time *</Label>
-              <Input type="time" value={mFromTime} onChange={(e) => setMFromTime(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>To Time *</Label>
-              <Input type="time" value={mToTime} onChange={(e) => setMToTime(e.target.value)} />
-            </div>
-            <label className="flex items-center gap-2 text-sm md:col-span-2">
-              <input
-                type="checkbox"
-                checked={mIsRecording}
-                onChange={(e) => setMIsRecording(e.target.checked)}
-                className="size-4"
-              />
-              Is Recording Available?
-            </label>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Number of Objectives</Label>
-              <Input
-                type="number"
-                min="0"
-                value={mNumObjectives}
-                onChange={(e) => setMNumObjectives(e.target.value)}
-                placeholder="0"
-              />
-              <p className="text-xs text-gray-500">Sets how many objective text fields will be generated.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

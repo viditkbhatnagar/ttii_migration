@@ -242,22 +242,29 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
       {/* Action confirmation dialog */}
       <Dialog open={actionDialog != null} onOpenChange={() => setActionDialog(null)}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {actionDialog?.type === 'mark_paid' ? 'Mark as Paid' : 'Send Reminder'}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-600">
-            {actionDialog?.type === 'mark_paid'
-              ? `Mark installment for ${asString(actionDialog?.row.user_name)} (${formatCurrency(actionDialog?.row.amount)}) as paid?`
-              : `Send a payment reminder to ${asString(actionDialog?.row.user_name)} for ${formatCurrency(actionDialog?.row.amount)}?`}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button>
-            <Button onClick={() => { void handleAction(); }} disabled={actionLoading}>
-              {actionLoading ? 'Processing...' : 'Confirm'}
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleAction();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>
+                {actionDialog?.type === 'mark_paid' ? 'Mark as Paid' : 'Send Reminder'}
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600">
+              {actionDialog?.type === 'mark_paid'
+                ? `Mark installment for ${asString(actionDialog?.row.user_name)} (${formatCurrency(actionDialog?.row.amount)}) as paid?`
+                : `Send a payment reminder to ${asString(actionDialog?.row.user_name)} for ${formatCurrency(actionDialog?.row.amount)}?`}
+            </p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button>
+              <Button type="submit" disabled={actionLoading}>
+                {actionLoading ? 'Processing...' : 'Confirm'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

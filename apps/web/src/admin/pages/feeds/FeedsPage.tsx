@@ -148,58 +148,65 @@ export default function FeedsPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Feed Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Update Feed' : 'Add Feed'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="grid gap-2">
-              <Label>Title *</Label>
-              <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Feed title" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingId ? 'Update Feed' : 'Add Feed'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid gap-2">
+                <Label>Title *</Label>
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Feed title" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Image</Label>
+                <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Course *</Label>
+                <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
+                  <option value="">Choose Course</option>
+                  {courses.map((c) => (
+                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Instructor</Label>
+                <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
+                  <option value="">Choose Instructor</option>
+                  {instructors.map((i) => (
+                    <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
+                      {asString(i.name)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Description *</Label>
+                <textarea
+                  className={textareaClass}
+                  value={mDescription}
+                  onChange={(e) => setMDescription(e.target.value)}
+                  placeholder="Feed description (supports HTML)"
+                />
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label>Image</Label>
-              <Input value={mImage} onChange={(e) => setMImage(e.target.value)} placeholder="Image URL" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Course *</Label>
-              <select className={selectClass} value={mCourseId} onChange={(e) => setMCourseId(e.target.value)}>
-                <option value="">Choose Course</option>
-                {courses.map((c) => (
-                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Instructor</Label>
-              <select className={selectClass} value={mInstructorId} onChange={(e) => setMInstructorId(e.target.value)}>
-                <option value="">Choose Instructor</option>
-                {instructors.map((i) => (
-                  <option key={asString(i.id) || asString(i._id)} value={asString(i.id) || asString(i._id)}>
-                    {asString(i.name)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Description *</Label>
-              <textarea
-                className={textareaClass}
-                value={mDescription}
-                onChange={(e) => setMDescription(e.target.value)}
-                placeholder="Feed description (supports HTML)"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-              onClick={() => void handleSave()}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button
+                type="submit"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

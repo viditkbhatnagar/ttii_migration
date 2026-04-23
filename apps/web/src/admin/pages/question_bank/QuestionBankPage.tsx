@@ -243,6 +243,12 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
       {/* ── Add/Edit Question Modal ──────────────────────────────── */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSaveQuestion();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Question' : 'Add Question'}</DialogTitle>
           </DialogHeader>
@@ -345,15 +351,16 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button
+              type="submit"
               className="bg-ttii-primary hover:bg-ttii-primary/90"
               disabled={submitting}
-              onClick={() => void handleSaveQuestion()}
             >
               {submitting ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

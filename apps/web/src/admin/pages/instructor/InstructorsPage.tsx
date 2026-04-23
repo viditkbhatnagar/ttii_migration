@@ -191,6 +191,12 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Instructor' : 'Add Instructor'}</DialogTitle>
           </DialogHeader>
@@ -296,17 +302,18 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
             <Button
+              type="submit"
               className="bg-ttii-primary hover:bg-ttii-primary/90"
               disabled={saving || !form.name.trim() || !form.email.trim()}
-              onClick={() => { void handleSubmit(); }}
             >
               {saving ? 'Saving...' : editingId ? 'Update' : 'Add Instructor'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

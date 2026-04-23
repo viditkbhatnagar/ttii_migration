@@ -480,52 +480,65 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
       {/* Add/Edit Lesson Dialog */}
       <Dialog open={lessonDialogOpen} onOpenChange={setLessonDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingLessonId ? 'Edit Lesson' : 'Add Lesson'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Title *</Label>
-              <Input
-                value={lessonForm.title}
-                onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Lesson title"
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSaveLesson();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editingLessonId ? 'Edit Lesson' : 'Add Lesson'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Title *</Label>
+                <Input
+                  value={lessonForm.title}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Lesson title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Summary</Label>
+                <textarea
+                  className={textareaClass}
+                  value={lessonForm.summary}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, summary: e.target.value }))}
+                  placeholder="Brief description of the lesson"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="lesson-free"
+                  checked={lessonForm.free}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, free: e.target.checked }))}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="lesson-free">Free Preview</Label>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Summary</Label>
-              <textarea
-                className={textareaClass}
-                value={lessonForm.summary}
-                onChange={(e) => setLessonForm((f) => ({ ...f, summary: e.target.value }))}
-                placeholder="Brief description of the lesson"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="lesson-free"
-                checked={lessonForm.free}
-                onChange={(e) => setLessonForm((f) => ({ ...f, free: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <Label htmlFor="lesson-free">Free Preview</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLessonDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => { void handleSaveLesson(); }} disabled={saving || !lessonForm.title.trim()}>
-              {saving ? 'Saving...' : editingLessonId ? 'Update' : 'Create'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setLessonDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving || !lessonForm.title.trim()}>
+                {saving ? 'Saving...' : editingLessonId ? 'Update' : 'Create'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       {/* Add/Edit File Dialog */}
       <Dialog open={fileDialogOpen} onOpenChange={setFileDialogOpen}>
         <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSaveFile();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>
               {editingFileId ? 'Edit' : 'Add'} {fileTypeLabel[fileDialogType]}
@@ -621,13 +634,14 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFileDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setFileDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => { void handleSaveFile(); }} disabled={saving || !fileForm.title.trim()}>
+            <Button type="submit" disabled={saving || !fileForm.title.trim()}>
               {saving ? 'Saving...' : editingFileId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

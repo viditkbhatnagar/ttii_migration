@@ -135,6 +135,12 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
 
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
         <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
           <DialogHeader>
             <DialogTitle>{editId ? 'Edit Program' : 'New Program'}</DialogTitle>
           </DialogHeader>
@@ -173,11 +179,12 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.title.trim()}>
+            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

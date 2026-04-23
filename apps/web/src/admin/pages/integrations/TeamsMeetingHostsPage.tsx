@@ -182,44 +182,51 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
 
       <Dialog open={showDialog} onOpenChange={(open) => { if (!open) { setShowDialog(false); resetForm(); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editId ? 'Edit Teams Meeting Host' : 'Add Teams Meeting Host'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Trainer Email (M365 UPN) *</Label>
-              <Input
-                type="email"
-                value={form.teamsEmail}
-                onChange={(e) => setForm((f) => ({ ...f, teamsEmail: e.target.value }))}
-                placeholder="trainer.name@teachersindia.in"
-                disabled={!!editId}
-              />
-              {!editId && <p className="mt-1 text-xs text-gray-500">Must match the trainer's Microsoft 365 login exactly. Cannot be changed after creation.</p>}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{editId ? 'Edit Teams Meeting Host' : 'Add Teams Meeting Host'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>Trainer Email (M365 UPN) *</Label>
+                <Input
+                  type="email"
+                  value={form.teamsEmail}
+                  onChange={(e) => setForm((f) => ({ ...f, teamsEmail: e.target.value }))}
+                  placeholder="trainer.name@teachersindia.in"
+                  disabled={!!editId}
+                />
+                {!editId && <p className="mt-1 text-xs text-gray-500">Must match the trainer's Microsoft 365 login exactly. Cannot be changed after creation.</p>}
+              </div>
+              <div>
+                <Label>Display Name</Label>
+                <Input
+                  value={form.displayName}
+                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                  placeholder="e.g. Priya (Montessori Dept)"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                />
+                Active (eligible for new live class creation)
+              </label>
             </div>
-            <div>
-              <Label>Display Name</Label>
-              <Input
-                value={form.displayName}
-                onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                placeholder="e.g. Priya (Montessori Dept)"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.isActive}
-                onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
-              />
-              Active (eligible for new live class creation)
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowDialog(false); resetForm(); }} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleSave(); }} disabled={saving || !form.teamsEmail.trim()}>
-              {saving ? 'Saving...' : editId ? 'Update' : 'Add Host'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowDialog(false); resetForm(); }} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving || !form.teamsEmail.trim()}>
+                {saving ? 'Saving...' : editId ? 'Update' : 'Add Host'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

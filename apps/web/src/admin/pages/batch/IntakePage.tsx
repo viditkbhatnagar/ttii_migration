@@ -209,53 +209,60 @@ export default function IntakePage({ api, session }: AdminPageProps) {
       {/* Add / Edit Dialog */}
       <Dialog open={dialogType === 'add' || dialogType === 'edit'} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{dialogType === 'add' ? 'Add Batch' : 'Edit Batch'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="batch-title">Title</Label>
-              <Input
-                id="batch-title"
-                value={batchForm.title}
-                onChange={(e) => setBatchForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="Batch title"
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{dialogType === 'add' ? 'Add Batch' : 'Edit Batch'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="batch-title">Title</Label>
+                <Input
+                  id="batch-title"
+                  value={batchForm.title}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Batch title"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="batch-description">Description</Label>
+                <Input
+                  id="batch-description"
+                  value={batchForm.description}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Optional description"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="batch-status">Status</Label>
+                <select
+                  id="batch-status"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={batchForm.status}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="batch-description">Description</Label>
-              <Input
-                id="batch-description"
-                value={batchForm.description}
-                onChange={(e) => setBatchForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="batch-status">Status</Label>
-              <select
-                id="batch-status"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={batchForm.status}
-                onChange={(e) => setBatchForm((f) => ({ ...f, status: e.target.value }))}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

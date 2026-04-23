@@ -221,65 +221,86 @@ export default function ResourcesPage({ api, session }: AdminPageProps) {
       {/* Add Folder Dialog */}
       <Dialog open={showAddFolder} onOpenChange={setShowAddFolder}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add Folder</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Folder Name</Label>
-              <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Enter folder name" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleAddFolder();
+            }}
+          >
+            <DialogHeader><DialogTitle>Add Folder</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>Folder Name</Label>
+                <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Enter folder name" />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddFolder(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleAddFolder(); }} disabled={saving || !newFolderName.trim()}>
-              {saving ? 'Creating...' : 'Create Folder'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowAddFolder(false)} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving || !newFolderName.trim()}>
+                {saving ? 'Creating...' : 'Create Folder'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       {/* Upload File Dialog */}
       <Dialog open={showAddFile} onOpenChange={setShowAddFile}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Upload File</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>File Name</Label>
-              <Input value={newFileName} onChange={(e) => setNewFileName(e.target.value)} placeholder="Enter file name" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleAddFile();
+            }}
+          >
+            <DialogHeader><DialogTitle>Upload File</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>File Name</Label>
+                <Input value={newFileName} onChange={(e) => setNewFileName(e.target.value)} placeholder="Enter file name" />
+              </div>
+              <div>
+                <Label>File Type</Label>
+                <Input value={newFileType} onChange={(e) => setNewFileType(e.target.value)} placeholder="e.g. pdf, doc, image" />
+              </div>
+              <div>
+                <Label>File URL / Path</Label>
+                <Input value={newFilePath} onChange={(e) => setNewFilePath(e.target.value)} placeholder="https://..." />
+              </div>
             </div>
-            <div>
-              <Label>File Type</Label>
-              <Input value={newFileType} onChange={(e) => setNewFileType(e.target.value)} placeholder="e.g. pdf, doc, image" />
-            </div>
-            <div>
-              <Label>File URL / Path</Label>
-              <Input value={newFilePath} onChange={(e) => setNewFilePath(e.target.value)} placeholder="https://..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddFile(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleAddFile(); }} disabled={saving || !newFileName.trim()}>
-              {saving ? 'Uploading...' : 'Upload File'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowAddFile(false)} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving || !newFileName.trim()}>
+                {saving ? 'Uploading...' : 'Upload File'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       {/* Rename Dialog */}
       <Dialog open={renameTarget !== null} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Rename {renameTarget?.type === 'folder' ? 'Folder' : 'File'}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>New Name</Label>
-              <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder="Enter new name" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleRename();
+            }}
+          >
+            <DialogHeader><DialogTitle>Rename {renameTarget?.type === 'folder' ? 'Folder' : 'File'}</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>New Name</Label>
+                <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder="Enter new name" />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)} disabled={saving}>Cancel</Button>
-            <Button onClick={() => { void handleRename(); }} disabled={saving || !renameValue.trim()}>
-              {saving ? 'Renaming...' : 'Rename'}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving || !renameValue.trim()}>
+                {saving ? 'Renaming...' : 'Rename'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
