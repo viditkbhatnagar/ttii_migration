@@ -20,27 +20,31 @@ function ProgressRing({ value, size = 120, strokeWidth = 10 }: { value: number; 
   const center = size / 2;
 
   return (
-    <svg width={size} height={size} className="drop-shadow-sm">
+    <svg
+      width={size}
+      height={size}
+      role="img"
+      aria-label={`${value}% complete`}
+      className="text-student-primary"
+    >
       <circle
         cx={center} cy={center} r={radius}
-        fill="none" stroke="hsl(210 20% 92%)" strokeWidth={strokeWidth}
+        fill="none" stroke="currentColor" strokeWidth={strokeWidth}
+        className="text-slate-100"
       />
       <circle
         cx={center} cy={center} r={radius}
-        fill="none" stroke="url(#progressGradient)" strokeWidth={strokeWidth}
+        fill="none" stroke="currentColor" strokeWidth={strokeWidth}
         strokeDasharray={circumference} strokeDashoffset={offset}
         strokeLinecap="round"
         transform={`rotate(-90 ${center} ${center})`}
-        className="transition-all duration-700 ease-out"
+        className="transition-all duration-500 ease-out"
       />
-      <defs>
-        <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#6366f1" />
-        </linearGradient>
-      </defs>
-      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central"
-        className="fill-slate-800 text-2xl font-bold" style={{ fontFamily: 'Epilogue, sans-serif' }}>
+      <text
+        x="50%" y="50%"
+        textAnchor="middle" dominantBaseline="central"
+        className="fill-student-text text-2xl font-semibold"
+      >
         {value}%
       </text>
     </svg>
