@@ -20,21 +20,25 @@ export function CentreBreadcrumb({ pathname, onNavigate }: CentreBreadcrumbProps
   const crumb = resolveBreadcrumb(pathname);
 
   return (
-    <div className="flex items-center gap-1.5 px-4 py-3 text-sm text-gray-500 md:px-6 overflow-x-auto">
-      <button
-        type="button"
-        className="flex items-center gap-1 hover:text-gray-700"
-        onClick={() => onNavigate('/centre/dashboard')}
-      >
-        <Home className="size-3.5" />
-        <span>Dashboard</span>
-      </button>
-      {crumb && crumb !== 'Dashboard' ? (
-        <span className="flex items-center gap-1.5">
-          <ChevronRight className="size-3.5 text-gray-400" />
-          <span className="font-medium text-gray-900">{crumb}</span>
-        </span>
-      ) : null}
-    </div>
+    <nav aria-label="Breadcrumb" className="px-4 py-3 md:px-6 overflow-x-auto">
+      <ol className="flex items-center gap-1.5 text-sm text-gray-500">
+        <li className="flex items-center">
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-gray-700"
+            onClick={() => onNavigate('/centre/dashboard')}
+          >
+            <Home aria-hidden="true" className="size-3.5" />
+            <span>Dashboard</span>
+          </button>
+        </li>
+        {crumb && crumb !== 'Dashboard' ? (
+          <li className="flex items-center gap-1.5">
+            <ChevronRight aria-hidden="true" className="size-3.5 text-gray-400" />
+            <span aria-current="page" className="font-medium text-gray-900">{crumb}</span>
+          </li>
+        ) : null}
+      </ol>
+    </nav>
   );
 }

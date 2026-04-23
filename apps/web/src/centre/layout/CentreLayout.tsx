@@ -41,7 +41,7 @@ function CentreLayoutInner({ pathname, session, api, onNavigate, onLogout }: Cen
       <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-200">
         <CentreNavbar roleLabel={roleLabel} onLogout={onLogout} />
         <CentreBreadcrumb pathname={pathname} onNavigate={handleNavigate} />
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 md:px-6">
+        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 md:px-6">
           <CentreRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
         <footer className="border-t border-gray-200 px-4 py-3 text-center text-xs text-gray-400 md:px-6">

@@ -38,7 +38,7 @@ export default function CentreCoursesPage({ api, session }: CentrePageProps) {
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-red-600">
           Failed to load courses: {error}
         </CardContent>
       </Card>

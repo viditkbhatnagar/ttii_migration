@@ -50,6 +50,8 @@ function SidebarItem({
   return (
     <button
       type="button"
+      aria-current={isActive ? 'page' : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
         'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
         isActive
@@ -60,7 +62,7 @@ function SidebarItem({
       onClick={() => onNavigate(item.href)}
       title={collapsed ? item.label : undefined}
     >
-      {Icon ? <Icon className="size-5 shrink-0" /> : null}
+      {Icon ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </button>
   );
@@ -105,7 +107,7 @@ function SidebarContent({
 
       {/* Navigation */}
       <ScrollArea className="flex-1 min-h-0 px-2 py-3">
-        <nav className="space-y-1">
+        <nav aria-label={`${portalLabel} sections`} className="space-y-1">
           {navItems.map((item) => (
             <SidebarItem
               key={item.id}
@@ -127,6 +129,7 @@ export function CentreSidebar({ pathname, roleId, onNavigate }: CentreSidebarPro
 
   return (
     <aside
+      aria-label="Centre navigation"
       className={cn(
         'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',

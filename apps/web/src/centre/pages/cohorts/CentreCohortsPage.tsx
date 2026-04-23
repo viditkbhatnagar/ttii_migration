@@ -107,7 +107,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: CentrePa
   if (error) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-10 text-center text-sm text-red-600">
           {error}
         </CardContent>
       </Card>

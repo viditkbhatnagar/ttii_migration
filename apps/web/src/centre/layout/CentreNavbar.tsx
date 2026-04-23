@@ -34,27 +34,30 @@ export function CentreNavbar({ roleLabel, onLogout }: CentreNavbarProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden text-white hover:bg-white/10"
+          aria-label="Open navigation menu"
+          className="md:hidden size-11 text-white hover:bg-white/10"
           onClick={toggleMobileSidebar}
         >
-          <Menu className="size-5" />
+          <Menu aria-hidden="true" className="size-5" />
         </Button>
 
         {/* Desktop sidebar toggle */}
         <Button
           variant="ghost"
           size="icon"
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!sidebarCollapsed}
           className="hidden md:flex text-white hover:bg-white/10"
           onClick={toggleSidebar}
         >
           {sidebarCollapsed ? (
-            <PanelLeftOpen className="size-5" />
+            <PanelLeftOpen aria-hidden="true" className="size-5" />
           ) : (
-            <PanelLeftClose className="size-5" />
+            <PanelLeftClose aria-hidden="true" className="size-5" />
           )}
         </Button>
 
-        <div className="hidden items-center gap-2 rounded-md bg-white/10 px-3 py-1.5 sm:flex">
+        <div aria-hidden="true" className="hidden items-center gap-2 rounded-md bg-white/10 px-3 py-1.5 sm:flex">
           <Search className="size-4 text-white/70" />
           <span className="text-sm text-white/70">Search...</span>
         </div>
@@ -65,22 +68,24 @@ export function CentreNavbar({ roleLabel, onLogout }: CentreNavbarProps) {
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Toggle fullscreen"
           className="hidden sm:flex text-white hover:bg-white/10"
           onClick={toggleFullscreen}
         >
-          <Maximize className="size-4" />
+          <Maximize aria-hidden="true" className="size-4" />
         </Button>
         <Button
           variant="ghost"
           size="icon"
-          className="relative text-white hover:bg-white/10"
+          aria-label="View notifications"
+          className="relative max-sm:size-11 text-white hover:bg-white/10"
         >
-          <Bell className="size-4" />
+          <Bell aria-hidden="true" className="size-4" />
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="ml-2 gap-2 text-white hover:bg-white/10">
+            <Button variant="ghost" aria-label={`${roleLabel} account menu`} className="ml-2 gap-2 text-white hover:bg-white/10">
               <Avatar className="size-8">
                 <AvatarFallback className="bg-ttii-primary text-xs text-white">
                   {roleLabel.charAt(0).toUpperCase()}
