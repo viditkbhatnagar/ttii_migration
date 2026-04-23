@@ -7,6 +7,7 @@ import { PageLoader } from '@/components/ui/page-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type { StudentDashboardSnapshot } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -149,8 +150,11 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     () => api.loadDashboard(session.token),
     [api, session.token],
   );
+  const { currentUser } = useStudentLayout();
 
   const dashboardData = useMemo(() => data ?? EMPTY_DASHBOARD, [data]);
+  const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim();
+  const greetingName = firstName || 'there';
 
   if (loading) {
     return (
@@ -162,7 +166,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Dashboard</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
         </div>
       </div>
@@ -178,9 +182,13 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       {/* Welcome Header */}
       <div>
         <h1 className="text-2xl font-bold text-student-text">
-          Welcome back{data?.primaryCourseTitle ? `, ${data.primaryCourseTitle} student` : ''}! 👋
+          Welcome back, {greetingName}
         </h1>
-        <p className="mt-1 text-sm text-student-muted">Here's an overview of your learning progress.</p>
+        <p className="mt-1 text-sm text-student-muted">
+          {data?.primaryCourseTitle
+            ? `Here's your ${data.primaryCourseTitle} progress.`
+            : "Here's an overview of your learning progress."}
+        </p>
       </div>
 
       {/* Quick Stat Cards */}

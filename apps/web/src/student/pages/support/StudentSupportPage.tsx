@@ -96,7 +96,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Help Center</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
         </div>
@@ -125,7 +125,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
           const Icon = info.icon;
           return (
             <div key={info.label} className="rounded-2xl border border-slate-200/80 bg-white p-5 transition-all hover:shadow-md">
-              <div className={`inline-flex size-10 items-center justify-center rounded-full ${info.color} mb-3`}>
+              <div aria-hidden="true" className={`inline-flex size-10 items-center justify-center rounded-full ${info.color} mb-3`}>
                 <Icon className="size-5" />
               </div>
               <p className="text-xs font-medium uppercase tracking-wider text-student-muted">{info.label}</p>
@@ -145,11 +145,13 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Support Type Selector */}
-          <div className="flex flex-wrap gap-2">
+          <div role="radiogroup" aria-label="Support category" className="flex flex-wrap gap-2">
             {SUPPORT_TYPES.map((type) => (
               <button
                 key={type}
                 type="button"
+                role="radio"
+                aria-checked={selectedType === type}
                 className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
                   selectedType === type
                     ? 'bg-student-primary text-white shadow-md'
@@ -163,10 +165,15 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
           </div>
 
           {/* Message thread */}
-          <div className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+          <div
+            role="log"
+            aria-label="Support conversation"
+            aria-live="polite"
+            className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
+          >
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <div className="flex size-16 items-center justify-center rounded-full bg-student-primary/10">
+                <div aria-hidden="true" className="flex size-16 items-center justify-center rounded-full bg-student-primary/10">
                   <Headphones className="size-8 text-student-primary" />
                 </div>
                 <div>
@@ -216,30 +223,34 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
           </div>
 
           {/* Compose area */}
-          <div className="flex gap-3">
+          <form
+            className="flex gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSend();
+            }}
+          >
+            <label htmlFor="support-message" className="sr-only">
+              Message
+            </label>
             <input
+              id="support-message"
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSend();
-                }
-              }}
               placeholder="Type your message..."
               className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-student-primary focus:outline-none focus:ring-1 focus:ring-student-primary"
               disabled={sending}
             />
             <Button
+              type="submit"
               className="rounded-xl bg-student-primary hover:bg-student-primary/90"
               disabled={sending || !message.trim()}
-              onClick={() => void handleSend()}
             >
-              <Send className="mr-2 size-4" />
+              <Send aria-hidden="true" className="mr-2 size-4" />
               {sending ? 'Sending...' : 'Send'}
             </Button>
-          </div>
+          </form>
 
           <p className="text-center text-[10px] text-slate-400">
             Messages auto-refresh every 15 seconds

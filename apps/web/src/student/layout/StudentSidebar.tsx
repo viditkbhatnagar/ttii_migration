@@ -49,6 +49,8 @@ function SidebarNavItem({
   return (
     <button
       type="button"
+      aria-current={isActive ? 'page' : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
         'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 group text-left',
         isActive
@@ -61,6 +63,7 @@ function SidebarNavItem({
     >
       {Icon ? (
         <Icon
+          aria-hidden="true"
           className={cn(
             'size-5 shrink-0 transition-colors duration-200',
             isActive
@@ -73,7 +76,7 @@ function SidebarNavItem({
         <>
           <span className={cn('truncate', isActive ? 'font-semibold' : '')}>{item.label}</span>
           {isActive ? (
-            <span className="ml-auto size-1.5 shrink-0 rounded-full bg-student-accent" />
+            <span aria-hidden="true" className="ml-auto size-1.5 shrink-0 rounded-full bg-student-accent" />
           ) : null}
         </>
       ) : null}
@@ -81,28 +84,21 @@ function SidebarNavItem({
   );
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase() || 'ST';
-}
-
 export function StudentSidebar({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
-  const { sidebarCollapsed } = useStudentLayout();
+  const { sidebarCollapsed, currentUser } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
 
-  const displayName = 'Student';
+  const displayName = currentUser?.name || 'Student';
+  const initials = currentUser?.initials ?? 'ST';
 
   const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
   const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
 
   return (
     <aside
+      aria-label="Student navigation"
       className={cn(
-        'hidden md:flex h-screen flex-col bg-gradient-to-b from-[#1a1f2e] to-[#0f1318] shadow-2xl transition-all duration-300',
+        'hidden md:flex h-screen flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to shadow-2xl transition-all duration-300',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-64',
       )}
     >
@@ -114,6 +110,7 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
         <button
           type="button"
           onClick={() => onNavigate('/student/dashboard')}
+          aria-label="Go to student dashboard"
           className="flex items-center hover:opacity-95 transition-opacity"
         >
           {sidebarCollapsed ? (
@@ -134,7 +131,7 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
 
       {/* Navigation */}
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav className="flex flex-col gap-1">
+        <nav aria-label="Student sections" className="flex flex-col gap-1">
           {/* General Section */}
           {!sidebarCollapsed ? (
             <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
@@ -152,7 +149,7 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
           ))}
 
           {/* Divider */}
-          <div className="my-5 border-t border-white/10" />
+          <div aria-hidden="true" className="my-5 border-t border-white/10" />
 
           {/* Tools Section */}
           {!sidebarCollapsed ? (
@@ -177,8 +174,11 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
         {!sidebarCollapsed ? (
           <>
             <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FF7F11] to-[#ff9a44] text-white font-bold text-sm shadow-lg">
-                {getInitials(displayName)}
+              <div
+                aria-hidden="true"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
+              >
+                {initials}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{displayName}</p>
@@ -192,25 +192,29 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
                 className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
                 onClick={onLogout}
               >
-                <LogOut className="mr-2 size-4" />
+                <LogOut className="mr-2 size-4" aria-hidden="true" />
                 <span className="text-sm font-medium">Log out</span>
               </Button>
             ) : null}
           </>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FF7F11] to-[#ff9a44] text-white font-bold text-xs shadow-lg">
-              {getInitials(displayName)}
+            <div
+              aria-label={displayName}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-xs shadow-lg"
+            >
+              {initials}
             </div>
             {onLogout ? (
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Log out"
                 className="text-white/50 hover:bg-red-500/20 hover:text-red-400"
                 onClick={onLogout}
                 title="Log out"
               >
-                <LogOut className="size-4" />
+                <LogOut className="size-4" aria-hidden="true" />
               </Button>
             ) : null}
           </div>
@@ -222,19 +226,22 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
 
 /** Mobile sidebar content — rendered inside a Sheet */
 export function StudentSidebarMobile({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
+  const { currentUser } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
-  const displayName = 'Student';
+  const displayName = currentUser?.name || 'Student';
+  const initials = currentUser?.initials ?? 'ST';
 
   const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
   const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-b from-[#1a1f2e] to-[#0f1318]">
+    <div className="flex h-full flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to">
       {/* Logo */}
       <div className="flex h-20 items-center border-b border-white/10 bg-white px-4">
         <button
           type="button"
           onClick={() => onNavigate('/student/dashboard')}
+          aria-label="Go to student dashboard"
           className="flex items-center hover:opacity-95 transition-opacity"
         >
           <img
@@ -247,7 +254,7 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
 
       {/* Nav */}
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav className="flex flex-col gap-1">
+        <nav aria-label="Student sections" className="flex flex-col gap-1">
           <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
             General
           </p>
@@ -261,7 +268,7 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
             />
           ))}
 
-          <div className="my-5 border-t border-white/10" />
+          <div aria-hidden="true" className="my-5 border-t border-white/10" />
 
           <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
             Tools
@@ -281,8 +288,11 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
       {/* User Profile */}
       <div className="p-4 border-t border-white/10">
         <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#FF7F11] to-[#ff9a44] text-white font-bold text-sm shadow-lg">
-            {getInitials(displayName)}
+          <div
+            aria-hidden="true"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
+          >
+            {initials}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{displayName}</p>
@@ -296,7 +306,7 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
             className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
             onClick={onLogout}
           >
-            <LogOut className="mr-2 size-4" />
+            <LogOut className="mr-2 size-4" aria-hidden="true" />
             <span className="text-sm font-medium">Log out</span>
           </Button>
         ) : null}

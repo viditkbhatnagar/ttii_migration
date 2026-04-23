@@ -93,7 +93,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Grades</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
         </div>
@@ -181,8 +181,8 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
           />
 
           {filteredAssignments.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-              <ClipboardList className="mx-auto size-12 text-slate-300 mb-4" />
+            <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+              <ClipboardList aria-hidden="true" className="mx-auto size-12 text-slate-300 mb-4" />
               <p className="text-sm text-slate-500">No {assignmentSubTab} assignments.</p>
             </div>
           ) : (
@@ -237,24 +237,27 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                aria-label={`View details for ${title}`}
                                 onClick={() => setDetailItem(assignment)}
                                 title="View Details"
                               >
-                                <Eye className="size-4 text-student-primary" />
+                                <Eye aria-hidden="true" className="size-4 text-student-primary" />
                               </Button>
                             ) : null}
                             {assignmentSubTab === 'current' ? (
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                aria-label={isSaved ? `Unsave ${title}` : `Save ${title}`}
+                                aria-pressed={isSaved}
                                 disabled={actionPending === id}
                                 onClick={() => void handleToggleSaved(id)}
                                 title={isSaved ? 'Unsave' : 'Save'}
                               >
                                 {isSaved ? (
-                                  <BookmarkCheck className="size-4 text-student-accent" />
+                                  <BookmarkCheck aria-hidden="true" className="size-4 text-student-accent" />
                                 ) : (
-                                  <Bookmark className="size-4 text-slate-400" />
+                                  <Bookmark aria-hidden="true" className="size-4 text-slate-400" />
                                 )}
                               </Button>
                             ) : null}
@@ -277,8 +280,8 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
           />
 
           {filteredExams.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-              <FileText className="mx-auto size-12 text-slate-300 mb-4" />
+            <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+              <FileText aria-hidden="true" className="mx-auto size-12 text-slate-300 mb-4" />
               <p className="text-sm text-slate-500">No {examSubTab} exams.</p>
             </div>
           ) : (

@@ -4,12 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
-import type { StudentPaymentHistoryItem, StudentInstallmentItem } from '../../student-portal-api.js';
+import type { StudentPaymentHistoryItem, StudentInstallmentItem, StudentPortalApi } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 function getInstallmentStatusStyle(status: string): string {
@@ -27,21 +26,28 @@ function getPaymentStatusStyle(status: string): string {
   return 'bg-yellow-100 text-yellow-700 border-yellow-200';
 }
 
+interface PaymentsBundle {
+  payments: Awaited<ReturnType<StudentPortalApi['loadPayments']>>;
+  paymentHistory: StudentPaymentHistoryItem[];
+  installments: StudentInstallmentItem[];
+}
+
 export default function StudentPaymentsPage({ api, session }: StudentPageProps) {
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.loadPayments(session.token),
+  const { data: bundle, loading, error, reload } = useAdminPageData<PaymentsBundle>(
+    async () => {
+      const [payments, paymentHistory, installments] = await Promise.all([
+        api.loadPayments(session.token),
+        api.loadPaymentHistory(session.token),
+        api.loadInstallments(session.token),
+      ]);
+      return { payments, paymentHistory, installments };
+    },
     [api, session.token],
   );
 
-  const { data: paymentHistory, loading: historyLoading } = useAdminPageData(
-    () => api.loadPaymentHistory(session.token),
-    [api, session.token],
-  );
-
-  const { data: installments, loading: installmentsLoading } = useAdminPageData(
-    () => api.loadInstallments(session.token),
-    [api, session.token],
-  );
+  const data = bundle?.payments;
+  const paymentHistory = bundle?.paymentHistory;
+  const installments = bundle?.installments;
 
   const [couponCode, setCouponCode] = useState('');
   const [couponResult, setCouponResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -75,7 +81,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Payments</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
         </div>
@@ -165,15 +171,9 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         </CardHeader>
         <Separator />
         <CardContent className="pt-4">
-          {historyLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full rounded-xl" />
-              ))}
-            </div>
-          ) : !paymentHistory || paymentHistory.length === 0 ? (
+          {!paymentHistory || paymentHistory.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <Receipt className="size-12 text-slate-300" />
+              <Receipt aria-hidden="true" className="size-12 text-slate-300" />
               <p className="text-sm text-student-muted">No payment transactions yet.</p>
             </div>
           ) : (
@@ -206,7 +206,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
       </Card>
 
       {/* Installment Schedule */}
-      {!installmentsLoading && installments && installments.length > 0 ? (
+      {installments && installments.length > 0 ? (
         <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -325,30 +325,42 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         </CardHeader>
         <Separator />
         <CardContent className="space-y-3 pt-4">
-          {couponResult ? (
-            <div className={`rounded-xl px-4 py-3 text-sm ${couponResult.success ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-              {couponResult.message}
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleApplyCoupon();
+            }}
+          >
+            {couponResult ? (
+              <div
+                role={couponResult.success ? 'status' : 'alert'}
+                aria-live={couponResult.success ? 'polite' : 'assertive'}
+                className={`rounded-xl px-4 py-3 text-sm ${couponResult.success ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}
+              >
+                {couponResult.message}
+              </div>
+            ) : null}
+            <div className="flex items-end gap-3">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="coupon" className="text-xs uppercase tracking-wider text-student-muted">Coupon Code</Label>
+                <Input
+                  id="coupon"
+                  value={couponCode}
+                  onChange={(e) => setCouponCode(e.target.value)}
+                  placeholder="Enter coupon code"
+                  className="rounded-xl"
+                />
+              </div>
+              <Button
+                type="submit"
+                className="rounded-xl bg-student-primary hover:bg-student-primary/90"
+                disabled={couponLoading || !couponCode.trim()}
+              >
+                {couponLoading ? 'Applying...' : 'Apply'}
+              </Button>
             </div>
-          ) : null}
-          <div className="flex items-end gap-3">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="coupon" className="text-xs uppercase tracking-wider text-student-muted">Coupon Code</Label>
-              <Input
-                id="coupon"
-                value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value)}
-                placeholder="Enter coupon code"
-                className="rounded-xl"
-              />
-            </div>
-            <Button
-              className="rounded-xl bg-student-primary hover:bg-student-primary/90"
-              disabled={couponLoading || !couponCode.trim()}
-              onClick={() => void handleApplyCoupon()}
-            >
-              {couponLoading ? 'Applying...' : 'Apply'}
-            </Button>
-          </div>
+          </form>
         </CardContent>
       </Card>
     </div>

@@ -41,7 +41,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Notifications</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
         </div>
@@ -70,8 +70,8 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
       />
 
       {notifications.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-          <Bell className="mx-auto size-12 text-slate-300 mb-4" />
+        <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+          <Bell aria-hidden="true" className="mx-auto size-12 text-slate-300 mb-4" />
           <h3 className="text-lg font-semibold text-slate-700">No notifications</h3>
           <p className="text-sm text-student-muted mt-1">You're all caught up!</p>
         </div>
@@ -92,7 +92,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  <div className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full ${
+                  <div aria-hidden="true" className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full ${
                     isRead ? 'bg-slate-100' : 'bg-student-accent/10'
                   }`}>
                     <Bell className={`size-5 ${isRead ? 'text-slate-400' : 'text-student-accent'}`} />
@@ -113,11 +113,12 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label={`Mark "${title}" as read`}
                       className="shrink-0 text-xs text-student-primary hover:text-student-primary/80 rounded-xl"
                       disabled={markingId === id}
                       onClick={() => void handleMarkRead(id)}
                     >
-                      <CheckCheck className="mr-1 size-3.5" />
+                      <CheckCheck aria-hidden="true" className="mr-1 size-3.5" />
                       {markingId === id ? 'Marking...' : 'Mark read'}
                     </Button>
                   ) : null}

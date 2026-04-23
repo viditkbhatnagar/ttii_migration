@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Menu, PanelLeftClose, PanelLeftOpen, User, HelpCircle, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,16 +28,12 @@ function useCurrentTime() {
 }
 
 export function StudentNavbar({ session: _session, onNavigate, onLogout }: StudentNavbarProps) {
-  const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar } = useStudentLayout();
+  const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar, currentUser } = useStudentLayout();
   const now = useCurrentTime();
 
-  const displayName = 'Student';
-  const initials = displayName
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase() || 'ST';
+  const displayName = currentUser?.name || 'Student';
+  const initials = currentUser?.initials ?? 'ST';
+  const avatarImage = currentUser?.image ?? '';
 
   const formattedTime = now.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -58,23 +54,26 @@ export function StudentNavbar({ session: _session, onNavigate, onLogout }: Stude
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Open navigation menu"
           className="md:hidden text-slate-500 hover:text-student-primary"
           onClick={toggleMobileSidebar}
         >
-          <Menu className="size-5" />
+          <Menu className="size-5" aria-hidden="true" />
         </Button>
 
         {/* Desktop sidebar toggle */}
         <Button
           variant="ghost"
           size="icon"
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!sidebarCollapsed}
           className="hidden md:flex text-student-primary hover:bg-student-primary/10"
           onClick={toggleSidebar}
         >
           {sidebarCollapsed ? (
-            <PanelLeftOpen className="size-5" />
+            <PanelLeftOpen className="size-5" aria-hidden="true" />
           ) : (
-            <PanelLeftClose className="size-5" />
+            <PanelLeftClose className="size-5" aria-hidden="true" />
           )}
         </Button>
       </div>
@@ -90,19 +89,28 @@ export function StudentNavbar({ session: _session, onNavigate, onLogout }: Stude
         <Button
           variant="ghost"
           size="icon"
+          aria-label="View notifications"
           className="relative text-slate-500 hover:text-student-primary hover:bg-student-primary/10"
           onClick={() => onNavigate('/student/notifications')}
         >
-          <Bell className="size-4" />
-          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-student-accent" />
+          <Bell className="size-4" aria-hidden="true" />
+          <span
+            className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-student-accent"
+            aria-hidden="true"
+          />
         </Button>
 
         {/* User dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="ml-1 gap-2 text-student-text hover:bg-student-primary/10">
+            <Button
+              variant="ghost"
+              aria-label={`Account menu for ${displayName}`}
+              className="ml-1 gap-2 text-student-text hover:bg-student-primary/10"
+            >
               <Avatar className="size-8">
-                <AvatarFallback className="bg-gradient-to-br from-[#FF7F11] to-[#ff9a44] text-xs text-white font-semibold">
+                {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent/70 text-xs text-white font-semibold">
                   {initials}
                 </AvatarFallback>
               </Avatar>
@@ -111,16 +119,16 @@ export function StudentNavbar({ session: _session, onNavigate, onLogout }: Stude
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => onNavigate('/student/settings')}>
-              <User className="mr-2 size-4" />
+              <User className="mr-2 size-4" aria-hidden="true" />
               Profile
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onNavigate('/student/help')}>
-              <HelpCircle className="mr-2 size-4" />
+              <HelpCircle className="mr-2 size-4" aria-hidden="true" />
               Support
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onLogout} className="text-red-500">
-              <LogOut className="mr-2 size-4" />
+              <LogOut className="mr-2 size-4" aria-hidden="true" />
               Logout
             </DropdownMenuItem>
           </DropdownMenuContent>

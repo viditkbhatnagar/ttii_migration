@@ -106,7 +106,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">My Courses</h1>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
         </div>
