@@ -107,37 +107,39 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
 
       {/* Payment Summary Cards */}
       {totalFee > 0 ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 p-5 text-white shadow-md">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(totalFee)}</p>
-                <p className="mt-1 text-sm text-white/80">Total Fee</p>
+                <p className="text-2xl font-semibold text-student-text">{formatCurrency(totalFee)}</p>
+                <p className="mt-0.5 text-xs font-medium text-student-muted">Total Fee</p>
               </div>
-              <div className="rounded-xl bg-white/20 p-3">
-                <Wallet className="size-6 text-blue-100" />
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <Wallet aria-hidden="true" className="size-5" />
               </div>
             </div>
           </div>
-          <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 p-5 text-white shadow-md">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(paidAmount)}</p>
-                <p className="mt-1 text-sm text-white/80">Paid</p>
+                <p className="text-2xl font-semibold text-student-text">{formatCurrency(paidAmount)}</p>
+                <p className="mt-0.5 text-xs font-medium text-student-muted">Paid</p>
               </div>
-              <div className="rounded-xl bg-white/20 p-3">
-                <CreditCard className="size-6 text-emerald-100" />
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                <CreditCard aria-hidden="true" className="size-5" />
               </div>
             </div>
           </div>
-          <div className={`rounded-2xl bg-gradient-to-br ${pendingAmount > 0 ? 'from-red-500 to-red-600' : 'from-slate-500 to-slate-600'} p-5 text-white shadow-md`}>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-2xl font-bold">{formatCurrency(pendingAmount)}</p>
-                <p className="mt-1 text-sm text-white/80">Pending</p>
+                <p className={`text-2xl font-semibold ${pendingAmount > 0 ? 'text-red-600' : 'text-student-text'}`}>
+                  {formatCurrency(pendingAmount)}
+                </p>
+                <p className="mt-0.5 text-xs font-medium text-student-muted">Pending</p>
               </div>
-              <div className="rounded-xl bg-white/20 p-3">
-                <Receipt className="size-6 text-white/80" />
+              <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${pendingAmount > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
+                <Receipt aria-hidden="true" className="size-5" />
               </div>
             </div>
           </div>
@@ -146,22 +148,27 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
 
       {/* Progress Bar */}
       {totalFee > 0 ? (
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="mb-2 flex justify-between text-sm">
             <span className="text-student-muted">Payment Progress</span>
             <span className="font-semibold text-student-primary">{paymentPercent}%</span>
           </div>
-          <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-700 ease-out"
+              className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
               style={{ width: `${Math.min(paymentPercent, 100)}%` }}
+              role="progressbar"
+              aria-valuenow={paymentPercent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`Payment progress: ${paymentPercent}%`}
             />
           </div>
         </div>
       ) : null}
 
       {/* Payment History */}
-      <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+      <Card className="rounded-xl border-slate-200 bg-white shadow-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <History className="size-5 text-student-primary" />
@@ -207,7 +214,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
 
       {/* Installment Schedule */}
       {installments && installments.length > 0 ? (
-        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+        <Card className="rounded-xl border-slate-200 bg-white shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Calendar className="size-5 text-student-primary" />
@@ -255,7 +262,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               const balance = asNumber(course.balance);
 
               return (
-                <div key={courseId} className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 transition-all hover:shadow-md">
+                <div key={courseId} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
                   <div>
                     <p className="font-medium text-student-text">{title}</p>
                     {status ? (
@@ -292,9 +299,9 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               const isPurchased = pkg.is_purchased === true || pkg.is_purchased === 1 || pkg.is_purchased === '1';
 
               return (
-                <div key={id} className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-5 transition-all hover:shadow-md">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-purple-100">
-                    <Package className="size-5 text-purple-600" />
+                <div key={id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+                    <Package aria-hidden="true" className="size-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-student-text">{title}</p>
@@ -315,7 +322,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
       ) : null}
 
       {/* Coupon */}
-      <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+      <Card className="rounded-xl border-slate-200 bg-white shadow-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Tag className="size-5 text-student-primary" />
