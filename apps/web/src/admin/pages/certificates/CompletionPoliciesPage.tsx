@@ -10,6 +10,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -31,6 +32,7 @@ const emptyForm: PolicyForm = {
 };
 
 export default function CompletionPoliciesPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<PolicyForm>(emptyForm);
@@ -79,9 +81,14 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
   }, [api, session.token, editId, form, reload]);
 
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    if (!window.confirm(`Delete policy "${asString(row.title)}"?`)) return;
+    if (!(await confirm({
+      title: `Delete policy "${asString(row.title)}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try { await api.deleteCompletionPolicy(session.token, asString(row.id)); reload(); } catch { /* ignore */ }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const columns: DataTableColumn[] = [
     { key: 'title', label: 'Policy Name', sortable: true },

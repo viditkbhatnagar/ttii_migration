@@ -11,8 +11,10 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function LanguagePage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLanguages(session.token),
     [],
@@ -61,7 +63,12 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
       const id = asString(row.id) || asString(row._id);
-      if (!window.confirm('Delete this language?')) return;
+      if (!(await confirm({
+        title: 'Delete this language?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteLanguage(session.token, id);
         reload();
@@ -69,7 +76,7 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
         toast.error(err instanceof Error ? err.message : 'Failed to delete language');
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const columns: DataTableColumn[] = useMemo(

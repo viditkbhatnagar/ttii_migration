@@ -11,11 +11,13 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
 export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadUserFeedbacks(session.token),
     [],
@@ -93,7 +95,12 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
       const id = asString(row.id) || asString(row._id);
-      if (!window.confirm('Delete this review?')) return;
+      if (!(await confirm({
+        title: 'Delete this review?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteReview(session.token, id);
         reload();
@@ -101,7 +108,7 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
         toast.error(err instanceof Error ? err.message : 'Failed to delete review');
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const columns: DataTableColumn[] = useMemo(

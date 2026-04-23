@@ -17,6 +17,7 @@ import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
+import { ConfirmDialogProvider } from '@/components/confirm-dialog';
 
 import { detectPortalFromSubdomain, getSubdomainRedirectPath } from './lib/subdomain.js';
 import { AdminPortal, normalizeAdminPath } from './admin/admin-portal.js';
@@ -797,12 +798,14 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
   return (
     <AppErrorBoundary>
       <AuthProvider authApi={resolvedAuthApi}>
-        <PortalRouter
-          initialPath={initialPath}
-          studentPortalApi={resolvedStudentPortalApi}
-          centrePortalApi={resolvedCentrePortalApi}
-          adminPortalApi={resolvedAdminPortalApi}
-        />
+        <ConfirmDialogProvider>
+          <PortalRouter
+            initialPath={initialPath}
+            studentPortalApi={resolvedStudentPortalApi}
+            centrePortalApi={resolvedCentrePortalApi}
+            adminPortalApi={resolvedAdminPortalApi}
+          />
+        </ConfirmDialogProvider>
       </AuthProvider>
       <Toaster position="bottom-right" richColors closeButton />
     </AppErrorBoundary>

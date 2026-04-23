@@ -10,6 +10,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const LANGUAGE_OPTIONS = [
   { label: 'Malayalam', value: 'malayalam' },
@@ -25,6 +26,7 @@ function formatCohortMonth(value: unknown): string {
 }
 
 export default function CentreCohortsPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [cohortMonth, setCohortMonth] = useState('');
   const [filterCourse, setFilterCourse] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
@@ -158,7 +160,12 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
     async (row: Record<string, unknown>) => {
       const id = asString(row._id) || asString(row.id);
       const name = asString(row.title) || 'this cohort';
-      if (!window.confirm(`Delete "${name}"?`)) return;
+      if (!(await confirm({
+        title: `Delete "${name}"?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteCohort(session.token, id);
         reload();
@@ -166,7 +173,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
         toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const columns: DataTableColumn[] = useMemo(

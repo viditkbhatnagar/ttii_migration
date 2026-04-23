@@ -12,6 +12,7 @@ import { asNumber, asString, toRecords, formatDate } from '../../shared/utils/ad
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const TARGET_TYPES = ['Applications', 'Enrolments', 'Revenue'] as const;
 
@@ -28,6 +29,7 @@ function parsePeriod(period: unknown): { from: string; to: string } {
 }
 
 export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadCounsellorTargets(session.token),
     [],
@@ -101,7 +103,12 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
   async function handleDelete(row: Record<string, unknown>) {
     const id = asString(row.id || row._id);
     if (!id) return;
-    if (!window.confirm('Are you sure you want to delete this target?')) return;
+    if (!(await confirm({
+      title: 'Delete this target?',
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteCounsellorTarget(session.token, id);
       reload();

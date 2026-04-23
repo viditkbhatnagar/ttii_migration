@@ -11,6 +11,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -40,6 +41,7 @@ const emptyLessonForm: LessonForm = { title: '', summary: '', free: false };
 const emptyFileForm: FileForm = { title: '', summary: '', duration: '', video_url: '', audio_file: '', attachment: '', free: false };
 
 export default function AddLessonPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   // Step 1: Course & Subject selection
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
@@ -132,7 +134,12 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
 
   const handleDeleteLesson = useCallback(
     async (row: Record<string, unknown>) => {
-      if (!window.confirm(`Delete lesson "${asString(row.title)}"?`)) return;
+      if (!(await confirm({
+        title: `Delete lesson "${asString(row.title)}"?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteLesson(session.token, asString(row.id));
         reloadLessons();
@@ -140,7 +147,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
         /* ignore */
       }
     },
-    [api, session.token, reloadLessons],
+    [api, session.token, reloadLessons, confirm],
   );
 
   const handleManageFiles = useCallback((row: Record<string, unknown>) => {
@@ -204,7 +211,12 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
 
   const handleDeleteFile = useCallback(
     async (row: Record<string, unknown>) => {
-      if (!window.confirm(`Delete file "${asString(row.title)}"?`)) return;
+      if (!(await confirm({
+        title: `Delete file "${asString(row.title)}"?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteLessonFile(session.token, asString(row.id));
         reloadFiles();
@@ -212,7 +224,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
         /* ignore */
       }
     },
-    [api, session.token, reloadFiles],
+    [api, session.token, reloadFiles, confirm],
   );
 
   // --- Table columns ---

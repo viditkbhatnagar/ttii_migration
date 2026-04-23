@@ -14,6 +14,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -68,6 +69,7 @@ function isDocPdf(url: string): boolean {
 }
 
 export default function ContentLibraryPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<AssetForm>(emptyForm);
@@ -180,12 +182,17 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   }, [api, session.token, editId, form, reload]);
 
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    if (!window.confirm(`Delete asset "${asString(row.title)}"?`)) return;
+    if (!(await confirm({
+      title: `Delete asset "${asString(row.title)}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteContentAsset(session.token, asString(row.id));
       reload();
     } catch { /* ignore */ }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const handlePreview = useCallback(async (row: Record<string, unknown>) => {
     // Show the list row immediately for fast feedback, then fetch the full

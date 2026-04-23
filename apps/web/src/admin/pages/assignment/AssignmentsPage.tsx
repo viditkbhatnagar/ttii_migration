@@ -12,8 +12,10 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function AssignmentsPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [courseFilter, setCourseFilter] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
@@ -135,7 +137,12 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
   };
 
   const handleDelete = async (row: Record<string, unknown>) => {
-    const confirmed = window.confirm(`Are you sure you want to delete "${asString(row.title)}"?`);
+    const confirmed = await confirm({
+      title: `Delete "${asString(row.title)}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
     if (!confirmed) return;
     try {
       await api.deleteAssignment(session.token, asString(row.id));

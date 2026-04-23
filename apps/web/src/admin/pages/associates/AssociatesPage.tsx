@@ -19,8 +19,10 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function AssociatesPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssociates(session.token),
     [],
@@ -196,7 +198,12 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
-      const confirmed = window.confirm(`Are you sure you want to delete "${asString(row.name)}"?`);
+      const confirmed = await confirm({
+        title: `Delete "${asString(row.name)}"?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      });
       if (!confirmed) return;
       try {
         await api.deleteAssociate(session.token, asString(row.id) || asString(row._id));
@@ -205,7 +212,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
         toast.error(`Failed to delete associate: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const actions: DataTableAction[] = useMemo(
@@ -216,21 +223,22 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
       {
         label: 'Make Inactive',
-        onClick: (row) => {
-          if (window.confirm('Make this associate inactive?')) {
-            void (async () => {
-              try {
-                await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
-                reload();
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Failed to update status');
-              }
-            })();
+        onClick: async (row) => {
+          if (!(await confirm({
+            title: 'Make this associate inactive?',
+            confirmText: 'Make inactive',
+            variant: 'default',
+          }))) return;
+          try {
+            await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
+            reload();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Failed to update status');
           }
         },
       },
     ],
-    [openEditDialog, handleDelete, api, session.token, reload],
+    [openEditDialog, handleDelete, api, session.token, reload, confirm],
   );
 
   // --- Render ---

@@ -11,6 +11,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -26,6 +27,7 @@ interface ProgramForm {
 const emptyForm: ProgramForm = { title: '', code: '', level: '', duration: '', description: '' };
 
 export default function ProgramDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<ProgramForm>(emptyForm);
@@ -86,12 +88,17 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
     const id = asString(row.id);
     const title = asString(row.title);
-    if (!window.confirm(`Delete program "${title}"?`)) return;
+    if (!(await confirm({
+      title: `Delete program "${title}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteProgram(session.token, id);
       reload();
     } catch { /* ignore */ }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const columns: DataTableColumn[] = [
     { key: 'code', label: 'Code' },

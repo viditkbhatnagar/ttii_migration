@@ -14,6 +14,7 @@ import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-uti
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -63,6 +64,7 @@ const emptyForm: SubjectFormState = {
 };
 
 export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [showSelectDialog, setShowSelectDialog] = useState(false);
   const [editId, setEditId] = useState('');
@@ -187,16 +189,21 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
     const id = asString(row.id);
     const title = asString(row.title);
     const courseCount = Number(row.course_count ?? 1);
-    const msg = courseCount > 1
-      ? `Remove "${title}" from this course? It's shared across ${courseCount} courses — only the link will be removed, not the subject itself.`
-      : `Remove "${title}" from this course? This subject is only used here, so it will also be permanently deleted.`;
-    if (!window.confirm(msg)) return;
+    const description = courseCount > 1
+      ? `It's shared across ${courseCount} courses — only the link will be removed, not the subject itself.`
+      : 'This subject is only used here, so it will also be permanently deleted.';
+    if (!(await confirm({
+      title: `Remove "${title}" from this course?`,
+      description,
+      confirmText: 'Remove',
+      variant: 'destructive',
+    }))) return;
     setSaving(true);
     try {
       await api.deleteSubject(session.token, id, courseId);
       reload();
     } catch { /* ignore */ } finally { setSaving(false); }
-  }, [api, session.token, courseId, reload]);
+  }, [api, session.token, courseId, reload, confirm]);
 
   const handleToggleSubject = useCallback((id: string) => {
     setSelectedSubjectIds((prev) => {

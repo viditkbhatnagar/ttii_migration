@@ -17,8 +17,10 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function AdminUsersPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAdminUsers(session.token, 8),
     [],
@@ -63,7 +65,12 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
   async function handleDelete(row: Record<string, unknown>) {
     const id = asString(row._id || row.id);
     if (!id) return;
-    if (!window.confirm(`Are you sure you want to delete "${asString(row.name)}"?`)) return;
+    if (!(await confirm({
+      title: `Delete "${asString(row.name)}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteUserAccount(session.token, id);
       reload();

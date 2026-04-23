@@ -19,6 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/confirm-dialog';
 
 interface BatchForm {
   title: string;
@@ -29,6 +30,7 @@ interface BatchForm {
 const emptyForm: BatchForm = { title: '', description: '', status: 'active' };
 
 export default function IntakePage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadBatches(session.token),
     [session.token],
@@ -60,7 +62,12 @@ export default function IntakePage({ api, session }: AdminPageProps) {
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
       const title = asString(row.title) || 'this batch';
-      if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return;
+      if (!(await confirm({
+        title: `Delete "${title}"?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteBatch(session.token, asString(row.id));
         reload();
@@ -68,7 +75,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
         toast.error(err instanceof Error ? err.message : 'Failed to delete batch');
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const handleViewStudents = useCallback(

@@ -10,10 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
 export default function FaqPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadFaqs(session.token),
     [session.token],
@@ -63,7 +65,12 @@ export default function FaqPage({ api, session }: AdminPageProps) {
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
       const id = asString(row.id) || asString(row._id);
-      if (!window.confirm('Delete this FAQ?')) return;
+      if (!(await confirm({
+        title: 'Delete this FAQ?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteFaq(session.token, id);
         reload();
@@ -71,7 +78,7 @@ export default function FaqPage({ api, session }: AdminPageProps) {
         toast.error(err instanceof Error ? err.message : 'Failed to delete FAQ');
       }
     },
-    [api, session.token, reload],
+    [api, session.token, reload, confirm],
   );
 
   const columns: DataTableColumn[] = useMemo(

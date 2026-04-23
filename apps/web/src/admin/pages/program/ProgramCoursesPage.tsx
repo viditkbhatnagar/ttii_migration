@@ -11,8 +11,10 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -48,13 +50,18 @@ export default function ProgramCoursesPage({ api, session }: AdminPageProps) {
   const handleRemoveCourse = useCallback(async (row: Record<string, unknown>) => {
     const courseId = asString(row.id);
     const title = asString(row.title);
-    if (!window.confirm(`Remove "${title}" from this program?`)) return;
+    if (!(await confirm({
+      title: `Remove "${title}" from this program?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Remove',
+      variant: 'destructive',
+    }))) return;
     setSaving(true);
     try {
       await api.removeCourseFromProgram(session.token, programId, courseId);
       reload();
     } catch { /* ignore */ } finally { setSaving(false); }
-  }, [api, session.token, programId, reload]);
+  }, [api, session.token, programId, reload, confirm]);
 
   const handleToggleCourse = useCallback((id: string) => {
     setSelectedCourseIds((prev) => {

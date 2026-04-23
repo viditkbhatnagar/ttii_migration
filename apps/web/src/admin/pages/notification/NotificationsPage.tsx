@@ -9,10 +9,12 @@ import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 
 type TabId = 'unread' | 'read' | 'all';
 
 export default function NotificationsPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error } = useAdminPageData(
     () => api.loadNotifications(session.token),
     [session.token],
@@ -47,8 +49,13 @@ export default function NotificationsPage({ api, session }: AdminPageProps) {
     return allNotifications;
   }, [activeTab, unreadNotifications, readNotifications, allNotifications]);
 
-  const handleClearAll = () => {
-    if (!window.confirm('Clear all notifications? This cannot be undone.')) return;
+  const handleClearAll = async () => {
+    if (!(await confirm({
+      title: 'Clear all notifications?',
+      description: 'This cannot be undone.',
+      confirmText: 'Clear all',
+      variant: 'destructive',
+    }))) return;
     toast.info('Clear All — backend wiring pending.');
   };
 

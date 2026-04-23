@@ -9,8 +9,10 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function CourseDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [statusFilter, setStatusFilter] = useState('');
 
   const { data, loading, error, reload } = useAdminPageData(
@@ -90,21 +92,24 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
       {
         label: 'Archive Course',
         variant: 'destructive',
-        onClick: (row) => {
+        onClick: async (row) => {
           const id = asString(row.id);
-          if (!window.confirm(`Archive course "${asString(row.title)}"?`)) return;
-          void (async () => {
-            try {
-              await api.archiveCourse(session.token, id);
-              reload();
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to archive course');
-            }
-          })();
+          if (!(await confirm({
+            title: `Archive course "${asString(row.title)}"?`,
+            description: 'This action cannot be undone.',
+            confirmText: 'Archive',
+            variant: 'destructive',
+          }))) return;
+          try {
+            await api.archiveCourse(session.token, id);
+            reload();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Failed to archive course');
+          }
         },
       },
     ],
-    [api, session.token, onNavigate, reload],
+    [api, session.token, onNavigate, reload, confirm],
   );
 
   if (loading) return <PageLoader label="Loading course directory..." />;

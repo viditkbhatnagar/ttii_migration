@@ -17,6 +17,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const TAB_LABELS = ['Learners', 'Live Sessions', 'Activities/Assignments', 'Announcements'];
 const ASSIGNMENT_SUB_TABS = ['Details', 'Submissions', 'Unsubmitted Students'];
@@ -42,6 +43,7 @@ type ModalType =
   | null;
 
 export default function ViewCohortPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
   const [modal, setModal] = useState<ModalType>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -384,6 +386,7 @@ function LearnersTab({
   onAddClick: () => void;
   onReload: () => void;
 }) {
+  const confirm = useConfirm();
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -396,7 +399,12 @@ function LearnersTab({
     async (learner: Record<string, unknown>) => {
       const studentId = asString(learner.id) || asString(learner._id);
       const name = asString(learner.name);
-      if (!window.confirm(`Remove ${name} from this cohort?`)) return;
+      if (!(await confirm({
+        title: `Remove ${name} from this cohort?`,
+        description: 'This action cannot be undone.',
+        confirmText: 'Remove',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.removeCohortLearner(token, cohortId, studentId);
         onReload();
@@ -404,7 +412,7 @@ function LearnersTab({
         toast.error(err instanceof Error ? err.message : 'Failed to remove learner');
       }
     },
-    [api, token, cohortId, onReload],
+    [api, token, cohortId, onReload, confirm],
   );
 
   return (
@@ -489,10 +497,16 @@ function LiveSessionsTab({
   onEditRecordingClick: (sessionId: string, currentLink: string) => void;
   onReload: () => void;
 }) {
+  const confirm = useConfirm();
   const handleDelete = useCallback(
     async (session: Record<string, unknown>) => {
       const id = asString(session.id) || asString(session._id);
-      if (!window.confirm('Delete this live session?')) return;
+      if (!(await confirm({
+        title: 'Delete this live session?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteCohortLiveSession(token, id);
         onReload();
@@ -500,7 +514,7 @@ function LiveSessionsTab({
         toast.error(err instanceof Error ? err.message : 'Failed to delete session');
       }
     },
-    [api, token, onReload],
+    [api, token, onReload, confirm],
   );
 
   return (
@@ -671,6 +685,7 @@ function AssignmentsTab({
   onGradeClick: (submission: Record<string, unknown>, assignmentMarks: number) => void;
   onReload: () => void;
 }) {
+  const confirm = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [subTab, setSubTab] = useState(0);
   const [submissionsData, setSubmissionsData] = useState<Record<string, unknown> | null>(null);
@@ -697,7 +712,12 @@ function AssignmentsTab({
 
   const handleDeleteSubFile = useCallback(
     async (submissionId: string) => {
-      if (!window.confirm('Delete this submission file?')) return;
+      if (!(await confirm({
+        title: 'Delete this submission file?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteAssignmentSubmission(token, submissionId);
         if (selectedId) {
@@ -708,7 +728,7 @@ function AssignmentsTab({
         toast.error(err instanceof Error ? err.message : 'Failed to delete file');
       }
     },
-    [api, token, selectedId],
+    [api, token, selectedId, confirm],
   );
 
   return (
@@ -981,10 +1001,16 @@ function AnnouncementsTab({
   onEditClick: (announcement: Record<string, unknown>) => void;
   onReload: () => void;
 }) {
+  const confirm = useConfirm();
   const handleDelete = useCallback(
     async (a: Record<string, unknown>) => {
       const id = asString(a.id) || asString(a._id);
-      if (!window.confirm('Delete this announcement?')) return;
+      if (!(await confirm({
+        title: 'Delete this announcement?',
+        description: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        variant: 'destructive',
+      }))) return;
       try {
         await api.deleteCohortAnnouncement(token, id);
         onReload();
@@ -992,7 +1018,7 @@ function AnnouncementsTab({
         toast.error(err instanceof Error ? err.message : 'Failed to delete announcement');
       }
     },
-    [api, token, onReload],
+    [api, token, onReload, confirm],
   );
 
   return (

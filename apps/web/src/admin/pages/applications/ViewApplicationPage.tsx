@@ -11,6 +11,7 @@ import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/ad
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const TAB_LABELS = ['Personal Information', 'Qualification', 'Enrolment & Fee', 'Payment History'];
 
@@ -24,6 +25,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function ViewApplicationPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -50,7 +52,11 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
   const handleApprove = useCallback(async () => {
     if (!applicationId) return;
-    if (!window.confirm('Are you sure you want to approve this application?')) return;
+    if (!(await confirm({
+      title: 'Approve this application?',
+      confirmText: 'Approve',
+      variant: 'default',
+    }))) return;
     setSubmitting(true);
     try {
       await api.updateApplicationStatus(session.token, applicationId, 'approved');
@@ -60,7 +66,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     } finally {
       setSubmitting(false);
     }
-  }, [api, session.token, applicationId, reload]);
+  }, [api, session.token, applicationId, reload, confirm]);
 
   const handleRejectSubmit = useCallback(async () => {
     if (!applicationId) return;
@@ -83,14 +89,19 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
   const handleDelete = useCallback(async () => {
     if (!applicationId) return;
-    if (!window.confirm('Are you sure you want to delete this application? This action cannot be undone.')) return;
+    if (!(await confirm({
+      title: 'Delete this application?',
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteApplication(session.token, applicationId);
       onNavigate('/admin/applications');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete application');
     }
-  }, [api, session.token, applicationId, onNavigate]);
+  }, [api, session.token, applicationId, onNavigate, confirm]);
 
   const paymentColumns: DataTableColumn[] = useMemo(
     () => [

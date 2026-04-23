@@ -11,8 +11,10 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const [showDialog, setShowDialog] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState('');
@@ -76,14 +78,19 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
 
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
     const email = asString(row.teams_email);
-    if (!window.confirm(`Remove "${email}" from the Teams meeting hosts allowlist?`)) return;
+    if (!(await confirm({
+      title: `Remove "${email}"?`,
+      description: 'This email will be removed from the Teams meeting hosts allowlist.',
+      confirmText: 'Remove',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteTeamsMeetingHost(session.token, asString(row.id));
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete.');
     }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const handleTest = useCallback(async (row: Record<string, unknown>) => {
     const email = asString(row.teams_email);

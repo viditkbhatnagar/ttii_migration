@@ -7,6 +7,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 const statusColors: Record<string, 'default' | 'secondary' | 'destructive'> = {
   issued: 'default',
@@ -15,6 +16,7 @@ const statusColors: Record<string, 'default' | 'secondary' | 'destructive'> = {
 };
 
 export default function CertificatesPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(() => api.listCertificates(session.token), []);
   const rows = useMemo(() => toRecords(data), [data]);
 
@@ -22,9 +24,14 @@ export default function CertificatesPage({ api, session }: AdminPageProps) {
   const revokedCount = rows.filter((r) => r.status === 'revoked').length;
 
   const handleRevoke = useCallback(async (row: Record<string, unknown>) => {
-    if (!window.confirm(`Revoke certificate ${asString(row.certificate_no)} for ${asString(row.user_name)}?`)) return;
+    if (!(await confirm({
+      title: `Revoke certificate ${asString(row.certificate_no)}?`,
+      description: `This will revoke the certificate issued to ${asString(row.user_name)}. This action cannot be undone.`,
+      confirmText: 'Revoke',
+      variant: 'destructive',
+    }))) return;
     try { await api.revokeCertificate(session.token, asString(row.id)); reload(); } catch { /* ignore */ }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const columns: DataTableColumn[] = [
     { key: 'certificate_no', label: 'Certificate #', sortable: true },

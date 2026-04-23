@@ -12,6 +12,7 @@ import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-uti
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { useConfirm } from '@/components/confirm-dialog';
 
 interface InstructorForm {
   name: string;
@@ -34,6 +35,7 @@ function generatePassword(): string {
 }
 
 export default function InstructorsPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadInstructors(session.token),
     [],
@@ -69,14 +71,19 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
 
   const handleDelete = useCallback(async (row: Record<string, unknown>) => {
     const id = asString(row._id || row.id);
-    if (!window.confirm(`Are you sure you want to delete instructor "${asString(row.name)}"?`)) return;
+    if (!(await confirm({
+      title: `Delete instructor "${asString(row.name)}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    }))) return;
     try {
       await api.deleteInstructor(session.token, id);
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete instructor');
     }
-  }, [api, session.token, reload]);
+  }, [api, session.token, reload, confirm]);
 
   const handleSubmit = useCallback(async () => {
     if (!form.name.trim() || !form.email.trim()) return;
@@ -150,14 +157,17 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
       {
         label: 'Change Device',
-        onClick: (row) => {
-          if (window.confirm('Reset device binding for this instructor?')) {
-            window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
-          }
+        onClick: async (row) => {
+          if (!(await confirm({
+            title: 'Reset device binding for this instructor?',
+            confirmText: 'Reset',
+            variant: 'default',
+          }))) return;
+          window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
         },
       },
     ],
-    [openEdit, handleDelete],
+    [openEdit, handleDelete, confirm],
   );
 
   if (loading) {
