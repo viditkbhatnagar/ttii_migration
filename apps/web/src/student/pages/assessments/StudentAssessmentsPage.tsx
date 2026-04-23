@@ -240,6 +240,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                                 aria-label={`View details for ${title}`}
                                 onClick={() => setDetailItem(assignment)}
                                 title="View Details"
+                                className="max-sm:size-11"
                               >
                                 <Eye aria-hidden="true" className="size-4 text-student-primary" />
                               </Button>
@@ -253,6 +254,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                                 disabled={actionPending === id}
                                 onClick={() => void handleToggleSaved(id)}
                                 title={isSaved ? 'Unsave' : 'Save'}
+                                className="max-sm:size-11"
                               >
                                 {isSaved ? (
                                   <BookmarkCheck aria-hidden="true" className="size-4 text-student-accent" />

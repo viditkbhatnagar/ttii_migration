@@ -218,6 +218,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                   size="icon-sm"
                   aria-label="Cancel editing"
                   onClick={() => { setEditing(false); setMessage(''); }}
+                  className="max-sm:size-11"
                 >
                   <X aria-hidden="true" className="size-4" />
                 </Button>
@@ -349,13 +350,13 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="new-password"
-                    className="rounded-xl pr-10"
+                    className="rounded-xl pr-12"
                   />
                   <button
                     type="button"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
@@ -371,13 +372,13 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     autoComplete="new-password"
-                    className="rounded-xl pr-10"
+                    className="rounded-xl pr-12"
                   />
                   <button
                     type="button"
                     aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showConfirmPassword}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   >
                     {showConfirmPassword ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}

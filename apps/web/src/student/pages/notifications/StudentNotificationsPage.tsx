@@ -114,7 +114,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
                       variant="ghost"
                       size="sm"
                       aria-label={`Mark "${title}" as read`}
-                      className="shrink-0 text-xs text-student-primary hover:text-student-primary/80 rounded-xl"
+                      className="shrink-0 max-sm:h-11 text-xs text-student-primary hover:text-student-primary/80 rounded-xl"
                       disabled={markingId === id}
                       onClick={() => void handleMarkRead(id)}
                     >

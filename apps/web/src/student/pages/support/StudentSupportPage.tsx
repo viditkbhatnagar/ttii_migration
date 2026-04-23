@@ -152,7 +152,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                 type="button"
                 role="radio"
                 aria-checked={selectedType === type}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
+                className={`rounded-full px-4 text-sm font-medium transition-all h-9 max-sm:h-11 ${
                   selectedType === type
                     ? 'bg-student-primary text-white shadow-md'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'

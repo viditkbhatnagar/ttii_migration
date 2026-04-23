@@ -55,7 +55,7 @@ export function StudentNavbar({ session: _session, onNavigate, onLogout }: Stude
           variant="ghost"
           size="icon"
           aria-label="Open navigation menu"
-          className="md:hidden text-slate-500 hover:text-student-primary"
+          className="md:hidden size-11 text-slate-500 hover:text-student-primary"
           onClick={toggleMobileSidebar}
         >
           <Menu className="size-5" aria-hidden="true" />
@@ -90,7 +90,7 @@ export function StudentNavbar({ session: _session, onNavigate, onLogout }: Stude
           variant="ghost"
           size="icon"
           aria-label="View notifications"
-          className="relative text-slate-500 hover:text-student-primary hover:bg-student-primary/10"
+          className="relative max-sm:size-11 text-slate-500 hover:text-student-primary hover:bg-student-primary/10"
           onClick={() => onNavigate('/student/notifications')}
         >
           <Bell className="size-4" aria-hidden="true" />
