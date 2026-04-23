@@ -4842,18 +4842,16 @@ export class OperationsService {
     return {
       status: 1,
       message: 'success',
-      data: {
-        cohort: {
-          ...cohort,
-          course_title: course?.title ?? null,
-          subject_title: subject?.title ?? null,
-          centre_name: centre?.centre_name ?? null,
-          instructor_name: instructor?.name ?? null,
-        },
-        learners,
-        live_sessions: liveSessions,
-        assignments: assignmentsWithCounts,
+      cohort: {
+        ...cohort,
+        course_title: course?.title ?? null,
+        subject_title: subject?.title ?? null,
+        centre_name: centre?.centre_name ?? null,
+        instructor_name: instructor?.name ?? null,
       },
+      learners,
+      live_sessions: liveSessions,
+      assignments: assignmentsWithCounts,
     };
   }
 
