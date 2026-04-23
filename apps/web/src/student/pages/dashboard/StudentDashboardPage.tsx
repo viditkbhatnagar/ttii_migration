@@ -51,32 +51,28 @@ function ProgressRing({ value, size = 120, strokeWidth = 10 }: { value: number; 
 
 function DashboardCard({
   icon: Icon,
-  iconBg,
-  iconColor,
+  iconTint,
   title,
   subtitle,
-  gradient,
   children,
   className = '',
 }: {
   icon: React.ElementType;
-  iconBg: string;
-  iconColor: string;
+  iconTint: string;
   title: string;
   subtitle?: string;
-  gradient: string;
   children: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={`rounded-2xl border border-slate-200/80 bg-gradient-to-br ${gradient} p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${className}`}>
+    <div className={`rounded-xl border border-slate-200 bg-white p-5 ${className}`}>
       <div className="flex items-center gap-3 mb-4">
-        <div className={`p-2.5 rounded-xl ${iconBg}`}>
-          <Icon className={`size-5 ${iconColor}`} />
+        <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${iconTint}`}>
+          <Icon aria-hidden="true" className="size-5" />
         </div>
-        <div>
-          <h3 className="font-semibold text-slate-800 text-lg">{title}</h3>
-          {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
+        <div className="min-w-0">
+          <h3 className="font-semibold text-slate-800 text-base">{title}</h3>
+          {subtitle ? <p className="text-xs text-slate-500 truncate">{subtitle}</p> : null}
         </div>
       </div>
       {children}
@@ -90,8 +86,7 @@ interface QuickStatDef {
   label: string;
   getValue: (d: StudentDashboardSnapshot) => string;
   icon: React.ElementType;
-  gradient: string;
-  iconColor: string;
+  iconTint: string;
 }
 
 const QUICK_STATS: QuickStatDef[] = [
@@ -99,29 +94,25 @@ const QUICK_STATS: QuickStatDef[] = [
     label: 'Courses',
     getValue: (d) => String(d.coursesCount),
     icon: BookOpen,
-    gradient: 'from-blue-500 to-blue-600',
-    iconColor: 'text-blue-100',
+    iconTint: 'bg-blue-50 text-blue-600',
   },
   {
     label: 'Assignments',
     getValue: (d) => String(d.currentAssignments + d.upcomingAssignments),
     icon: ClipboardList,
-    gradient: 'from-emerald-500 to-emerald-600',
-    iconColor: 'text-emerald-100',
+    iconTint: 'bg-emerald-50 text-emerald-600',
   },
   {
     label: 'Exams',
     getValue: (d) => String(d.upcomingExams),
     icon: FileText,
-    gradient: 'from-violet-500 to-purple-600',
-    iconColor: 'text-violet-100',
+    iconTint: 'bg-violet-50 text-violet-600',
   },
   {
     label: 'Notifications',
     getValue: (d) => String(d.notificationsCount),
     icon: Bell,
-    gradient: 'from-cyan-500 to-teal-600',
-    iconColor: 'text-cyan-100',
+    iconTint: 'bg-amber-50 text-amber-600',
   },
 ];
 
@@ -192,21 +183,21 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       </div>
 
       {/* Quick Stat Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {QUICK_STATS.map((stat) => {
           const Icon = stat.icon;
           return (
             <div
               key={stat.label}
-              className={`rounded-2xl bg-gradient-to-br ${stat.gradient} p-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg`}
+              className="rounded-xl border border-slate-200 bg-white p-4"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-3xl font-bold">{stat.getValue(dashboardData)}</p>
-                  <p className="mt-1 text-sm font-medium text-white/80">{stat.label}</p>
+                  <p className="text-2xl font-semibold text-student-text">{stat.getValue(dashboardData)}</p>
+                  <p className="mt-0.5 text-xs font-medium text-student-muted">{stat.label}</p>
                 </div>
-                <div className="rounded-xl bg-white/20 p-3">
-                  <Icon className={`size-6 ${stat.iconColor}`} />
+                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.iconTint}`}>
+                  <Icon aria-hidden="true" className="size-5" />
                 </div>
               </div>
             </div>
@@ -220,11 +211,9 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         {data?.primaryCourseTitle ? (
           <DashboardCard
             icon={BookOpen}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconTint="bg-blue-50 text-blue-600"
             title="Continue Learning"
             subtitle={data.primaryCourseTitle}
-            gradient="from-blue-50 via-blue-50/80 to-indigo-50"
           >
             <div className="flex items-center justify-center py-2">
               <ProgressRing value={courseProgress} />
@@ -235,7 +224,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               onClick={() => onNavigate('/student/courses')}
             >
               Continue Learning
-              <ArrowRight className="ml-1 size-3.5" />
+              <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
             </Button>
           </DashboardCard>
         ) : null}
@@ -243,31 +232,29 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         {/* Overall Progress */}
         <DashboardCard
           icon={TrendingUp}
-          iconBg="bg-emerald-100"
-          iconColor="text-emerald-600"
+          iconTint="bg-emerald-50 text-emerald-600"
           title="Overall Progress"
           subtitle="All courses combined"
-          gradient="from-emerald-50 via-green-50/80 to-teal-50"
         >
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600">Completion</span>
-              <span className="font-semibold text-emerald-600">{courseProgress}%</span>
+              <span className="text-student-muted">Completion</span>
+              <span className="font-semibold text-student-text">{courseProgress}%</span>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-700 ease-out"
+                className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
                 style={{ width: `${Math.min(courseProgress, 100)}%` }}
               />
             </div>
             <div className="grid grid-cols-2 gap-3 pt-2">
-              <div className="rounded-lg bg-white/60 p-2 text-center">
-                <p className="text-lg font-bold text-slate-800">{data?.completedAssignments ?? 0}</p>
-                <p className="text-xs text-slate-500">Completed</p>
+              <div className="rounded-lg bg-slate-50 p-2 text-center">
+                <p className="text-lg font-semibold text-student-text">{data?.completedAssignments ?? 0}</p>
+                <p className="text-xs text-student-muted">Completed</p>
               </div>
-              <div className="rounded-lg bg-white/60 p-2 text-center">
-                <p className="text-lg font-bold text-slate-800">{data?.currentAssignments ?? 0}</p>
-                <p className="text-xs text-slate-500">Pending</p>
+              <div className="rounded-lg bg-slate-50 p-2 text-center">
+                <p className="text-lg font-semibold text-student-text">{data?.currentAssignments ?? 0}</p>
+                <p className="text-xs text-student-muted">Pending</p>
               </div>
             </div>
           </div>
@@ -276,31 +263,29 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         {/* Quick Stats Grid */}
         <DashboardCard
           icon={BarChart3}
-          iconBg="bg-slate-100"
-          iconColor="text-slate-600"
+          iconTint="bg-slate-100 text-slate-600"
           title="Quick Stats"
-          gradient="from-slate-50 via-gray-50/80 to-zinc-50"
         >
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-white/80 p-3 text-center shadow-sm">
-              <Target className="mx-auto mb-1 size-4 text-blue-500" />
-              <p className="text-lg font-bold text-slate-800">{data?.completedAssignments ?? 0}</p>
-              <p className="text-[11px] text-slate-500">Tasks Done</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-slate-50 p-3 text-center">
+              <Target aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
+              <p className="text-lg font-semibold text-student-text">{data?.completedAssignments ?? 0}</p>
+              <p className="text-[11px] text-student-muted">Tasks Done</p>
             </div>
-            <div className="rounded-xl bg-white/80 p-3 text-center shadow-sm">
-              <FileText className="mx-auto mb-1 size-4 text-purple-500" />
-              <p className="text-lg font-bold text-slate-800">{data?.upcomingExams ?? 0}</p>
-              <p className="text-[11px] text-slate-500">Exams Due</p>
+            <div className="rounded-lg bg-slate-50 p-3 text-center">
+              <FileText aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
+              <p className="text-lg font-semibold text-student-text">{data?.upcomingExams ?? 0}</p>
+              <p className="text-[11px] text-student-muted">Exams Due</p>
             </div>
-            <div className="rounded-xl bg-white/80 p-3 text-center shadow-sm">
-              <TrendingUp className="mx-auto mb-1 size-4 text-emerald-500" />
-              <p className="text-lg font-bold text-slate-800">{courseProgress}%</p>
-              <p className="text-[11px] text-slate-500">Avg Score</p>
+            <div className="rounded-lg bg-slate-50 p-3 text-center">
+              <TrendingUp aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
+              <p className="text-lg font-semibold text-student-text">{courseProgress}%</p>
+              <p className="text-[11px] text-student-muted">Avg Score</p>
             </div>
-            <div className="rounded-xl bg-white/80 p-3 text-center shadow-sm">
-              <Flame className="mx-auto mb-1 size-4 text-amber-500" />
-              <p className="text-lg font-bold text-slate-800">{data?.streakCurrent ?? 0}</p>
-              <p className="text-[11px] text-slate-500">Day Streak</p>
+            <div className="rounded-lg bg-slate-50 p-3 text-center">
+              <Flame aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
+              <p className="text-lg font-semibold text-student-text">{data?.streakCurrent ?? 0}</p>
+              <p className="text-[11px] text-student-muted">Day Streak</p>
             </div>
           </div>
         </DashboardCard>
@@ -311,37 +296,33 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         {/* Study Streak */}
         <DashboardCard
           icon={Flame}
-          iconBg="bg-amber-100"
-          iconColor="text-amber-600"
+          iconTint="bg-amber-50 text-amber-600"
           title="Study Streak"
-          subtitle="Keep your momentum going!"
-          gradient="from-amber-50 via-yellow-50/80 to-orange-50"
+          subtitle="Keep your momentum going"
         >
-          <div className="flex items-baseline gap-3 mt-2">
-            <span className="text-4xl font-bold text-amber-600">{data?.streakCurrent ?? 0}</span>
-            <span className="text-sm text-slate-500">day streak</span>
-            <span className="ml-auto text-sm text-slate-400">{data?.streakTotal ?? 0} total days studied</span>
+          <div className="flex items-baseline gap-3 mt-1">
+            <span className="text-3xl font-semibold text-student-text">{data?.streakCurrent ?? 0}</span>
+            <span className="text-sm text-student-muted">day streak</span>
+            <span className="ml-auto text-sm text-student-muted">{data?.streakTotal ?? 0} total days</span>
           </div>
         </DashboardCard>
 
         {/* Recent Payment */}
         <DashboardCard
           icon={CreditCard}
-          iconBg="bg-emerald-100"
-          iconColor="text-emerald-600"
+          iconTint="bg-emerald-50 text-emerald-600"
           title="Recent Payment"
-          gradient="from-emerald-50 via-green-50/80 to-teal-50"
         >
-          <div className="mt-2">
+          <div className="mt-1">
             {recentPaymentAmount > 0 ? (
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-slate-800">{formatCurrency(recentPaymentAmount)}</span>
-                <span className="text-sm text-slate-500">
+                <span className="text-2xl font-semibold text-student-text">{formatCurrency(recentPaymentAmount)}</span>
+                <span className="text-sm text-student-muted">
                   on {recentPaymentDate ? formatDate(recentPaymentDate) : 'N/A'}
                 </span>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">No payments yet</p>
+              <p className="text-sm text-student-muted">No payments yet</p>
             )}
             <Button
               variant="link"
@@ -349,7 +330,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               onClick={() => onNavigate('/student/payments')}
             >
               View All Payments
-              <ArrowRight className="ml-1 size-3.5" />
+              <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
             </Button>
           </div>
         </DashboardCard>
@@ -360,46 +341,44 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         {/* Tasks Today */}
         <DashboardCard
           icon={CheckCircle}
-          iconBg="bg-green-100"
-          iconColor="text-green-600"
+          iconTint="bg-green-50 text-green-600"
           title="Tasks Today"
           subtitle="Your schedule for today"
-          gradient="from-green-50 via-emerald-50/80 to-teal-50"
         >
-          <div className="mt-2 flex items-baseline gap-3">
-            <span className="text-3xl font-bold text-slate-800">{data?.scheduledTasks ?? 0}</span>
-            <span className="text-sm text-slate-500">scheduled</span>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="text-3xl font-semibold text-student-text">{data?.scheduledTasks ?? 0}</span>
+            <span className="text-sm text-student-muted">scheduled</span>
             {(data?.overdueTasks ?? 0) > 0 ? (
               <span className="ml-auto text-sm font-medium text-red-600">{data?.overdueTasks} overdue</span>
             ) : (
-              <span className="ml-auto text-sm text-emerald-600">All caught up!</span>
+              <span className="ml-auto text-sm text-emerald-600">All caught up</span>
             )}
           </div>
         </DashboardCard>
 
         {/* Quick Links */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {[
-            { label: 'View All Assignments', detail: `${data?.currentAssignments ?? 0} current`, icon: ClipboardList, iconBg: 'bg-orange-100', iconColor: 'text-orange-600', href: '/student/grades' },
-            { label: 'View All Exams', detail: `${data?.upcomingExams ?? 0} upcoming`, icon: FileText, iconBg: 'bg-red-100', iconColor: 'text-red-600', href: '/student/grades' },
-            { label: 'My Courses', detail: `${data?.coursesCount ?? 0} enrolled`, icon: BookOpen, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', href: '/student/courses' },
+            { label: 'View All Assignments', detail: `${data?.currentAssignments ?? 0} current`, icon: ClipboardList, iconTint: 'bg-orange-50 text-orange-600', href: '/student/grades' },
+            { label: 'View All Exams', detail: `${data?.upcomingExams ?? 0} upcoming`, icon: FileText, iconTint: 'bg-red-50 text-red-600', href: '/student/grades' },
+            { label: 'My Courses', detail: `${data?.coursesCount ?? 0} enrolled`, icon: BookOpen, iconTint: 'bg-blue-50 text-blue-600', href: '/student/courses' },
           ].map((link) => {
             const LinkIcon = link.icon;
             return (
               <button
                 key={link.label}
                 type="button"
-                className="flex w-full items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:bg-slate-50"
                 onClick={() => onNavigate(link.href)}
               >
-                <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${link.iconBg}`}>
-                  <LinkIcon className={`size-5 ${link.iconColor}`} />
+                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${link.iconTint}`}>
+                  <LinkIcon aria-hidden="true" className="size-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800">{link.label}</p>
-                  <p className="text-xs text-slate-500">{link.detail}</p>
+                  <p className="text-sm font-medium text-student-text">{link.label}</p>
+                  <p className="text-xs text-student-muted">{link.detail}</p>
                 </div>
-                <ArrowRight className="size-4 text-slate-400" />
+                <ArrowRight aria-hidden="true" className="size-4 text-slate-400" />
               </button>
             );
           })}
