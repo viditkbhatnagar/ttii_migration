@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -185,7 +186,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       setDialogOpen(false);
       reload();
     } catch (err) {
-      window.alert(
+      toast.error(
         `Failed to ${dialogMode === 'add' ? 'add' : 'update'} associate: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
@@ -201,7 +202,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
         await api.deleteAssociate(session.token, asString(row.id) || asString(row._id));
         reload();
       } catch (err) {
-        window.alert(`Failed to delete associate: ${err instanceof Error ? err.message : String(err)}`);
+        toast.error(`Failed to delete associate: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
     [api, session.token, reload],
@@ -222,7 +223,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
                 await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
                 reload();
               } catch (err) {
-                alert(err instanceof Error ? err.message : 'Failed to update status');
+                toast.error(err instanceof Error ? err.message : 'Failed to update status');
               }
             })();
           }

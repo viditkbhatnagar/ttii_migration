@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { toRecords, asString, asNumber } from '../../shared/utils/admin-data-utils.js';
@@ -64,7 +65,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
         await api.deleteBatch(session.token, asString(row.id));
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete batch');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete batch');
       }
     },
     [api, session.token, reload],
@@ -90,7 +91,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!batchForm.title.trim()) {
-      alert('Title is required');
+      toast.error('Title is required');
       return;
     }
     setSaving(true);
@@ -112,7 +113,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
       setDialogType(null);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save batch');
+      toast.error(err instanceof Error ? err.message : 'Failed to save batch');
     } finally {
       setSaving(false);
     }

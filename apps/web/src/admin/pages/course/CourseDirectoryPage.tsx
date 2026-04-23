@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { toRecords, asString } from '../../shared/utils/admin-data-utils.js';
@@ -97,7 +98,7 @@ export default function CourseDirectoryPage({ api, session, onNavigate }: AdminP
               await api.archiveCourse(session.token, id);
               reload();
             } catch (err) {
-              alert(err instanceof Error ? err.message : 'Failed to archive course');
+              toast.error(err instanceof Error ? err.message : 'Failed to archive course');
             }
           })();
         },

@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,7 +65,7 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mCourseId || !mUserId) {
-      alert('Course and Student are required.');
+      toast.error('Course and Student are required.');
       return;
     }
     setSubmitting(true);
@@ -83,7 +84,7 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save review');
+      toast.error(err instanceof Error ? err.message : 'Failed to save review');
     } finally {
       setSubmitting(false);
     }
@@ -97,7 +98,7 @@ export default function UserFeedbacksPage({ api, session }: AdminPageProps) {
         await api.deleteReview(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete review');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete review');
       }
     },
     [api, session.token, reload],

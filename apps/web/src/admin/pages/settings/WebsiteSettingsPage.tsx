@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -55,9 +56,9 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
   const handleSave = async () => {
     try {
       await api.updateWebsiteSettings(session.token, { ...form, cookie_status: cookieStatus });
-      window.alert('Website settings saved successfully.');
+      toast.success('Website settings saved successfully.');
     } catch {
-      window.alert('Failed to save website settings.');
+      toast.error('Failed to save website settings.');
     }
   };
 
@@ -181,7 +182,7 @@ export default function WebsiteSettingsPage({ api, session }: AdminPageProps) {
                 <Button
                   size="sm"
                   className="bg-ttii-primary hover:bg-ttii-primary/90"
-                  onClick={() => alert(`${logo.label} upload — backend wiring pending.`)}
+                  onClick={() => toast.info(`${logo.label} upload — backend wiring pending.`)}
                 >
                   {logo.label}
                 </Button>

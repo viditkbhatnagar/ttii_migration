@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,7 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mTitle.trim()) {
-      alert('Title is required.');
+      toast.error('Title is required.');
       return;
     }
     setSubmitting(true);
@@ -51,7 +52,7 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save language');
+      toast.error(err instanceof Error ? err.message : 'Failed to save language');
     } finally {
       setSubmitting(false);
     }
@@ -65,7 +66,7 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
         await api.deleteLanguage(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete language');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete language');
       }
     },
     [api, session.token, reload],

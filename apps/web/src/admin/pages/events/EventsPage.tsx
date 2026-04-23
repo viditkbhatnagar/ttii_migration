@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,7 +67,7 @@ export default function EventsPage({ api, session, onNavigate }: AdminPageProps)
 
   const handleSave = useCallback(async () => {
     if (!mTitle.trim() || !mImage.trim() || !mInstructorId || !mEventDate || !mFromTime || !mToTime || !mDuration.trim()) {
-      alert('Please fill all required fields.');
+      toast.error('Please fill all required fields.');
       return;
     }
     setSubmitting(true);
@@ -91,7 +92,7 @@ export default function EventsPage({ api, session, onNavigate }: AdminPageProps)
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save event');
+      toast.error(err instanceof Error ? err.message : 'Failed to save event');
     } finally {
       setSubmitting(false);
     }
@@ -105,7 +106,7 @@ export default function EventsPage({ api, session, onNavigate }: AdminPageProps)
         await api.deleteEvent(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete event');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete event');
       }
     },
     [api, session.token, reload],

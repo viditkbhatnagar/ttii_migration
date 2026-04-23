@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -55,7 +56,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       await api.updateApplicationStatus(session.token, applicationId, 'approved');
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update status');
+      toast.error(err instanceof Error ? err.message : 'Failed to update status');
     } finally {
       setSubmitting(false);
     }
@@ -64,7 +65,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const handleRejectSubmit = useCallback(async () => {
     if (!applicationId) return;
     if (!rejectReason.trim()) {
-      alert('Please enter a reason for rejection.');
+      toast.error('Please enter a reason for rejection.');
       return;
     }
     setSubmitting(true);
@@ -74,7 +75,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       setRejectReason('');
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update status');
+      toast.error(err instanceof Error ? err.message : 'Failed to update status');
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +88,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       await api.deleteApplication(session.token, applicationId);
       onNavigate('/admin/applications');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete application');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete application');
     }
   }, [api, session.token, applicationId, onNavigate]);
 

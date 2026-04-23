@@ -15,6 +15,7 @@ import {
 import type { PortalSurface } from '@ttii/shared-types';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { Toaster } from '@/components/ui/sonner';
 
 import { detectPortalFromSubdomain, getSubdomainRedirectPath } from './lib/subdomain.js';
 import { AdminPortal, normalizeAdminPath } from './admin/admin-portal.js';
@@ -802,6 +803,7 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
           adminPortalApi={resolvedAdminPortalApi}
         />
       </AuthProvider>
+      <Toaster position="bottom-right" richColors closeButton />
     </AppErrorBoundary>
   );
 }

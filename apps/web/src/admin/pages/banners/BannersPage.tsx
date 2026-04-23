@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { toRecords, asString } from '../../shared/utils/admin-data-utils.js';
@@ -58,7 +59,7 @@ export default function BannersPage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mTitle.trim() || !mImage.trim()) {
-      alert('Title and Image are required.');
+      toast.error('Title and Image are required.');
       return;
     }
     setSubmitting(true);
@@ -77,7 +78,7 @@ export default function BannersPage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save banner');
+      toast.error(err instanceof Error ? err.message : 'Failed to save banner');
     } finally {
       setSubmitting(false);
     }
@@ -91,7 +92,7 @@ export default function BannersPage({ api, session }: AdminPageProps) {
         await api.deleteBanner(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete banner');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete banner');
       }
     },
     [api, session.token, reload],

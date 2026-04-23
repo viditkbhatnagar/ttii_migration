@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -197,9 +198,9 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   };
 
   const handleSubmit = useCallback(async () => {
-    if (!form.firstName.trim()) { alert('First name is required.'); setActiveTab(0); return; }
-    if (!form.email.trim()) { alert('Email is required.'); setActiveTab(0); return; }
-    if (!form.phone.trim()) { alert('Phone is required.'); setActiveTab(0); return; }
+    if (!form.firstName.trim()) { toast.error('First name is required.'); setActiveTab(0); return; }
+    if (!form.email.trim()) { toast.error('Email is required.'); setActiveTab(0); return; }
+    if (!form.phone.trim()) { toast.error('Phone is required.'); setActiveTab(0); return; }
 
     setSaving(true);
     try {
@@ -246,12 +247,12 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
 
       const result = await api.createApplication(session.token, payload);
       if (asString(result.status) === '0' || result.status === 0) {
-        alert(asString(result.message) || 'Failed to create application');
+        toast.error(asString(result.message) || 'Failed to create application');
       } else {
         onNavigate('/admin/applications');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create application');
+      toast.error(err instanceof Error ? err.message : 'Failed to create application');
     } finally {
       setSaving(false);
     }

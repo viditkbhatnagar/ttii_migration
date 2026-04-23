@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,7 +68,7 @@ export default function FeedsPage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mTitle.trim() || !mCourseId || !mDescription.trim()) {
-      alert('Title, Course, and Description are required.');
+      toast.error('Title, Course, and Description are required.');
       return;
     }
     setSubmitting(true);
@@ -87,7 +88,7 @@ export default function FeedsPage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save feed');
+      toast.error(err instanceof Error ? err.message : 'Failed to save feed');
     } finally {
       setSubmitting(false);
     }
@@ -101,7 +102,7 @@ export default function FeedsPage({ api, session }: AdminPageProps) {
         await api.deleteFeed(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete feed');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete feed');
       }
     },
     [api, session.token, reload],

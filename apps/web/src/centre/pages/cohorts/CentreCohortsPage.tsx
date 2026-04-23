@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,7 +71,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: CentrePa
     },
     {
       label: 'Edit',
-      onClick: () => alert('Edit cohort coming soon'),
+      onClick: () => toast.info('Edit cohort coming soon'),
     },
   ];
 
@@ -91,10 +92,10 @@ export default function CentreCohortsPage({ api, session, onNavigate }: CentrePa
         setDialogOpen(false);
         reload();
       } else {
-        alert(asString(res.message) || 'Failed to add cohort');
+        toast.error(asString(res.message) || 'Failed to add cohort');
       }
     } catch {
-      alert('Failed to add cohort');
+      toast.error('Failed to add cohort');
     } finally {
       setSubmitting(false);
     }

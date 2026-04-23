@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -83,8 +84,8 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
   }, []);
 
   const handleSaveQuestion = useCallback(async () => {
-    if (!mTitle.trim()) { alert('Question Title is required.'); return; }
-    if (!mCourseId) { alert('Course is required.'); return; }
+    if (!mTitle.trim()) { toast.error('Question Title is required.'); return; }
+    if (!mCourseId) { toast.error('Course is required.'); return; }
 
     setSubmitting(true);
     try {
@@ -109,7 +110,7 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
       // Reload happens via useAdminPageData reload
       window.location.reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save question');
+      toast.error(err instanceof Error ? err.message : 'Failed to save question');
     } finally {
       setSubmitting(false);
     }

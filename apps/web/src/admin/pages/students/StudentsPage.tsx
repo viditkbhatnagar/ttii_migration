@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Download } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -137,7 +138,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       closeDialog();
       reload();
     } catch {
-      alert('Operation failed. Please try again.');
+      toast.error('Operation failed. Please try again.');
     } finally {
       setDialogSubmitting(false);
     }

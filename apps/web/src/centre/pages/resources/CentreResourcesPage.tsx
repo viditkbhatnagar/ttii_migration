@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -96,7 +97,7 @@ export default function CentreResourcesPage({ api, session }: CentrePageProps) {
       setFolderDialogOpen(false);
       void loadResources();
     } catch (err: unknown) {
-      alert(messageFromError(err));
+      toast.error(messageFromError(err));
     }
   };
 
@@ -115,14 +116,14 @@ export default function CentreResourcesPage({ api, session }: CentrePageProps) {
       setFileDialogOpen(false);
       void loadResources();
     } catch (err: unknown) {
-      alert(messageFromError(err));
+      toast.error(messageFromError(err));
     }
   };
 
   const fileActions: DataTableAction[] = [
-    { label: 'Download', onClick: (row) => alert(`Download: ${asString(row.name)}`) },
-    { label: 'Rename', onClick: (row) => alert(`Rename: ${asString(row.name)}`) },
-    { label: 'Delete', onClick: (row) => alert(`Delete: ${asString(row.name)}`), variant: 'destructive' },
+    { label: 'Download', onClick: (row) => toast.info(`Download: ${asString(row.name)}`) },
+    { label: 'Rename', onClick: (row) => toast.info(`Rename: ${asString(row.name)}`) },
+    { label: 'Delete', onClick: (row) => toast.info(`Delete: ${asString(row.name)}`), variant: 'destructive' },
   ];
 
   if (loading) {

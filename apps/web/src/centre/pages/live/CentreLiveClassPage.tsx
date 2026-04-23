@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,7 +67,7 @@ export default function CentreLiveClassPage({ api, session }: CentrePageProps) {
   const actions: DataTableAction[] = [
     {
       label: 'View',
-      onClick: () => alert('View live class coming soon'),
+      onClick: () => toast.info('View live class coming soon'),
     },
   ];
 
@@ -93,10 +94,10 @@ export default function CentreLiveClassPage({ api, session }: CentrePageProps) {
         setDialogOpen(false);
         reload();
       } else {
-        alert(asString(res.message) || 'Failed to add session');
+        toast.error(asString(res.message) || 'Failed to add session');
       }
     } catch {
-      alert('Failed to add session');
+      toast.error('Failed to add session');
     } finally {
       setSubmitting(false);
     }

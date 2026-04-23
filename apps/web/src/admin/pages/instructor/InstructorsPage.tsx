@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -73,7 +74,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       await api.deleteInstructor(session.token, id);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete instructor');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete instructor');
     }
   }, [api, session.token, reload]);
 
@@ -99,7 +100,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       setDialogOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save instructor');
+      toast.error(err instanceof Error ? err.message : 'Failed to save instructor');
     } finally {
       setSaving(false);
     }

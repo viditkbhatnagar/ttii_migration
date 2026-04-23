@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -129,7 +130,7 @@ export default function CentreViewCohortPage({ api, session, onNavigate }: Centr
           <div className="flex justify-end">
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => alert('Add learner coming soon')}
+              onClick={() => toast.info('Add learner coming soon')}
             >
               + Add Learner
             </Button>
@@ -148,7 +149,7 @@ export default function CentreViewCohortPage({ api, session, onNavigate }: Centr
           <div className="flex justify-end">
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => alert('Add session coming soon')}
+              onClick={() => toast.info('Add session coming soon')}
             >
               + Add Session
             </Button>
@@ -167,7 +168,7 @@ export default function CentreViewCohortPage({ api, session, onNavigate }: Centr
           <div className="flex justify-end">
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => alert('Add assignment coming soon')}
+              onClick={() => toast.info('Add assignment coming soon')}
             >
               + Add Assignment
             </Button>
@@ -186,7 +187,7 @@ export default function CentreViewCohortPage({ api, session, onNavigate }: Centr
           <div className="flex justify-end">
             <Button
               className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => alert('Post announcement coming soon')}
+              onClick={() => toast.info('Post announcement coming soon')}
             >
               + Post Announcement
             </Button>

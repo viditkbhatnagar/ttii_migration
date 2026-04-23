@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { MetricCard } from '@ttii/ui';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -111,7 +112,7 @@ export default function CentreWalletPage({ api, session }: CentrePageProps) {
       setDialogOpen(false);
       reload();
     } catch (err: unknown) {
-      alert(messageFromError(err));
+      toast.error(messageFromError(err));
     }
   };
 

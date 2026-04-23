@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -188,7 +189,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
     {
       label: 'View',
       onClick: (row) => {
-        alert(`View application: ${asString(row.name) || asString(row.student_name)}`);
+        toast.info(`View application: ${asString(row.name) || asString(row.student_name)}`);
       },
     },
     {
@@ -202,10 +203,10 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
             if (responseSuccess(res)) {
               reload();
             } else {
-              alert(asString(res.message) || 'Conversion failed.');
+              toast.error(asString(res.message) || 'Conversion failed.');
             }
           } catch {
-            alert('Failed to convert application.');
+            toast.error('Failed to convert application.');
           }
         })();
       },
@@ -216,7 +217,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
       onClick: (row) => {
         const name = asString(row.name) || asString(row.student_name);
         if (window.confirm(`Are you sure you want to delete application for "${name}"?`)) {
-          alert('Delete API is not available yet.');
+          toast.info('Delete API is not available yet.');
         }
       },
     },
@@ -263,10 +264,10 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
         resetForm();
         reload();
       } else {
-        alert(asString(res.message) || 'Failed to add application.');
+        toast.error(asString(res.message) || 'Failed to add application.');
       }
     } catch {
-      alert('Failed to add application.');
+      toast.error('Failed to add application.');
     } finally {
       setSubmitting(false);
     }

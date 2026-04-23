@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,7 +62,7 @@ export default function CircularsPage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mTitle.trim() || !mImage.trim()) {
-      alert('Title and Image are required.');
+      toast.error('Title and Image are required.');
       return;
     }
     setSubmitting(true);
@@ -84,7 +85,7 @@ export default function CircularsPage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save circular');
+      toast.error(err instanceof Error ? err.message : 'Failed to save circular');
     } finally {
       setSubmitting(false);
     }
@@ -98,7 +99,7 @@ export default function CircularsPage({ api, session }: AdminPageProps) {
         await api.deleteCircular(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete circular');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete circular');
       }
     },
     [api, session.token, reload],

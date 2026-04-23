@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,12 +101,12 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!form.title.trim()) { alert('Title is required.'); return; }
-    if (!form.mark.trim()) { alert('Mark is required.'); return; }
-    if (!form.course_id) { alert('Course is required.'); return; }
-    if (!form.batch_id) { alert('Batch is required.'); return; }
-    if (!form.from_date) { alert('Start date is required.'); return; }
-    if (!form.to_date) { alert('End date is required.'); return; }
+    if (!form.title.trim()) { toast.error('Title is required.'); return; }
+    if (!form.mark.trim()) { toast.error('Mark is required.'); return; }
+    if (!form.course_id) { toast.error('Course is required.'); return; }
+    if (!form.batch_id) { toast.error('Batch is required.'); return; }
+    if (!form.from_date) { toast.error('Start date is required.'); return; }
+    if (!form.to_date) { toast.error('End date is required.'); return; }
 
     setSaving(true);
     try {
@@ -128,12 +129,12 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
         : await api.addExam(session.token, payload);
 
       if (asString(result.status) === '0' || result.status === 0) {
-        alert(asString(result.message) || `Failed to ${isEdit ? 'update' : 'add'} exam`);
+        toast.error(asString(result.message) || `Failed to ${isEdit ? 'update' : 'add'} exam`);
       } else {
         onNavigate('/admin/exam/index');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save exam');
+      toast.error(err instanceof Error ? err.message : 'Failed to save exam');
     } finally {
       setSaving(false);
     }

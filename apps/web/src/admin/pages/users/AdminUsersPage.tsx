@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,7 +68,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
       await api.deleteUserAccount(session.token, id);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 
@@ -82,14 +83,14 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
         resetForm();
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Update failed');
+        toast.error(err instanceof Error ? err.message : 'Update failed');
       } finally {
         setSubmitting(false);
       }
     } else {
       if (!name.trim() || !email.trim() || !password) return;
       if (password !== confirmPassword) {
-        alert('Passwords do not match');
+        toast.error('Passwords do not match');
         return;
       }
       setSubmitting(true);
@@ -105,7 +106,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
         resetForm();
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Create failed');
+        toast.error(err instanceof Error ? err.message : 'Create failed');
       } finally {
         setSubmitting(false);
       }

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { CentrePageProps } from '../../routing/centre-routes.js';
@@ -117,7 +118,7 @@ export default function CentreStudentsPage({ api, session }: CentrePageProps) {
     {
       label: 'View',
       onClick: () => {
-        alert('View student details - coming soon');
+        toast.info('View student details - coming soon');
       },
     },
   ];

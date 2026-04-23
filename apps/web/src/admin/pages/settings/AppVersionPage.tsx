@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
@@ -17,6 +18,7 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
 
   const [appVersion, setAppVersion] = useState('');
   const [appVersionIos, setAppVersionIos] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (data?.appVersion) {
@@ -27,11 +29,14 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
   }, [data]);
 
   const handleSave = async () => {
+    setSaving(true);
     try {
       await api.updateAppVersion(session.token, { appVersion, appVersionIos });
-      window.alert('App version saved successfully.');
+      toast.success('App version saved successfully.');
     } catch {
-      window.alert('Failed to save app version.');
+      toast.error('Failed to save app version.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -54,36 +59,44 @@ export default function AppVersionPage({ api, session }: AdminPageProps) {
       <AdminPageHeader title="App Version" />
       <Card>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium text-gray-700">
-                Android Version *
-              </Label>
-              <Input
-                id="app_version"
-                value={appVersion}
-                onChange={(e) => setAppVersion(e.target.value)}
-              />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSave();
+            }}
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="app_version" className="text-sm font-medium text-gray-700">
+                  Android Version *
+                </Label>
+                <Input
+                  id="app_version"
+                  value={appVersion}
+                  onChange={(e) => setAppVersion(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="app_version_ios" className="text-sm font-medium text-gray-700">
+                  Ios Version *
+                </Label>
+                <Input
+                  id="app_version_ios"
+                  value={appVersionIos}
+                  onChange={(e) => setAppVersionIos(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label className="text-sm font-medium text-gray-700">
-                Ios Version *
-              </Label>
-              <Input
-                id="app_version_ios"
-                value={appVersionIos}
-                onChange={(e) => setAppVersionIos(e.target.value)}
-              />
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
             </div>
-          </div>
-          <div className="mt-6 flex justify-end">
-            <Button
-              onClick={() => { void handleSave(); }}
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-            >
-              Save
-            </Button>
-          </div>
+          </form>
         </CardContent>
       </Card>
     </div>

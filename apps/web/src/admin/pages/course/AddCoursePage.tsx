@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -128,7 +129,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
 
   const handleSubmit = useCallback(async () => {
     if (!form.title.trim()) {
-      alert('Course title is required.');
+      toast.error('Course title is required.');
       return;
     }
 
@@ -163,20 +164,20 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       if (isEdit) {
         const result = await api.updateCourse(session.token, courseId, payload);
         if (asString(result.status) === '0' || result.status === 0) {
-          alert(asString(result.message) || 'Failed to update course');
+          toast.error(asString(result.message) || 'Failed to update course');
         } else {
           onNavigate('/admin/course/index');
         }
       } else {
         const result = await api.createCourse(session.token, payload);
         if (asString(result.status) === '0' || result.status === 0) {
-          alert(asString(result.message) || 'Failed to create course');
+          toast.error(asString(result.message) || 'Failed to create course');
         } else {
           onNavigate('/admin/course/index');
         }
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save course');
+      toast.error(err instanceof Error ? err.message : 'Failed to save course');
     } finally {
       setSaving(false);
     }

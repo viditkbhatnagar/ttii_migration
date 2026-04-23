@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Database } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
@@ -178,7 +179,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       setEditId('');
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save subject');
+      toast.error(err instanceof Error ? err.message : 'Failed to save subject');
     } finally { setSaving(false); }
   }, [api, session.token, editId, buildPayload, form.title, reload]);
 

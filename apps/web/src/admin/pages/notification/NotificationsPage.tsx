@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Bell } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -48,7 +49,7 @@ export default function NotificationsPage({ api, session }: AdminPageProps) {
 
   const handleClearAll = () => {
     if (!window.confirm('Clear all notifications? This cannot be undone.')) return;
-    alert('Clear All — backend wiring pending.');
+    toast.info('Clear All — backend wiring pending.');
   };
 
   if (loading) return <PageLoader label="Loading notifications..." />;

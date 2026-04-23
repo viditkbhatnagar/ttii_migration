@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -105,7 +106,7 @@ export default function AssociateTargetPage({ api, session }: AdminPageProps) {
       await api.deleteAssociateTarget(session.token, id);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete target');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete target');
     }
   }
 
@@ -130,7 +131,7 @@ export default function AssociateTargetPage({ api, session }: AdminPageProps) {
       resetForm();
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save target');
+      toast.error(err instanceof Error ? err.message : 'Failed to save target');
     } finally {
       setSubmitting(false);
     }

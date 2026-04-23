@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -43,9 +44,9 @@ export default function SystemSettingsPage({ api, session }: AdminPageProps) {
   const handleSave = async () => {
     try {
       await api.updateSystemSettings(session.token, form);
-      window.alert('System settings saved successfully.');
+      toast.success('System settings saved successfully.');
     } catch {
-      window.alert('Failed to save system settings.');
+      toast.error('Failed to save system settings.');
     }
   };
 

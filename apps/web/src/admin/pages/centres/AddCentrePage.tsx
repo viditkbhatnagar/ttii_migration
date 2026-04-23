@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,8 +123,8 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!form.centreName.trim()) { alert('Centre Name is required.'); setActiveSection(0); return; }
-    if (!form.centreCode.trim()) { alert('Centre Code is required.'); setActiveSection(0); return; }
+    if (!form.centreName.trim()) { toast.error('Centre Name is required.'); setActiveSection(0); return; }
+    if (!form.centreCode.trim()) { toast.error('Centre Code is required.'); setActiveSection(0); return; }
 
     setSaving(true);
     try {
@@ -151,7 +152,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
         };
         const result = await api.editCentre(session.token, centreId, payload);
         if (asString(result.status) === '0' || result.status === 0) {
-          alert(asString(result.message) || 'Failed to update centre');
+          toast.error(asString(result.message) || 'Failed to update centre');
         } else {
           onNavigate('/admin/centres/index');
         }
@@ -168,13 +169,13 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
           password: form.password,
         });
         if (asString(result.status) === '0' || result.status === 0) {
-          alert(asString(result.message) || 'Failed to add centre');
+          toast.error(asString(result.message) || 'Failed to add centre');
         } else {
           onNavigate('/admin/centres/index');
         }
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save centre');
+      toast.error(err instanceof Error ? err.message : 'Failed to save centre');
     } finally {
       setSaving(false);
     }

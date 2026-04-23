@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -176,7 +177,7 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
         await api.deleteCohort(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete cohort');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
       }
     },
     [api, session.token, reload],

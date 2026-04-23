@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { toRecords, asString } from '../../shared/utils/admin-data-utils.js';
@@ -40,7 +41,7 @@ export default function FaqPage({ api, session }: AdminPageProps) {
 
   const handleSave = useCallback(async () => {
     if (!mQuestion.trim() || !mAnswer.trim()) {
-      alert('Question and Answer are required.');
+      toast.error('Question and Answer are required.');
       return;
     }
     setSubmitting(true);
@@ -53,7 +54,7 @@ export default function FaqPage({ api, session }: AdminPageProps) {
       setModalOpen(false);
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save FAQ');
+      toast.error(err instanceof Error ? err.message : 'Failed to save FAQ');
     } finally {
       setSubmitting(false);
     }
@@ -67,7 +68,7 @@ export default function FaqPage({ api, session }: AdminPageProps) {
         await api.deleteFaq(session.token, id);
         reload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete FAQ');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete FAQ');
       }
     },
     [api, session.token, reload],

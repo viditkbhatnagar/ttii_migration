@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -38,9 +39,9 @@ export default function ContactSettingsPage({ api, session }: AdminPageProps) {
   const handleSave = async () => {
     try {
       await api.updateContactSettings(session.token, form);
-      window.alert('Contact settings saved successfully.');
+      toast.success('Contact settings saved successfully.');
     } catch {
-      window.alert('Failed to save contact settings.');
+      toast.error('Failed to save contact settings.');
     }
   };
 

@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,7 +45,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!form.teamsEmail.trim()) { alert('Trainer email is required.'); return; }
+    if (!form.teamsEmail.trim()) { toast.error('Trainer email is required.'); return; }
     setSaving(true);
     try {
       if (editId) {
@@ -59,7 +60,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
           isActive: form.isActive,
         });
         if (result.success === false) {
-          alert(asString(result.message));
+          toast.error(asString(result.message));
           return;
         }
       }
@@ -67,7 +68,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
       resetForm();
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save trainer.');
+      toast.error(err instanceof Error ? err.message : 'Failed to save trainer.');
     } finally {
       setSaving(false);
     }
@@ -80,7 +81,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
       await api.deleteTeamsMeetingHost(session.token, asString(row.id));
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete.');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete.');
     }
   }, [api, session.token, reload]);
 
@@ -89,13 +90,13 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
     try {
       const result = await api.testTeamsMeetingHost(session.token, asString(row.id));
       if (result.success) {
-        alert(`✓ Teams policy verified for ${email}. A test meeting was created successfully.\n\nJoin URL: ${asString(result.joinUrl)}`);
+        toast.success(`✓ Teams policy verified for ${email}. A test meeting was created successfully.\n\nJoin URL: ${asString(result.joinUrl)}`);
       } else {
-        alert(`✗ Test failed for ${email}:\n\n${asString(result.message)}`);
+        toast.error(`✗ Test failed for ${email}:\n\n${asString(result.message)}`);
       }
       reload();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Test request failed.');
+      toast.error(err instanceof Error ? err.message : 'Test request failed.');
     }
   }, [api, session.token, reload]);
 

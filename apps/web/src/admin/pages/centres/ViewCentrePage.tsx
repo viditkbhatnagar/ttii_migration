@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -251,7 +252,7 @@ export default function ViewCentrePage({ api, session, onNavigate }: AdminPagePr
                 actions={[
                   { label: 'View', onClick: (row) => window.open(asString(row.url) || asString(row.file_url), '_blank') },
                   { label: 'Download', onClick: (row) => window.open(asString(row.url) || asString(row.file_url), '_blank') },
-                  { label: 'Delete', variant: 'destructive', onClick: () => alert('Delete document — backend wiring pending') },
+                  { label: 'Delete', variant: 'destructive', onClick: () => toast.info('Delete document — backend wiring pending') },
                 ]}
               />
             ) : (

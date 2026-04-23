@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
   BookOpen, Users, Video, ClipboardList, Calendar, Megaphone,
   Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download,
@@ -400,7 +401,7 @@ function LearnersTab({
         await api.removeCohortLearner(token, cohortId, studentId);
         onReload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to remove learner');
+        toast.error(err instanceof Error ? err.message : 'Failed to remove learner');
       }
     },
     [api, token, cohortId, onReload],
@@ -496,7 +497,7 @@ function LiveSessionsTab({
         await api.deleteCohortLiveSession(token, id);
         onReload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete session');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete session');
       }
     },
     [api, token, onReload],
@@ -704,7 +705,7 @@ function AssignmentsTab({
           setSubmissionsData(fresh);
         }
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete file');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete file');
       }
     },
     [api, token, selectedId],
@@ -988,7 +989,7 @@ function AnnouncementsTab({
         await api.deleteCohortAnnouncement(token, id);
         onReload();
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete announcement');
+        toast.error(err instanceof Error ? err.message : 'Failed to delete announcement');
       }
     },
     [api, token, onReload],
@@ -1110,7 +1111,7 @@ function AddLearnerModal({
       await api.addCohortLearners(token, cohortId, Array.from(selected));
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add learners');
+      toast.error(err instanceof Error ? err.message : 'Failed to add learners');
     } finally {
       setSubmitting(false);
     }
@@ -1253,10 +1254,10 @@ function AddLiveSessionModal({
         sessionId, title, date, fromTime, toTime, isRepetitive, platform,
       };
       if (platform === 'teams') {
-        if (!teamsHostEmail) { alert('Pick a trainer for the Teams meeting.'); setSubmitting(false); return; }
+        if (!teamsHostEmail) { toast.error('Pick a trainer for the Teams meeting.'); setSubmitting(false); return; }
         payload.teamsHostEmail = teamsHostEmail;
       } else if (platform === 'manual') {
-        if (!manualJoinUrl.trim()) { alert('Paste the meeting link.'); setSubmitting(false); return; }
+        if (!manualJoinUrl.trim()) { toast.error('Paste the meeting link.'); setSubmitting(false); return; }
         payload.manualJoinUrl = manualJoinUrl.trim();
       } else if (platform === 'zoom') {
         payload.zoomId = zoomId;
@@ -1265,13 +1266,13 @@ function AddLiveSessionModal({
       const result = await api.addCohortLiveSession(token, cohortId, payload);
       const success = result.success === true || result.success === 1 || result.status === 1;
       if (!success) {
-        alert((result.message as string) || 'Failed to add session');
+        toast.error((result.message as string) || 'Failed to add session');
         setSubmitting(false);
         return;
       }
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add session');
+      toast.error(err instanceof Error ? err.message : 'Failed to add session');
     } finally {
       setSubmitting(false);
     }
@@ -1416,7 +1417,7 @@ function EditRecordingModal({
       await api.updateLiveSessionRecording(token, sessionId, link);
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save recording link');
+      toast.error(err instanceof Error ? err.message : 'Failed to save recording link');
     } finally {
       setSubmitting(false);
     }
@@ -1496,7 +1497,7 @@ function AssignmentModal({
       }
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save assignment');
+      toast.error(err instanceof Error ? err.message : 'Failed to save assignment');
     } finally {
       setSubmitting(false);
     }
@@ -1588,7 +1589,7 @@ function GradeSubmissionModal({
       await api.gradeAssignmentSubmission(token, id, marks, remarks);
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save grade');
+      toast.error(err instanceof Error ? err.message : 'Failed to save grade');
     } finally {
       setSubmitting(false);
     }
@@ -1665,7 +1666,7 @@ function AnnouncementModal({
       }
       onSuccess();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save announcement');
+      toast.error(err instanceof Error ? err.message : 'Failed to save announcement');
     } finally {
       setSubmitting(false);
     }
