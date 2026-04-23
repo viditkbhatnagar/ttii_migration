@@ -157,13 +157,15 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
       {
         label: 'Change Device',
-        onClick: async (row) => {
-          if (!(await confirm({
-            title: 'Reset device binding for this instructor?',
-            confirmText: 'Reset',
-            variant: 'default',
-          }))) return;
-          window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
+        onClick: (row) => {
+          void (async () => {
+            if (!(await confirm({
+              title: 'Reset device binding for this instructor?',
+              confirmText: 'Reset',
+              variant: 'default',
+            }))) return;
+            window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
+          })();
         },
       },
     ],

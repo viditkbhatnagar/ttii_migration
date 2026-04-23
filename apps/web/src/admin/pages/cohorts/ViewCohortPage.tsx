@@ -43,7 +43,6 @@ type ModalType =
   | null;
 
 export default function ViewCohortPage({ api, session, onNavigate }: AdminPageProps) {
-  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
   const [modal, setModal] = useState<ModalType>(null);
   const [submitting, setSubmitting] = useState(false);

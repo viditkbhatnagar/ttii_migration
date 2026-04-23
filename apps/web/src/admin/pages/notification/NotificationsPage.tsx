@@ -114,7 +114,7 @@ export default function NotificationsPage({ api, session }: AdminPageProps) {
               variant="outline"
               size="sm"
               className="border-red-300 text-red-600 hover:bg-red-50"
-              onClick={handleClearAll}
+              onClick={() => { void handleClearAll(); }}
             >
               Clear All
             </Button>

@@ -223,18 +223,20 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
       {
         label: 'Make Inactive',
-        onClick: async (row) => {
-          if (!(await confirm({
-            title: 'Make this associate inactive?',
-            confirmText: 'Make inactive',
-            variant: 'default',
-          }))) return;
-          try {
-            await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
-            reload();
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to update status');
-          }
+        onClick: (row) => {
+          void (async () => {
+            if (!(await confirm({
+              title: 'Make this associate inactive?',
+              confirmText: 'Make inactive',
+              variant: 'default',
+            }))) return;
+            try {
+              await api.editAssociate(session.token, asString(row.id) || asString(row._id), { status: 0 });
+              reload();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to update status');
+            }
+          })();
         },
       },
     ],
