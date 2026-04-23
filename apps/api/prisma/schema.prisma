@@ -1165,16 +1165,20 @@ model lesson_files {
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model live_class {
-  id            Int       @id @default(autoincrement())
-  session_id    String?   @db.MediumText
-  title         String    @db.VarChar(1000)
-  instructor_id String?   @db.VarChar(250)
-  course_id     String    @db.VarChar(250)
-  cohort_id     Int?
-  live_type     Int?
-  student_id    Int?
-  zoom_id       String?   @db.VarChar(100)
-  password      String?   @db.VarChar(100)
+  id                  Int       @id @default(autoincrement())
+  session_id          String?   @db.MediumText
+  title               String    @db.VarChar(1000)
+  instructor_id       String?   @db.VarChar(250)
+  course_id           String    @db.VarChar(250)
+  cohort_id           Int?
+  live_type           Int?
+  platform            String?   @db.VarChar(20)
+  student_id          Int?
+  zoom_id             String?   @db.VarChar(100)
+  join_url            String?   @db.VarChar(500)
+  external_meeting_id String?   @db.VarChar(255)
+  host_email          String?   @db.VarChar(255)
+  password            String?   @db.VarChar(100)
   fromTime      DateTime  @db.Time(0)
   toTime        DateTime  @db.Time(0)
   status        String    @db.VarChar(100)
@@ -2364,4 +2368,22 @@ model offerings {
   @@index([course_id])
   @@index([status])
   @@index([delivery_mode])
+}
+
+model teams_meeting_hosts {
+  id                  Int       @id @default(autoincrement()) @db.UnsignedInt
+  user_id             Int?      @db.UnsignedInt
+  teams_email         String    @unique(map: "teams_email") @db.VarChar(255)
+  display_name        String?   @db.VarChar(255)
+  is_active           Int       @default(1) @db.TinyInt
+  policy_verified_at  DateTime? @db.DateTime(0)
+  last_error          String?   @db.Text
+  created_by          Int?
+  updated_by          Int?
+  created_at          DateTime? @default(now()) @db.DateTime(0)
+  updated_at          DateTime? @default(now()) @db.DateTime(0)
+  deleted_at          DateTime? @db.DateTime(0)
+
+  @@index([teams_email], map: "idx_teams_email")
+  @@index([is_active, deleted_at], map: "idx_is_active")
 }

@@ -146,6 +146,18 @@ export interface AddAdminLiveClassInput {
     isRepetitive?: number;
     repeatDates?: string[];
   }>;
+  platform?: 'teams' | 'zoom' | 'manual' | 'other';
+  teamsHostEmail?: string;
+  manualJoinUrl?: string;
+}
+
+export interface TeamsMeetingHost {
+  id: number;
+  teams_email: string;
+  display_name: string | null;
+  is_active: number;
+  policy_verified_at: string | null;
+  last_error: string | null;
 }
 
 export interface ExportAdminReportInput {
@@ -457,7 +469,48 @@ export class AdminPortalApi {
         is_repetitive: entry.isRepetitive ?? 0,
         repeat_dates: entry.repeatDates ?? [],
       })),
+      platform: input.platform,
+      teams_host_email: input.teamsHostEmail,
+      manual_join_url: input.manualJoinUrl,
     });
+  }
+
+  // ── Teams meeting hosts (allowlist) ──────────────────────────────
+  async listTeamsMeetingHosts(authToken: string): Promise<TeamsMeetingHost[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/teams_meeting_hosts/index', authToken);
+    return toRecords(payload.data) as unknown as TeamsMeetingHost[];
+  }
+
+  async addTeamsMeetingHost(
+    authToken: string,
+    input: { teamsEmail: string; displayName?: string; userId?: string; isActive?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/teams_meeting_hosts/add', authToken, {
+      teams_email: input.teamsEmail,
+      display_name: input.displayName,
+      user_id: input.userId,
+      is_active: input.isActive !== false,
+    });
+  }
+
+  async editTeamsMeetingHost(
+    authToken: string,
+    id: string,
+    input: { displayName?: string; isActive?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/teams_meeting_hosts/edit', authToken, {
+      id,
+      display_name: input.displayName,
+      is_active: input.isActive,
+    });
+  }
+
+  async deleteTeamsMeetingHost(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/teams_meeting_hosts/delete', authToken, { id });
+  }
+
+  async testTeamsMeetingHost(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/teams_meeting_hosts/test', authToken, { id });
   }
 
   async loadAssessments(
@@ -755,19 +808,30 @@ export class AdminPortalApi {
       password?: string;
       isRepetitive?: boolean;
       repeatDates?: string[];
+      platform?: 'teams' | 'zoom' | 'manual' | 'other';
+      teamsHostEmail?: string;
+      manualJoinUrl?: string;
     },
   ): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/cohorts/add_live_session', authToken, {
+    // Route through the real /admin/live_class/add endpoint (the
+    // /admin/cohorts/add_live_session endpoint was never implemented
+    // on the backend). Payload shape matches AddLiveClassInput.
+    return this.post<Record<string, unknown>>('/admin/live_class/add', authToken, {
       cohort_id: cohortId,
-      session_id: input.sessionId,
-      title: input.title,
-      date: input.date,
-      from_time: input.fromTime,
-      to_time: input.toTime,
-      ...(input.zoomId ? { zoom_id: input.zoomId } : {}),
-      ...(input.password ? { password: input.password } : {}),
-      ...(input.isRepetitive ? { is_repetitive: 1 } : {}),
-      ...(input.repeatDates ? { repeat_dates: input.repeatDates } : {}),
+      zoom_id: input.zoomId ?? '',
+      password: input.password ?? '',
+      entries: [{
+        session_id: input.sessionId,
+        title: input.title,
+        date: input.date,
+        fromTime: input.fromTime,
+        toTime: input.toTime,
+        is_repetitive: input.isRepetitive ? 1 : 0,
+        repeat_dates: input.repeatDates ?? [],
+      }],
+      platform: input.platform,
+      teams_host_email: input.teamsHostEmail,
+      manual_join_url: input.manualJoinUrl,
     });
   }
 

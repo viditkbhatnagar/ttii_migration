@@ -51,7 +51,33 @@ export default function LiveClassPage({ api, session }: AdminPageProps) {
     { key: 'date', label: 'Date', render: (v) => formatDate(v) },
     { key: 'fromTime', label: 'From' },
     { key: 'toTime', label: 'To' },
-    { key: 'zoom_id', label: 'Zoom ID' },
+    {
+      key: 'platform',
+      label: 'Platform',
+      render: (v, row) => {
+        const raw = typeof v === 'string' ? v : '';
+        const p = raw || (row.zoom_id ? 'zoom' : '-');
+        const labels: Record<string, string> = { teams: 'Microsoft Teams', zoom: 'Zoom', manual: 'Manual Link', other: 'Other' };
+        return labels[p] ?? p;
+      },
+    },
+    {
+      key: 'join_url',
+      label: 'Meeting',
+      render: (_v, row) => {
+        const url = typeof row.join_url === 'string' ? row.join_url : '';
+        const zoomId = typeof row.zoom_id === 'string' ? row.zoom_id : '';
+        if (!url && !zoomId) return '-';
+        if (url.startsWith('http')) {
+          return (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+              Join
+            </a>
+          );
+        }
+        return url || (zoomId ? `Zoom ID ${zoomId}` : '-');
+      },
+    },
   ], []);
 
   if (loading) {

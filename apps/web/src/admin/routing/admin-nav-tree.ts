@@ -189,6 +189,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'banners', label: 'Banners', href: '/admin/banners/index' },
       { id: 'feeds', label: 'Feeds', href: '/admin/feed/index' },
       { id: 'integrations', label: 'Integrations', href: '/admin/integration/index' },
+      { id: 'teams-meeting-hosts', label: 'Teams Meeting Hosts', href: '/admin/integrations/teams_meeting_hosts' },
       { id: 'user-feedbacks', label: 'User Feedbacks', href: '/admin/review/index' },
       { id: 'testimonials', label: 'Testimonials', href: '/admin/testimonials/index' },
       { id: 'faqs', label: 'FAQs', href: '/admin/faq/index' },

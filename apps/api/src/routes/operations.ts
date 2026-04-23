@@ -599,14 +599,87 @@ export function registerOperationsRoutes(
   app.post('/admin/live_class/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
+      const platformRaw = toStringValue(payload.platform);
+      const platform =
+        platformRaw === 'teams' || platformRaw === 'zoom' || platformRaw === 'manual' || platformRaw === 'other'
+          ? platformRaw
+          : undefined;
       const input: AddLiveClassInput = {
         cohortId: toStringValue(payload.cohort_id),
         zoomId: toStringValue(payload.zoom_id),
         password: toStringValue(payload.password),
         entries: toLiveEntries(payload.entries),
+        platform,
+        teamsHostEmail: toStringValue(payload.teams_host_email) || undefined,
+        manualJoinUrl: toStringValue(payload.manual_join_url) || undefined,
       };
 
       const result = await operationsService.addLiveClasses('admin', requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // ── Teams meeting hosts CRUD (admin) ──────────────────────────────
+
+  app.get('/admin/teams_meeting_hosts/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const hosts = await operationsService.listTeamsMeetingHosts();
+      reply.code(200).send({ status: 1, message: 'success', data: hosts });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/teams_meeting_hosts/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addTeamsMeetingHost(requestUserId(request), {
+        teamsEmail: toStringValue(payload.teams_email),
+        displayName: toStringValue(payload.display_name) || undefined,
+        userId: toStringValue(payload.user_id) || undefined,
+        isActive: payload.is_active !== false && payload.is_active !== 0 && payload.is_active !== '0',
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/teams_meeting_hosts/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      const result = await operationsService.updateTeamsMeetingHost(requestUserId(request), id, {
+        displayName: payload.display_name !== undefined ? toStringValue(payload.display_name) : undefined,
+        isActive:
+          payload.is_active === undefined
+            ? undefined
+            : payload.is_active === true || payload.is_active === 1 || payload.is_active === '1',
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/teams_meeting_hosts/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      const result = await operationsService.deleteTeamsMeetingHost(requestUserId(request), id);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/teams_meeting_hosts/test', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      const result = await operationsService.testTeamsMeetingHost(id);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -629,11 +702,19 @@ export function registerOperationsRoutes(
   app.post('/centre/live_class/add', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
+      const platformRaw = toStringValue(payload.platform);
+      const platform =
+        platformRaw === 'teams' || platformRaw === 'zoom' || platformRaw === 'manual' || platformRaw === 'other'
+          ? platformRaw
+          : undefined;
       const input: AddLiveClassInput = {
         cohortId: toStringValue(payload.cohort_id),
         zoomId: toStringValue(payload.zoom_id),
         password: toStringValue(payload.password),
         entries: toLiveEntries(payload.entries),
+        platform,
+        teamsHostEmail: toStringValue(payload.teams_host_email) || undefined,
+        manualJoinUrl: toStringValue(payload.manual_join_url) || undefined,
       };
 
       const result = await operationsService.addLiveClasses('centre', requestUserId(request), input);

@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { env } from '../env.js';
 
 type SqlRow = Record<string, unknown>;
 
@@ -230,6 +231,12 @@ export type AddLiveClassInput = {
   zoomId: string;
   password: string;
   entries: LiveClassEntryInput[];
+  // QA Correction2 / Naji ask — Microsoft Teams support
+  platform?: 'teams' | 'zoom' | 'manual' | 'other' | undefined;
+  /** For platform === 'teams': which allowed host's calendar to create on. */
+  teamsHostEmail?: string | undefined;
+  /** For platform === 'manual' | 'other': trainer-supplied join URL. */
+  manualJoinUrl?: string | undefined;
 };
 
 export type ResourceListInput = {
@@ -1617,6 +1624,130 @@ export class OperationsService {
     };
   }
 
+  // ── Teams meeting host allowlist + creation helpers ─────────────
+
+  private async createTeamsService() {
+    const { createTeamsMeetingService } = await import('../integrations/teams-meeting-service.js');
+    return createTeamsMeetingService({
+      clientId: env.EMAIL_MSGRAPH_CLIENT_ID,
+      clientSecret: env.EMAIL_MSGRAPH_CLIENT_SECRET,
+      tenantId: env.EMAIL_MSGRAPH_TENANT_ID,
+    });
+  }
+
+  async listTeamsMeetingHosts(): Promise<SqlRow[]> {
+    const rows = await this.prisma.teams_meeting_hosts.findMany({
+      where: { deleted_at: null },
+      orderBy: [{ is_active: 'desc' }, { teams_email: 'asc' }],
+    });
+    return rows as unknown as SqlRow[];
+  }
+
+  async addTeamsMeetingHost(
+    actorUserId: string,
+    input: { teamsEmail: string; displayName?: string | undefined; userId?: string | undefined; isActive?: boolean | undefined },
+  ): Promise<Record<string, unknown>> {
+    const email = input.teamsEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { success: false, message: 'Invalid email address.' };
+    }
+    const existing = await this.prisma.teams_meeting_hosts.findFirst({ where: { teams_email: email } });
+    if (existing && !existing.deleted_at) {
+      return { success: false, message: 'This trainer email is already in the allowlist.' };
+    }
+    const now = new Date();
+    if (existing && existing.deleted_at) {
+      // Reactivate a previously soft-deleted row
+      await this.prisma.teams_meeting_hosts.update({
+        where: { id: existing.id },
+        data: {
+          display_name: input.displayName ?? existing.display_name,
+          user_id: input.userId ? toNullableIntId(input.userId) : existing.user_id,
+          is_active: input.isActive === false ? 0 : 1,
+          deleted_at: null,
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: now,
+          last_error: null,
+        },
+      });
+      return { success: true, id: existing.id };
+    }
+    const created = await this.prisma.teams_meeting_hosts.create({
+      data: {
+        teams_email: email,
+        display_name: input.displayName ?? null,
+        user_id: input.userId ? toNullableIntId(input.userId) : null,
+        is_active: input.isActive === false ? 0 : 1,
+        created_by: toNullableIntId(actorUserId),
+        updated_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { success: true, id: created.id };
+  }
+
+  async updateTeamsMeetingHost(
+    actorUserId: string,
+    id: string,
+    input: { displayName?: string | undefined; isActive?: boolean | undefined },
+  ): Promise<Record<string, unknown>> {
+    const hostId = toIntId(id);
+    const data: Record<string, unknown> = {
+      updated_by: toNullableIntId(actorUserId),
+      updated_at: new Date(),
+    };
+    if (input.displayName !== undefined) data.display_name = input.displayName;
+    if (input.isActive !== undefined) data.is_active = input.isActive ? 1 : 0;
+    await this.prisma.teams_meeting_hosts.update({ where: { id: hostId }, data });
+    return { success: true };
+  }
+
+  async deleteTeamsMeetingHost(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const hostId = toIntId(id);
+    await this.prisma.teams_meeting_hosts.update({
+      where: { id: hostId },
+      data: {
+        deleted_at: new Date(),
+        is_active: 0,
+        updated_by: toNullableIntId(actorUserId),
+      },
+    });
+    return { success: true };
+  }
+
+  /** Probe: create a short test meeting, immediately return the result (don't save). */
+  async testTeamsMeetingHost(id: string): Promise<Record<string, unknown>> {
+    const hostId = toIntId(id);
+    const host = await this.prisma.teams_meeting_hosts.findFirst({ where: { id: hostId, deleted_at: null } });
+    if (!host) return { success: false, message: 'Host not found.' };
+    const svc = await this.createTeamsService();
+    if (!svc) return { success: false, message: 'Teams integration not configured (EMAIL_MSGRAPH_* env vars missing).' };
+    const now = new Date();
+    const start = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+    const end = new Date(now.getTime() + 35 * 60 * 1000).toISOString();
+    try {
+      const meeting = await svc.createMeeting({
+        hostEmail: host.teams_email,
+        subject: 'TTII LMS — Teams policy verification (safe to ignore)',
+        startDateTime: start,
+        endDateTime: end,
+      });
+      await this.prisma.teams_meeting_hosts.update({
+        where: { id: hostId },
+        data: { policy_verified_at: new Date(), last_error: null },
+      });
+      return { success: true, joinUrl: meeting.joinUrl, meetingId: meeting.meetingId };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.prisma.teams_meeting_hosts.update({
+        where: { id: hostId },
+        data: { last_error: msg.substring(0, 1000) },
+      });
+      return { success: false, message: msg };
+    }
+  }
+
   async listLiveClasses(scope: 'admin' | 'centre', actorUserId: string): Promise<SqlRow[]> {
     const centreId = scope === 'centre' ? await this.resolveActorCentreId(actorUserId) : '';
 
@@ -1695,6 +1826,7 @@ export class OperationsService {
     const now = new Date();
     let successCount = 0;
     let failedCount = 0;
+    const errors: string[] = [];
 
     const parseTime = (t: string): Date => {
       // Accept "HH:MM" or "HH:MM:SS" — stored as Time in DB but Prisma needs a Date
@@ -1702,8 +1834,89 @@ export class OperationsService {
       return new Date(`1970-01-01T${cleaned}Z`);
     };
 
+    // Platform dispatch: validate allowlist / resolve URLs up front so we can
+    // fail fast with a clear message before creating DB rows.
+    const platform = input.platform ?? 'zoom';
+
+    // For Teams: verify the requested trainer is in the allowlist.
+    let teamsHostEmail: string | null = null;
+    if (platform === 'teams') {
+      if (!input.teamsHostEmail) {
+        return { success: false, message: 'Teams platform selected but no host email provided.' };
+      }
+      const host = await this.prisma.teams_meeting_hosts.findFirst({
+        where: {
+          teams_email: input.teamsHostEmail,
+          is_active: 1,
+          deleted_at: null,
+        },
+      });
+      if (!host) {
+        return {
+          success: false,
+          message: `Trainer "${input.teamsHostEmail}" is not in the Teams meeting hosts allowlist. Ask an admin to add + enable them under Integrations → Teams Meeting Hosts.`,
+        };
+      }
+      teamsHostEmail = host.teams_email;
+    }
+
+    if (platform === 'manual' || platform === 'other') {
+      if (!input.manualJoinUrl || !input.manualJoinUrl.trim()) {
+        return { success: false, message: 'Manual/External platform selected but no meeting URL provided.' };
+      }
+    }
+
+    // Lazy import to avoid loading MSAL unless we actually need it.
+    const teamsService = platform === 'teams' ? await this.createTeamsService() : null;
+    if (platform === 'teams' && !teamsService) {
+      return {
+        success: false,
+        message: 'Teams meeting integration is not configured on the server (EMAIL_MSGRAPH_* env vars missing).',
+      };
+    }
+
     for (const entry of input.entries) {
       try {
+        // Per-entry platform-specific meeting resolution
+        let joinUrl: string | null = null;
+        let externalMeetingId: string | null = null;
+        let hostEmail: string | null = null;
+
+        if (platform === 'teams' && teamsService && teamsHostEmail) {
+          // Build ISO start/end from date + times (treat times as local; Graph accepts a Z suffix — we use UTC naively).
+          const dateOnly = entry.date; // YYYY-MM-DD
+          const start = new Date(`${dateOnly}T${entry.fromTime.length === 5 ? entry.fromTime + ':00' : entry.fromTime}Z`);
+          const end = new Date(`${dateOnly}T${entry.toTime.length === 5 ? entry.toTime + ':00' : entry.toTime}Z`);
+          try {
+            const meeting = await teamsService.createMeeting({
+              hostEmail: teamsHostEmail,
+              subject: entry.title,
+              startDateTime: start.toISOString(),
+              endDateTime: end.toISOString(),
+            });
+            joinUrl = meeting.joinUrl;
+            externalMeetingId = meeting.meetingId;
+            hostEmail = teamsHostEmail;
+            // Best-effort: mark host as policy-verified on first successful meeting
+            await this.prisma.teams_meeting_hosts.updateMany({
+              where: { teams_email: teamsHostEmail },
+              data: { policy_verified_at: now, last_error: null },
+            });
+          } catch (err) {
+            failedCount += 1;
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Teams meeting creation failed for "${entry.title}": ${msg}`);
+            // Persist the error against the host row so admins see why
+            await this.prisma.teams_meeting_hosts.updateMany({
+              where: { teams_email: teamsHostEmail },
+              data: { last_error: msg.substring(0, 1000) },
+            });
+            continue;
+          }
+        } else if (platform === 'manual' || platform === 'other') {
+          joinUrl = input.manualJoinUrl ?? null;
+        }
+
         await this.prisma.live_class.create({
           data: {
             cohort_id: toIntId(cohortIdStr),
@@ -1715,8 +1928,12 @@ export class OperationsService {
             toTime: parseTime(entry.toTime),
             status: 'scheduled',
             repeat_dates: JSON.stringify(entry.repeatDates),
-            zoom_id: input.zoomId,
-            password: input.password,
+            platform,
+            zoom_id: platform === 'zoom' ? input.zoomId : null,
+            password: platform === 'zoom' ? input.password : null,
+            join_url: joinUrl,
+            external_meeting_id: externalMeetingId,
+            host_email: hostEmail,
             is_repetitive: entry.isRepetitive,
             created_by: toNullableIntId(actorUserId),
             updated_by: toNullableIntId(actorUserId),
@@ -1726,15 +1943,17 @@ export class OperationsService {
         });
 
         successCount += 1;
-      } catch {
+      } catch (err) {
         failedCount += 1;
+        errors.push(err instanceof Error ? err.message : String(err));
       }
     }
 
     if (successCount === 0) {
       return {
         success: false,
-        message: 'Failed to add live classes!',
+        message: errors.length > 0 ? `Failed to add live classes: ${errors[0]}` : 'Failed to add live classes!',
+        errors,
       };
     }
 

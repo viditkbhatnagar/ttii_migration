@@ -1168,6 +1168,10 @@ function AddLiveSessionModal({
   setSubmitting: (v: boolean) => void;
   onSuccess: () => void;
 }) {
+  const [platform, setPlatform] = useState<'teams' | 'zoom' | 'manual'>('teams');
+  const [teamsHosts, setTeamsHosts] = useState<Array<{ id: number; email: string; name: string; active: boolean; verified: boolean }>>([]);
+  const [teamsHostEmail, setTeamsHostEmail] = useState('');
+  const [manualJoinUrl, setManualJoinUrl] = useState('');
   const [zoomId, setZoomId] = useState('');
   const [password, setPassword] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -1177,12 +1181,53 @@ function AddLiveSessionModal({
   const [toTime, setToTime] = useState('');
   const [isRepetitive, setIsRepetitive] = useState(false);
 
+  // Load Teams hosts when Teams platform is selected
+  useEffect(() => {
+    if (!open || platform !== 'teams') return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const hosts = await api.listTeamsMeetingHosts(token);
+        if (cancelled) return;
+        const normalized = hosts.map((h) => ({
+          id: Number(h.id),
+          email: String(h.teams_email),
+          name: h.display_name ? String(h.display_name) : String(h.teams_email),
+          active: h.is_active === 1,
+          verified: !!h.policy_verified_at,
+        })).filter((h) => h.active);
+        setTeamsHosts(normalized);
+        if (normalized.length > 0 && !teamsHostEmail) {
+          setTeamsHostEmail(normalized[0]?.email ?? '');
+        }
+      } catch { /* ignore, user will see empty dropdown */ }
+    })();
+    return () => { cancelled = true; };
+  }, [api, token, open, platform, teamsHostEmail]);
+
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      await api.addCohortLiveSession(token, cohortId, {
-        sessionId, title, date, fromTime, toTime, zoomId, password, isRepetitive,
-      });
+      const payload: Parameters<typeof api.addCohortLiveSession>[2] = {
+        sessionId, title, date, fromTime, toTime, isRepetitive, platform,
+      };
+      if (platform === 'teams') {
+        if (!teamsHostEmail) { alert('Pick a trainer for the Teams meeting.'); setSubmitting(false); return; }
+        payload.teamsHostEmail = teamsHostEmail;
+      } else if (platform === 'manual') {
+        if (!manualJoinUrl.trim()) { alert('Paste the meeting link.'); setSubmitting(false); return; }
+        payload.manualJoinUrl = manualJoinUrl.trim();
+      } else if (platform === 'zoom') {
+        payload.zoomId = zoomId;
+        payload.password = password;
+      }
+      const result = await api.addCohortLiveSession(token, cohortId, payload);
+      const success = result.success === true || result.success === 1 || result.status === 1;
+      if (!success) {
+        alert((result.message as string) || 'Failed to add session');
+        setSubmitting(false);
+        return;
+      }
       onSuccess();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to add session');
@@ -1198,16 +1243,69 @@ function AddLiveSessionModal({
           <DialogTitle>Add Live Session</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="mb-1 text-xs">Zoom ID</Label>
-              <Input value={zoomId} onChange={(e) => setZoomId(e.target.value)} />
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">Password</Label>
-              <Input value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
+          <div>
+            <Label className="mb-1 text-xs">Platform *</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value as 'teams' | 'zoom' | 'manual')}
+            >
+              <option value="teams">Microsoft Teams (auto-create)</option>
+              <option value="manual">Manual link (Teams / Zoom / Meet / etc.)</option>
+              <option value="zoom">Zoom (legacy)</option>
+            </select>
           </div>
+
+          {platform === 'teams' && (
+            <div>
+              <Label className="mb-1 text-xs">Trainer (Teams host) *</Label>
+              {teamsHosts.length === 0 ? (
+                <p className="text-xs text-amber-700">
+                  No Teams meeting hosts configured. Ask an admin to add trainers under
+                  <span className="font-semibold"> Integrations → Teams Meeting Hosts</span>.
+                </p>
+              ) : (
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={teamsHostEmail}
+                  onChange={(e) => setTeamsHostEmail(e.target.value)}
+                >
+                  {teamsHosts.map((h) => (
+                    <option key={h.id} value={h.email}>
+                      {h.name}{h.verified ? ' — verified' : ' — not yet tested'}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="mt-1 text-[11px] text-gray-500">Meeting will be created on the trainer's Teams calendar via Microsoft Graph.</p>
+            </div>
+          )}
+
+          {platform === 'manual' && (
+            <div>
+              <Label className="mb-1 text-xs">Meeting Link *</Label>
+              <Input
+                value={manualJoinUrl}
+                onChange={(e) => setManualJoinUrl(e.target.value)}
+                placeholder="https://teams.microsoft.com/l/... or Zoom/Meet URL"
+              />
+              <p className="mt-1 text-[11px] text-gray-500">Trainer creates the meeting manually and pastes the join link here.</p>
+            </div>
+          )}
+
+          {platform === 'zoom' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="mb-1 text-xs">Zoom ID</Label>
+                <Input value={zoomId} onChange={(e) => setZoomId(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 text-xs">Password</Label>
+                <Input value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
+            </div>
+          )}
+
           <p className="text-xs font-semibold text-gray-500">Live Class Entry #1</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1244,7 +1342,7 @@ function AddLiveSessionModal({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={submitting || !sessionId || !title || !date}
+            disabled={submitting || !sessionId || !title || !date || !fromTime || !toTime}
             onClick={() => void handleSubmit()}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >

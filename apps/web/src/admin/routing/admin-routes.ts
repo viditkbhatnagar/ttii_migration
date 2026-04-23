@@ -59,6 +59,7 @@ const ViewCoursePage = lazy(() => import('../pages/course/ViewCoursePage.js'));
 const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
 const AddLessonPage = lazy(() => import('../pages/course_new/AddLessonPage.js'));
 const AppVersionPage = lazy(() => import('../pages/settings/AppVersionPage.js'));
+const TeamsMeetingHostsPage = lazy(() => import('../pages/integrations/TeamsMeetingHostsPage.js'));
 const SystemSettingsPage = lazy(() => import('../pages/settings/SystemSettingsPage.js'));
 const ContactSettingsPage = lazy(() => import('../pages/settings/ContactSettingsPage.js'));
 const WebsiteSettingsPage = lazy(() => import('../pages/settings/WebsiteSettingsPage.js'));
@@ -249,6 +250,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/short_content/index', aliases: ['/admin/short_content'], pageComponent: ShortContentPage, title: 'Short Content' },
   { path: '/admin/testimonials/index', aliases: ['/admin/testimonials'], pageComponent: TestimonialsPage, title: 'Testimonials' },
   { path: '/admin/packages/index', aliases: ['/admin/packages'], pageComponent: PackagesPage, title: 'Packages' },
+  { path: '/admin/integrations/teams_meeting_hosts', aliases: ['/admin/integrations/teams'], pageComponent: TeamsMeetingHostsPage, title: 'Teams Meeting Hosts' },
 ];
 
 export function resolveAdminRoute(pathname: string): AdminRouteConfig | null {
