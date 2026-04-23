@@ -8,17 +8,19 @@ One-time configuration Naji (or any M365 tenant admin) must do so the LMS can au
 
 ---
 
-## Step 1 — Grant `OnlineMeetings.ReadWrite.All` application permission
+## Step 1 — Grant Graph application permissions
 
-The LMS already has an Azure AD app registration called **TTII LMS Email** (used for sending OTP/notification emails from `info@teachersindia.in`). We're adding one more permission to it.
+The LMS already has an Azure AD app registration called **TTII LMS Email** (used for sending OTP/notification emails from `info@teachersindia.in`). We're adding two more permissions to it.
 
 1. Sign in to https://portal.azure.com
 2. Go to **Azure Active Directory** → **App registrations** → **All applications** → find **TTII LMS Email** (client ID `838cf0ef-fc1d-49bf-b7ad-54eb3f58eb09`)
 3. Open the app → **API permissions** (left sidebar)
-4. Click **+ Add a permission**
-5. Choose **Microsoft Graph** → **Application permissions** (NOT delegated)
-6. Search for `OnlineMeetings.ReadWrite.All` → tick it → **Add permissions**
-7. Back on the permissions list, click **Grant admin consent for [tenant]** (button at the top). It must turn green ✅ across the row.
+4. Click **+ Add a permission** → **Microsoft Graph** → **Application permissions** (NOT delegated)
+5. Search for and tick **BOTH** of:
+   - `OnlineMeetings.ReadWrite.All` — needed to create Teams meetings on behalf of trainers
+   - `User.Read.All` — needed to resolve trainer UPN (email) to Azure AD object ID. The Graph `/users/{id}/onlineMeetings` endpoint requires a GUID, not a UPN, so we look it up first.
+6. Click **Add permissions**
+7. Back on the permissions list, click **Grant admin consent for [tenant]** (button at the top). Both rows must turn green ✅.
 
 ## Step 2 — Create a Cloud Communications Application Access Policy
 
@@ -82,7 +84,8 @@ For each new trainer, repeat **Step 3** (one PowerShell line) + **Step 4** (Admi
 |---|---|---|
 | `403 Forbidden` / "policy" in body | Step 3 not run for this trainer yet, or propagation <30 min | Run Step 3, wait 15–30 min, click Test Policy again |
 | `401 Unauthorized` | Step 1 permission not granted, or admin consent missing | Re-do Step 1; verify green checkmarks in Azure |
-| `404 User not found` | Trainer email doesn't exist in the tenant | Verify the UPN is correct (what they use to sign into M365) |
+| `403 Graph user lookup rejected` | `User.Read.All` not granted or consent missing | Re-do Step 1 — ensure BOTH permissions have green ✅ admin consent |
+| `404 User not found` | Trainer email doesn't exist in the tenant, or it's a shared mailbox | Verify the UPN is a real licensed user (shared mailboxes like `info@` don't work) |
 | Meeting creates but trainer doesn't see it | Calendar permission issue | Teams auto-adds the trainer as organizer; check junk/Other inbox for the first calendar notification |
 
 ## Credentials reference
