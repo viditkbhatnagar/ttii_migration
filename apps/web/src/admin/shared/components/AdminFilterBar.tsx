@@ -22,56 +22,68 @@ interface AdminFilterBarProps {
 
 export function AdminFilterBar({ filters, onApply, onClear }: AdminFilterBarProps) {
   return (
-    <Card className="mb-4">
+    <Card className="mb-4" role="search" aria-label="Table filters">
       <CardContent className="pt-4">
-        <div className="flex flex-wrap items-end gap-4">
-          {filters.map((filter) => (
-            <div key={filter.key} className="min-w-[180px] flex-1">
-              <Label className="mb-1 text-xs text-gray-500">{filter.label}</Label>
-              {filter.type === 'select' ? (
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
-                  value={filter.value}
-                  onChange={(e) => filter.onChange(e.target.value)}
-                >
-                  <option value="">{filter.placeholder ?? 'Select...'}</option>
-                  {filter.options?.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Input
-                  type={filter.type}
-                  value={filter.value}
-                  onChange={(e) => filter.onChange(e.target.value)}
-                  placeholder={filter.placeholder}
-                  className="h-9"
-                />
-              )}
-            </div>
-          ))}
+        <form
+          className="flex flex-wrap items-end gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onApply();
+          }}
+        >
+          {filters.map((filter) => {
+            const fieldId = `filter-${filter.key}`;
+            return (
+              <div key={filter.key} className="min-w-[180px] flex-1">
+                <Label htmlFor={fieldId} className="mb-1 text-xs text-gray-500">{filter.label}</Label>
+                {filter.type === 'select' ? (
+                  <select
+                    id={fieldId}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={filter.value}
+                    onChange={(e) => filter.onChange(e.target.value)}
+                  >
+                    <option value="">{filter.placeholder ?? 'Select...'}</option>
+                    {filter.options?.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    id={fieldId}
+                    type={filter.type}
+                    value={filter.value}
+                    onChange={(e) => filter.onChange(e.target.value)}
+                    placeholder={filter.placeholder}
+                    className="h-9"
+                  />
+                )}
+              </div>
+            );
+          })}
           <div className="flex gap-2">
             <Button
-              onClick={onApply}
+              type="submit"
               className="gap-1.5 bg-ttii-primary hover:bg-ttii-primary/90"
               size="sm"
             >
-              <Filter className="size-3.5" />
+              <Filter aria-hidden="true" className="size-3.5" />
               Filters
             </Button>
             <Button
+              type="button"
               variant="outline"
               onClick={onClear}
               className="gap-1.5 border-ttii-secondary text-ttii-secondary hover:bg-ttii-secondary/10"
               size="sm"
             >
-              <X className="size-3.5" />
+              <X aria-hidden="true" className="size-3.5" />
               Clear
             </Button>
           </div>
-        </div>
+        </form>
       </CardContent>
     </Card>
   );

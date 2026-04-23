@@ -20,7 +20,7 @@ export function AdminPageHeader({ title, addLabel, onAdd, children }: AdminPageH
         {children}
         {normalizedLabel && onAdd ? (
           <Button onClick={onAdd} className="gap-1.5 bg-ttii-primary hover:bg-ttii-primary/90">
-            <Plus className="size-4" />
+            <Plus aria-hidden="true" className="size-4" />
             {normalizedLabel}
           </Button>
         ) : null}

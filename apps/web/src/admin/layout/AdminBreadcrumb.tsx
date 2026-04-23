@@ -28,21 +28,33 @@ export function AdminBreadcrumb({ pathname, onNavigate }: AdminBreadcrumbProps) 
   const crumbs = resolveBreadcrumb(pathname);
 
   return (
-    <div className="flex items-center gap-1.5 px-4 py-3 text-sm text-gray-500 md:px-6 overflow-x-auto">
-      <button
-        type="button"
-        className="flex items-center gap-1 hover:text-gray-700"
-        onClick={() => onNavigate('/admin/dashboard/index')}
-      >
-        <Home className="size-3.5" />
-        <span>Dashboard</span>
-      </button>
-      {crumbs.map((crumb, index) => (
-        <span key={crumb} className="flex items-center gap-1.5">
-          <ChevronRight className="size-3.5 text-gray-400" />
-          <span className={index === crumbs.length - 1 ? 'font-medium text-gray-900' : ''}>{crumb}</span>
-        </span>
-      ))}
-    </div>
+    <nav aria-label="Breadcrumb" className="px-4 py-3 md:px-6 overflow-x-auto">
+      <ol className="flex items-center gap-1.5 text-sm text-gray-500">
+        <li className="flex items-center">
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-gray-700"
+            onClick={() => onNavigate('/admin/dashboard/index')}
+          >
+            <Home aria-hidden="true" className="size-3.5" />
+            <span>Dashboard</span>
+          </button>
+        </li>
+        {crumbs.map((crumb, index) => {
+          const isLast = index === crumbs.length - 1;
+          return (
+            <li key={crumb} className="flex items-center gap-1.5">
+              <ChevronRight aria-hidden="true" className="size-3.5 text-gray-400" />
+              <span
+                aria-current={isLast ? 'page' : undefined}
+                className={isLast ? 'font-medium text-gray-900' : ''}
+              >
+                {crumb}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }

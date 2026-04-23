@@ -41,7 +41,7 @@ function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: Admi
       <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-200">
         <AdminNavbar onNavigate={handleNavigate} onLogout={onLogout} />
         <AdminBreadcrumb pathname={pathname} onNavigate={handleNavigate} />
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 md:px-6">
+        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 md:px-6">
           <AdminRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
         <AdminFooter />

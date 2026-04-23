@@ -70,6 +70,8 @@ function SidebarItem({
   return (
     <button
       type="button"
+      aria-current={isActive ? 'page' : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
         'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
         isActive
@@ -80,7 +82,7 @@ function SidebarItem({
       onClick={() => onNavigate(item.href)}
       title={collapsed ? item.label : undefined}
     >
-      {Icon ? <Icon className="size-5 shrink-0" /> : null}
+      {Icon ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </button>
   );
@@ -108,6 +110,8 @@ function SidebarGroup({
     <div>
       <button
         type="button"
+        aria-expanded={!collapsed ? expanded : undefined}
+        aria-label={collapsed ? group.label : undefined}
         className={cn(
           'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
           hasActiveChild
@@ -118,11 +122,13 @@ function SidebarGroup({
         onClick={onToggle}
         title={collapsed ? group.label : undefined}
       >
-        {Icon ? <Icon className="size-5 shrink-0" /> : null}
+        {Icon ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
         {!collapsed ? (
           <>
             <span className="flex-1 truncate text-left">{group.label}</span>
-            {expanded ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+            {expanded
+              ? <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+              : <ChevronRight aria-hidden="true" className="size-4 shrink-0" />}
           </>
         ) : null}
       </button>
@@ -132,6 +138,7 @@ function SidebarGroup({
             <button
               key={child.id}
               type="button"
+              aria-current={child.id === activeItemId ? 'page' : undefined}
               className={cn(
                 'flex w-full items-center rounded-md px-3 py-1.5 text-sm transition-colors',
                 child.id === activeItemId
@@ -140,7 +147,7 @@ function SidebarGroup({
               )}
               onClick={() => onNavigate(child.href)}
             >
-              <span className="mr-2 text-gray-400">–</span>
+              <span aria-hidden="true" className="mr-2 text-gray-400">–</span>
               <span className="truncate">{child.label}</span>
             </button>
           ))}
@@ -192,7 +199,7 @@ function SidebarContent({
 
       {/* Navigation */}
       <ScrollArea className="flex-1 min-h-0 px-2 py-3">
-        <nav className="space-y-1">
+        <nav aria-label="Admin sections" className="space-y-1">
           {navTree.map((entry: AdminNavEntry) =>
             isNavGroup(entry) ? (
               <SidebarGroup
@@ -227,6 +234,7 @@ export function AdminSidebar({ pathname, roleId, onNavigate }: AdminSidebarProps
 
   return (
     <aside
+      aria-label="Admin navigation"
       className={cn(
         'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-sidebar-width',

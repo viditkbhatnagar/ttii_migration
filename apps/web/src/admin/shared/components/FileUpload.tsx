@@ -48,15 +48,17 @@ export function FileUpload({ value, onChange, onUpload, accept, placeholder }: F
         size="sm"
         className="shrink-0 gap-1.5"
         disabled={uploading}
+        aria-busy={uploading}
         onClick={() => inputRef.current?.click()}
       >
-        <Upload className="h-3.5 w-3.5" />
+        <Upload aria-hidden="true" className="h-3.5 w-3.5" />
         {uploading ? 'Uploading...' : 'Upload'}
       </Button>
       <input
         ref={inputRef}
         type="file"
         accept={accept}
+        aria-label="Choose file to upload"
         className="hidden"
         onChange={(e) => { void handleFileChange(e); }}
       />

@@ -138,30 +138,31 @@ export function AdminDataTable({
           {exportable ? (
             <div className="flex gap-1.5">
               <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => exportToCSV(columns, filteredRows)}>
-                <Download className="size-3" />
+                <Download aria-hidden="true" className="size-3" />
                 Export CSV
               </Button>
               <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => exportToCSV(columns, filteredRows)}>
-                <Download className="size-3" />
+                <Download aria-hidden="true" className="size-3" />
                 Export Excel
               </Button>
               <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => window.print()}>
-                <Printer className="size-3" />
+                <Printer aria-hidden="true" className="size-3" />
                 Print
               </Button>
               <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => exportToCSV(columns, filteredRows)}>
-                <Download className="size-3" />
+                <Download aria-hidden="true" className="size-3" />
                 Export PDF
               </Button>
             </div>
           ) : <div />}
           {searchable ? (
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-gray-400" />
+              <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-gray-400" />
               <Input
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 placeholder="Search..."
+                aria-label="Search table"
                 className="h-8 w-52 pl-8 text-xs"
               />
             </div>
@@ -174,25 +175,36 @@ export function AdminDataTable({
             <TableHeader>
               <TableRow className="bg-ttii-table-header hover:bg-ttii-table-header">
                 <TableHead className="w-12 text-center text-xs font-semibold text-ttii-primary">#</TableHead>
-                {columns.map((col) => (
-                  <TableHead
-                    key={col.key}
-                    className={cn('text-xs font-semibold text-ttii-primary', col.className)}
-                  >
-                    {col.sortable ? (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 hover:text-ttii-primary/80"
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label}
-                        <ArrowUpDown className="size-3" />
-                      </button>
-                    ) : (
-                      col.label
-                    )}
-                  </TableHead>
-                ))}
+                {columns.map((col) => {
+                  const isSorted = sortKey === col.key;
+                  const ariaSort: 'ascending' | 'descending' | 'none' | undefined = col.sortable
+                    ? isSorted
+                      ? sortDir === 'asc' ? 'ascending' : 'descending'
+                      : 'none'
+                    : undefined;
+                  return (
+                    <TableHead
+                      key={col.key}
+                      scope="col"
+                      aria-sort={ariaSort}
+                      className={cn('text-xs font-semibold text-ttii-primary', col.className)}
+                    >
+                      {col.sortable ? (
+                        <button
+                          type="button"
+                          aria-label={`Sort by ${col.label}${isSorted ? (sortDir === 'asc' ? ', ascending' : ', descending') : ''}`}
+                          className="flex items-center gap-1 hover:text-ttii-primary/80"
+                          onClick={() => handleSort(col.key)}
+                        >
+                          {col.label}
+                          <ArrowUpDown aria-hidden="true" className="size-3" />
+                        </button>
+                      ) : (
+                        col.label
+                      )}
+                    </TableHead>
+                  );
+                })}
                 {actions && actions.length > 0 ? (
                   <TableHead className="w-16 text-center text-xs font-semibold text-ttii-primary">Action</TableHead>
                 ) : null}
@@ -202,7 +214,7 @@ export function AdminDataTable({
               {pagedRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={columns.length + (actions ? 2 : 1)} className="py-8 text-center text-sm text-gray-400">
-                    No data available in table
+                    <span role="status">No data available in table</span>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -224,8 +236,13 @@ export function AdminDataTable({
                         <TableCell className="text-center">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-7">
-                                <MoreHorizontal className="size-4" />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Row ${globalIdx + 1} actions`}
+                                className="size-7 max-sm:size-11"
+                              >
+                                <MoreHorizontal aria-hidden="true" className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
@@ -251,26 +268,35 @@ export function AdminDataTable({
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+        <nav
+          aria-label="Table pagination"
+          className="flex items-center justify-between border-t border-gray-100 px-4 py-3"
+        >
           <p className="text-xs text-gray-500">
             Showing {showFrom} to {showTo} of {sortedRows.length} entries
           </p>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={safePage === 0} onClick={() => setPage(0)}>
-              <ChevronsLeft className="size-3" />
+            <Button variant="outline" size="sm" aria-label="First page" className="h-7 text-xs" disabled={safePage === 0} onClick={() => setPage(0)}>
+              <ChevronsLeft aria-hidden="true" className="size-3" />
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
-              <ChevronLeft className="size-3" />
+            <Button variant="outline" size="sm" aria-label="Previous page" className="h-7 text-xs" disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+              <ChevronLeft aria-hidden="true" className="size-3" />
             </Button>
-            <span className="rounded-md bg-ttii-primary px-2.5 py-0.5 text-xs font-medium text-white">{safePage + 1}</span>
-            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={safePage >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
-              <ChevronRight className="size-3" />
+            <span
+              aria-current="page"
+              aria-label={`Page ${safePage + 1} of ${totalPages}`}
+              className="rounded-md bg-ttii-primary px-2.5 py-0.5 text-xs font-medium text-white"
+            >
+              {safePage + 1}
+            </span>
+            <Button variant="outline" size="sm" aria-label="Next page" className="h-7 text-xs" disabled={safePage >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
+              <ChevronRight aria-hidden="true" className="size-3" />
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={safePage >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>
-              <ChevronsRight className="size-3" />
+            <Button variant="outline" size="sm" aria-label="Last page" className="h-7 text-xs" disabled={safePage >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>
+              <ChevronsRight aria-hidden="true" className="size-3" />
             </Button>
           </div>
-        </div>
+        </nav>
       </CardContent>
     </Card>
   );
