@@ -20,6 +20,15 @@ import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 const TAB_LABELS = ['Learners', 'Live Sessions', 'Activities/Assignments', 'Announcements'];
 const ASSIGNMENT_SUB_TABS = ['Details', 'Submissions', 'Unsubmitted Students'];
 
+// MariaDB TIME columns come back as "1970-01-01T19:00:00.000Z" (Prisma prefixes
+// the epoch date). Strip down to HH:MM for display.
+function formatTimeValue(t: string): string {
+  if (!t) return '';
+  const iso = t.match(/T(\d{2}:\d{2})/);
+  if (iso && iso[1]) return iso[1];
+  return t.length >= 5 ? t.slice(0, 5) : t;
+}
+
 type ModalType =
   | { kind: 'add-learner' }
   | { kind: 'add-session' }
@@ -514,11 +523,23 @@ function LiveSessionsTab({
                 const id = asString(s.id) || asString(s._id);
                 const sessionId = asString(s.session_id);
                 const title = asString(s.title);
+                const platform = asString(s.platform).toLowerCase();
                 const zoomId = asString(s.zoom_id);
                 const password = asString(s.password);
+                const joinUrl = asString(s.join_url);
+                const hostEmail = asString(s.host_email);
                 const date = asString(s.date);
-                const fromTime = asString(s.from_time) || asString(s.fromTime);
-                const toTime = asString(s.to_time) || asString(s.toTime);
+                const fromTime = formatTimeValue(asString(s.from_time) || asString(s.fromTime));
+                const toTime = formatTimeValue(asString(s.to_time) || asString(s.toTime));
+                const platformLabel =
+                  platform === 'teams' ? 'Microsoft Teams'
+                  : platform === 'zoom' ? 'Zoom'
+                  : platform === 'manual' ? 'Manual link'
+                  : zoomId ? 'Zoom' : '-';
+                const hostUrl =
+                  joinUrl ? joinUrl
+                  : platform === 'zoom' || (!platform && zoomId) ? `/zoom/index/${id}`
+                  : '';
 
                 return (
                   <div key={id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -526,10 +547,24 @@ function LiveSessionsTab({
                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                       <div><span className="font-medium text-gray-500">Session ID:</span> {sessionId}</div>
                       <div><span className="font-medium text-gray-500">Cohort:</span> {cohortName}</div>
-                      <div><span className="font-medium text-gray-500">Zoom ID:</span> {zoomId || '-'}</div>
-                      <div><span className="font-medium text-gray-500">Password:</span> {password || '-'}</div>
+                      <div><span className="font-medium text-gray-500">Platform:</span> {platformLabel}</div>
+                      {platform === 'teams' ? (
+                        <div><span className="font-medium text-gray-500">Host:</span> {hostEmail || '-'}</div>
+                      ) : platform === 'zoom' ? (
+                        <div><span className="font-medium text-gray-500">Zoom ID:</span> {zoomId || '-'}</div>
+                      ) : (
+                        <div><span className="font-medium text-gray-500">Password:</span> {password || '-'}</div>
+                      )}
                       <div><span className="font-medium text-gray-500">Date:</span> {date}</div>
                       <div><span className="font-medium text-gray-500">Time:</span> {fromTime} - {toTime}</div>
+                      {joinUrl && (
+                        <div className="col-span-2 truncate">
+                          <span className="font-medium text-gray-500">Join URL:</span>{' '}
+                          <a href={joinUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                            {joinUrl}
+                          </a>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
@@ -544,9 +579,10 @@ function LiveSessionsTab({
                         size="sm"
                         variant="outline"
                         className="gap-1 text-xs"
-                        onClick={() => window.open(`/zoom/index/${id}`, '_blank')}
+                        disabled={!hostUrl}
+                        onClick={() => hostUrl && window.open(hostUrl, '_blank')}
                       >
-                        <ExternalLink className="size-3" /> Host
+                        <ExternalLink className="size-3" /> Join
                       </Button>
                       <Button
                         size="sm"
@@ -575,8 +611,8 @@ function LiveSessionsTab({
                 const id = asString(s.id) || asString(s._id);
                 const title = asString(s.title);
                 const date = asString(s.date);
-                const fromTime = asString(s.from_time) || asString(s.fromTime);
-                const toTime = asString(s.to_time) || asString(s.toTime);
+                const fromTime = formatTimeValue(asString(s.from_time) || asString(s.fromTime));
+                const toTime = formatTimeValue(asString(s.to_time) || asString(s.toTime));
                 const recording = asString(s.video_url) || asString(s.recording_url);
 
                 return (
