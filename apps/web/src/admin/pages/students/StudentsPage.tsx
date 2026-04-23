@@ -159,7 +159,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         render: (value: unknown) => {
           const src = asString(value);
           return src ? (
-            <img src={src} alt="" className="size-8 rounded-full object-cover" />
+            <img loading="lazy" decoding="async" src={src} alt="" className="size-8 rounded-full object-cover" />
           ) : (
             <div className="flex size-8 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500">—</div>
           );

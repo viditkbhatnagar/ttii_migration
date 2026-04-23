@@ -42,7 +42,7 @@ export default function BooksLibraryPage({ api, session }: AdminPageProps) {
         render: (v) => {
           const url = asString(v);
           return url ? (
-            <img src={url} alt="Cover" className="h-10 w-8 rounded object-cover" />
+            <img loading="lazy" decoding="async" src={url} alt="Cover" className="h-10 w-8 rounded object-cover" />
           ) : (
             <span className="text-xs text-gray-400">No image</span>
           );

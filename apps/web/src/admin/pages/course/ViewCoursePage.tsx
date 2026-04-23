@@ -123,7 +123,7 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
 
       {asString(c.thumbnail) && (
         <Section title="Thumbnail">
-          <img src={asString(c.thumbnail)} alt="Course thumbnail" className="max-h-60 rounded-md border border-gray-200" />
+          <img loading="lazy" decoding="async" src={asString(c.thumbnail)} alt="Course thumbnail" className="max-h-60 rounded-md border border-gray-200" />
         </Section>
       )}
     </div>

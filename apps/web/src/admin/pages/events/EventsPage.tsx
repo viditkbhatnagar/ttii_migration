@@ -126,7 +126,7 @@ export default function EventsPage({ api, session, onNavigate }: AdminPageProps)
         label: 'Image',
         render: (v) => {
           const src = asString(v);
-          return src ? <img src={src} alt="" className="h-10 w-auto rounded object-contain" /> : '-';
+          return src ? <img loading="lazy" decoding="async" src={src} alt="" className="h-10 w-auto rounded object-contain" /> : '-';
         },
       },
       { key: 'title', label: 'Title', sortable: true, render: (v) => asString(v) || '-' },

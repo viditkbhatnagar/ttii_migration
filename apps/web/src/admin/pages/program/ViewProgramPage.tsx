@@ -63,7 +63,7 @@ export default function ViewProgramPage({ api, session, onNavigate }: AdminPageP
         <CardHeader>
           <div className="flex items-start gap-4">
             {thumbnail ? (
-              <img src={thumbnail} alt={title} className="h-24 w-32 rounded object-cover" />
+              <img loading="lazy" decoding="async" src={thumbnail} alt={title} className="h-24 w-32 rounded object-cover" />
             ) : (
               <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
                 No image
@@ -108,7 +108,7 @@ export default function ViewProgramPage({ api, session, onNavigate }: AdminPageP
               return (
                 <Card key={cid} className="overflow-hidden">
                   {cthumb ? (
-                    <img src={cthumb} alt={ctitle} className="h-32 w-full object-cover" />
+                    <img loading="lazy" decoding="async" src={cthumb} alt={ctitle} className="h-32 w-full object-cover" />
                   ) : (
                     <div className="flex h-32 w-full items-center justify-center bg-muted text-xs text-muted-foreground">
                       No image

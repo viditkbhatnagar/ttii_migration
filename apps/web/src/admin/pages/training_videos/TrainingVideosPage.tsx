@@ -259,7 +259,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
                 <Input value={form.thumbnail} onChange={(e) => updateField('thumbnail', e.target.value)} placeholder="https://..." />
                 <p className="mt-1 text-xs text-gray-500">Auto-fetch thumbnail preview from YouTube/Vimeo URL</p>
                 {form.thumbnail ? (
-                  <img src={form.thumbnail} alt="Thumbnail preview" className="mt-2 h-24 w-auto rounded border object-contain" />
+                  <img loading="lazy" decoding="async" src={form.thumbnail} alt="Thumbnail preview" className="mt-2 h-24 w-auto rounded border object-contain" />
                 ) : null}
               </div>
               <div>
