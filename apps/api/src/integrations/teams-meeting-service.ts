@@ -28,6 +28,7 @@ export class TeamsMeetingError extends Error {
     | 'policy_missing'          // 403 — trainer not covered by Cloud Communications Access Policy
     | 'unauthorized'            // 401 — app creds wrong or permission not granted
     | 'user_not_found'          // 404 — host email not in tenant
+    | 'not_ready'               // 404 on recordings/attendance — Teams hasn't finished processing the meeting
     | 'network'                 // fetch / connectivity
     | 'unknown';                // everything else
 
@@ -36,6 +37,48 @@ export class TeamsMeetingError extends Error {
     this.code = code;
     this.name = 'TeamsMeetingError';
   }
+}
+
+export interface TeamsRecording {
+  /** Graph-assigned recording ID (unique within the meeting). */
+  recordingId: string;
+  /** Back-reference to the parent onlineMeeting. */
+  meetingId: string;
+  /** Authenticated SharePoint URL pointing at the MP4. Needs the Graph Bearer token to download. */
+  contentUrl: string;
+  /** ISO-8601 timestamp of when Teams finished processing the recording. */
+  createdDateTime: string;
+}
+
+export interface TeamsAttendanceInterval {
+  joinDateTime: string;
+  leaveDateTime: string;
+  durationInSeconds: number;
+}
+
+export interface TeamsAttendanceRecord {
+  email: string;
+  displayName: string;
+  /** 'Organizer' | 'Presenter' | 'Attendee'. */
+  role: string;
+  totalSeconds: number;
+  intervals: TeamsAttendanceInterval[];
+}
+
+export interface TeamsAttendanceReport {
+  reportId: string;
+  meetingStartDateTime: string;
+  meetingEndDateTime: string;
+  records: TeamsAttendanceRecord[];
+}
+
+export interface TeamsRecordingStream {
+  /** MP4 byte stream. Iterate with a worker that writes to storage; don't buffer. */
+  body: ReadableStream<Uint8Array>;
+  /** Size hint from the server, or null if the response was chunked without a Content-Length. */
+  contentLength: number | null;
+  /** MIME type reported by SharePoint (usually `video/mp4`). */
+  contentType: string;
 }
 
 /**
@@ -181,6 +224,205 @@ export class TeamsMeetingService {
       joinUrl: data.joinUrl,
       joinWebUrl: data.joinWebUrl ?? null,
     };
+  }
+
+  /**
+   * Lists recordings for a meeting. Returns an empty array when the recording
+   * isn't ready yet (Teams usually takes a few minutes after the meeting ends
+   * to process). Throws on actual errors (auth, network, unknown Graph faults).
+   *
+   * Requires `OnlineMeetingRecording.Read.All` on the Azure app.
+   */
+  async listRecordings(meetingId: string, hostUpn: string): Promise<TeamsRecording[]> {
+    const token = await this.getAccessToken();
+    const objectId = await this.resolveObjectId(hostUpn, token);
+    const url = `https://graph.microsoft.com/v1.0/users/${objectId}/onlineMeetings/${encodeURIComponent(meetingId)}/recordings`;
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      throw new TeamsMeetingError('network', `Graph recordings list failed: ${(err as Error).message}`);
+    }
+
+    // 404 is a soft "not ready" — Teams processes recordings asynchronously.
+    if (response.status === 404) {
+      return [];
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new TeamsMeetingError(
+        'unauthorized',
+        `Graph recordings list rejected (${response.status}) — verify OnlineMeetingRecording.Read.All is granted + admin-consented.`,
+        response.status,
+      );
+    }
+    if (!response.ok) {
+      const body = await response.text();
+      throw new TeamsMeetingError(
+        'unknown',
+        `Graph recordings list failed (${response.status}): ${body.substring(0, 200)}`,
+        response.status,
+      );
+    }
+
+    const data = (await response.json()) as {
+      value?: Array<{
+        id?: string;
+        meetingId?: string;
+        contentUrl?: string;
+        createdDateTime?: string;
+      }>;
+    };
+
+    return (data.value ?? [])
+      .map((r) => ({
+        recordingId: r.id ?? '',
+        meetingId: r.meetingId ?? meetingId,
+        contentUrl: r.contentUrl ?? '',
+        createdDateTime: r.createdDateTime ?? '',
+      }))
+      .filter((r) => r.recordingId !== '' && r.contentUrl !== '');
+  }
+
+  /**
+   * Opens a streaming download for a recording's contentUrl. The caller owns
+   * the returned ReadableStream and is responsible for consuming / closing it.
+   *
+   * Use this to pipe MP4 bytes into object storage without buffering in memory.
+   */
+  async downloadRecording(contentUrl: string): Promise<TeamsRecordingStream> {
+    const token = await this.getAccessToken();
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(contentUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      throw new TeamsMeetingError('network', `Recording download failed: ${(err as Error).message}`);
+    }
+
+    if (!response.ok || !response.body) {
+      const text = response.body ? await response.text() : '';
+      throw new TeamsMeetingError(
+        'unknown',
+        `Recording download failed (${response.status}): ${text.substring(0, 200)}`,
+        response.status,
+      );
+    }
+
+    const lenHeader = response.headers.get('content-length');
+    const contentLength = lenHeader !== null && !Number.isNaN(Number(lenHeader)) ? Number(lenHeader) : null;
+
+    return {
+      body: response.body,
+      contentLength,
+      contentType: response.headers.get('content-type') ?? 'video/mp4',
+    };
+  }
+
+  /**
+   * Fetches attendance reports for a meeting and expands each report's
+   * per-participant records. Returns empty array when reports aren't ready yet.
+   *
+   * Requires `OnlineMeetingArtifact.Read.All` on the Azure app.
+   */
+  async getAttendanceReports(meetingId: string, hostUpn: string): Promise<TeamsAttendanceReport[]> {
+    const token = await this.getAccessToken();
+    const objectId = await this.resolveObjectId(hostUpn, token);
+    const reportsUrl = `https://graph.microsoft.com/v1.0/users/${objectId}/onlineMeetings/${encodeURIComponent(meetingId)}/attendanceReports`;
+
+    let reportsRes: Response;
+    try {
+      reportsRes = await this.fetchImpl(reportsUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      throw new TeamsMeetingError('network', `Graph attendanceReports list failed: ${(err as Error).message}`);
+    }
+
+    if (reportsRes.status === 404) {
+      return [];
+    }
+    if (reportsRes.status === 401 || reportsRes.status === 403) {
+      throw new TeamsMeetingError(
+        'unauthorized',
+        `Graph attendanceReports rejected (${reportsRes.status}) — verify OnlineMeetingArtifact.Read.All is granted + admin-consented.`,
+        reportsRes.status,
+      );
+    }
+    if (!reportsRes.ok) {
+      const body = await reportsRes.text();
+      throw new TeamsMeetingError(
+        'unknown',
+        `Graph attendanceReports list failed (${reportsRes.status}): ${body.substring(0, 200)}`,
+        reportsRes.status,
+      );
+    }
+
+    const reportsData = (await reportsRes.json()) as {
+      value?: Array<{
+        id?: string;
+        meetingStartDateTime?: string;
+        meetingEndDateTime?: string;
+      }>;
+    };
+
+    const reports: TeamsAttendanceReport[] = [];
+
+    for (const report of reportsData.value ?? []) {
+      if (!report.id) continue;
+
+      const recordsUrl = `${reportsUrl}/${encodeURIComponent(report.id)}/attendanceRecords`;
+      let recordsRes: Response;
+      try {
+        recordsRes = await this.fetchImpl(recordsUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        continue; // network blip on one report; skip, sync job will retry
+      }
+      if (!recordsRes.ok) continue;
+
+      const recordsData = (await recordsRes.json()) as {
+        value?: Array<{
+          emailAddress?: string;
+          totalAttendanceInSeconds?: number;
+          role?: string;
+          identity?: { displayName?: string };
+          attendanceIntervals?: Array<{
+            joinDateTime?: string;
+            leaveDateTime?: string;
+            durationInSeconds?: number;
+          }>;
+        }>;
+      };
+
+      const records: TeamsAttendanceRecord[] = (recordsData.value ?? [])
+        .map((rec) => ({
+          email: rec.emailAddress ?? '',
+          displayName: rec.identity?.displayName ?? '',
+          role: rec.role ?? 'Attendee',
+          totalSeconds: rec.totalAttendanceInSeconds ?? 0,
+          intervals: (rec.attendanceIntervals ?? []).map((iv) => ({
+            joinDateTime: iv.joinDateTime ?? '',
+            leaveDateTime: iv.leaveDateTime ?? '',
+            durationInSeconds: iv.durationInSeconds ?? 0,
+          })),
+        }))
+        .filter((r) => r.email !== '');
+
+      reports.push({
+        reportId: report.id,
+        meetingStartDateTime: report.meetingStartDateTime ?? '',
+        meetingEndDateTime: report.meetingEndDateTime ?? '',
+        records,
+      });
+    }
+
+    return reports;
   }
 
   private classifyError(status: number, body: string): TeamsMeetingError['code'] {

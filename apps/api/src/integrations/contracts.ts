@@ -41,6 +41,24 @@ export interface StorageUploadRequest {
   metadata?: Record<string, string>;
 }
 
+/**
+ * Upload the contents of an on-disk file. Used for large payloads (Teams
+ * recording MP4s can be 1-2 GB) where buffering the full body into memory
+ * via {@link StorageUploadRequest} is not viable.
+ *
+ * Callers may pass `precomputedSha256` and `contentLength` if they already
+ * computed them (e.g. while streaming the download from the source). When
+ * absent the provider stats and re-hashes the file itself.
+ */
+export interface StorageUploadFromFileRequest {
+  key: string;
+  filePath: string;
+  contentType?: string;
+  cacheControl?: string;
+  precomputedSha256?: string;
+  contentLength?: number;
+}
+
 export interface StorageUploadResult {
   key: string;
   provider: string;
@@ -61,6 +79,7 @@ export interface StorageSignedDownloadRequest {
 export interface StorageProvider {
   readonly name: string;
   uploadObject(input: StorageUploadRequest): Promise<StorageUploadResult>;
+  uploadFromFile(input: StorageUploadFromFileRequest): Promise<StorageUploadResult>;
   deleteObject(input: StorageDeleteRequest): Promise<void>;
   createSignedDownloadUrl(input: StorageSignedDownloadRequest): Promise<string>;
 }

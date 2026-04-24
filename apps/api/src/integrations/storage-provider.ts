@@ -1,15 +1,28 @@
 import { createHash, createHmac } from 'node:crypto';
-import { mkdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { copyFile, mkdir, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
+import { Readable } from 'node:stream';
 
 import type {
   IntegrationLogger,
   StorageDeleteRequest,
   StorageProvider,
   StorageSignedDownloadRequest,
+  StorageUploadFromFileRequest,
   StorageUploadRequest,
   StorageUploadResult,
 } from './contracts.js';
+
+async function computeFileSha256Hex(filePath: string): Promise<string> {
+  return new Promise<string>((resolveHash, rejectHash) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolveHash(hash.digest('hex')));
+    stream.on('error', rejectHash);
+  });
+}
 
 function toBuffer(value: string | Uint8Array | Buffer): Buffer {
   if (typeof value === 'string') {
@@ -102,6 +115,32 @@ export class LocalStorageProvider implements StorageProvider {
       key,
       bytes: body.byteLength,
       etag,
+    });
+
+    return {
+      key,
+      provider: this.name,
+      location: `file://${destination}`,
+      etag,
+    };
+  }
+
+  async uploadFromFile(input: StorageUploadFromFileRequest): Promise<StorageUploadResult> {
+    const key = normalizeObjectKey(input.key);
+    const destination = this.resolveKeyPath(key);
+
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(input.filePath, destination);
+
+    const stats = await stat(destination);
+    const etag = input.precomputedSha256 ?? (await computeFileSha256Hex(destination));
+
+    this.logger.info('integration.storage.upload', {
+      provider: this.name,
+      key,
+      bytes: stats.size,
+      etag,
+      source: 'file',
     });
 
     return {
@@ -219,6 +258,59 @@ export class S3StorageProvider implements StorageProvider {
       key,
       bytes: body.byteLength,
       etag,
+    });
+
+    return {
+      key,
+      provider: this.name,
+      location: this.resolvePublicLocation(key),
+      etag,
+    };
+  }
+
+  async uploadFromFile(input: StorageUploadFromFileRequest): Promise<StorageUploadResult> {
+    const key = normalizeObjectKey(input.key);
+    const objectUrl = this.buildObjectUrl(key);
+
+    const stats = await stat(input.filePath);
+    const payloadHash = input.precomputedSha256 ?? (await computeFileSha256Hex(input.filePath));
+    const contentLength = input.contentLength ?? stats.size;
+
+    const signed = this.signRequest({
+      method: 'PUT',
+      url: objectUrl,
+      payloadHash,
+      extraHeaders: {
+        ...(input.contentType ? { 'content-type': input.contentType } : {}),
+        ...(input.cacheControl ? { 'cache-control': input.cacheControl } : {}),
+        'content-length': String(contentLength),
+      },
+    });
+
+    // Node's undici fetch accepts a Readable as body when content-length is
+    // provided and duplex is 'half'. This streams the file without loading it
+    // all into memory — critical for 1-2 GB Teams recordings.
+    const fileStream = createReadStream(input.filePath);
+    const response = await this.fetchImpl(signed.url, {
+      method: 'PUT',
+      headers: signed.headers,
+      body: Readable.toWeb(fileStream) as unknown as BodyInit,
+      // undici requires this when the body is a stream
+      duplex: 'half',
+    } as RequestInit & { duplex?: 'half' });
+
+    if (!response.ok) {
+      throw new Error(`S3 upload failed (${response.status}): ${(await response.text()).slice(0, 256)}`);
+    }
+
+    const etag = response.headers.get('etag') ?? payloadHash;
+
+    this.logger.info('integration.storage.upload', {
+      provider: this.name,
+      key,
+      bytes: contentLength,
+      etag,
+      source: 'file',
     });
 
     return {
