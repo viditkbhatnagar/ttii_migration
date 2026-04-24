@@ -20,6 +20,7 @@ import { registerAssessmentRoutes } from './routes/assessment.js';
 import { registerCommerceRoutes } from './routes/commerce.js';
 import { registerEngagementRoutes } from './routes/engagement.js';
 import { registerOperationsRoutes } from './routes/operations.js';
+import { registerInstructorRoutes } from './routes/instructor.js';
 import { registerProfileRoutes } from './routes/profile.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +91,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.register(registerProfileRoutes, {
+    prefix: '/api',
+    authService,
+  });
+
+  app.register(registerInstructorRoutes, {
     prefix: '/api',
     authService,
   });

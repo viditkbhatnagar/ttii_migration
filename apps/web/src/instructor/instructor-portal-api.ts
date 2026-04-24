@@ -34,6 +34,62 @@ export interface InstructorProfileSnapshot {
   image: string;
 }
 
+export interface InstructorDashboardLiveClass {
+  id: number;
+  title: string;
+  date: string | null;
+  fromTime: string | null;
+  toTime: string | null;
+  status: string;
+  cohortId: number | null;
+  cohortTitle: string | null;
+  joinUrl: string | null;
+  recordingUrl: string | null;
+  recordingStorageKey: string | null;
+}
+
+export interface InstructorDashboardSnapshot {
+  profile: {
+    id: number;
+    name: string;
+    email: string;
+    image: string | null;
+  } | null;
+  upcomingLiveClasses: InstructorDashboardLiveClass[];
+  pastLiveClasses: InstructorDashboardLiveClass[];
+  cohortCount: number;
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+function asLiveClassRow(input: unknown): InstructorDashboardLiveClass {
+  const row = asRecord(input) ?? {};
+  return {
+    id: asNumber(row.id),
+    title: asString(row.title),
+    date: asNullableString(row.date),
+    fromTime: asNullableString(row.fromTime),
+    toTime: asNullableString(row.toTime),
+    status: asString(row.status),
+    cohortId: row.cohortId == null ? null : asNumber(row.cohortId),
+    cohortTitle: asNullableString(row.cohortTitle),
+    joinUrl: asNullableString(row.joinUrl),
+    recordingUrl: asNullableString(row.recordingUrl),
+    recordingStorageKey: asNullableString(row.recordingStorageKey),
+  };
+}
+
 export class InstructorPortalApi {
   private readonly apiClient: LegacyApiClient;
 
@@ -92,5 +148,30 @@ export class InstructorPortalApi {
         image: '',
       };
     }
+  }
+
+  async loadDashboard(authToken: string): Promise<InstructorDashboardSnapshot> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      '/instructor/dashboard',
+      authToken,
+    );
+    const data = asRecord(payload.data) ?? {};
+    const profile = asRecord(data.profile);
+    const upcoming = Array.isArray(data.upcomingLiveClasses) ? data.upcomingLiveClasses : [];
+    const past = Array.isArray(data.pastLiveClasses) ? data.pastLiveClasses : [];
+
+    return {
+      profile: profile
+        ? {
+            id: asNumber(profile.id),
+            name: asString(profile.name),
+            email: asString(profile.email),
+            image: asNullableString(profile.image),
+          }
+        : null,
+      upcomingLiveClasses: upcoming.map(asLiveClassRow),
+      pastLiveClasses: past.map(asLiveClassRow),
+      cohortCount: asNumber(data.cohortCount),
+    };
   }
 }
