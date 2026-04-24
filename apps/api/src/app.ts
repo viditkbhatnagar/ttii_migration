@@ -8,8 +8,11 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 
 import { AuthService } from './auth/auth-service.js';
+import { getPrismaClient } from './data/prisma-client.js';
+import { env } from './env.js';
 import { createIntegrationRegistry } from './integrations/registry.js';
 import type { IntegrationRegistry } from './integrations/contracts.js';
+import { registerCronJobs } from './jobs/register-cron.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerContentRoutes } from './routes/content.js';
@@ -94,6 +97,17 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(registerOperationsRoutes, {
     prefix: '/api',
     authService,
+  });
+
+  // --- Background cron jobs ---
+  registerCronJobs(app, {
+    prisma: getPrismaClient(),
+    storage: integrations.storage,
+    teamsCreds: {
+      clientId: env.EMAIL_MSGRAPH_CLIENT_ID,
+      clientSecret: env.EMAIL_MSGRAPH_CLIENT_SECRET,
+      tenantId: env.EMAIL_MSGRAPH_TENANT_ID,
+    },
   });
 
   // --- Static file serving (production) ---
