@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
+import type { StorageProvider } from '../integrations/contracts.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -38,6 +39,7 @@ import {
 interface RegisterOperationsRoutesOptions {
   authService?: AuthService;
   operationsService?: OperationsService;
+  storage?: StorageProvider;
   [key: string]: unknown;
 }
 
@@ -2333,6 +2335,26 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const result = await operationsService.getLiveSessionAttendance(toStringValue(payload.id));
       reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/live_classes/recording-signed-url', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const liveClassId = toStringValue(payload.id);
+      const key = await operationsService.getLiveSessionRecordingStorageKey(liveClassId);
+      if (!key) {
+        reply.code(404).send({ status: 0, message: 'Recording not available yet for this session.' });
+        return;
+      }
+      const storage = options.storage;
+      if (!storage) {
+        reply.code(503).send({ status: 0, message: 'Storage provider not configured.' });
+        return;
+      }
+      const expiresInSeconds = 3600; // 1 hour — generous so students can keep the tab open
+      const url = await storage.createSignedDownloadUrl({ key, expiresInSeconds });
+      reply.code(200).send({ status: 1, data: { url, expiresInSeconds } });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 

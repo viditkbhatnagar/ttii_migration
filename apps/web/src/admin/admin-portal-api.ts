@@ -1860,6 +1860,24 @@ export class AdminPortalApi {
     return payload;
   }
 
+  /**
+   * Mints a short-lived (1 hr) signed URL for a live session's recording
+   * stored in our private Spaces bucket. Throws if no recording has been
+   * synced yet or if the session doesn't exist.
+   */
+  async getLiveSessionRecordingSignedUrl(authToken: string, liveClassId: string): Promise<string> {
+    const response = await this.get<Record<string, unknown>>(
+      '/admin/live_classes/recording-signed-url',
+      authToken,
+      { id: liveClassId },
+    );
+    const data = response.data as { url?: string } | undefined;
+    if (!data?.url) {
+      throw new Error(String(response.message ?? 'Recording not available'));
+    }
+    return data.url;
+  }
+
   async deleteResource(authToken: string, id: string, type: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/resources/delete', authToken, { id, type });
   }

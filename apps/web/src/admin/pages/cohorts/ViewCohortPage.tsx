@@ -643,7 +643,24 @@ function LiveSessionsTab({
                     <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
                       <CheckCircle2 className="size-3" /> Uploaded
                     </span>
-                    <Button variant="ghost" size="icon" title="View Recording" aria-label="View recording" onClick={() => recording && window.open(recording, '_blank')}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="View Recording"
+                      aria-label="View recording"
+                      disabled={!recording}
+                      onClick={() => {
+                        if (!recording) return;
+                        void (async () => {
+                          try {
+                            const signedUrl = await api.getLiveSessionRecordingSignedUrl(token, id);
+                            window.open(signedUrl, '_blank', 'noopener,noreferrer');
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : 'Failed to open recording');
+                          }
+                        })();
+                      }}
+                    >
                       <Eye className="size-4 text-blue-600" aria-hidden="true" />
                     </Button>
                     <Button

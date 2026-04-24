@@ -4778,6 +4778,21 @@ export class OperationsService {
     return { status: 1, message: 'Fund request rejected.' };
   }
 
+  /**
+   * Returns the recording storage key for a live session so the calling
+   * route can mint a short-lived signed download URL. Returns null when no
+   * recording has been synced yet.
+   */
+  async getLiveSessionRecordingStorageKey(liveClassId: string): Promise<string | null> {
+    const liveClassIdInt = toIntId(liveClassId);
+    if (!liveClassIdInt) return null;
+    const row = await this.prisma.live_class.findFirst({
+      where: { id: liveClassIdInt, deleted_at: null },
+      select: { recording_storage_key: true },
+    });
+    return row?.recording_storage_key ?? null;
+  }
+
   async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {
     const liveClassIdInt = toIntId(liveClassId);
     if (!liveClassIdInt) {

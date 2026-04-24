@@ -97,6 +97,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(registerOperationsRoutes, {
     prefix: '/api',
     authService,
+    storage: integrations.storage,
   });
 
   // --- Background cron jobs ---
