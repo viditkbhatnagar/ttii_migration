@@ -225,4 +225,124 @@ export class CertificateService {
   revokeCertificate(_actorUserId: string, _certId: string): Promise<void> {
     return Promise.reject(new Error('certificate table not present in MySQL schema'));
   }
+
+  /**
+   * Aggregates a student's attendance across the cohort's synced Teams live
+   * sessions. Used to evaluate `completion_policies.min_attendance_pct` when
+   * issuing certificates.
+   *
+   * "Synced" means the cron has successfully fetched attendance from Graph
+   * for that session (attendance_fetched_at IS NOT NULL). Sessions that are
+   * scheduled but haven't ended yet — or whose attendance hasn't been
+   * processed yet — are excluded from both numerator and denominator.
+   *
+   * Matching strategy: `live_class_attendance` rows are keyed by lowercase
+   * email. For each session we look for a row matching either the student's
+   * user_id (when the sync matched during upsert) OR the student's
+   * user_email (case-insensitive). Graceful when the student didn't join at
+   * all — that session contributes 0% to the average.
+   */
+  async aggregateStudentCohortAttendance(
+    userId: number,
+    cohortId: number,
+  ): Promise<{
+    sessionsTotal: number;
+    sessionsAttended: number;
+    averagePercent: number;
+    userEmail: string | null;
+  }> {
+    const user = await this.prisma.users.findFirst({
+      where: { id: userId, deleted_at: null },
+      select: { id: true, user_email: true, email: true },
+    });
+    const emailLower = (user?.user_email || user?.email || '').trim().toLowerCase();
+
+    const syncedSessions = await this.prisma.live_class.findMany({
+      where: {
+        cohort_id: cohortId,
+        platform: 'teams',
+        attendance_fetched_at: { not: null },
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+
+    if (syncedSessions.length === 0) {
+      return { sessionsTotal: 0, sessionsAttended: 0, averagePercent: 0, userEmail: emailLower || null };
+    }
+
+    const liveClassIds = syncedSessions.map((s) => s.id);
+    const attendanceRows = await this.prisma.live_class_attendance.findMany({
+      where: {
+        live_class_id: { in: liveClassIds },
+        OR: [
+          { user_id: userId },
+          ...(emailLower ? [{ email: emailLower }] : []),
+        ],
+      },
+      select: {
+        live_class_id: true,
+        total_seconds: true,
+        percent_attended: true,
+      },
+    });
+
+    const attendedByLiveClass = new Map<number, number>(); // session id → percent_attended (0-100)
+    for (const row of attendanceRows) {
+      const pct = row.percent_attended === null ? 0 : Number(row.percent_attended);
+      // If the student shows up more than once for a session (shouldn't happen
+      // due to the uniq_meeting_email constraint, but defensive), keep the
+      // max. total_seconds > 0 counts as "attended" even if percent is null.
+      const prev = attendedByLiveClass.get(row.live_class_id) ?? 0;
+      attendedByLiveClass.set(row.live_class_id, Math.max(prev, pct));
+    }
+
+    const percents = liveClassIds.map((id) => attendedByLiveClass.get(id) ?? 0);
+    const sessionsAttended = percents.filter((p) => p > 0).length;
+    const averagePercent =
+      percents.length > 0 ? Math.round((percents.reduce((a, b) => a + b, 0) / percents.length) * 100) / 100 : 0;
+
+    return {
+      sessionsTotal: syncedSessions.length,
+      sessionsAttended,
+      averagePercent,
+      userEmail: emailLower || null,
+    };
+  }
+
+  /**
+   * Checks a student's attendance against the `min_attendance_pct` field of
+   * a completion policy. Returns whether the policy is met + the underlying
+   * numbers for admin-facing messaging.
+   *
+   * When the policy has no `min_attendance_pct` set (field is null), the
+   * check is vacuously satisfied — we return `meets: true, required: null`.
+   */
+  async evaluateAttendanceAgainstPolicy(
+    userId: number,
+    cohortId: number,
+    policyId: number,
+  ): Promise<{
+    meets: boolean;
+    required: number | null;
+    actualPercent: number;
+    sessionsTotal: number;
+    sessionsAttended: number;
+  }> {
+    const policy = await this.prisma.completion_policies.findFirst({
+      where: { id: policyId },
+      select: { min_attendance_pct: true },
+    });
+    const required = policy?.min_attendance_pct ?? null;
+
+    const agg = await this.aggregateStudentCohortAttendance(userId, cohortId);
+
+    return {
+      meets: required === null ? true : agg.averagePercent >= required,
+      required,
+      actualPercent: agg.averagePercent,
+      sessionsTotal: agg.sessionsTotal,
+      sessionsAttended: agg.sessionsAttended,
+    };
+  }
 }
