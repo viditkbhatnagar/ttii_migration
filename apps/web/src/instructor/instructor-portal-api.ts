@@ -60,6 +60,34 @@ export interface InstructorDashboardSnapshot {
   cohortCount: number;
 }
 
+export type InstructorLiveClassFilter = 'upcoming' | 'past' | 'all';
+
+export interface InstructorLiveClassRow extends InstructorDashboardLiveClass {
+  recordingFetchedAt: string | null;
+  attendanceFetchedAt: string | null;
+}
+
+export interface InstructorAttendanceRow {
+  id: number;
+  email: string | null;
+  displayName: string | null;
+  role: string | null;
+  totalSeconds: number | null;
+  percentAttended: number | null;
+  firstJoinedAt: string | null;
+  lastLeftAt: string | null;
+  userId: number | null;
+  userName: string | null;
+  studentId: string | null;
+}
+
+export interface InstructorAttendanceSnapshot {
+  liveClassId: number;
+  title: string;
+  date: string | null;
+  attendance: InstructorAttendanceRow[];
+}
+
 function asNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -147,6 +175,76 @@ export class InstructorPortalApi {
         phone: '',
         image: '',
       };
+    }
+  }
+
+  async loadLiveClasses(
+    authToken: string,
+    filter: InstructorLiveClassFilter = 'all',
+  ): Promise<InstructorLiveClassRow[]> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(
+      '/instructor/live-classes',
+      authToken,
+      { filter },
+    );
+    const list = Array.isArray(payload.data) ? payload.data : [];
+    return list.map((item) => {
+      const row = asRecord(item) ?? {};
+      return {
+        ...asLiveClassRow(row),
+        recordingFetchedAt: asNullableString(row.recordingFetchedAt),
+        attendanceFetchedAt: asNullableString(row.attendanceFetchedAt),
+      };
+    });
+  }
+
+  async loadLiveClassAttendance(
+    authToken: string,
+    liveClassId: number,
+  ): Promise<InstructorAttendanceSnapshot | null> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/live-classes/${liveClassId}/attendance`,
+        authToken,
+      );
+      const data = asRecord(payload.data) ?? {};
+      const list = Array.isArray(data.attendance) ? data.attendance : [];
+      return {
+        liveClassId: asNumber(data.liveClassId),
+        title: asString(data.title),
+        date: asNullableString(data.date),
+        attendance: list.map((item) => {
+          const row = asRecord(item) ?? {};
+          return {
+            id: asNumber(row.id),
+            email: asNullableString(row.email),
+            displayName: asNullableString(row.displayName),
+            role: asNullableString(row.role),
+            totalSeconds: row.totalSeconds == null ? null : asNumber(row.totalSeconds),
+            percentAttended: row.percentAttended == null ? null : asNumber(row.percentAttended),
+            firstJoinedAt: asNullableString(row.firstJoinedAt),
+            lastLeftAt: asNullableString(row.lastLeftAt),
+            userId: row.userId == null ? null : asNumber(row.userId),
+            userName: asNullableString(row.userName),
+            studentId: asNullableString(row.studentId),
+          };
+        }),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async loadRecordingUrl(authToken: string, liveClassId: number): Promise<string | null> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/live-classes/${liveClassId}/recording-url`,
+        authToken,
+      );
+      const data = asRecord(payload.data) ?? {};
+      return asNullableString(data.url);
+    } catch {
+      return null;
     }
   }
 

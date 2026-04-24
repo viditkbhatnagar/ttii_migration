@@ -98,6 +98,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(registerInstructorRoutes, {
     prefix: '/api',
     authService,
+    storage: integrations.storage,
   });
 
   app.register(registerOperationsRoutes, {

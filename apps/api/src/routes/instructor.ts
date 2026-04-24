@@ -1,13 +1,18 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { INSTRUCTOR_PORTAL_ROLES } from '../auth/roles.js';
-import { InstructorService } from '../instructor/instructor-service.js';
+import type { StorageProvider } from '../integrations/index.js';
+import {
+  InstructorService,
+  type LiveClassFilter,
+} from '../instructor/instructor-service.js';
 
 interface RegisterInstructorRoutesOptions {
   authService?: AuthService;
   instructorService?: InstructorService;
+  storage?: StorageProvider;
   [key: string]: unknown;
 }
 
@@ -20,31 +25,101 @@ function sendInstructorError(reply: FastifyReply, error: unknown): void {
   });
 }
 
+function requireUserId(request: FastifyRequest, reply: FastifyReply): number | null {
+  const userId = request.authContext?.user.id;
+  if (typeof userId !== 'number') {
+    reply.code(401).send({ status: 0, message: 'Not authenticated.', data: {} });
+    return null;
+  }
+  return userId;
+}
+
+function toIntId(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function toFilter(value: unknown): LiveClassFilter {
+  if (value === 'upcoming' || value === 'past' || value === 'all') return value;
+  return 'all';
+}
+
 export function registerInstructorRoutes(
   app: FastifyInstance,
   options: RegisterInstructorRoutesOptions = {},
 ): void {
   const authService = options.authService ?? new AuthService();
   const instructorService = options.instructorService ?? new InstructorService();
+  const storage = options.storage;
   const requireAuth = requireLegacyAuth(authService);
   const requireInstructor = requireLegacyRoles(authService, INSTRUCTOR_PORTAL_ROLES);
+  const guards = { preHandler: [requireAuth, requireInstructor] };
 
-  app.get(
-    '/instructor/dashboard',
-    { preHandler: [requireAuth, requireInstructor] },
-    async (request, reply) => {
-      try {
-        const userId = request.authContext?.user.id;
-        if (typeof userId !== 'number') {
-          reply.code(401).send({ status: 0, message: 'Not authenticated.', data: {} });
-          return;
-        }
+  app.get('/instructor/dashboard', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const data = await instructorService.getDashboard(userId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
 
-        const data = await instructorService.getDashboard(userId);
-        reply.code(200).send({ status: 1, message: 'success', data });
-      } catch (error: unknown) {
-        sendInstructorError(reply, error);
+  app.get('/instructor/live-classes', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const query = (request.query as Record<string, unknown>) ?? {};
+      const filter = toFilter(query.filter);
+      const data = await instructorService.listLiveClasses(userId, filter);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.get('/instructor/live-classes/:id/attendance', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const liveClassId = toIntId(params.id);
+      const result = await instructorService.getLiveClassAttendance(userId, liveClassId);
+      if (!result) {
+        reply.code(404).send({ status: 0, message: 'Live class not found or not yours.', data: {} });
+        return;
       }
-    },
-  );
+      reply.code(200).send({ status: 1, message: 'success', data: result });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.get('/instructor/live-classes/:id/recording-url', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const liveClassId = toIntId(params.id);
+      const key = await instructorService.getRecordingStorageKey(userId, liveClassId);
+      if (!key) {
+        reply.code(404).send({ status: 0, message: 'Recording not available for this session.', data: {} });
+        return;
+      }
+      if (!storage) {
+        reply.code(503).send({ status: 0, message: 'Storage provider not configured.', data: {} });
+        return;
+      }
+      const expiresInSeconds = 3600;
+      const url = await storage.createSignedDownloadUrl({ key, expiresInSeconds });
+      reply.code(200).send({ status: 1, message: 'success', data: { url, expiresInSeconds } });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
 }

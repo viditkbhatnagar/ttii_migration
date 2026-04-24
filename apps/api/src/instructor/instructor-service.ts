@@ -30,6 +30,34 @@ export interface InstructorDashboardPayload {
   cohortCount: number;
 }
 
+export type LiveClassFilter = 'upcoming' | 'past' | 'all';
+
+export interface InstructorLiveClassListItem extends InstructorLiveClassSummary {
+  recordingFetchedAt: string | null;
+  attendanceFetchedAt: string | null;
+}
+
+export interface InstructorAttendanceRow {
+  id: number;
+  email: string | null;
+  displayName: string | null;
+  role: string | null;
+  totalSeconds: number | null;
+  percentAttended: number | null;
+  firstJoinedAt: string | null;
+  lastLeftAt: string | null;
+  userId: number | null;
+  userName: string | null;
+  studentId: string | null;
+}
+
+export interface InstructorAttendancePayload {
+  liveClassId: number;
+  title: string;
+  date: string | null;
+  attendance: InstructorAttendanceRow[];
+}
+
 const UPCOMING_LIMIT = 8;
 const PAST_LIMIT = 8;
 
@@ -41,6 +69,11 @@ function isoDate(value: Date | null | undefined): string | null {
 function timeOf(value: Date | null | undefined): string | null {
   if (!value) return null;
   return value.toISOString().slice(11, 19);
+}
+
+function isoString(value: Date | null | undefined): string | null {
+  if (!value) return null;
+  return value.toISOString();
 }
 
 export class InstructorService {
@@ -166,6 +199,153 @@ export class InstructorService {
       upcomingLiveClasses: upcoming.map(mapRow),
       pastLiveClasses: past.map(mapRow),
       cohortCount: cohorts.length,
+    };
+  }
+
+  private async getInstructorCohortIds(instructorId: number): Promise<{ ids: number[]; titleMap: Map<number, string> }> {
+    const cohorts = await this.prisma.cohorts.findMany({
+      where: { instructor_id: instructorId, deleted_at: null },
+      select: { id: true, title: true },
+    });
+    return {
+      ids: cohorts.map((c) => c.id),
+      titleMap: new Map(cohorts.map((c) => [c.id, c.title ?? ''])),
+    };
+  }
+
+  async listLiveClasses(
+    instructorId: number,
+    filter: LiveClassFilter = 'all',
+  ): Promise<InstructorLiveClassListItem[]> {
+    const { ids: cohortIds, titleMap } = await this.getInstructorCohortIds(instructorId);
+    if (cohortIds.length === 0) return [];
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dateFilter =
+      filter === 'upcoming'
+        ? { gte: today }
+        : filter === 'past'
+          ? { lt: today }
+          : undefined;
+
+    const rows = await this.prisma.live_class.findMany({
+      where: {
+        cohort_id: { in: cohortIds },
+        deleted_at: null,
+        ...(dateFilter ? { date: dateFilter } : {}),
+      },
+      orderBy:
+        filter === 'past'
+          ? [{ date: 'desc' }, { fromTime: 'desc' }]
+          : [{ date: 'asc' }, { fromTime: 'asc' }],
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        fromTime: true,
+        toTime: true,
+        status: true,
+        cohort_id: true,
+        join_url: true,
+        recording_url: true,
+        recording_storage_key: true,
+        recording_fetched_at: true,
+        attendance_fetched_at: true,
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title ?? '',
+      date: isoDate(row.date),
+      fromTime: timeOf(row.fromTime),
+      toTime: timeOf(row.toTime),
+      status: row.status ?? '',
+      cohortId: row.cohort_id ?? null,
+      cohortTitle: row.cohort_id ? titleMap.get(row.cohort_id) ?? null : null,
+      joinUrl: row.join_url ?? null,
+      recordingUrl: row.recording_url ?? null,
+      recordingStorageKey: row.recording_storage_key ?? null,
+      recordingFetchedAt: isoString(row.recording_fetched_at),
+      attendanceFetchedAt: isoString(row.attendance_fetched_at),
+    }));
+  }
+
+  /**
+   * Verifies that the live class belongs to a cohort owned by this instructor.
+   * Returns the live_class row when authorized, or null when not (404 OR 403 —
+   * caller decides). Used to gate attendance + recording-url lookups.
+   */
+  private async loadOwnedLiveClass(instructorId: number, liveClassId: number) {
+    if (!liveClassId) return null;
+    const row = await this.prisma.live_class.findFirst({
+      where: { id: liveClassId, deleted_at: null },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        cohort_id: true,
+        recording_storage_key: true,
+      },
+    });
+    if (!row || !row.cohort_id) return null;
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: row.cohort_id, instructor_id: instructorId, deleted_at: null },
+      select: { id: true },
+    });
+    if (!cohort) return null;
+    return row;
+  }
+
+  async getRecordingStorageKey(instructorId: number, liveClassId: number): Promise<string | null> {
+    const row = await this.loadOwnedLiveClass(instructorId, liveClassId);
+    return row?.recording_storage_key ?? null;
+  }
+
+  async getLiveClassAttendance(
+    instructorId: number,
+    liveClassId: number,
+  ): Promise<InstructorAttendancePayload | null> {
+    const row = await this.loadOwnedLiveClass(instructorId, liveClassId);
+    if (!row) return null;
+
+    const attendance = await this.prisma.live_class_attendance.findMany({
+      where: { live_class_id: row.id },
+      orderBy: [{ percent_attended: 'desc' }, { email: 'asc' }],
+    });
+
+    const userIds = attendance
+      .map((a) => a.user_id)
+      .filter((x): x is number => x !== null && x !== undefined);
+    const users = userIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIds }, deleted_at: null },
+          select: { id: true, name: true, student_id: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      liveClassId: row.id,
+      title: row.title ?? '',
+      date: isoDate(row.date),
+      attendance: attendance.map((a) => {
+        const user = a.user_id ? userMap.get(a.user_id) : null;
+        return {
+          id: a.id,
+          email: a.email ?? null,
+          displayName: a.display_name ?? null,
+          role: a.role ?? null,
+          totalSeconds: a.total_seconds ?? null,
+          percentAttended: a.percent_attended === null ? null : Number(a.percent_attended),
+          firstJoinedAt: isoString(a.first_joined_at),
+          lastLeftAt: isoString(a.last_left_at),
+          userId: a.user_id ?? null,
+          userName: user?.name ?? null,
+          studentId: user?.student_id ?? null,
+        };
+      }),
     };
   }
 }
