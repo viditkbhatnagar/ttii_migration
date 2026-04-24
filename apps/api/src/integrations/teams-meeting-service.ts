@@ -184,6 +184,19 @@ export class TeamsMeetingService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          // Auto-record every TTII-created session. Reason: trainers join as
+          // anonymous guests (no per-trainer M365 license) and Microsoft does
+          // NOT allow anonymous participants to manually start recording —
+          // the "Start recording" option appears locked in their UI. Setting
+          // recordAutomatically=true makes Teams begin recording the moment
+          // the meeting starts, no user interaction required. Feeds our sync
+          // cron which pulls the resulting MP4 into DO Spaces.
+          recordAutomatically: true,
+          // Let any joiner bypass the lobby so the trainer can start solo
+          // (paired with the tenant-level "anonymous users can start a
+          // meeting" policy that Naji enabled 2026-04-24).
+          lobbyBypassSettings: { scope: 'everyone', isDialInBypassEnabled: true },
+          allowedPresenters: 'everyone',
           startDateTime: input.startDateTime,
           endDateTime: input.endDateTime,
           subject: input.subject,
