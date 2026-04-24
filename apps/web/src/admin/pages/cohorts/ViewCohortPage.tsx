@@ -497,6 +497,7 @@ function LiveSessionsTab({
   onReload: () => void;
 }) {
   const confirm = useConfirm();
+  const [attendanceSession, setAttendanceSession] = useState<{ id: string; title: string } | null>(null);
   const handleDelete = useCallback(
     async (session: Record<string, unknown>) => {
       const id = asString(session.id) || asString(session._id);
@@ -645,6 +646,15 @@ function LiveSessionsTab({
                     <Button variant="ghost" size="icon" title="View Recording" aria-label="View recording" onClick={() => recording && window.open(recording, '_blank')}>
                       <Eye className="size-4 text-blue-600" aria-hidden="true" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="View Attendance"
+                      aria-label="View attendance"
+                      onClick={() => setAttendanceSession({ id, title })}
+                    >
+                      <Users className="size-4 text-emerald-600" aria-hidden="true" />
+                    </Button>
                     <Button variant="ghost" size="icon" title="Edit Link" aria-label="Edit recording link" onClick={() => onEditRecordingClick(id, recording)}>
                       <Pencil className="size-4 text-gray-600" aria-hidden="true" />
                     </Button>
@@ -658,7 +668,141 @@ function LiveSessionsTab({
           )}
         </div>
       </CardContent>
+
+      {attendanceSession !== null ? (
+        <LiveSessionAttendanceDialog
+          sessionId={attendanceSession.id}
+          sessionTitle={attendanceSession.title}
+          api={api}
+          token={token}
+          onClose={() => setAttendanceSession(null)}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+function LiveSessionAttendanceDialog({
+  sessionId,
+  sessionTitle,
+  api,
+  token,
+  onClose,
+}: {
+  sessionId: string;
+  sessionTitle: string;
+  api: AdminPageProps['api'];
+  token: string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void (async () => {
+      try {
+        const response = await api.loadLiveSessionAttendance(token, sessionId);
+        if (cancelled) return;
+        if (asNumber(response.status) === 1) {
+          setData((response.data as Record<string, unknown>) ?? null);
+        } else {
+          setError(asString(response.message) || 'Failed to load attendance.');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load attendance.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, token, sessionId]);
+
+  const session = (data?.session as Record<string, unknown>) ?? null;
+  const attendance = (data?.attendance as Record<string, unknown>[]) ?? [];
+  const attendanceFetchedAt = session ? asString(session.attendance_fetched_at) : '';
+  const attendanceFetchError = session ? asString(session.attendance_fetch_error) : '';
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="truncate">Attendance — {sessionTitle}</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-10 text-center text-sm text-gray-500">Loading attendance…</div>
+        ) : error ? (
+          <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        ) : attendanceFetchedAt === '' ? (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Attendance has not been synced from Microsoft Teams yet. The sync job runs every 5 minutes and typically completes within 10 minutes of a meeting ending.
+            {attendanceFetchError ? (
+              <p className="mt-2 text-xs text-amber-700">Last sync error: {attendanceFetchError}</p>
+            ) : null}
+          </div>
+        ) : attendance.length === 0 ? (
+          <div role="status" className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+            No attendance records for this session — no participants joined, or Teams did not return any.
+          </div>
+        ) : (
+          <>
+            <p className="-mt-2 text-xs text-gray-500">
+              Synced {formatDate(attendanceFetchedAt)} · {attendance.length} participant{attendance.length === 1 ? '' : 's'}
+            </p>
+            <div className="max-h-[50vh] overflow-auto rounded-md border border-gray-200">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
+                  <tr>
+                    <th scope="col" className="px-3 py-2">Name</th>
+                    <th scope="col" className="px-3 py-2">Email</th>
+                    <th scope="col" className="px-3 py-2">Role</th>
+                    <th scope="col" className="px-3 py-2 text-right">Time (mins)</th>
+                    <th scope="col" className="px-3 py-2 text-right">Attended %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {attendance.map((a) => {
+                    const name = asString(a.user_name) || asString(a.display_name) || asString(a.email);
+                    const email = asString(a.email);
+                    const role = asString(a.role) || 'Attendee';
+                    const minutes = Math.round(asNumber(a.total_seconds) / 60);
+                    const pct = a.percent_attended === null ? null : asNumber(a.percent_attended);
+                    return (
+                      <tr key={asString(a.id)} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-medium text-gray-900">{name}</td>
+                        <td className="px-3 py-2 text-gray-600">{email}</td>
+                        <td className="px-3 py-2 text-gray-600">{role}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-gray-900">{minutes}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {pct !== null ? (
+                            <span className={pct >= 80 ? 'text-emerald-600 font-semibold' : pct >= 50 ? 'text-amber-600' : 'text-gray-500'}>
+                              {pct.toFixed(1)}%
+                            </span>
+                          ) : <span className="text-gray-400">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -4778,6 +4778,73 @@ export class OperationsService {
     return { status: 1, message: 'Fund request rejected.' };
   }
 
+  async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {
+    const liveClassIdInt = toIntId(liveClassId);
+    if (!liveClassIdInt) {
+      return { status: 0, message: 'Invalid live class id' };
+    }
+
+    const session = await this.prisma.live_class.findFirst({
+      where: { id: liveClassIdInt, deleted_at: null },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        fromTime: true,
+        toTime: true,
+        platform: true,
+        recording_url: true,
+        recording_fetched_at: true,
+        recording_fetch_error: true,
+        attendance_fetched_at: true,
+        attendance_fetch_error: true,
+      },
+    });
+    if (!session) {
+      return { status: 0, message: 'Live session not found' };
+    }
+
+    const attendance = await this.prisma.live_class_attendance.findMany({
+      where: { live_class_id: liveClassIdInt },
+      orderBy: [{ percent_attended: 'desc' }, { email: 'asc' }],
+    });
+
+    // Enrich with users table name/student_id where user_id matched
+    const userIds = attendance
+      .map((a) => a.user_id)
+      .filter((x): x is number => x !== null && x !== undefined);
+    const users = userIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIds }, deleted_at: null },
+          select: { id: true, name: true, student_id: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      status: 1,
+      data: {
+        session,
+        attendance: attendance.map((a) => {
+          const user = a.user_id ? userMap.get(a.user_id) : null;
+          return {
+            id: a.id,
+            email: a.email,
+            display_name: a.display_name,
+            role: a.role,
+            total_seconds: a.total_seconds,
+            percent_attended: a.percent_attended === null ? null : Number(a.percent_attended),
+            first_joined_at: a.first_joined_at,
+            last_left_at: a.last_left_at,
+            user_id: a.user_id,
+            user_name: user?.name ?? null,
+            student_id: user?.student_id ?? null,
+          };
+        }),
+      },
+    };
+  }
+
   async getCohortDetail(cohortId: string): Promise<Record<string, unknown>> {
     const cohortIdInt = toIntId(cohortId);
     const cohort = await this.prisma.cohorts.findFirst({

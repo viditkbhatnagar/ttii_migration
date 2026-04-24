@@ -1855,6 +1855,11 @@ export class AdminPortalApi {
     return payload;
   }
 
+  async loadLiveSessionAttendance(authToken: string, liveClassId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<Record<string, unknown>>('/admin/live_classes/attendance', authToken, { id: liveClassId });
+    return payload;
+  }
+
   async deleteResource(authToken: string, id: string, type: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/resources/delete', authToken, { id, type });
   }
