@@ -88,6 +88,30 @@ export interface InstructorAttendanceSnapshot {
   attendance: InstructorAttendanceRow[];
 }
 
+export interface InstructorCohortSummary {
+  id: number;
+  title: string;
+  cohortCode: string;
+  courseTitle: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  learnerCount: number;
+  upcomingSessionCount: number;
+}
+
+export interface InstructorLearnerRow {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  enrollmentId: string | null;
+  statusLabel: string;
+}
+
+export interface InstructorCohortDetailSnapshot extends InstructorCohortSummary {
+  learners: InstructorLearnerRow[];
+}
+
 function asNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -227,6 +251,62 @@ export class InstructorPortalApi {
             userId: row.userId == null ? null : asNumber(row.userId),
             userName: asNullableString(row.userName),
             studentId: asNullableString(row.studentId),
+          };
+        }),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async loadCohorts(authToken: string): Promise<InstructorCohortSummary[]> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/instructor/cohorts', authToken);
+    const list = Array.isArray(payload.data) ? payload.data : [];
+    return list.map((item) => {
+      const row = asRecord(item) ?? {};
+      return {
+        id: asNumber(row.id),
+        title: asString(row.title),
+        cohortCode: asString(row.cohortCode),
+        courseTitle: asNullableString(row.courseTitle),
+        startDate: asNullableString(row.startDate),
+        endDate: asNullableString(row.endDate),
+        learnerCount: asNumber(row.learnerCount),
+        upcomingSessionCount: asNumber(row.upcomingSessionCount),
+      };
+    });
+  }
+
+  async loadCohortDetail(
+    authToken: string,
+    cohortId: number,
+  ): Promise<InstructorCohortDetailSnapshot | null> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/cohorts/${cohortId}/learners`,
+        authToken,
+      );
+      const data = asRecord(payload.data);
+      if (!data) return null;
+      const learners = Array.isArray(data.learners) ? data.learners : [];
+      return {
+        id: asNumber(data.id),
+        title: asString(data.title),
+        cohortCode: asString(data.cohortCode),
+        courseTitle: asNullableString(data.courseTitle),
+        startDate: asNullableString(data.startDate),
+        endDate: asNullableString(data.endDate),
+        learnerCount: asNumber(data.learnerCount),
+        upcomingSessionCount: asNumber(data.upcomingSessionCount),
+        learners: learners.map((item) => {
+          const row = asRecord(item) ?? {};
+          return {
+            id: asNumber(row.id),
+            name: asString(row.name),
+            email: asString(row.email),
+            phone: asString(row.phone),
+            enrollmentId: asNullableString(row.enrollmentId),
+            statusLabel: asString(row.statusLabel) || 'Unknown',
           };
         }),
       };

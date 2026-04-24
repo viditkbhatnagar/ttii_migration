@@ -100,6 +100,34 @@ export function registerInstructorRoutes(
     }
   });
 
+  app.get('/instructor/cohorts', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const data = await instructorService.listCohorts(userId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.get('/instructor/cohorts/:id/learners', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const cohortId = toIntId(params.id);
+      const data = await instructorService.getCohortDetail(userId, cohortId);
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Cohort not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
   app.get('/instructor/live-classes/:id/recording-url', guards, async (request, reply) => {
     try {
       const userId = requireUserId(request, reply);

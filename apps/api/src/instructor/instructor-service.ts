@@ -58,6 +58,30 @@ export interface InstructorAttendancePayload {
   attendance: InstructorAttendanceRow[];
 }
 
+export interface InstructorCohortSummary {
+  id: number;
+  title: string;
+  cohortCode: string;
+  courseTitle: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  learnerCount: number;
+  upcomingSessionCount: number;
+}
+
+export interface InstructorLearnerRow {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  enrollmentId: string | null;
+  statusLabel: string;
+}
+
+export interface InstructorCohortDetail extends InstructorCohortSummary {
+  learners: InstructorLearnerRow[];
+}
+
 const UPCOMING_LIMIT = 8;
 const PAST_LIMIT = 8;
 
@@ -301,6 +325,164 @@ export class InstructorService {
   async getRecordingStorageKey(instructorId: number, liveClassId: number): Promise<string | null> {
     const row = await this.loadOwnedLiveClass(instructorId, liveClassId);
     return row?.recording_storage_key ?? null;
+  }
+
+  async listCohorts(instructorId: number): Promise<InstructorCohortSummary[]> {
+    const cohorts = await this.prisma.cohorts.findMany({
+      where: { instructor_id: instructorId, deleted_at: null },
+      select: {
+        id: true,
+        cohort_id: true,
+        title: true,
+        course_id: true,
+        start_date: true,
+        end_date: true,
+      },
+      orderBy: [{ start_date: 'desc' }, { id: 'desc' }],
+    });
+
+    if (cohorts.length === 0) return [];
+
+    const cohortIds = cohorts.map((c) => c.id);
+    const cohortIdStrs = cohortIds.map((id) => String(id));
+    const courseIds = [
+      ...new Set(cohorts.map((c) => c.course_id).filter((x): x is number => x !== null && x !== undefined)),
+    ];
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const [courses, learnerCounts, upcomingCounts] = await Promise.all([
+      courseIds.length > 0
+        ? this.prisma.course.findMany({
+            where: { id: { in: courseIds } },
+            select: { id: true, title: true },
+          })
+        : [],
+      this.prisma.cohort_students.groupBy({
+        by: ['cohort_id'],
+        where: { cohort_id: { in: cohortIdStrs }, deleted_at: null },
+        _count: { id: true },
+      }),
+      this.prisma.live_class.groupBy({
+        by: ['cohort_id'],
+        where: {
+          cohort_id: { in: cohortIds },
+          deleted_at: null,
+          date: { gte: today },
+        },
+        _count: { id: true },
+      }),
+    ]);
+
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    const learnerCountMap = new Map(learnerCounts.map((row) => [row.cohort_id, row._count?.id ?? 0]));
+    const upcomingCountMap = new Map(upcomingCounts.map((row) => [row.cohort_id, row._count?.id ?? 0]));
+
+    return cohorts.map((row) => ({
+      id: row.id,
+      title: row.title ?? '',
+      cohortCode: row.cohort_id ?? '',
+      courseTitle: row.course_id ? courseMap.get(row.course_id) ?? null : null,
+      startDate: isoDate(row.start_date),
+      endDate: isoDate(row.end_date),
+      learnerCount: learnerCountMap.get(String(row.id)) ?? 0,
+      upcomingSessionCount: row.id ? upcomingCountMap.get(row.id) ?? 0 : 0,
+    }));
+  }
+
+  async getCohortDetail(
+    instructorId: number,
+    cohortId: number,
+  ): Promise<InstructorCohortDetail | null> {
+    if (!cohortId) return null;
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cohortId, instructor_id: instructorId, deleted_at: null },
+      select: {
+        id: true,
+        cohort_id: true,
+        title: true,
+        course_id: true,
+        start_date: true,
+        end_date: true,
+      },
+    });
+    if (!cohort) return null;
+
+    const cohortIdStr = String(cohort.id);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const [course, students, learnerCount, upcomingCount] = await Promise.all([
+      cohort.course_id
+        ? this.prisma.course.findFirst({
+            where: { id: cohort.course_id },
+            select: { id: true, title: true },
+          })
+        : null,
+      this.prisma.cohort_students.findMany({
+        where: { cohort_id: cohortIdStr, deleted_at: null },
+        select: { user_id: true },
+      }),
+      this.prisma.cohort_students.count({
+        where: { cohort_id: cohortIdStr, deleted_at: null },
+      }),
+      this.prisma.live_class.count({
+        where: { cohort_id: cohort.id, deleted_at: null, date: { gte: today } },
+      }),
+    ]);
+
+    const userIds = students
+      .map((s) => s.user_id)
+      .filter((x): x is number => x !== null && x !== undefined);
+
+    const users = userIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIds }, deleted_at: null },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            user_email: true,
+            phone: true,
+            student_id: true,
+            status: true,
+          },
+        })
+      : [];
+
+    const statusLabels: Record<number, string> = {
+      0: 'Inactive',
+      1: 'Active',
+      2: 'Graduated',
+      3: 'Dropped',
+    };
+
+    const learners: InstructorLearnerRow[] = users
+      .map((u) => ({
+        id: u.id,
+        name: u.name ?? '',
+        email: u.user_email ?? u.email ?? '',
+        phone: u.phone ?? '',
+        enrollmentId: u.student_id ?? null,
+        statusLabel:
+          u.status !== null && u.status !== undefined
+            ? statusLabels[u.status] ?? 'Unknown'
+            : 'Unknown',
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      id: cohort.id,
+      title: cohort.title ?? '',
+      cohortCode: cohort.cohort_id ?? '',
+      courseTitle: course?.title ?? null,
+      startDate: isoDate(cohort.start_date),
+      endDate: isoDate(cohort.end_date),
+      learnerCount,
+      upcomingSessionCount: upcomingCount,
+      learners,
+    };
   }
 
   async getLiveClassAttendance(
