@@ -1190,12 +1190,45 @@ model live_class {
   role_id       Int?      @db.TinyInt
   free          String    @default("on") @db.VarChar(10)
   video_url     String?   @db.VarChar(225)
+  // Post-meeting Teams artifacts (added 2026-04-24) — see deploy/migrations/2026-04-24-teams-artifacts.sql
+  recording_url               String?   @db.Text
+  recording_storage_key       String?   @db.VarChar(500)
+  recording_graph_id          String?   @db.VarChar(255)
+  recording_size_bytes        BigInt?
+  recording_duration_seconds  Int?
+  recording_fetched_at        DateTime? @db.DateTime(0)
+  recording_fetch_error       String?   @db.VarChar(500)
+  attendance_fetched_at       DateTime? @db.DateTime(0)
+  attendance_fetch_error      String?   @db.VarChar(500)
   created_by    Int?
   updated_by    Int?
   deleted_by    Int?
   created_at    DateTime? @db.DateTime(0)
   updated_at    DateTime? @db.DateTime(0)
   deleted_at    DateTime? @db.DateTime(0)
+
+  @@index([platform, toDate, recording_fetched_at, attendance_fetched_at], map: "idx_live_class_teams_sync")
+}
+
+model live_class_attendance {
+  id                Int       @id @default(autoincrement()) @db.UnsignedInt
+  live_class_id     Int
+  user_id           Int?      @db.UnsignedInt
+  email             String    @db.VarChar(255)
+  display_name      String?   @db.VarChar(255)
+  role              String?   @db.VarChar(30)
+  total_seconds     Int       @default(0)
+  percent_attended  Decimal?  @db.Decimal(5, 2)
+  first_joined_at   DateTime? @db.DateTime(0)
+  last_left_at      DateTime? @db.DateTime(0)
+  intervals_json    String?   @db.LongText
+  created_at        DateTime? @default(now()) @db.DateTime(0)
+  updated_at        DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([live_class_id, email], map: "uniq_meeting_email")
+  @@index([live_class_id], map: "idx_live_class")
+  @@index([user_id], map: "idx_user")
+  @@index([email], map: "idx_email")
 }
 
 model live_class_reminders {
