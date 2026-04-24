@@ -284,6 +284,13 @@ export class TeamsMeetingService {
       value?: Array<{
         id?: string;
         meetingId?: string;
+        // Graph v1.0 returns this field as `recordingContentUrl`, not
+        // `contentUrl` as some docs/code samples suggest. Confirmed against
+        // the live tenant 2026-04-24 after hours of debugging an empty-result
+        // sync loop — the recording DID exist, we were just reading the wrong
+        // key. Keep `contentUrl` as a secondary fallback in case Microsoft
+        // backfills or renames it.
+        recordingContentUrl?: string;
         contentUrl?: string;
         createdDateTime?: string;
       }>;
@@ -293,7 +300,7 @@ export class TeamsMeetingService {
       .map((r) => ({
         recordingId: r.id ?? '',
         meetingId: r.meetingId ?? meetingId,
-        contentUrl: r.contentUrl ?? '',
+        contentUrl: r.recordingContentUrl ?? r.contentUrl ?? '',
         createdDateTime: r.createdDateTime ?? '',
       }))
       .filter((r) => r.recordingId !== '' && r.contentUrl !== '');
