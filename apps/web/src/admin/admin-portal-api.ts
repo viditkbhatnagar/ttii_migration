@@ -1873,7 +1873,10 @@ export class AdminPortalApi {
     );
     const data = response.data as { url?: string } | undefined;
     if (!data?.url) {
-      throw new Error(String(response.message ?? 'Recording not available'));
+      const message = typeof response.message === 'string' && response.message.trim() !== ''
+        ? response.message
+        : 'Recording not available';
+      throw new Error(message);
     }
     return data.url;
   }
