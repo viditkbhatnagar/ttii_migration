@@ -35,13 +35,16 @@ function asString(value: unknown): string | null {
 const adminPortalRoles = new Set<number>([
   LEGACY_ROLE_ID.ADMIN,
   LEGACY_ROLE_ID.SUBADMIN,
-  LEGACY_ROLE_ID.INSTRUCTOR,
   LEGACY_ROLE_ID.COUNSELLOR,
 ]);
 
 const centrePortalRoles = new Set<number>([
   LEGACY_ROLE_ID.CENTRE,
   LEGACY_ROLE_ID.ASSOCIATE,
+]);
+
+const instructorPortalRoles = new Set<number>([
+  LEGACY_ROLE_ID.INSTRUCTOR,
 ]);
 
 export interface AuthSession {
@@ -263,6 +266,10 @@ export function resolvePortalSurfaceForRole(roleId: number): PortalSurface {
     return 'centre';
   }
 
+  if (instructorPortalRoles.has(roleId)) {
+    return 'instructor';
+  }
+
   if (adminPortalRoles.has(roleId)) {
     return 'admin';
   }
@@ -270,7 +277,7 @@ export function resolvePortalSurfaceForRole(roleId: number): PortalSurface {
   return 'student';
 }
 
-export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | '/student' {
+export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | '/student' | '/instructor' {
   const surface = resolvePortalSurfaceForRole(roleId);
 
   if (surface === 'admin') {
@@ -279,6 +286,10 @@ export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | 
 
   if (surface === 'centre') {
     return '/centre';
+  }
+
+  if (surface === 'instructor') {
+    return '/instructor';
   }
 
   return '/student';

@@ -10,7 +10,10 @@ const PORTAL_PATH_PREFIX: Record<PortalSurface, string> = {
   admin: '/admin',
   student: '/student',
   centre: '/centre',
+  instructor: '/instructor',
 };
+
+const ALL_PORTAL_PREFIXES = Object.values(PORTAL_PATH_PREFIX);
 
 /**
  * Detects which portal to serve based on the current hostname subdomain.
@@ -30,13 +33,18 @@ export function detectPortalFromSubdomain(): PortalSurface | null {
 }
 
 /**
- * Given a detected portal surface, ensures the current path starts with the
- * correct portal prefix. Returns the corrected path or null if already correct.
+ * Given a detected portal surface, ensures the current path lands inside a
+ * valid portal. Returns the corrected path or null if already on a portal.
+ *
+ * If the user is already on ANY known portal prefix (/admin, /student,
+ * /centre, /instructor), we leave them alone — their role-based login routing
+ * has already placed them on the correct portal, and we don't want the
+ * subdomain to yank them somewhere else. This matters for instructors, who
+ * log in via the admin subdomain but belong on /instructor.
  */
 export function getSubdomainRedirectPath(portal: PortalSurface, pathname: string): string | null {
-  const prefix = PORTAL_PATH_PREFIX[portal];
-  if (pathname === '/' || !pathname.startsWith(prefix)) {
-    return prefix;
+  if (ALL_PORTAL_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
   }
-  return null;
+  return PORTAL_PATH_PREFIX[portal];
 }

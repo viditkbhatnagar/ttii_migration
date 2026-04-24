@@ -2,7 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { extractAuthToken, requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES, LEGACY_ROLE } from '../auth/roles.js';
+import {
+  ADMIN_PORTAL_ROLES,
+  CENTRE_PORTAL_ROLES,
+  INSTRUCTOR_PORTAL_ROLES,
+  LEGACY_ROLE,
+} from '../auth/roles.js';
 import { AuthError, type RequestMeta } from '../auth/types.js';
 
 interface RegisterAuthRoutesOptions {
@@ -431,6 +436,20 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
       reply.code(200).send({
         status: 1,
         message: 'Student surface access granted.',
+        data: {},
+      });
+    },
+  );
+
+  app.get(
+    '/auth/portal/instructor',
+    {
+      preHandler: [requireAuth, requireLegacyRoles(authService, INSTRUCTOR_PORTAL_ROLES)],
+    },
+    async (_request, reply) => {
+      reply.code(200).send({
+        status: 1,
+        message: 'Instructor surface access granted.',
         data: {},
       });
     },

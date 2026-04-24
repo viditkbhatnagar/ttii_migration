@@ -21,10 +21,12 @@ describe('shared api contracts', () => {
       admin: LEGACY_ROLE_ID.ADMIN,
       centre: LEGACY_ROLE_ID.CENTRE,
       student: LEGACY_ROLE_ID.STUDENT,
+      instructor: LEGACY_ROLE_ID.INSTRUCTOR,
     };
 
     expect(roleMap.admin).toBe(1);
     expect(roleMap.centre).toBe(7);
     expect(roleMap.student).toBe(2);
+    expect(roleMap.instructor).toBe(3);
   });
 });

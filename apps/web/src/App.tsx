@@ -12,7 +12,6 @@ import {
   type AuthApi,
   type RoleRouteDefinition,
 } from '@ttii/frontend-core';
-import type { PortalSurface } from '@ttii/shared-types';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
@@ -24,6 +23,8 @@ import { AdminPortal, normalizeAdminPath } from './admin/admin-portal.js';
 import { AdminPortalApi } from './admin/admin-portal-api.js';
 import { CentrePortal, normalizeCentrePath } from './centre/centre-portal.js';
 import { CentrePortalApi } from './centre/centre-portal-api.js';
+import { InstructorPortal, normalizeInstructorPath } from './instructor/instructor-portal.js';
+import { InstructorPortalApi } from './instructor/instructor-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
@@ -44,7 +45,7 @@ interface ShellCopy {
   metrics: readonly ShellMetric[];
 }
 
-const shellCopyMap: Record<Exclude<PortalSurface, 'student'>, ShellCopy> = {
+const shellCopyMap: Record<'admin' | 'centre', ShellCopy> = {
   centre: {
     roleLabel: 'Centre App',
     title: 'Centre Dashboard',
@@ -196,16 +197,25 @@ function createDefaultAdminPortalApi(baseUrl = resolveApiBaseUrl()): AdminPortal
   );
 }
 
+function createDefaultInstructorPortalApi(baseUrl = resolveApiBaseUrl()): InstructorPortalApi {
+  return new InstructorPortalApi(
+    new LegacyApiClient({
+      baseUrl,
+    }),
+  );
+}
+
 interface RoleShellRouteProps {
   route: RoleRouteDefinition;
   pathname: string;
   studentPortalApi: StudentPortalApi;
   centrePortalApi: CentrePortalApi;
   adminPortalApi: AdminPortalApi;
+  instructorPortalApi: InstructorPortalApi;
 }
 
 function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteDefinition; pathname: string; guardStatus: string }) {
-  const content = shellCopyMap[route.surface as Exclude<PortalSurface, 'student'>];
+  const content = shellCopyMap[route.surface as 'admin' | 'centre'];
 
   return (
     <PortalScaffold
@@ -254,7 +264,7 @@ function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteD
   );
 }
 
-function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi }: RoleShellRouteProps) {
+function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi }: RoleShellRouteProps) {
   const { authApi, phase, session, logout } = useAuthState();
   const [guardStatus, setGuardStatus] = useState<'checking' | 'ready' | 'unauthenticated' | 'forbidden' | 'error'>(
     'checking',
@@ -301,7 +311,9 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
       ? normalizeStudentPath(pathname)
       : route.surface === 'centre'
         ? normalizeCentrePath(pathname)
-        : normalizeAdminPath(pathname);
+        : route.surface === 'instructor'
+          ? normalizeInstructorPath(pathname)
+          : normalizeAdminPath(pathname);
     if (normalizedPath !== pathname) {
       navigateTo(normalizedPath);
     }
@@ -390,6 +402,29 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
         pathname={pathname}
         session={session}
         api={centrePortalApi}
+        onNavigate={navigateTo}
+        onLogout={() => {
+          void logout();
+          navigateTo('/');
+        }}
+      />
+    );
+  }
+
+  if (route.surface === 'instructor') {
+    if (!session) {
+      return (
+        <InlineNotice tone="warning" title="Session missing">
+          Instructor portal requires an active session.
+        </InlineNotice>
+      );
+    }
+
+    return (
+      <InstructorPortal
+        pathname={pathname}
+        session={session}
+        api={instructorPortalApi}
         onNavigate={navigateTo}
         onLogout={() => {
           void logout();
@@ -711,11 +746,13 @@ function PortalRouter({
   studentPortalApi,
   centrePortalApi,
   adminPortalApi,
+  instructorPortalApi,
 }: {
   initialPath: string;
   studentPortalApi: StudentPortalApi;
   centrePortalApi: CentrePortalApi;
   adminPortalApi: AdminPortalApi;
+  instructorPortalApi: InstructorPortalApi;
 }) {
   const pathname = usePathname(initialPath);
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
@@ -768,6 +805,7 @@ function PortalRouter({
       studentPortalApi={studentPortalApi}
       centrePortalApi={centrePortalApi}
       adminPortalApi={adminPortalApi}
+      instructorPortalApi={instructorPortalApi}
     />
   );
 }
@@ -778,9 +816,10 @@ export interface AppProps {
   studentPortalApi?: StudentPortalApi;
   centrePortalApi?: CentrePortalApi;
   adminPortalApi?: AdminPortalApi;
+  instructorPortalApi?: InstructorPortalApi;
 }
 
-export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi }: AppProps) {
+export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi }: AppProps) {
   const resolvedAuthApi = useMemo(() => authApi ?? createDefaultAuthApi(), [authApi]);
   const resolvedStudentPortalApi = useMemo(
     () => studentPortalApi ?? createDefaultStudentPortalApi(),
@@ -794,6 +833,10 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
     () => adminPortalApi ?? createDefaultAdminPortalApi(),
     [adminPortalApi],
   );
+  const resolvedInstructorPortalApi = useMemo(
+    () => instructorPortalApi ?? createDefaultInstructorPortalApi(),
+    [instructorPortalApi],
+  );
 
   return (
     <AppErrorBoundary>
@@ -804,6 +847,7 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
             studentPortalApi={resolvedStudentPortalApi}
             centrePortalApi={resolvedCentrePortalApi}
             adminPortalApi={resolvedAdminPortalApi}
+            instructorPortalApi={resolvedInstructorPortalApi}
           />
         </ConfirmDialogProvider>
       </AuthProvider>

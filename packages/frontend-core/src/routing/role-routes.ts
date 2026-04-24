@@ -1,7 +1,7 @@
 import type { PortalSurface } from '@ttii/shared-types';
 
 export interface RoleRouteDefinition {
-  path: '/admin' | '/centre' | '/student';
+  path: '/admin' | '/centre' | '/student' | '/instructor';
   surface: PortalSurface;
   label: string;
 }
@@ -16,6 +16,11 @@ export const ROLE_ROUTES: readonly RoleRouteDefinition[] = [
     path: '/centre',
     surface: 'centre',
     label: 'Centre',
+  },
+  {
+    path: '/instructor',
+    surface: 'instructor',
+    label: 'Instructor',
   },
   {
     path: '/admin',
