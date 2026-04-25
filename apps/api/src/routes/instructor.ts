@@ -100,6 +100,58 @@ export function registerInstructorRoutes(
     }
   });
 
+  app.get('/instructor/assignments', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const data = await instructorService.listAssignments(userId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.get('/instructor/assignments/:id/submissions', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const assignmentId = toIntId(params.id);
+      const data = await instructorService.getAssignmentDetail(userId, assignmentId);
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Assignment not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.post('/instructor/submissions/:id/grade', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const submissionId = toIntId(params.id);
+      const body = (request.body as Record<string, unknown>) ?? {};
+      const marks = typeof body.marks === 'string'
+        ? body.marks
+        : typeof body.marks === 'number'
+          ? String(body.marks)
+          : '';
+      const remarks = typeof body.remarks === 'string' ? body.remarks : '';
+      const data = await instructorService.gradeSubmission(userId, submissionId, { marks, remarks });
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Submission not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'Submission graded successfully.', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
   app.get('/instructor/cohorts', guards, async (request, reply) => {
     try {
       const userId = requireUserId(request, reply);

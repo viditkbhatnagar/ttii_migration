@@ -112,6 +112,46 @@ export interface InstructorCohortDetailSnapshot extends InstructorCohortSummary 
   learners: InstructorLearnerRow[];
 }
 
+export interface InstructorAssignmentSummary {
+  id: number;
+  title: string;
+  cohortId: number | null;
+  cohortTitle: string | null;
+  dueDate: string | null;
+  totalMarks: number | null;
+  submissionCount: number;
+  gradedCount: number;
+  pendingCount: number;
+}
+
+export interface InstructorSubmissionRow {
+  id: number;
+  userId: number | null;
+  studentName: string | null;
+  studentEnrollmentId: string | null;
+  studentEmail: string | null;
+  submittedAt: string | null;
+  files: string[];
+  marks: string;
+  remarks: string;
+  graded: boolean;
+}
+
+export interface InstructorAssignmentDetailSnapshot {
+  assignment: {
+    id: number;
+    title: string;
+    description: string;
+    instructions: string | null;
+    file: string | null;
+    dueDate: string | null;
+    totalMarks: number | null;
+    cohortId: number | null;
+    cohortTitle: string | null;
+  };
+  submissions: InstructorSubmissionRow[];
+}
+
 function asNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -123,6 +163,27 @@ function asNumber(value: unknown): number {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+function asStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean);
+}
+
+function asSubmissionRow(input: unknown): InstructorSubmissionRow {
+  const row = asRecord(input) ?? {};
+  return {
+    id: asNumber(row.id),
+    userId: row.userId == null ? null : asNumber(row.userId),
+    studentName: asNullableString(row.studentName),
+    studentEnrollmentId: asNullableString(row.studentEnrollmentId),
+    studentEmail: asNullableString(row.studentEmail),
+    submittedAt: asNullableString(row.submittedAt),
+    files: asStringArray(row.files),
+    marks: asString(row.marks),
+    remarks: asString(row.remarks),
+    graded: Boolean(row.graded),
+  };
 }
 
 function asLiveClassRow(input: unknown): InstructorDashboardLiveClass {
@@ -254,6 +315,76 @@ export class InstructorPortalApi {
           };
         }),
       };
+    } catch {
+      return null;
+    }
+  }
+
+  async loadAssignments(authToken: string): Promise<InstructorAssignmentSummary[]> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/instructor/assignments', authToken);
+    const list = Array.isArray(payload.data) ? payload.data : [];
+    return list.map((item) => {
+      const row = asRecord(item) ?? {};
+      return {
+        id: asNumber(row.id),
+        title: asString(row.title),
+        cohortId: row.cohortId == null ? null : asNumber(row.cohortId),
+        cohortTitle: asNullableString(row.cohortTitle),
+        dueDate: asNullableString(row.dueDate),
+        totalMarks: row.totalMarks == null ? null : asNumber(row.totalMarks),
+        submissionCount: asNumber(row.submissionCount),
+        gradedCount: asNumber(row.gradedCount),
+        pendingCount: asNumber(row.pendingCount),
+      };
+    });
+  }
+
+  async loadAssignmentDetail(
+    authToken: string,
+    assignmentId: number,
+  ): Promise<InstructorAssignmentDetailSnapshot | null> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/assignments/${assignmentId}/submissions`,
+        authToken,
+      );
+      const data = asRecord(payload.data);
+      if (!data) return null;
+      const a = asRecord(data.assignment) ?? {};
+      const subs = Array.isArray(data.submissions) ? data.submissions : [];
+      return {
+        assignment: {
+          id: asNumber(a.id),
+          title: asString(a.title),
+          description: asString(a.description),
+          instructions: asNullableString(a.instructions),
+          file: asNullableString(a.file),
+          dueDate: asNullableString(a.dueDate),
+          totalMarks: a.totalMarks == null ? null : asNumber(a.totalMarks),
+          cohortId: a.cohortId == null ? null : asNumber(a.cohortId),
+          cohortTitle: asNullableString(a.cohortTitle),
+        },
+        submissions: subs.map((item) => asSubmissionRow(item)),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async gradeSubmission(
+    authToken: string,
+    submissionId: number,
+    input: { marks: string; remarks: string },
+  ): Promise<InstructorSubmissionRow | null> {
+    try {
+      const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/submissions/${submissionId}/grade`,
+        authToken,
+        { marks: input.marks, remarks: input.remarks },
+      );
+      const data = asRecord(payload.data);
+      if (!data) return null;
+      return asSubmissionRow(data);
     } catch {
       return null;
     }

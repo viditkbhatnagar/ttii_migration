@@ -82,6 +82,51 @@ export interface InstructorCohortDetail extends InstructorCohortSummary {
   learners: InstructorLearnerRow[];
 }
 
+export interface InstructorAssignmentSummary {
+  id: number;
+  title: string;
+  cohortId: number | null;
+  cohortTitle: string | null;
+  dueDate: string | null;
+  totalMarks: number | null;
+  submissionCount: number;
+  gradedCount: number;
+  pendingCount: number;
+}
+
+export interface InstructorSubmissionRow {
+  id: number;
+  userId: number | null;
+  studentName: string | null;
+  studentEnrollmentId: string | null;
+  studentEmail: string | null;
+  submittedAt: string | null;
+  files: string[];
+  marks: string;
+  remarks: string;
+  graded: boolean;
+}
+
+export interface InstructorAssignmentDetail {
+  assignment: {
+    id: number;
+    title: string;
+    description: string;
+    instructions: string | null;
+    file: string | null;
+    dueDate: string | null;
+    totalMarks: number | null;
+    cohortId: number | null;
+    cohortTitle: string | null;
+  };
+  submissions: InstructorSubmissionRow[];
+}
+
+export interface GradeSubmissionInput {
+  marks: string;
+  remarks: string;
+}
+
 const UPCOMING_LIMIT = 8;
 const PAST_LIMIT = 8;
 
@@ -482,6 +527,214 @@ export class InstructorService {
       learnerCount,
       upcomingSessionCount: upcomingCount,
       learners,
+    };
+  }
+
+  async listAssignments(instructorId: number): Promise<InstructorAssignmentSummary[]> {
+    const { ids: cohortIds, titleMap } = await this.getInstructorCohortIds(instructorId);
+    if (cohortIds.length === 0) return [];
+
+    const assignments = await this.prisma.assignment.findMany({
+      where: { cohort_id: { in: cohortIds }, deleted_at: null },
+      select: {
+        id: true,
+        title: true,
+        cohort_id: true,
+        due_date: true,
+        total_marks: true,
+      },
+      orderBy: [{ due_date: 'desc' }, { id: 'desc' }],
+    });
+
+    if (assignments.length === 0) return [];
+
+    const assignmentIds = assignments.map((a) => a.id);
+    const submissions = await this.prisma.assignment_submissions.findMany({
+      where: { assignment_id: { in: assignmentIds }, deleted_at: null },
+      select: { assignment_id: true, marks: true },
+    });
+
+    const submissionsByAssignment = new Map<number, { total: number; graded: number }>();
+    for (const sub of submissions) {
+      const aid = sub.assignment_id;
+      if (aid === null || aid === undefined) continue;
+      const current = submissionsByAssignment.get(aid) ?? { total: 0, graded: 0 };
+      current.total += 1;
+      if (sub.marks && sub.marks.trim() !== '') current.graded += 1;
+      submissionsByAssignment.set(aid, current);
+    }
+
+    return assignments.map((a) => {
+      const counts = submissionsByAssignment.get(a.id) ?? { total: 0, graded: 0 };
+      return {
+        id: a.id,
+        title: a.title ?? '',
+        cohortId: a.cohort_id ?? null,
+        cohortTitle: a.cohort_id ? titleMap.get(a.cohort_id) ?? null : null,
+        dueDate: isoDate(a.due_date),
+        totalMarks: a.total_marks ?? null,
+        submissionCount: counts.total,
+        gradedCount: counts.graded,
+        pendingCount: counts.total - counts.graded,
+      };
+    });
+  }
+
+  /**
+   * Verifies the assignment belongs to a cohort owned by this instructor.
+   * Returns the assignment row when authorized, null otherwise.
+   */
+  private async loadOwnedAssignment(instructorId: number, assignmentId: number) {
+    if (!assignmentId) return null;
+    const assignment = await this.prisma.assignment.findFirst({
+      where: { id: assignmentId, deleted_at: null },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        instructions: true,
+        file: true,
+        due_date: true,
+        total_marks: true,
+        cohort_id: true,
+      },
+    });
+    if (!assignment || !assignment.cohort_id) return null;
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: assignment.cohort_id, instructor_id: instructorId, deleted_at: null },
+      select: { id: true, title: true },
+    });
+    if (!cohort) return null;
+    return { assignment, cohort };
+  }
+
+  async getAssignmentDetail(
+    instructorId: number,
+    assignmentId: number,
+  ): Promise<InstructorAssignmentDetail | null> {
+    const owned = await this.loadOwnedAssignment(instructorId, assignmentId);
+    if (!owned) return null;
+    const { assignment, cohort } = owned;
+
+    const submissions = await this.prisma.assignment_submissions.findMany({
+      where: { assignment_id: assignment.id, deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+
+    const userIds = [
+      ...new Set(submissions.map((s) => s.user_id).filter((x): x is number => x !== null && x !== undefined)),
+    ];
+    const users = userIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIds }, deleted_at: null },
+          select: { id: true, name: true, student_id: true, email: true, user_email: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const submissionRows: InstructorSubmissionRow[] = submissions.map((s) => {
+      const user = s.user_id ? userMap.get(s.user_id) : null;
+      const filesRaw = s.assignment_files ?? '';
+      const files = filesRaw
+        ? filesRaw
+            .split(/[,\n]/)
+            .map((f) => f.trim())
+            .filter(Boolean)
+        : [];
+      return {
+        id: s.id,
+        userId: s.user_id ?? null,
+        studentName: user?.name ?? null,
+        studentEnrollmentId: user?.student_id ?? null,
+        studentEmail: user?.user_email ?? user?.email ?? null,
+        submittedAt: isoString(s.created_at),
+        files,
+        marks: s.marks ?? '',
+        remarks: s.remarks ?? '',
+        graded: Boolean(s.marks && s.marks.trim() !== ''),
+      };
+    });
+
+    return {
+      assignment: {
+        id: assignment.id,
+        title: assignment.title ?? '',
+        description: assignment.description ?? '',
+        instructions: assignment.instructions ?? null,
+        file: assignment.file ?? null,
+        dueDate: isoDate(assignment.due_date),
+        totalMarks: assignment.total_marks ?? null,
+        cohortId: cohort.id,
+        cohortTitle: cohort.title ?? null,
+      },
+      submissions: submissionRows,
+    };
+  }
+
+  /**
+   * Grades a submission with the canonical admin pattern (marks + remarks).
+   * Verifies the submission's assignment belongs to a cohort owned by this
+   * instructor before applying the update.
+   */
+  async gradeSubmission(
+    instructorId: number,
+    submissionId: number,
+    input: GradeSubmissionInput,
+  ): Promise<InstructorSubmissionRow | null> {
+    if (!submissionId) return null;
+    const submission = await this.prisma.assignment_submissions.findFirst({
+      where: { id: submissionId, deleted_at: null },
+      select: { id: true, assignment_id: true, user_id: true },
+    });
+    if (!submission || !submission.assignment_id) return null;
+    const owned = await this.loadOwnedAssignment(instructorId, submission.assignment_id);
+    if (!owned) return null;
+
+    const marks = input.marks.trim();
+    const remarks = input.remarks.trim();
+    const now = new Date();
+
+    await this.prisma.assignment_submissions.update({
+      where: { id: submissionId },
+      data: {
+        marks: marks === '' ? null : marks,
+        remarks: remarks === '' ? null : remarks,
+        updated_by: instructorId,
+        updated_at: now,
+      },
+    });
+
+    const updated = await this.prisma.assignment_submissions.findFirst({
+      where: { id: submissionId },
+    });
+    if (!updated) return null;
+
+    const user = updated.user_id
+      ? await this.prisma.users.findFirst({
+          where: { id: updated.user_id, deleted_at: null },
+          select: { id: true, name: true, student_id: true, email: true, user_email: true },
+        })
+      : null;
+
+    const filesRaw = updated.assignment_files ?? '';
+    const files = filesRaw
+      ? filesRaw
+          .split(/[,\n]/)
+          .map((f) => f.trim())
+          .filter(Boolean)
+      : [];
+
+    return {
+      id: updated.id,
+      userId: updated.user_id ?? null,
+      studentName: user?.name ?? null,
+      studentEnrollmentId: user?.student_id ?? null,
+      studentEmail: user?.user_email ?? user?.email ?? null,
+      submittedAt: isoString(updated.created_at),
+      files,
+      marks: updated.marks ?? '',
+      remarks: updated.remarks ?? '',
+      graded: Boolean(updated.marks && updated.marks.trim() !== ''),
     };
   }
 
