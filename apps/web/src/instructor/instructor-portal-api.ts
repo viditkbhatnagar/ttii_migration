@@ -31,7 +31,20 @@ export interface InstructorProfileSnapshot {
   name: string;
   email: string;
   phone: string;
+  countryCode: string;
   image: string;
+}
+
+export interface InstructorProfileUpdateInput {
+  name: string;
+  email: string;
+  phone: string;
+  countryCode: string;
+}
+
+export interface InstructorPasswordUpdateInput {
+  password: string;
+  confirmPassword: string;
 }
 
 export interface InstructorDashboardLiveClass {
@@ -249,6 +262,7 @@ export class InstructorPortalApi {
         name: asString(profile.name),
         email: asString(profile.user_email) || asString(profile.email),
         phone: asString(profile.phone),
+        countryCode: asString(profile.country_code),
         image: asString(profile.image),
       };
     } catch {
@@ -258,8 +272,47 @@ export class InstructorPortalApi {
         name: '',
         email: '',
         phone: '',
+        countryCode: '',
         image: '',
       };
+    }
+  }
+
+  async updateProfile(
+    authToken: string,
+    input: InstructorProfileUpdateInput,
+    session: AuthSession,
+  ): Promise<InstructorProfileSnapshot> {
+    await this.post<LegacyEnvelope<Record<string, unknown>>>('/profile/update', authToken, {
+      name: input.name,
+      email: input.email,
+      user_email: input.email,
+      phone: input.phone,
+      country_code: input.countryCode,
+    });
+    return this.loadProfile(authToken, session);
+  }
+
+  async changePassword(authToken: string, input: InstructorPasswordUpdateInput): Promise<void> {
+    const response = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+      '/profile/change_password',
+      authToken,
+      {
+        password: input.password,
+        confirm_password: input.confirmPassword,
+      },
+    );
+    // The legacy endpoint returns { status: 0, message } for validation errors
+    // (mismatch / missing fields) with HTTP 200, so surface those as thrown
+    // errors so the UI can show a toast.
+    if (response && typeof response === 'object' && 'status' in response) {
+      const status = (response as { status?: unknown }).status;
+      if (status === 0 || status === '0') {
+        const message = typeof response.message === 'string' && response.message.trim() !== ''
+          ? response.message
+          : 'Could not change password.';
+        throw new Error(message);
+      }
     }
   }
 
