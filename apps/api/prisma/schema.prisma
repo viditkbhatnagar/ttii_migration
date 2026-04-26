@@ -2391,6 +2391,10 @@ model offerings {
   completion_policy_id     Int?
   certificate_template_id  Int?
   publish_type             String?   @default("public") @db.VarChar(10)
+  // Optional FK back to the legacy `batch` table so we can mirror Intake →
+  // Offering during the dual-LMS period. Unique so each batch maps to at most
+  // one offering. Added 2026-04-26 per Naji's request.
+  legacy_batch_id          Int?      @unique
   created_by               Int?
   updated_by               Int?
   deleted_by               Int?
