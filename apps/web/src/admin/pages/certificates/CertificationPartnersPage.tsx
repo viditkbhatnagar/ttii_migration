@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
 import { Loader2, Upload, X } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -52,8 +53,10 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
       try {
         const { url } = await api.uploadFile(session.token, file);
         setForm((f) => ({ ...f, logo: url }));
-      } catch {
-        /* ignore — keep prior logo */
+        toast.success('Logo uploaded.');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Logo upload failed.';
+        toast.error(message);
       } finally {
         setUploadingLogo(false);
       }

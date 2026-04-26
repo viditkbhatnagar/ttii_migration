@@ -2026,10 +2026,13 @@ export class AdminPortalApi {
   // ── File Upload ────────────────────────────────────────────────
 
   async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
+    // The token has to ride in the URL query (not the multipart body): the
+    // server's auth middleware can't see body fields on multipart requests
+    // because @fastify/multipart isn't configured with attachFieldsToBody.
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('auth_token', authToken);
-    const response = await fetch(`${this.apiClient.getBaseUrl()}admin/upload`, {
+    const url = `${this.apiClient.getBaseUrl()}admin/upload?auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, {
       method: 'POST',
       body: formData,
     });
