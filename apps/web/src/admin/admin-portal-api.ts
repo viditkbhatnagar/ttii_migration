@@ -2089,6 +2089,25 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/certificates/revoke', authToken, { id });
   }
 
+  // ── Offering Certificate Packages ────────────────────────────────
+
+  async listOfferingPackages(authToken: string, offeringId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(`/admin/offerings/${offeringId}/packages`, authToken);
+    return toRecords(payload.data);
+  }
+
+  async addOfferingPackage(authToken: string, offeringId: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/offerings/${offeringId}/packages/add`, authToken, input);
+  }
+
+  async updateOfferingPackage(authToken: string, packageId: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/offering_packages/${packageId}/update`, authToken, input);
+  }
+
+  async deleteOfferingPackage(authToken: string, packageId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/offering_packages/${packageId}/delete`, authToken, {});
+  }
+
   // ── Certification Partners ───────────────────────────────────────
 
   async listCertificationPartners(authToken: string): Promise<Record<string, unknown>[]> {

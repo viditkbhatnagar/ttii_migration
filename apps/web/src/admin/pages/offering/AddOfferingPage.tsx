@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -73,9 +75,31 @@ function computeOfferedFee(base: string, discount: string): string {
   return result ? String(result) : '';
 }
 
+interface PackageForm {
+  combination_id: string;
+  fee_category: string;
+  base_fee: string;
+  discount: string;
+  offered_fee: string;
+}
+
+const emptyPackageForm: PackageForm = {
+  combination_id: '',
+  fee_category: 'paid',
+  base_fee: '',
+  discount: '',
+  offered_fee: '',
+};
+
 export default function AddOfferingPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   const [form, setForm] = useState<OfferingForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [packages, setPackages] = useState<Record<string, unknown>[]>([]);
+  const [packageDialog, setPackageDialog] = useState(false);
+  const [packageForm, setPackageForm] = useState<PackageForm>(emptyPackageForm);
+  const [editingPackageId, setEditingPackageId] = useState('');
+  const [packageSaving, setPackageSaving] = useState(false);
 
   const editId = useMemo(() => {
     const match = window.location.pathname.match(/\/admin\/offerings\/edit\/(.+)/);
@@ -89,11 +113,112 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
   const { data: policiesData } = useAdminPageData(() => api.listCompletionPolicies(session.token), []);
   const { data: templatesData } = useAdminPageData(() => api.listCertificateTemplates(session.token), []);
+  const { data: combinationsData } = useAdminPageData(
+    () => api.listCertificateCombinations(session.token),
+    [],
+  );
 
   const courses = useMemo(() => toRecords(coursesData), [coursesData]);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
   const policies = useMemo(() => toRecords(policiesData), [policiesData]);
   const templates = useMemo(() => toRecords(templatesData), [templatesData]);
+  const combinations = useMemo(() => toRecords(combinationsData), [combinationsData]);
+
+  const reloadPackages = useCallback(async () => {
+    if (!editId) {
+      setPackages([]);
+      return;
+    }
+    try {
+      const rows = await api.listOfferingPackages(session.token, editId);
+      setPackages(rows);
+    } catch {
+      /* ignore */
+    }
+  }, [api, session.token, editId]);
+
+  useEffect(() => {
+    void reloadPackages();
+  }, [reloadPackages]);
+
+  const openAddPackage = useCallback(() => {
+    setEditingPackageId('');
+    setPackageForm(emptyPackageForm);
+    setPackageDialog(true);
+  }, []);
+
+  const openEditPackage = useCallback((pkg: Record<string, unknown>) => {
+    setEditingPackageId(asString(pkg.id));
+    setPackageForm({
+      combination_id: asString(pkg.combination_id),
+      fee_category: asString(pkg.fee_category) || 'paid',
+      base_fee: pkg.base_fee == null ? '' : String(asNumber(pkg.base_fee)),
+      discount: pkg.discount == null ? '' : String(asNumber(pkg.discount)),
+      offered_fee: pkg.offered_fee == null ? '' : String(asNumber(pkg.offered_fee)),
+    });
+    setPackageDialog(true);
+  }, []);
+
+  const updatePackageField = useCallback((field: keyof PackageForm, value: string) => {
+    setPackageForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === 'base_fee' || field === 'discount') {
+        next.offered_fee = computeOfferedFee(
+          field === 'base_fee' ? value : next.base_fee,
+          field === 'discount' ? value : next.discount,
+        );
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSavePackage = useCallback(async () => {
+    if (!editId || !packageForm.combination_id) return;
+    setPackageSaving(true);
+    try {
+      const payload = {
+        combination_id: packageForm.combination_id,
+        fee_category: packageForm.fee_category,
+        base_fee: packageForm.base_fee ? Number(packageForm.base_fee) : undefined,
+        discount: packageForm.discount ? Number(packageForm.discount) : undefined,
+        offered_fee: packageForm.offered_fee ? Number(packageForm.offered_fee) : undefined,
+      };
+      if (editingPackageId) {
+        await api.updateOfferingPackage(session.token, editingPackageId, payload);
+      } else {
+        await api.addOfferingPackage(session.token, editId, payload);
+      }
+      setPackageDialog(false);
+      setPackageForm(emptyPackageForm);
+      setEditingPackageId('');
+      await reloadPackages();
+    } catch {
+      /* ignore */
+    } finally {
+      setPackageSaving(false);
+    }
+  }, [api, session.token, editId, editingPackageId, packageForm, reloadPackages]);
+
+  const handleDeletePackage = useCallback(
+    async (pkg: Record<string, unknown>) => {
+      if (
+        !(await confirm({
+          title: 'Remove this certificate package?',
+          description: `Combination "${asString(pkg.combination_code)}" will be unlinked from this offering.`,
+          confirmText: 'Remove',
+          variant: 'destructive',
+        }))
+      )
+        return;
+      try {
+        await api.deleteOfferingPackage(session.token, asString(pkg.id));
+        await reloadPackages();
+      } catch {
+        /* ignore */
+      }
+    },
+    [api, session.token, reloadPackages, confirm],
+  );
 
   useEffect(() => {
     if (!editId) return;
@@ -338,6 +463,77 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       </Card>
 
       <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Certificate Package</CardTitle>
+            {editId ? (
+              <Button size="sm" variant="outline" onClick={openAddPackage} disabled={combinations.length === 0}>
+                + Add
+              </Button>
+            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!editId ? (
+            <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+              Save the offering first, then you can attach certificate packages here.
+            </p>
+          ) : packages.length === 0 ? (
+            <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+              No certificate packages attached yet.
+              {combinations.length === 0 ? (
+                <> Create one under <em>Course → Certificate Combinations</em> first.</>
+              ) : (
+                <> Click <strong>+ Add</strong> to choose from your saved combinations.</>
+              )}
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-slate-600">Combination</th>
+                    <th className="px-3 py-2 font-medium text-slate-600">Fee Category</th>
+                    <th className="px-3 py-2 font-medium text-slate-600">Base Fee</th>
+                    <th className="px-3 py-2 font-medium text-slate-600">Discount</th>
+                    <th className="px-3 py-2 font-medium text-slate-600">Offered Fee</th>
+                    <th className="px-3 py-2 font-medium text-slate-600">GST</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium text-slate-600">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {packages.map((pkg) => {
+                    const gstApp = Boolean(pkg.gst_applicable);
+                    const gstPctRaw = pkg.gst_percent;
+                    const gstPct = typeof gstPctRaw === 'number' || typeof gstPctRaw === 'string' ? String(gstPctRaw) : '18';
+                    return (
+                      <tr key={asString(pkg.id)} className="border-t border-slate-100">
+                        <td className="px-3 py-2 font-medium text-slate-900">{asString(pkg.combination_code)}</td>
+                        <td className="px-3 py-2 capitalize text-slate-700">{asString(pkg.fee_category)}</td>
+                        <td className="px-3 py-2 text-slate-700">{pkg.base_fee == null ? '—' : `₹${asNumber(pkg.base_fee).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-slate-700">{pkg.discount == null ? '—' : `₹${asNumber(pkg.discount).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-slate-900">{pkg.offered_fee == null ? '—' : `₹${asNumber(pkg.offered_fee).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-slate-700">{gstApp ? `${gstPct}%` : '—'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button type="button" onClick={() => openEditPackage(pkg)} className="text-xs text-blue-600 hover:underline">
+                            Edit
+                          </button>
+                          <span className="mx-1 text-slate-300">·</span>
+                          <button type="button" onClick={() => void handleDeletePackage(pkg)} className="text-xs text-red-600 hover:underline">
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">Academic Rules</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -397,6 +593,106 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
           {saving ? 'Saving...' : editId ? 'Update Offering' : 'Create Offering'}
         </Button>
       </div>
+
+      <Dialog
+        open={packageDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPackageDialog(false);
+            setPackageForm(emptyPackageForm);
+            setEditingPackageId('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingPackageId ? 'Edit Certificate Package' : 'Add Certificate Package'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label>Certificate Combination</Label>
+              <select
+                className={selectClass}
+                value={packageForm.combination_id}
+                onChange={(e) => updatePackageField('combination_id', e.target.value)}
+                disabled={Boolean(editingPackageId)}
+              >
+                <option value="">— Choose a combination —</option>
+                {combinations.map((c) => {
+                  const id = asString(c.id);
+                  const code = asString(c.combination_code);
+                  const courseTitle = asString(c.course_title);
+                  return (
+                    <option key={id} value={id}>
+                      {code}{courseTitle ? ` — ${courseTitle}` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Fee Category</Label>
+                <select
+                  className={selectClass}
+                  value={packageForm.fee_category}
+                  onChange={(e) => updatePackageField('fee_category', e.target.value)}
+                >
+                  <option value="paid">Paid</option>
+                  <option value="free">Free</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Base Fee (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={packageForm.base_fee}
+                  onChange={(e) => updatePackageField('base_fee', e.target.value)}
+                  disabled={packageForm.fee_category === 'free'}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Discount (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={packageForm.discount}
+                  onChange={(e) => updatePackageField('discount', e.target.value)}
+                  disabled={packageForm.fee_category === 'free'}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Offered Fee (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={packageForm.offered_fee}
+                  onChange={(e) => updatePackageField('offered_fee', e.target.value)}
+                  disabled={packageForm.fee_category === 'free'}
+                />
+                <p className="text-xs text-slate-400">Auto-calculated from Base − Discount; override if needed.</p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPackageDialog(false);
+                setPackageForm(emptyPackageForm);
+                setEditingPackageId('');
+              }}
+              disabled={packageSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSavePackage()} disabled={packageSaving || !packageForm.combination_id}>
+              {packageSaving ? 'Saving...' : editingPackageId ? 'Update Package' : 'Add Package'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

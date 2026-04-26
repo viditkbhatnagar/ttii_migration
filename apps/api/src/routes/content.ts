@@ -972,6 +972,62 @@ export function registerContentRoutes(
     }
   });
 
+  // ── Certificate Packages on an Offering ──────────────────────────
+  app.get('/admin/offerings/:id/packages', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await offeringService.listOfferingPackages(toStringValue(params.id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/offerings/:id/packages/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const p = requestPayload(request);
+      const data = await offeringService.addOfferingPackage(requestUserId(request), toStringValue(params.id), {
+        combination_id: toStringValue(p.combination_id),
+        fee_category: toStringValue(p.fee_category) || undefined,
+        base_fee: typeof p.base_fee === 'number' ? p.base_fee : (p.base_fee ? Number(p.base_fee) : undefined),
+        discount: typeof p.discount === 'number' ? p.discount : (p.discount ? Number(p.discount) : undefined),
+        offered_fee: typeof p.offered_fee === 'number' ? p.offered_fee : (p.offered_fee ? Number(p.offered_fee) : undefined),
+        position: typeof p.position === 'number' ? p.position : 0,
+      });
+      reply.code(200).send({ status: 1, message: 'Package added.', data });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/offering_packages/:id/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const p = requestPayload(request);
+      await offeringService.updateOfferingPackage(requestUserId(request), toStringValue(params.id), {
+        fee_category: toStringValue(p.fee_category) || undefined,
+        base_fee: typeof p.base_fee === 'number' ? p.base_fee : (p.base_fee ? Number(p.base_fee) : undefined),
+        discount: typeof p.discount === 'number' ? p.discount : (p.discount ? Number(p.discount) : undefined),
+        offered_fee: typeof p.offered_fee === 'number' ? p.offered_fee : (p.offered_fee ? Number(p.offered_fee) : undefined),
+        position: typeof p.position === 'number' ? p.position : 0,
+      });
+      reply.code(200).send({ status: 1, message: 'Package updated.', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/offering_packages/:id/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      await offeringService.deleteOfferingPackage(requestUserId(request), toStringValue(params.id));
+      reply.code(200).send({ status: 1, message: 'Package deleted.', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // ── Admin Content Asset Library routes ────────────────────────────
 
   const contentAssetService = new ContentAssetService();

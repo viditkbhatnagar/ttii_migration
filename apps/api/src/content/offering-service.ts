@@ -285,4 +285,126 @@ export class OfferingService {
       },
     });
   }
+
+  // ─── Certificate Packages on an Offering ───────────────────────────
+
+  async listOfferingPackages(offeringId: string): Promise<Record<string, unknown>[]> {
+    const id = toIntId(offeringId);
+    if (!id) return [];
+    const rows = await this.prisma.offering_certificate_packages.findMany({
+      where: { offering_id: id, deleted_at: null },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    });
+    if (rows.length === 0) return [];
+
+    const combinationIds = Array.from(new Set(rows.map((r) => r.combination_id)));
+    const combinations = await this.prisma.certificate_combinations.findMany({
+      where: { id: { in: combinationIds }, deleted_at: null },
+      select: { id: true, combination_code: true, gst_applicable: true, gst_percent: true },
+    });
+    const comboMap = new Map(combinations.map((c) => [c.id, c]));
+
+    return rows.map((r) => {
+      const combo = comboMap.get(r.combination_id);
+      return {
+        id: String(r.id),
+        offering_id: String(r.offering_id),
+        combination_id: String(r.combination_id),
+        combination_code: combo?.combination_code ?? '',
+        gst_applicable: combo?.gst_applicable ?? false,
+        gst_percent: combo?.gst_percent === null || combo?.gst_percent === undefined
+          ? null
+          : Number(combo.gst_percent),
+        fee_category: r.fee_category,
+        base_fee: r.base_fee === null ? null : Number(r.base_fee),
+        discount: r.discount === null ? null : Number(r.discount),
+        offered_fee: r.offered_fee === null ? null : Number(r.offered_fee),
+        position: r.position,
+        created_at: r.created_at,
+      };
+    });
+  }
+
+  async addOfferingPackage(
+    actorUserId: string,
+    offeringId: string,
+    input: {
+      combination_id: string;
+      fee_category?: string | undefined;
+      base_fee?: number | undefined;
+      discount?: number | undefined;
+      offered_fee?: number | undefined;
+      position?: number | undefined;
+    },
+  ): Promise<Record<string, unknown>> {
+    const offeringIdNum = toIntId(offeringId);
+    const combinationIdNum = toIntId(input.combination_id);
+    if (!offeringIdNum) throw new Error('Invalid offering id');
+    if (!combinationIdNum) throw new Error('combination_id is required');
+    const actor = toNullableIntId(actorUserId);
+
+    const created = await this.prisma.offering_certificate_packages.create({
+      data: {
+        offering_id: offeringIdNum,
+        combination_id: combinationIdNum,
+        fee_category: input.fee_category || 'paid',
+        base_fee: toNullableDecimal(input.base_fee),
+        discount: toNullableDecimal(input.discount),
+        offered_fee: toNullableDecimal(input.offered_fee),
+        position: input.position ?? 0,
+        created_by: actor,
+        updated_by: actor,
+      },
+    });
+
+    return {
+      id: String(created.id),
+      offering_id: String(created.offering_id),
+      combination_id: String(created.combination_id),
+      fee_category: created.fee_category,
+      base_fee: created.base_fee === null ? null : Number(created.base_fee),
+      discount: created.discount === null ? null : Number(created.discount),
+      offered_fee: created.offered_fee === null ? null : Number(created.offered_fee),
+      position: created.position,
+    };
+  }
+
+  async updateOfferingPackage(
+    actorUserId: string,
+    packageId: string,
+    input: {
+      fee_category?: string | undefined;
+      base_fee?: number | undefined;
+      discount?: number | undefined;
+      offered_fee?: number | undefined;
+      position?: number | undefined;
+    },
+  ): Promise<void> {
+    const id = toIntId(packageId);
+    if (!id) throw new Error('Invalid package id');
+    await this.prisma.offering_certificate_packages.update({
+      where: { id },
+      data: {
+        fee_category: input.fee_category || 'paid',
+        base_fee: toNullableDecimal(input.base_fee),
+        discount: toNullableDecimal(input.discount),
+        offered_fee: toNullableDecimal(input.offered_fee),
+        position: input.position ?? 0,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async deleteOfferingPackage(actorUserId: string, packageId: string): Promise<void> {
+    const id = toIntId(packageId);
+    if (!id) throw new Error('Invalid package id');
+    await this.prisma.offering_certificate_packages.update({
+      where: { id },
+      data: {
+        deleted_at: new Date(),
+        updated_by: toNullableIntId(actorUserId),
+      },
+    });
+  }
 }
