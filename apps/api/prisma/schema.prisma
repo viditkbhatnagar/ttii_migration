@@ -98,12 +98,40 @@ model applications {
   is_converted          Int?                 @default(0)
   converted_by          Int?
   converted_at          DateTime?            @db.DateTime(0)
+  // Added 2026-04-26 per Naji's TTII LMS Correction_new_corrections doc.
+  offering_id              Int?
+  certificate_combination_id Int?
+  lead_source              String?  @db.VarChar(120)
+  current_occupation       String?  @db.VarChar(120)
+  application_discount     Decimal? @db.Decimal(10, 2)
+  application_gst_percent  Decimal? @db.Decimal(5, 2)
+  application_final_fee    Decimal? @db.Decimal(10, 2)
   created_at            DateTime?            @db.DateTime(0)
   updated_at            DateTime?            @db.DateTime(0)
   deleted_at            DateTime?            @db.DateTime(0)
   created_by            Int?
   updated_by            Int?
   deleted_by            Int?
+}
+
+/// Education Pathway entries linked to an application — multi-row sub-form.
+/// Added 2026-04-26 per Naji's correction doc.
+model application_education_pathway {
+  id             Int       @id @default(autoincrement()) @db.UnsignedInt
+  application_id Int
+  qualification  String    @db.VarChar(255)
+  specialization String?   @db.VarChar(255)
+  institution    String?   @db.VarChar(255)
+  year_passed    String?   @db.VarChar(10)
+  marks          String?   @db.VarChar(50)
+  board          String?   @db.VarChar(255)
+  position       Int?      @default(0)
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  updated_at     DateTime? @default(now()) @db.DateTime(0)
+  created_by     Int?
+  updated_by     Int?
+
+  @@index([application_id])
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
