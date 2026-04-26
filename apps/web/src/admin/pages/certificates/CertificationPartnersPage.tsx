@@ -159,11 +159,18 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
       key: 'description',
       label: 'Description',
       className: 'max-w-md whitespace-normal align-top',
-      render: (v) => (
-        <p className="break-words text-sm leading-snug text-slate-700">
-          {asString(v) || '—'}
-        </p>
-      ),
+      render: (v) => {
+        const text = asString(v);
+        if (!text) return <span className="text-slate-400">—</span>;
+        return (
+          <p
+            title={text}
+            className="line-clamp-3 break-words text-sm leading-snug text-slate-700"
+          >
+            {text}
+          </p>
+        );
+      },
     },
     {
       key: 'status',
@@ -265,8 +272,10 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="partner-desc">Description</Label>
-                <Input
+                <textarea
                   id="partner-desc"
+                  rows={3}
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Short description"
@@ -282,13 +291,16 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
                   onChange={(e) => void handleLogoUpload(e.target.files?.[0])}
                 />
                 {form.logo ? (
-                  <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                    <img src={form.logo} alt="" className="h-12 w-12 rounded object-cover" />
-                    <div className="flex-1 truncate text-xs text-slate-500">{form.logo}</div>
+                  <div className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <img src={form.logo} alt="" className="h-12 w-12 shrink-0 rounded border border-white bg-white object-contain p-0.5" />
+                    <div className="min-w-0 flex-1 truncate text-xs text-slate-500" title={form.logo}>
+                      {form.logo}
+                    </div>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
+                      className="shrink-0"
                       onClick={() => logoInputRef.current?.click()}
                       disabled={uploadingLogo}
                     >
@@ -299,6 +311,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
                       type="button"
                       size="sm"
                       variant="ghost"
+                      className="shrink-0"
                       onClick={() => setForm((f) => ({ ...f, logo: '' }))}
                     >
                       <X className="h-3.5 w-3.5" />
