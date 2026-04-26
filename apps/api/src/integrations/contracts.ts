@@ -39,6 +39,13 @@ export interface StorageUploadRequest {
   contentType?: string;
   cacheControl?: string;
   metadata?: Record<string, string>;
+  /**
+   * When true, ask the provider to make the object world-readable so the
+   * `location` URL can be loaded directly in a browser (used for brand
+   * assets like partner logos and course thumbnails). Default false —
+   * private objects must be fetched via signed URLs.
+   */
+  publicRead?: boolean;
 }
 
 /**

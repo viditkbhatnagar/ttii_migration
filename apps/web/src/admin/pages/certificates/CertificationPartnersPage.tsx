@@ -141,16 +141,27 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
       render: (v) => {
         const url = asString(v);
         return url ? (
-          <img src={url} alt="" className="h-8 w-8 rounded object-cover" />
+          <img src={url} alt="" className="h-12 w-12 rounded border border-slate-200 bg-white object-contain p-0.5" />
         ) : (
-          <div className="h-8 w-8 rounded bg-slate-100" />
+          <div className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-slate-200 bg-slate-50 text-[10px] text-slate-400">
+            no logo
+          </div>
         );
       },
     },
     { key: 'partner_code', label: 'Code', sortable: true },
     { key: 'name', label: 'Name', sortable: true },
     { key: 'country', label: 'Country' },
-    { key: 'description', label: 'Description', render: (v) => asString(v).slice(0, 60) + (asString(v).length > 60 ? '…' : '') },
+    {
+      key: 'description',
+      label: 'Description',
+      className: 'max-w-md whitespace-normal align-top',
+      render: (v) => (
+        <p className="break-words text-sm leading-snug text-slate-700">
+          {asString(v) || '—'}
+        </p>
+      ),
+    },
     {
       key: 'status',
       label: 'Status',

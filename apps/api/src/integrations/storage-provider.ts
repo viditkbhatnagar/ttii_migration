@@ -238,6 +238,7 @@ export class S3StorageProvider implements StorageProvider {
       extraHeaders: {
         ...(input.contentType ? { 'content-type': input.contentType } : {}),
         ...(input.cacheControl ? { 'cache-control': input.cacheControl } : {}),
+        ...(input.publicRead ? { 'x-amz-acl': 'public-read' } : {}),
       },
     });
 

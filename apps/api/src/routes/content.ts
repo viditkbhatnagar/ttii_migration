@@ -1303,21 +1303,27 @@ export function registerContentRoutes(
         return reply.code(400).send({ status: 0, message: 'No file provided' });
       }
       const ext = file.filename.split('.').pop() ?? 'bin';
-      const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const key = `public/uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const chunks: Buffer[] = [];
       for await (const chunk of file.file) {
         chunks.push(Buffer.from(chunk as Uint8Array));
       }
       const body = Buffer.concat(chunks);
+      // Admin uploads here are brand assets (partner logos, course thumbnails,
+      // banners) — they need to render in <img> tags in the admin UI, so we
+      // mark them public-read. Recordings + other private content go through
+      // the recording-specific upload paths and stay private.
       const result = await storage.uploadObject({
         key,
         body,
         contentType: file.mimetype,
+        cacheControl: 'public, max-age=31536000, immutable',
+        publicRead: true,
       });
       reply.code(200).send({
         status: 1,
         message: 'File uploaded',
-        data: { key: result.key, url: `/storage/${result.key}` },
+        data: { key: result.key, url: result.location },
       });
     } catch (error: unknown) {
       sendContentError(reply, error);
