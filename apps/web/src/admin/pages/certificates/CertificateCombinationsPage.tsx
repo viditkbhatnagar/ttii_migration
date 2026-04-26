@@ -228,64 +228,45 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
               void handleSave();
             }}
           >
-            <DialogHeader>
+            <DialogHeader className="mb-5">
               <DialogTitle>{editId ? 'Edit Combination' : 'New Certificate Combination'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Combination Code (auto)</Label>
-                  <Input
-                    value={form.combination_code}
-                    onChange={(e) => setForm((f) => ({ ...f, combination_code: e.target.value }))}
-                    placeholder="CC-XXXXXX"
-                  />
-                </div>
-                <div>
-                  <Label>Status</Label>
-                  <select
-                    className={selectClass}
-                    value={form.status}
-                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-                <div>
-                  <Label>Program</Label>
-                  <select
-                    className={selectClass}
-                    value={form.program_id}
-                    onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}
-                  >
-                    <option value="">— Select Program —</option>
-                    {programs.map((p) => (
-                      <option key={asString(p.id)} value={asString(p.id)}>
-                        {asString(p.name) || asString(p.title) || asString(p.code)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label>Course</Label>
-                  <select
-                    className={selectClass}
-                    value={form.course_id}
-                    onChange={(e) => setForm((f) => ({ ...f, course_id: e.target.value }))}
-                  >
-                    <option value="">— Select Course —</option>
-                    {courses.map((c) => (
-                      <option key={asString(c.id)} value={asString(c.id)}>
-                        {asString(c.title)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Spec order: Program → Course → Choose Multiple Partners → Combination Code (Auto) → GST Applicability + If Yes (%). Status appended at the end. */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="combo-program">Program</Label>
+                <select
+                  id="combo-program"
+                  className={selectClass}
+                  value={form.program_id}
+                  onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}
+                >
+                  <option value="">— Select Program —</option>
+                  {programs.map((p) => (
+                    <option key={asString(p.id)} value={asString(p.id)}>
+                      {asString(p.name) || asString(p.title) || asString(p.code)}
+                    </option>
+                  ))}
+                </select>
               </div>
-
-              <div>
-                <Label>Choose Partners (multiple)</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="combo-course">Course</Label>
+                <select
+                  id="combo-course"
+                  className={selectClass}
+                  value={form.course_id}
+                  onChange={(e) => setForm((f) => ({ ...f, course_id: e.target.value }))}
+                >
+                  <option value="">— Select Course —</option>
+                  {courses.map((c) => (
+                    <option key={asString(c.id)} value={asString(c.id)}>
+                      {asString(c.title)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Combination (Choose Multiple Partners)</Label>
                 {partners.length === 0 ? (
                   <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
                     No certification partners yet. Add them under <em>Course → Certification Partners</em> first.
@@ -315,23 +296,33 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
                   </div>
                 )}
               </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="combo-code">Combination Code (auto)</Label>
+                <Input
+                  id="combo-code"
+                  value={form.combination_code}
+                  onChange={(e) => setForm((f) => ({ ...f, combination_code: e.target.value }))}
+                  placeholder="CC-XXXXXX"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>GST Applicability</Label>
+                  <label className="flex h-10 items-center gap-2 rounded-md border border-input bg-background px-3">
                     <input
                       type="checkbox"
                       checked={form.gst_applicable}
                       onChange={(e) => setForm((f) => ({ ...f, gst_applicable: e.target.checked }))}
                       className="h-4 w-4"
                     />
-                    <span className="text-sm">GST Applicable</span>
+                    <span className="text-sm">{form.gst_applicable ? 'Yes' : 'No'}</span>
                   </label>
                 </div>
                 {form.gst_applicable ? (
-                  <div>
-                    <Label>GST %</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="combo-gst-pct">GST % (default 18)</Label>
                     <Input
+                      id="combo-gst-pct"
                       type="number"
                       step="0.01"
                       value={form.gst_percent}
@@ -340,8 +331,20 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
                   </div>
                 ) : null}
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="combo-status">Status</Label>
+                <select
+                  id="combo-status"
+                  className={selectClass}
+                  value={form.status}
+                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="mt-6 gap-2">
               <Button
                 type="button"
                 variant="outline"

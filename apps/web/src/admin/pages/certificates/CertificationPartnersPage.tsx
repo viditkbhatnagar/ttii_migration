@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { Loader2, Upload, X } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,24 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<PartnerForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleLogoUpload = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file) return;
+      setUploadingLogo(true);
+      try {
+        const { url } = await api.uploadFile(session.token, file);
+        setForm((f) => ({ ...f, logo: url }));
+      } catch {
+        /* ignore — keep prior logo */
+      } finally {
+        setUploadingLogo(false);
+      }
+    },
+    [api, session.token],
+  );
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.listCertificationPartners(session.token),
@@ -189,74 +208,114 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
               void handleSave();
             }}
           >
-            <DialogHeader>
+            <DialogHeader className="mb-5">
               <DialogTitle>{editId ? 'Edit Partner' : 'New Certification Partner'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Partner Code *</Label>
-                  <Input
-                    value={form.partner_code}
-                    onChange={(e) => setForm((f) => ({ ...f, partner_code: e.target.value }))}
-                    placeholder="e.g. AAP-US"
-                  />
-                </div>
-                <div>
-                  <Label>Status</Label>
-                  <select
-                    className={selectClass}
-                    value={form.status}
-                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <Label>Partner Name *</Label>
+            {/* Spec order: Partner Code → Partner Name → Partner Short Name → Country → Description → Logo. Status appended at the end. */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-code">Partner Code *</Label>
                 <Input
+                  id="partner-code"
+                  value={form.partner_code}
+                  onChange={(e) => setForm((f) => ({ ...f, partner_code: e.target.value }))}
+                  placeholder="e.g. AAP-US"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-name">Partner Name *</Label>
+                <Input
+                  id="partner-name"
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder="e.g. American Academy of Pediatrics"
                 />
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Short Name</Label>
-                  <Input
-                    value={form.short_name}
-                    onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))}
-                    placeholder="e.g. AAP"
-                  />
-                </div>
-                <div>
-                  <Label>Country</Label>
-                  <Input
-                    value={form.country}
-                    onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
-                    placeholder="e.g. United States"
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Logo URL</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-short">Partner Short Name</Label>
                 <Input
-                  value={form.logo}
-                  onChange={(e) => setForm((f) => ({ ...f, logo: e.target.value }))}
-                  placeholder="https://..."
+                  id="partner-short"
+                  value={form.short_name}
+                  onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))}
+                  placeholder="e.g. AAP"
                 />
               </div>
-              <div>
-                <Label>Description</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-country">Country</Label>
                 <Input
+                  id="partner-country"
+                  value={form.country}
+                  onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
+                  placeholder="e.g. United States"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-desc">Description</Label>
+                <Input
+                  id="partner-desc"
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Short description"
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label>Logo</Label>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void handleLogoUpload(e.target.files?.[0])}
+                />
+                {form.logo ? (
+                  <div className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <img src={form.logo} alt="" className="h-12 w-12 rounded object-cover" />
+                    <div className="flex-1 truncate text-xs text-slate-500">{form.logo}</div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={uploadingLogo}
+                    >
+                      {uploadingLogo ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
+                      Replace
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setForm((f) => ({ ...f, logo: '' }))}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploadingLogo}
+                  >
+                    {uploadingLogo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                    Upload Logo
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="partner-status">Status</Label>
+                <select
+                  id="partner-status"
+                  className={selectClass}
+                  value={form.status}
+                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="mt-6 gap-2">
               <Button
                 type="button"
                 variant="outline"
