@@ -153,6 +153,13 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   );
   const _batches = useMemo(() => toRecords(batchesData), [batchesData]);
 
+  // Load certificate combinations for the picker (Phase D)
+  const { data: combinationsData } = useAdminPageData(
+    () => api.listCertificateCombinations(session.token),
+    [],
+  );
+  const certificateCombinations = useMemo(() => toRecords(combinationsData), [combinationsData]);
+
   const set = useCallback((key: keyof FormState, value: string) => {
     setForm((f) => {
       const updated = { ...f, [key]: value };
@@ -552,7 +559,23 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               </div>
               <div className="grid gap-2">
                 <Label>Certificate Combination</Label>
-                <Input value={form.certificateCombination} onChange={(e) => set('certificateCombination', e.target.value)} placeholder="Enter certificate combination" />
+                <select
+                  className={selectClass}
+                  value={form.certificateCombination}
+                  onChange={(e) => set('certificateCombination', e.target.value)}
+                >
+                  <option value="">Select Combination</option>
+                  {certificateCombinations.map((c) => {
+                    const id = asString(c.id);
+                    const code = asString(c.combination_code);
+                    const courseTitle = asString(c.course_title);
+                    return (
+                      <option key={id} value={id}>
+                        {code}{courseTitle ? ` — ${courseTitle}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
               <div className="grid gap-2">
                 <Label>Date of Enrolment</Label>
