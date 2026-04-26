@@ -3431,6 +3431,79 @@ export class OperationsService {
     }) as unknown as SqlRow[];
   }
 
+  /**
+   * Per-student fee summary per Naji's correction doc:
+   * # | Student ID | Student Name | Total Fee | Paid Amount | Pending Amount | Overdue Amount
+   *
+   * Aggregates from `student_payments` (planned installments) and `payment_info`
+   * (actual payments). Pending = Total − Paid. Overdue = unpaid installments
+   * with due_date in the past.
+   */
+  async listFeeSummary(): Promise<Record<string, unknown>[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [installments, payments] = await Promise.all([
+      this.prisma.student_payments.findMany({
+        where: { deleted_at: null },
+        select: { user_id: true, amount: true, due_date: true, paid_date: true, status: true },
+      }),
+      this.prisma.payment_info.groupBy({
+        by: ['user_id'],
+        where: { deleted_at: null, user_id: { not: null } },
+        _sum: { amount_paid: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const userTotals = new Map<number, { total: number; overdue: number }>();
+    for (const inst of installments) {
+      if (!inst.user_id) continue;
+      const entry = userTotals.get(inst.user_id) ?? { total: 0, overdue: 0 };
+      const amount = inst.amount ?? 0;
+      entry.total += amount;
+      const isPaid = Boolean(inst.paid_date) || (inst.status ?? '').toLowerCase() === 'paid';
+      if (!isPaid && inst.due_date && new Date(inst.due_date) < today) {
+        entry.overdue += amount;
+      }
+      userTotals.set(inst.user_id, entry);
+    }
+
+    const paidByUser = new Map<number, number>();
+    for (const p of payments) {
+      if (p.user_id === null || p.user_id === undefined) continue;
+      paidByUser.set(p.user_id, p._sum?.amount_paid ?? 0);
+    }
+
+    // Union of all user_ids across both sources
+    const allUserIds = new Set<number>([...userTotals.keys(), ...paidByUser.keys()]);
+    if (allUserIds.size === 0) return [];
+
+    const users = await this.prisma.users.findMany({
+      where: { id: { in: [...allUserIds] }, deleted_at: null },
+      select: { id: true, name: true, student_id: true, user_email: true, email: true, phone: true },
+    });
+
+    return users
+      .map((u) => {
+        const totals = userTotals.get(u.id) ?? { total: 0, overdue: 0 };
+        const paid = paidByUser.get(u.id) ?? 0;
+        const pending = Math.max(0, totals.total - paid);
+        return {
+          user_id: u.id,
+          student_id: u.student_id ?? '',
+          student_name: u.name ?? '',
+          email: u.user_email ?? u.email ?? '',
+          phone: u.phone ?? '',
+          total_fee: totals.total,
+          paid_amount: paid,
+          pending_amount: pending,
+          overdue_amount: totals.overdue,
+        };
+      })
+      .sort((a, b) => b.pending_amount - a.pending_amount);
+  }
+
   async listFeeInstallments(filters: FeeInstallmentFilters & { search?: string; centreId?: string }): Promise<Record<string, unknown>> {
     // NOTE: students.user_id does not exist in MySQL schema; students.student_id IS the user FK.
     // TODO: student_fee model does not exist; fee-plan aggregates unavailable.

@@ -1743,6 +1743,13 @@ export function registerOperationsRoutes(
 
   // ─── Phase 3: Payment Status ──────────────────────────────────────────
 
+  app.get('/admin/fee_management/fee_summary', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listFeeSummary();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/fee_management/payment_status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

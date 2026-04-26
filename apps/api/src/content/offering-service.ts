@@ -286,6 +286,132 @@ export class OfferingService {
     });
   }
 
+  /**
+   * Course Fee Structure listing per Naji's correction doc:
+   * # | Course | Course Offering | Base Fee | Discount | Final Fee (Before Tax) | GST | Fee Inc. Tax | Status
+   *
+   * Defaults GST to 18% when no certificate combination overrides it. When an
+   * offering has multiple Certificate Packages (the Phase I addition), each
+   * package becomes its own row in this listing so admin can see the full
+   * pricing matrix at a glance.
+   */
+  async listCourseFeeStructure(): Promise<Record<string, unknown>[]> {
+    const offerings = await this.prisma.offerings.findMany({
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+      select: {
+        id: true,
+        course_id: true,
+        title: true,
+        offering_code: true,
+        fee_category: true,
+        base_fee: true,
+        discount: true,
+        offered_fee: true,
+        status: true,
+      },
+    });
+    if (offerings.length === 0) return [];
+
+    const offeringIds = offerings.map((o) => o.id);
+    const courseIds = Array.from(new Set(offerings.map((o) => o.course_id)));
+
+    const [courses, packages] = await Promise.all([
+      this.prisma.course.findMany({
+        where: { id: { in: courseIds } },
+        select: { id: true, title: true },
+      }),
+      this.prisma.offering_certificate_packages.findMany({
+        where: { offering_id: { in: offeringIds }, deleted_at: null },
+        orderBy: [{ offering_id: 'asc' }, { position: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+
+    const combinationIds = Array.from(new Set(packages.map((p) => p.combination_id)));
+    const combinations = combinationIds.length
+      ? await this.prisma.certificate_combinations.findMany({
+          where: { id: { in: combinationIds } },
+          select: { id: true, combination_code: true, gst_applicable: true, gst_percent: true },
+        })
+      : [];
+    const comboMap = new Map(combinations.map((c) => [c.id, c]));
+
+    const rows: Record<string, unknown>[] = [];
+
+    for (const offering of offerings) {
+      const courseTitle = courseMap.get(offering.course_id) ?? '';
+      const baseFallback = offering.base_fee === null ? null : Number(offering.base_fee);
+      const discountFallback = offering.discount === null ? null : Number(offering.discount);
+      const offeredFallback = offering.offered_fee === null ? null : Number(offering.offered_fee);
+
+      const offeringPackages = packages.filter((p) => p.offering_id === offering.id);
+
+      if (offeringPackages.length === 0) {
+        // No package layer — surface the offering's scalar pricing as a single row.
+        const finalBeforeTax = offeredFallback ?? Math.max(0, (baseFallback ?? 0) - (discountFallback ?? 0));
+        const gstPct = 18; // default per spec until a combination overrides
+        const feeIncTax = offering.fee_category === 'free' ? 0 : finalBeforeTax + (finalBeforeTax * gstPct) / 100;
+        rows.push({
+          row_id: `o-${offering.id}`,
+          offering_id: String(offering.id),
+          combination_id: '',
+          combination_code: '',
+          course_id: String(offering.course_id),
+          course_title: courseTitle,
+          offering_title: offering.title ?? '',
+          offering_code: offering.offering_code ?? '',
+          fee_category: offering.fee_category ?? 'paid',
+          base_fee: baseFallback,
+          discount: discountFallback,
+          final_before_tax: finalBeforeTax,
+          gst_applicable: true,
+          gst_percent: gstPct,
+          fee_inc_tax: Math.round(feeIncTax * 100) / 100,
+          status: offering.status ?? 'draft',
+        });
+        continue;
+      }
+
+      for (const pkg of offeringPackages) {
+        const combo = comboMap.get(pkg.combination_id);
+        const base = pkg.base_fee === null ? null : Number(pkg.base_fee);
+        const discount = pkg.discount === null ? null : Number(pkg.discount);
+        const offered = pkg.offered_fee === null ? null : Number(pkg.offered_fee);
+        const finalBeforeTax = offered ?? Math.max(0, (base ?? 0) - (discount ?? 0));
+        const gstApp = combo?.gst_applicable ?? true;
+        const gstPct = combo?.gst_percent === null || combo?.gst_percent === undefined
+          ? 18
+          : Number(combo.gst_percent);
+        const feeIncTax = pkg.fee_category === 'free' || !gstApp
+          ? finalBeforeTax
+          : finalBeforeTax + (finalBeforeTax * gstPct) / 100;
+
+        rows.push({
+          row_id: `p-${pkg.id}`,
+          offering_id: String(offering.id),
+          combination_id: String(pkg.combination_id),
+          combination_code: combo?.combination_code ?? '',
+          course_id: String(offering.course_id),
+          course_title: courseTitle,
+          offering_title: offering.title ?? '',
+          offering_code: offering.offering_code ?? '',
+          fee_category: pkg.fee_category,
+          base_fee: base,
+          discount: discount,
+          final_before_tax: finalBeforeTax,
+          gst_applicable: gstApp,
+          gst_percent: gstPct,
+          fee_inc_tax: Math.round(feeIncTax * 100) / 100,
+          status: offering.status ?? 'draft',
+        });
+      }
+    }
+
+    return rows;
+  }
+
   // ─── Certificate Packages on an Offering ───────────────────────────
 
   async listOfferingPackages(offeringId: string): Promise<Record<string, unknown>[]> {

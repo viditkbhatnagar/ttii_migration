@@ -972,6 +972,16 @@ export function registerContentRoutes(
     }
   });
 
+  // ── Course Fee Structure (read-only, for the Fee Management section) ──
+  app.get('/admin/fee_management/course_fee_structure', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await offeringService.listCourseFeeStructure();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // ── Certificate Packages on an Offering ──────────────────────────
   app.get('/admin/offerings/:id/packages', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {

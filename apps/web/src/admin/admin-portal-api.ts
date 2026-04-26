@@ -2089,6 +2089,18 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/certificates/revoke', authToken, { id });
   }
 
+  // ── Fee Management ───────────────────────────────────────────────
+
+  async listCourseFeeStructure(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/course_fee_structure', authToken);
+    return toRecords(payload.data);
+  }
+
+  async listFeeSummary(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/fee_summary', authToken);
+    return toRecords(payload.data);
+  }
+
   // ── Cohort Announcements ─────────────────────────────────────────
 
   async listAnnouncements(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
