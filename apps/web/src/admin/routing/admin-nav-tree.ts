@@ -54,6 +54,8 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
       { id: 'add-lesson', label: 'Add Lesson', href: '/admin/course_new/index' },
       { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },
+      { id: 'certification-partners', label: 'Certification Partners', href: '/admin/certification-partners/index' },
+      { id: 'certificate-combinations', label: 'Certificate Combinations', href: '/admin/certificate-combinations/index' },
       { id: 'certificates', label: 'Certificates', href: '/admin/certificates/index' },
     ],
   },

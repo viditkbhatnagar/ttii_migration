@@ -2309,6 +2309,56 @@ model certificate_templates {
   deleted_at  DateTime? @db.DateTime(0)
 }
 
+/// Certification Partner — institutions that co-issue certificates with TTII.
+/// Added 2026-04-26 per Naji's "TTII LMS Correction_new_corrections" doc.
+model certification_partners {
+  id           Int       @id @default(autoincrement()) @db.UnsignedInt
+  partner_code String    @unique @db.VarChar(40)
+  name         String    @db.VarChar(255)
+  short_name   String?   @db.VarChar(100)
+  country      String?   @db.VarChar(100)
+  description  String?   @db.Text
+  logo         String?   @db.VarChar(500)
+  status       String    @default("active") @db.VarChar(20)
+  created_by   Int?
+  updated_by   Int?
+  deleted_by   Int?
+  created_at   DateTime? @default(now()) @db.DateTime(0)
+  updated_at   DateTime? @default(now()) @db.DateTime(0)
+  deleted_at   DateTime? @db.DateTime(0)
+}
+
+/// Certificate Combination — which partners co-issue a certificate for a
+/// given Program × Course. Carries GST rules. The actual partner mapping
+/// is stored in certificate_combination_partners (explicit pivot).
+model certificate_combinations {
+  id                Int       @id @default(autoincrement()) @db.UnsignedInt
+  program_id        Int?
+  course_id         Int?
+  combination_code  String    @unique @db.VarChar(40)
+  gst_applicable    Boolean   @default(true)
+  gst_percent       Decimal?  @default(18.00) @db.Decimal(5, 2)
+  status            String    @default("active") @db.VarChar(20)
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime? @default(now()) @db.DateTime(0)
+  updated_at        DateTime? @default(now()) @db.DateTime(0)
+  deleted_at        DateTime? @db.DateTime(0)
+}
+
+/// Pivot for certificate_combinations × certification_partners.
+model certificate_combination_partners {
+  combination_id Int
+  partner_id     Int
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  created_by     Int?
+
+  @@id([combination_id, partner_id])
+  @@index([combination_id])
+  @@index([partner_id])
+}
+
 model content_asset {
   id                 Int       @id @default(autoincrement()) @db.UnsignedInt
   title              String    @db.VarChar(255)

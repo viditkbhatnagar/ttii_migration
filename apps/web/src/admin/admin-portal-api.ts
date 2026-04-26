@@ -2089,6 +2089,44 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/certificates/revoke', authToken, { id });
   }
 
+  // ── Certification Partners ───────────────────────────────────────
+
+  async listCertificationPartners(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certification_partners', authToken);
+    return toRecords(payload.data);
+  }
+
+  async createCertificationPartner(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certification_partners', authToken, input);
+  }
+
+  async updateCertificationPartner(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/certification_partners/${id}/update`, authToken, input);
+  }
+
+  async deleteCertificationPartner(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/certification_partners/${id}/delete`, authToken, {});
+  }
+
+  // ── Certificate Combinations ─────────────────────────────────────
+
+  async listCertificateCombinations(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certificate_combinations', authToken);
+    return toRecords(payload.data);
+  }
+
+  async createCertificateCombination(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/certificate_combinations', authToken, input);
+  }
+
+  async updateCertificateCombination(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/certificate_combinations/${id}/update`, authToken, input);
+  }
+
+  async deleteCertificateCombination(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/certificate_combinations/${id}/delete`, authToken, {});
+  }
+
   // ── Content Asset Library ────────────────────────────────────────
 
   async listContentAssets(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {

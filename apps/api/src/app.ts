@@ -21,6 +21,7 @@ import { registerCommerceRoutes } from './routes/commerce.js';
 import { registerEngagementRoutes } from './routes/engagement.js';
 import { registerOperationsRoutes } from './routes/operations.js';
 import { registerInstructorRoutes } from './routes/instructor.js';
+import { registerCertificationRoutes } from './routes/certification.js';
 import { registerProfileRoutes } from './routes/profile.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -99,6 +100,11 @@ export function buildApp(options: BuildAppOptions = {}) {
     prefix: '/api',
     authService,
     storage: integrations.storage,
+  });
+
+  app.register(registerCertificationRoutes, {
+    prefix: '/api',
+    authService,
   });
 
   app.register(registerOperationsRoutes, {
