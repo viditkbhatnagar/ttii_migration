@@ -2359,6 +2359,8 @@ model certification_partners {
   description  String?   @db.Text
   logo         String?   @db.VarChar(500)
   status       String    @default("active") @db.VarChar(20)
+  /// Custom display order — admin-controlled. Lower = earlier. Tiebreaker is id ASC.
+  position     Int       @default(0)
   created_by   Int?
   updated_by   Int?
   deleted_by   Int?

@@ -100,6 +100,7 @@ export function registerCertificationRoutes(
         description: toStringValue(p.description) || undefined,
         logo: toStringValue(p.logo) || undefined,
         status: toStringValue(p.status) || undefined,
+        position: toNumber(p.position),
       };
       if (!input.partner_code || !input.name) {
         reply.code(400).send({ status: 0, message: 'partner_code and name are required.', data: {} });
@@ -122,6 +123,7 @@ export function registerCertificationRoutes(
         description: toStringValue(p.description) || undefined,
         logo: toStringValue(p.logo) || undefined,
         status: toStringValue(p.status) || undefined,
+        position: toNumber(p.position),
       };
       await partners.update(requestUserId(request), toStringValue(params.id), input);
       reply.code(200).send({ status: 1, message: 'Partner updated.', data: {} });

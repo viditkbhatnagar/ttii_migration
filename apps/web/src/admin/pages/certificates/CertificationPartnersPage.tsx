@@ -25,6 +25,7 @@ interface PartnerForm {
   description: string;
   logo: string;
   status: string;
+  position: string;
 }
 
 const emptyForm: PartnerForm = {
@@ -35,6 +36,7 @@ const emptyForm: PartnerForm = {
   description: '',
   logo: '',
   status: 'active',
+  position: '',
 };
 
 export default function CertificationPartnersPage({ api, session }: AdminPageProps) {
@@ -78,6 +80,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
 
   const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
     setEditId(asString(row.id));
+    const pos = row.position;
     setForm({
       partner_code: asString(row.partner_code),
       name: asString(row.name),
@@ -86,6 +89,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
       description: asString(row.description),
       logo: asString(row.logo),
       status: asString(row.status) || 'active',
+      position: typeof pos === 'number' || typeof pos === 'string' ? String(pos) : '',
     });
     setShowForm(true);
   }, []);
@@ -94,7 +98,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
     if (!form.partner_code.trim() || !form.name.trim()) return;
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         partner_code: form.partner_code.trim(),
         name: form.name.trim(),
         short_name: form.short_name.trim(),
@@ -103,6 +107,10 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
         logo: form.logo.trim(),
         status: form.status,
       };
+      if (form.position.trim() !== '') {
+        const n = Number(form.position);
+        if (Number.isFinite(n)) payload.position = n;
+      }
       if (editId) await api.updateCertificationPartner(session.token, editId, payload);
       else await api.createCertificationPartner(session.token, payload);
       setShowForm(false);
@@ -329,17 +337,32 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
                   </Button>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-status">Status</Label>
-                <select
-                  id="partner-status"
-                  className={selectClass}
-                  value={form.status}
-                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="partner-status">Status</Label>
+                  <select
+                    id="partner-status"
+                    className={selectClass}
+                    value={form.status}
+                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="partner-position">Display Order</Label>
+                  <Input
+                    id="partner-position"
+                    type="number"
+                    value={form.position}
+                    onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
+                    placeholder="Auto"
+                  />
+                  <p className="text-xs text-slate-400">
+                    Lower numbers show first. Leave blank to auto-append at the end.
+                  </p>
+                </div>
               </div>
             </div>
             <DialogFooter className="mt-6 gap-2">

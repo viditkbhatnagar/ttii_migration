@@ -83,7 +83,8 @@ export class CertificateCombinationService {
     const partners = partnerIds.length
       ? await this.prisma.certification_partners.findMany({
           where: { id: { in: partnerIds }, deleted_at: null },
-          select: { id: true, name: true, partner_code: true, logo: true },
+          select: { id: true, name: true, partner_code: true, logo: true, position: true },
+          orderBy: [{ position: 'asc' }, { id: 'asc' }],
         })
       : [];
 
@@ -91,6 +92,9 @@ export class CertificateCombinationService {
     for (const p of programs) programMap.set(p.id, p.name ?? '');
     const courseMap = new Map<number, string>();
     for (const c of courses) courseMap.set(c.id, c.title ?? '');
+    // partnerOrder follows the global custom position so badges + checkbox rows
+    // render in the same TTII → MSU → KHDA → AGI sequence everywhere.
+    const partnerOrder = new Map(partners.map((p, idx) => [p.id, idx]));
     const partnerMap = new Map(partners.map((p) => [p.id, p]));
 
     const partnersByCombo = new Map<number, typeof partners>();
@@ -99,6 +103,10 @@ export class CertificateCombinationService {
       const partner = partnerMap.get(piv.partner_id);
       if (partner) arr.push(partner);
       partnersByCombo.set(piv.combination_id, arr);
+    }
+    for (const [comboId, list] of partnersByCombo) {
+      list.sort((a, b) => (partnerOrder.get(a.id) ?? 0) - (partnerOrder.get(b.id) ?? 0));
+      partnersByCombo.set(comboId, list);
     }
 
     return rows.map((r) =>

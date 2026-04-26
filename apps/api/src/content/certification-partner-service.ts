@@ -9,6 +9,7 @@ export type CertificationPartnerInput = {
   description?: string | undefined;
   logo?: string | undefined;
   status?: string | undefined;
+  position?: number | undefined;
 };
 
 function toIntId(id: string | number | null | undefined): number {
@@ -35,6 +36,7 @@ function serialize(row: certification_partners): Record<string, unknown> {
     description: row.description ?? '',
     logo: row.logo ?? '',
     status: row.status,
+    position: row.position,
     created_at: row.created_at,
   };
 }
@@ -49,7 +51,7 @@ export class CertificationPartnerService {
   async list(): Promise<Record<string, unknown>[]> {
     const rows = await this.prisma.certification_partners.findMany({
       where: { deleted_at: null },
-      orderBy: { id: 'desc' },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
     });
     return rows.map(serialize);
   }
@@ -65,6 +67,16 @@ export class CertificationPartnerService {
 
   async create(actorUserId: string, input: CertificationPartnerInput): Promise<Record<string, unknown>> {
     const actor = toNullableIntId(actorUserId);
+    let position = input.position;
+    if (position === undefined || position === null) {
+      // Default new partners to the bottom of the list, gap of 10 so manual
+      // re-ordering can slot rows between without renumbering everything.
+      const max = await this.prisma.certification_partners.aggregate({
+        where: { deleted_at: null },
+        _max: { position: true },
+      });
+      position = (max._max.position ?? 0) + 10;
+    }
     const created = await this.prisma.certification_partners.create({
       data: {
         partner_code: input.partner_code.trim(),
@@ -74,6 +86,7 @@ export class CertificationPartnerService {
         description: input.description?.trim() || null,
         logo: input.logo?.trim() || null,
         status: input.status?.trim() || 'active',
+        position,
         created_by: actor,
         updated_by: actor,
       },
@@ -94,6 +107,7 @@ export class CertificationPartnerService {
         description: input.description?.trim() || null,
         logo: input.logo?.trim() || null,
         status: input.status?.trim() || 'active',
+        ...(input.position !== undefined && input.position !== null ? { position: input.position } : {}),
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
