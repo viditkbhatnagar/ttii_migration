@@ -71,6 +71,7 @@ const FaqPage = lazy(() => import('../pages/faq/FaqPage.js'));
 
 // Phase 3: Operations & People pages
 const CohortsPage = lazy(() => import('../pages/cohorts/CohortsPage.js'));
+const AnnouncementsPage = lazy(() => import('../pages/cohorts/AnnouncementsPage.js'));
 
 // Phase 4: CRM & Content pages
 const CounsellorsPage = lazy(() => import('../pages/counsellor/CounsellorsPage.js'));
@@ -173,6 +174,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Cohorts Management
   { path: '/admin/cohorts/index', aliases: ['/admin/cohorts'], pageComponent: CohortsPage, title: 'Cohorts' },
+  { path: '/admin/announcements/index', aliases: ['/admin/announcements'], pageComponent: AnnouncementsPage, title: 'Announcements' },
   { path: '/admin/cohorts/add', pageComponent: AddCohortPage, title: 'Add Cohorts' },
   { path: '/admin/cohorts/view/:id', pageComponent: ViewCohortPage, title: 'View Cohort' },
   { path: '/admin/live_class/index', aliases: ['/admin/live_class'], pageComponent: LiveClassPage, title: 'Live Sessions' },

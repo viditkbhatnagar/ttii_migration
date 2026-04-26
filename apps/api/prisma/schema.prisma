@@ -384,17 +384,28 @@ model ci_sessions {
 }
 
 model cohort_announcements {
-  id          Int       @id @default(autoincrement())
-  cohort_id   Int?
-  title       String    @db.VarChar(1000)
-  content     String    @db.VarChar(1000)
-  description String?   @db.Text
-  created_by  Int?
-  updated_by  Int?
-  deleted_by  Int?
-  created_at  DateTime? @db.DateTime(0)
-  updated_at  DateTime? @db.DateTime(0)
-  deleted_at  DateTime? @db.DateTime(0)
+  id                Int       @id @default(autoincrement())
+  cohort_id         Int?
+  title             String    @db.VarChar(1000)
+  content           String    @db.VarChar(1000)
+  description       String?   @db.Text
+  // Added 2026-04-26 per Naji's TTII LMS Correction_new_corrections doc
+  // (Cohort Management → Announcement +Add: rich text, audience, delivery, attachment, status).
+  audience_type     String?   @default("all") @db.VarChar(20)   // all | selected
+  audience_user_ids String?   @db.Text                           // JSON array of user_ids when audience_type='selected'
+  delivery_channels String?   @default("in_app") @db.VarChar(50) // comma-separated: in_app,email,whatsapp
+  attachment_url    String?   @db.VarChar(500)
+  status            String?   @default("draft") @db.VarChar(20)  // draft | sent
+  sent_at           DateTime? @db.DateTime(0)
+  created_by        Int?
+  updated_by        Int?
+  deleted_by        Int?
+  created_at        DateTime? @db.DateTime(0)
+  updated_at        DateTime? @db.DateTime(0)
+  deleted_at        DateTime? @db.DateTime(0)
+
+  @@index([cohort_id])
+  @@index([status])
 }
 
 model cohort_students {

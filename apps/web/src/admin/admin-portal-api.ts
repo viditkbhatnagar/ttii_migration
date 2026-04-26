@@ -2089,6 +2089,30 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/certificates/revoke', authToken, { id });
   }
 
+  // ── Cohort Announcements ─────────────────────────────────────────
+
+  async listAnnouncements(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/announcements', authToken, filters);
+    return toRecords(payload.data);
+  }
+
+  async getAnnouncement(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(`/admin/announcements/${id}`, authToken);
+    return payload.data ?? null;
+  }
+
+  async createAnnouncement(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/announcements', authToken, input);
+  }
+
+  async updateAnnouncement(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/announcements/${id}/update`, authToken, input);
+  }
+
+  async deleteAnnouncement(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/announcements/${id}/delete`, authToken, {});
+  }
+
   // ── Offering Certificate Packages ────────────────────────────────
 
   async listOfferingPackages(authToken: string, offeringId: string): Promise<Record<string, unknown>[]> {

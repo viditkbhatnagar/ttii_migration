@@ -4,6 +4,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
+import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -198,6 +199,7 @@ export function registerOperationsRoutes(
 ): void {
   const authService = options.authService ?? new AuthService();
   const operationsService = options.operationsService ?? new OperationsService();
+  const announcementService = new AnnouncementService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2520,6 +2522,89 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const result = await operationsService.deleteAssociate(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ─── Cohort Announcements ────────────────────────────────────────
+  // Per Naji's TTII LMS Correction_new_corrections doc — top-level admin
+  // listing of announcements created via cohorts, with full CRUD.
+
+  const buildAnnouncementInput = (p: Record<string, unknown>): AnnouncementInput => {
+    const audienceType = toStringValue(p.audience_type);
+    const channelsRaw = p.delivery_channels;
+    const channels: string[] = Array.isArray(channelsRaw)
+      ? channelsRaw.filter((x): x is string => typeof x === 'string')
+      : typeof channelsRaw === 'string' && channelsRaw
+        ? channelsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    const userIdsRaw = p.audience_user_ids;
+    const userIds: string[] = Array.isArray(userIdsRaw)
+      ? userIdsRaw.map((u) => String(u))
+      : typeof userIdsRaw === 'string' && userIdsRaw
+        ? userIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    return {
+      cohort_id: toStringValue(p.cohort_id) || undefined,
+      title: toStringValue(p.title),
+      content: toStringValue(p.content),
+      description: toStringValue(p.description) || undefined,
+      audience_type: audienceType === 'selected' ? 'selected' : 'all',
+      audience_user_ids: userIds.length > 0 ? userIds : undefined,
+      delivery_channels: channels.length > 0 ? channels : undefined,
+      attachment_url: toStringValue(p.attachment_url) || undefined,
+      status: toStringValue(p.status) === 'sent' ? 'sent' : 'draft',
+    };
+  };
+
+  app.get('/admin/announcements', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const q = (request.query as Record<string, unknown>) ?? {};
+      const data = await announcementService.list({
+        cohortId: toStringValue(q.cohort_id) || undefined,
+        status: toStringValue(q.status) || undefined,
+      });
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/announcements/:id', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await announcementService.get(toStringValue(params.id));
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Announcement not found.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/announcements', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const input = buildAnnouncementInput(requestPayload(request));
+      if (!input.title || !input.content) {
+        reply.code(400).send({ status: 0, message: 'title and content are required.', data: {} });
+        return;
+      }
+      const data = await announcementService.create(requestUserId(request), input);
+      reply.code(200).send({ status: 1, message: 'Announcement created.', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/announcements/:id/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const input = buildAnnouncementInput(requestPayload(request));
+      await announcementService.update(requestUserId(request), toStringValue(params.id), input);
+      reply.code(200).send({ status: 1, message: 'Announcement updated.', data: {} });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/announcements/:id/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      await announcementService.delete(requestUserId(request), toStringValue(params.id));
+      reply.code(200).send({ status: 1, message: 'Announcement deleted.', data: {} });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 }

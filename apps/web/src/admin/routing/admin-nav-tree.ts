@@ -68,6 +68,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'add-cohorts', label: 'Add Cohorts', href: '/admin/cohorts/add' },
       { id: 'live-sessions', label: 'Live Sessions', href: '/admin/live_class/index' },
       { id: 'assignments-cm', label: 'Assignments', href: '/admin/assignment/index' },
+      { id: 'announcements', label: 'Announcements', href: '/admin/announcements/index' },
       { id: 'attendance-management', label: 'Attendance Management', href: '/admin/cohorts/attendance' },
       { id: 'sessions-feedbacks', label: 'Sessions Feedbacks', href: '/admin/cohorts/sessions' },
     ],
