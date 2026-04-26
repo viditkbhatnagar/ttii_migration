@@ -22,24 +22,22 @@ export function AdminLayoutProvider({ children }: { children: ReactNode }) {
     setCollapsed((prev) => !prev);
   }, []);
 
+  // Accordion behaviour: only one nav group can be expanded at a time.
+  // Clicking an already-open group closes it; clicking a different one
+  // closes the previous and opens the new one.
   const toggleGroup = useCallback((groupId: string) => {
     setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
+      if (prev.has(groupId)) {
+        return new Set();
       }
-      return next;
+      return new Set([groupId]);
     });
   }, []);
 
   const expandGroup = useCallback((groupId: string) => {
     setExpandedGroups((prev) => {
-      if (prev.has(groupId)) return prev;
-      const next = new Set(prev);
-      next.add(groupId);
-      return next;
+      if (prev.size === 1 && prev.has(groupId)) return prev;
+      return new Set([groupId]);
     });
   }, []);
 
