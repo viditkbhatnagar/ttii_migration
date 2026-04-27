@@ -41,7 +41,6 @@ export default function ViewProgramPage({ api, session, onNavigate }: AdminPageP
   const title = asString(program.title);
   const code = asString(program.code);
   const description = asString(program.description);
-  const thumbnail = asString(program.thumbnail);
   const courseCount = Number(program.course_count ?? 0);
 
   return (
@@ -61,27 +60,16 @@ export default function ViewProgramPage({ api, session, onNavigate }: AdminPageP
 
       <Card>
         <CardHeader>
-          <div className="flex items-start gap-4">
-            {thumbnail ? (
-              <img loading="lazy" decoding="async" src={thumbnail} alt={title} className="h-24 w-32 rounded object-cover" />
-            ) : (
-              <div className="flex h-24 w-32 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
-                No image
-              </div>
-            )}
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-xl">{title}</CardTitle>
-                {code ? <Badge variant="secondary">{code}</Badge> : null}
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {description || 'No description provided.'}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {courseCount} course{courseCount === 1 ? '' : 's'} linked
-              </p>
-            </div>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-xl">{title}</CardTitle>
+            {code ? <Badge variant="secondary">{code}</Badge> : null}
           </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {description || 'No description provided.'}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {courseCount} course{courseCount === 1 ? '' : 's'} linked
+          </p>
         </CardHeader>
       </Card>
 

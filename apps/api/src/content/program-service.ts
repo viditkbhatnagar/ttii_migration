@@ -28,7 +28,7 @@ function toNullableIntId(id: string | number | null | undefined): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
-function serializeProgram(row: category, courseCount: number): Record<string, unknown> {
+function serializeProgram(row: category, courseCount: number, courseTitles: string[] = []): Record<string, unknown> {
   return {
     id: String(row.id),
     title: row.name ?? '',
@@ -39,6 +39,7 @@ function serializeProgram(row: category, courseCount: number): Record<string, un
     level: '',
     duration: '',
     course_count: courseCount,
+    course_titles: courseTitles,
     status: row.deleted_at ? 'inactive' : 'active',
     created_at: row.created_at ?? null,
   };
@@ -58,20 +59,26 @@ export class ProgramService {
     });
 
     const ids = rows.map((r) => r.id);
-    const counts = ids.length
-      ? await this.prisma.course.groupBy({
-          by: ['category_id'],
+    const courses = ids.length
+      ? await this.prisma.course.findMany({
           where: { category_id: { in: ids }, deleted_at: null },
-          _count: { id: true },
+          select: { id: true, title: true, category_id: true },
+          orderBy: { title: 'asc' },
         })
       : [];
 
-    const countMap = new Map<number, number>();
-    for (const c of counts) {
-      if (c.category_id != null) countMap.set(c.category_id, c._count.id);
+    const titlesMap = new Map<number, string[]>();
+    for (const c of courses) {
+      if (c.category_id == null) continue;
+      const list = titlesMap.get(c.category_id) ?? [];
+      list.push(c.title ?? '');
+      titlesMap.set(c.category_id, list);
     }
 
-    return rows.map((r) => serializeProgram(r, countMap.get(r.id) ?? 0));
+    return rows.map((r) => {
+      const titles = titlesMap.get(r.id) ?? [];
+      return serializeProgram(r, titles.length, titles);
+    });
   }
 
   async getProgram(programId: string): Promise<Record<string, unknown> | null> {

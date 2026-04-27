@@ -13,18 +13,13 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
-const selectClass =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
-
 interface ProgramForm {
   title: string;
   code: string;
-  level: string;
-  duration: string;
   description: string;
 }
 
-const emptyForm: ProgramForm = { title: '', code: '', level: '', duration: '', description: '' };
+const emptyForm: ProgramForm = { title: '', code: '', description: '' };
 
 export default function ProgramDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
@@ -54,8 +49,6 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
       setForm({
         title: asString(program.title),
         code: asString(program.code),
-        level: asString(program.level),
-        duration: asString(program.duration),
         description: asString(program.description),
       });
       setShowForm(true);
@@ -69,8 +62,6 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
       const payload = {
         title: form.title.trim(),
         code: form.code.trim() || undefined,
-        level: form.level || undefined,
-        duration: form.duration.trim() || undefined,
         description: form.description.trim() || undefined,
       };
       if (editId) {
@@ -103,12 +94,38 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
   const columns: DataTableColumn[] = [
     { key: 'code', label: 'Code' },
     { key: 'title', label: 'Program Name', sortable: true },
-    { key: 'description', label: 'Description', render: (v) => {
-      const s = asString(v);
-      if (!s) return '-';
-      return s.length > 60 ? `${s.slice(0, 60)}…` : s;
-    }},
+    {
+      key: 'description',
+      label: 'Description',
+      className: 'max-w-md whitespace-normal align-top',
+      render: (v) => {
+        const text = asString(v);
+        if (!text) return <span className="text-slate-400">—</span>;
+        return (
+          <p title={text} className="line-clamp-3 break-words text-sm leading-snug text-slate-700">
+            {text}
+          </p>
+        );
+      },
+    },
     { key: 'course_count', label: 'No of Courses' },
+    {
+      key: 'course_titles',
+      label: 'Courses',
+      className: 'max-w-sm whitespace-normal align-top',
+      render: (v) => {
+        const list = Array.isArray(v) ? (v as string[]).filter(Boolean) : [];
+        if (list.length === 0) return <span className="text-slate-400">—</span>;
+        return (
+          <div className="flex flex-wrap gap-1">
+            {list.slice(0, 3).map((t, idx) => (
+              <span key={t + idx} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{t}</span>
+            ))}
+            {list.length > 3 ? <span className="text-xs text-slate-500">+{list.length - 3}</span> : null}
+          </div>
+        );
+      },
+    },
     { key: 'status', label: 'Status', render: (v) => (
       <Badge variant={v === 'active' ? 'default' : 'secondary'}>{asString(v) || 'active'}</Badge>
     )},
@@ -141,44 +158,31 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
               void handleSave();
             }}
           >
-          <DialogHeader>
+          <DialogHeader className="mb-5">
             <DialogTitle>{editId ? 'Edit Program' : 'New Program'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Diploma in Montessori Education" />
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="program-code">Program Code</Label>
+              <Input id="program-code" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="e.g. DME-2025" />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>Code</Label>
-                <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="e.g. DME-2025" />
-              </div>
-              <div>
-                <Label>Level</Label>
-                <select className={selectClass} value={form.level} onChange={(e) => setForm((f) => ({ ...f, level: e.target.value }))}>
-                  <option value="">-- Select --</option>
-                  <option value="certification">Certification</option>
-                  <option value="diploma">Diploma</option>
-                  <option value="pg_diploma">PG Diploma</option>
-                </select>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="program-name">Program Name *</Label>
+              <Input id="program-name" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Diploma in Montessori Education" />
             </div>
-            <div>
-              <Label>Duration</Label>
-              <Input value={form.duration} onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} placeholder="e.g. 1 Year" />
-            </div>
-            <div>
-              <Label>Description</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="program-description">Program Description</Label>
               <textarea
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                id="program-description"
+                rows={4}
+                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Program description"
+                placeholder="Short description of the program"
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="mt-6 gap-2">
             <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
             <Button type="submit" disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
