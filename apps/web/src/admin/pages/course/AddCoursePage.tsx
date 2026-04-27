@@ -19,7 +19,10 @@ interface FormState {
   course_code: string;
   short_name: string;
   category_id: string;
-  duration: string;
+  // Duration is split into count + unit on the form (e.g. "1" + "Year").
+  // Stored as a single string "1 Year" on the backend.
+  duration_count: string;
+  duration_unit: string;
   total_learning_hours: string;
   level: string;
   version: string;
@@ -39,12 +42,27 @@ interface FormState {
   status: string;
 }
 
+const DURATION_UNITS = ['Year', 'Month', 'Week', 'Day'] as const;
+
+function parseDurationString(raw: string): { count: string; unit: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { count: '', unit: 'Year' };
+  // Accept "1 Year", "6 Months", "12 weeks", etc. Singular/plural agnostic.
+  const match = /^(\d+)\s*([A-Za-z]+)/.exec(trimmed);
+  if (!match) return { count: '', unit: 'Year' };
+  const count = match[1] ?? '';
+  const word = (match[2] ?? '').toLowerCase().replace(/s$/, '');
+  const unit = DURATION_UNITS.find((u) => u.toLowerCase() === word) ?? 'Year';
+  return { count, unit };
+}
+
 const emptyForm: FormState = {
   title: '',
   course_code: '',
   short_name: '',
   category_id: '',
-  duration: '',
+  duration_count: '',
+  duration_unit: 'Year',
   total_learning_hours: '',
   level: '',
   version: '',
@@ -97,12 +115,14 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     const isFree = c.is_free_course === true || c.is_free_course === 1 || asString(c.is_free_course) === '1';
     const isCohort = c.is_cohort_course === true || c.is_cohort_course === 1 || asString(c.is_cohort_course) === '1';
     const isPublic = c.is_public === true || c.is_public === 1 || asString(c.is_public) === '1' || asString(c.visibility) === 'public';
+    const parsedDuration = parseDurationString(asString(c.duration));
     setForm({
       title: asString(c.title),
       course_code: asString(c.course_code),
       short_name: asString(c.short_name),
       category_id: asString(c.category_id),
-      duration: asString(c.duration),
+      duration_count: parsedDuration.count,
+      duration_unit: parsedDuration.unit,
       total_learning_hours: asString(c.total_learning_hours),
       level: asString(c.level),
       version: asString(c.version),
@@ -128,10 +148,30 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!form.title.trim()) {
-      toast.error('Course title is required.');
+    // All fields are mandatory except Course Level.
+    const required: { value: string; label: string }[] = [
+      { value: form.course_code.trim(), label: 'Course Code' },
+      { value: form.title.trim(), label: 'Course Title' },
+      { value: form.short_name.trim(), label: 'Course Short Name' },
+      { value: form.version.trim(), label: 'Course Version' },
+      { value: form.category_id, label: 'Course Category' },
+      { value: form.duration_count.trim(), label: 'Course Duration' },
+      { value: form.total_learning_hours.trim(), label: 'Total Learning Hours' },
+      { value: form.language, label: 'Language' },
+      { value: form.description.trim(), label: 'Course Description' },
+    ];
+    const missing = required.find((r) => r.value === '');
+    if (missing) {
+      toast.error(`${missing.label} is required.`);
       return;
     }
+
+    const durationCountNum = Number(form.duration_count);
+    if (!Number.isFinite(durationCountNum) || durationCountNum <= 0) {
+      toast.error('Course Duration must be a positive number.');
+      return;
+    }
+    const durationStr = `${durationCountNum} ${form.duration_unit}${durationCountNum > 1 ? 's' : ''}`;
 
     setSaving(true);
     try {
@@ -140,7 +180,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         course_code: form.course_code.trim(),
         short_name: form.short_name.trim(),
         category_id: form.category_id || null,
-        duration: form.duration.trim(),
+        duration: durationStr,
         total_learning_hours: form.total_learning_hours ? Number(form.total_learning_hours) : null,
         level: form.level.trim(),
         version: form.version.trim(),
@@ -205,7 +245,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
           {/* Basic Info */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Course Code</Label>
+              <Label>Course Code *</Label>
               <Input value={form.course_code} onChange={(e) => set('course_code', e.target.value)} placeholder="e.g. PGDTT-001" />
             </div>
             <div className="grid gap-2">
@@ -220,16 +260,13 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               <Label>Course Level</Label>
               <select className={selectClass} value={form.level} onChange={(e) => set('level', e.target.value)}>
                 <option value="">Select Level</option>
-                <option value="Certificate">Certificate</option>
-                <option value="Diploma">Diploma</option>
-                <option value="PG Diploma">PG Diploma</option>
                 <option value="Beginner">Beginner</option>
                 <option value="Intermediate">Intermediate</option>
                 <option value="Advanced">Advanced</option>
               </select>
             </div>
             <div className="grid gap-2">
-              <Label>Course Version</Label>
+              <Label>Course Version *</Label>
               <Input value={form.version} onChange={(e) => set('version', e.target.value)} placeholder="e.g. 1.0" />
             </div>
             <div className="grid gap-2">
@@ -243,14 +280,32 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
             </div>
             <div className="grid gap-2">
               <Label>Course Duration *</Label>
-              <Input value={form.duration} onChange={(e) => set('duration', e.target.value)} placeholder="e.g. 1 Year" />
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  value={form.duration_count}
+                  onChange={(e) => set('duration_count', e.target.value)}
+                  placeholder="e.g. 1"
+                />
+                <select
+                  className={selectClass}
+                  style={{ width: 'auto', paddingRight: '2rem' }}
+                  value={form.duration_unit}
+                  onChange={(e) => set('duration_unit', e.target.value)}
+                >
+                  {DURATION_UNITS.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid gap-2">
-              <Label>Total Learning Hours</Label>
+              <Label>Total Learning Hours *</Label>
               <Input type="number" min="0" value={form.total_learning_hours} onChange={(e) => set('total_learning_hours', e.target.value)} placeholder="e.g. 120" />
             </div>
             <div className="grid gap-2">
-              <Label>Language</Label>
+              <Label>Language *</Label>
               <select className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
                 <option value="">Select Language</option>
                 <option value="English">English</option>
@@ -262,7 +317,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               </select>
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Course Description</Label>
+              <Label>Course Description *</Label>
               <textarea
                 className={textareaClass}
                 value={form.description}
