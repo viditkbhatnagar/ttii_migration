@@ -221,18 +221,19 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-[min(640px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))] overflow-hidden">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void handleSave();
             }}
+            className="w-full min-w-0"
           >
             <DialogHeader className="mb-5">
               <DialogTitle>{editId ? 'Edit Combination' : 'New Certificate Combination'}</DialogTitle>
             </DialogHeader>
             {/* Spec order: Program → Course → Choose Multiple Partners → Combination Code (Auto) → GST Applicability + If Yes (%). Status appended at the end. */}
-            <div className="space-y-4">
+            <div className="w-full min-w-0 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="combo-program">Program</Label>
                 <select

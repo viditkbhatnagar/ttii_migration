@@ -151,17 +151,18 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
       <AdminDataTable columns={columns} rows={rows} actions={actions} />
 
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
-        <DialogContent>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void handleSave();
             }}
+            className="w-full min-w-0"
           >
           <DialogHeader className="mb-5">
             <DialogTitle>{editId ? 'Edit Program' : 'New Program'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="w-full min-w-0 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="program-code">Program Code</Label>
               <Input id="program-code" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="e.g. DME-2025" />

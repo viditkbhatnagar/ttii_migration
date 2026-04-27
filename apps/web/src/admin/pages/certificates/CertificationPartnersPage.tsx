@@ -230,18 +230,19 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void handleSave();
             }}
+            className="w-full min-w-0"
           >
             <DialogHeader className="mb-5">
               <DialogTitle>{editId ? 'Edit Partner' : 'New Certification Partner'}</DialogTitle>
             </DialogHeader>
             {/* Spec order: Partner Code → Partner Name → Partner Short Name → Country → Description → Logo. Status appended at the end. */}
-            <div className="space-y-4">
+            <div className="w-full min-w-0 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="partner-code">Partner Code *</Label>
                 <Input
