@@ -31,14 +31,7 @@ interface FormState {
   outcomes: string;
   requirements: string;
   thumbnail: string;
-  is_free_course: string;
-  is_cohort_course: string;
-  is_public: string;
-  point: string;
-  price: string;
-  sale_price: string;
   features: string;
-  label: string;
   status: string;
 }
 
@@ -71,14 +64,7 @@ const emptyForm: FormState = {
   outcomes: '',
   requirements: '',
   thumbnail: '',
-  is_free_course: 'free',
-  is_cohort_course: 'cohort',
-  is_public: 'public',
-  point: '',
-  price: '',
-  sale_price: '',
   features: '',
-  label: '',
   status: 'draft',
 };
 
@@ -112,9 +98,6 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
   useEffect(() => {
     if (!isEdit || !courseData) return;
     const c = courseData;
-    const isFree = c.is_free_course === true || c.is_free_course === 1 || asString(c.is_free_course) === '1';
-    const isCohort = c.is_cohort_course === true || c.is_cohort_course === 1 || asString(c.is_cohort_course) === '1';
-    const isPublic = c.is_public === true || c.is_public === 1 || asString(c.is_public) === '1' || asString(c.visibility) === 'public';
     const parsedDuration = parseDurationString(asString(c.duration));
     setForm({
       title: asString(c.title),
@@ -131,14 +114,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       outcomes: asString(c.outcomes),
       requirements: asString(c.requirements),
       thumbnail: asString(c.thumbnail),
-      is_free_course: isFree ? 'free' : 'paid',
-      is_cohort_course: isCohort ? 'cohort' : 'non_cohort',
-      is_public: isPublic ? 'public' : 'private',
-      point: asString(c.point),
-      price: asString(c.price),
-      sale_price: asString(c.sale_price),
       features: asString(c.features),
-      label: asString(c.label),
       status: asString(c.status) || 'draft',
     });
   }, [isEdit, courseData]);
@@ -175,6 +151,11 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
 
     setSaving(true);
     try {
+      // Pricing, Course Type, Publish Type and Referral Point removed from
+      // the course form (Naji 2026-04-27): pricing + delivery mode now live
+      // on Course Offerings, so they don't belong here. Sending sane
+      // defaults for the legacy DB columns so existing rows / consumers
+      // don't break.
       const payload: Record<string, unknown> = {
         title: form.title.trim(),
         course_code: form.course_code.trim(),
@@ -189,16 +170,16 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         outcomes: form.outcomes.trim(),
         requirements: form.requirements.trim(),
         thumbnail: form.thumbnail.trim(),
-        is_free_course: form.is_free_course === 'free',
-        is_cohort_course: form.is_cohort_course === 'cohort',
-        is_public: form.is_public === 'public',
-        point: form.point ? Number(form.point) : 0,
-        price: form.is_free_course === 'paid' && form.price ? Number(form.price) : null,
-        sale_price: form.is_free_course === 'paid' && form.sale_price ? Number(form.sale_price) : null,
+        is_free_course: true,
+        is_cohort_course: true,
+        is_public: true,
+        point: 0,
+        price: null,
+        sale_price: null,
         features: form.features.trim(),
-        label: form.label.trim(),
+        label: '',
         status: form.status,
-        visibility: form.is_public,
+        visibility: 'public',
       };
 
       if (isEdit) {
@@ -322,36 +303,39 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
                 className={textareaClass}
                 value={form.description}
                 onChange={(e) => set('description', e.target.value)}
-                placeholder="Enter course description"
+                placeholder="Write the course overview as a paragraph"
               />
-              <p className="text-xs text-gray-500">Rich text description (supports HTML)</p>
+              <p className="text-xs text-gray-500">Paragraph format. Shown to students on the course page.</p>
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Learning Outcome</Label>
+              <Label>Learning Outcome (one point per line)</Label>
               <textarea
                 className={textareaClass}
                 value={form.outcomes}
                 onChange={(e) => set('outcomes', e.target.value)}
-                placeholder="What learners will be able to do after completing this course"
+                placeholder={'• Develop classroom management skills\n• Design age-appropriate lesson plans\n• Assess student progress effectively'}
               />
+              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Who Should Enroll (points per line)</Label>
+              <Label>Who Should Enroll (one point per line)</Label>
               <textarea
                 className={textareaClass}
                 value={form.features}
                 onChange={(e) => set('features', e.target.value)}
-                placeholder="Enter one bullet point per line"
+                placeholder={'• Aspiring teachers preparing for classroom roles\n• Working professionals upgrading qualifications\n• Parents looking to teach foundational skills'}
               />
+              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
             </div>
             <div className="grid gap-2 md:col-span-2">
-              <Label>Prerequisites</Label>
+              <Label>Prerequisites (one point per line)</Label>
               <textarea
                 className={textareaClass}
                 value={form.requirements}
                 onChange={(e) => set('requirements', e.target.value)}
-                placeholder="Required prior qualifications or knowledge"
+                placeholder={'• Bachelor\'s degree in any discipline\n• Basic English communication\n• Access to a computer with internet'}
               />
+              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
             </div>
             <div className="grid gap-2 md:col-span-2">
               <Label>Course Thumbnail</Label>
@@ -362,116 +346,11 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
                 accept="image/*"
                 placeholder="Upload thumbnail image"
               />
-              <p className="text-xs text-gray-500">Image Aspect ratio should be 1200x628 – Max File size 100KB</p>
+              <p className="text-xs text-gray-500">
+                Recommended 1200×628 (≈1.91:1). The image will be center-cropped to fit course cards on both web and mobile. Max file size 200KB.
+              </p>
             </div>
-          </div>
-
-          {/* Pricing */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Pricing *</Label>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_free_course"
-                  value="free"
-                  checked={form.is_free_course === 'free'}
-                  onChange={() => set('is_free_course', 'free')}
-                />
-                Free Course
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_free_course"
-                  value="paid"
-                  checked={form.is_free_course === 'paid'}
-                  onChange={() => set('is_free_course', 'paid')}
-                />
-                Paid Course
-              </label>
-            </div>
-            {form.is_free_course === 'paid' && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label>Price</Label>
-                  <Input type="number" min="0" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="Enter price" />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Sale Price</Label>
-                  <Input type="number" min="0" value={form.sale_price} onChange={(e) => set('sale_price', e.target.value)} placeholder="Enter sale price" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Course Type */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Course Type *</Label>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_cohort_course"
-                  value="cohort"
-                  checked={form.is_cohort_course === 'cohort'}
-                  onChange={() => set('is_cohort_course', 'cohort')}
-                />
-                Cohort Course
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_cohort_course"
-                  value="non_cohort"
-                  checked={form.is_cohort_course === 'non_cohort'}
-                  onChange={() => set('is_cohort_course', 'non_cohort')}
-                />
-                Non Cohort Course
-              </label>
-            </div>
-          </div>
-
-          {/* Publish Type */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Publish Type *</Label>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_public"
-                  value="public"
-                  checked={form.is_public === 'public'}
-                  onChange={() => set('is_public', 'public')}
-                />
-                Public
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="is_public"
-                  value="private"
-                  checked={form.is_public === 'private'}
-                  onChange={() => set('is_public', 'private')}
-                />
-                Private
-              </label>
-            </div>
-          </div>
-
-          {/* Referral Point + Status */}
-          <div className="grid gap-4 md:grid-cols-2 md:max-w-lg">
-            <div className="grid gap-2">
-              <Label>Referral Point *</Label>
-              <Input
-                type="number"
-                min="0"
-                value={form.point}
-                onChange={(e) => set('point', e.target.value)}
-                placeholder="0"
-              />
-            </div>
-            <div className="grid gap-2">
+            <div className="grid gap-2 md:col-span-2 md:max-w-xs">
               <Label>Status</Label>
               <select className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
                 <option value="draft">Draft</option>

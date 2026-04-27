@@ -12,6 +12,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
@@ -75,22 +76,58 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const [form, setForm] = useState<AssetForm>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [filterType, setFilterType] = useState('');
+  const [filterSubjectTag, setFilterSubjectTag] = useState('');
+  const [filterLessonTag, setFilterLessonTag] = useState('');
+  const [filterCreatedBy, setFilterCreatedBy] = useState('');
+  const [search, setSearch] = useState('');
   const [previewAsset, setPreviewAsset] = useState<Record<string, unknown> | null>(null);
 
-  const filters = useMemo(() => {
+  const apiFilters = useMemo(() => {
+    // Backend currently only filters server-side by asset_type. The other
+    // filters apply client-side below.
     const f: Record<string, string> = {};
     if (filterType) f.asset_type = filterType;
     return Object.keys(f).length > 0 ? f : undefined;
   }, [filterType]);
 
   const { data, loading, error, reload } = useAdminPageData(
-    () => api.listContentAssets(session.token, filters),
+    () => api.listContentAssets(session.token, apiFilters),
     [filterType],
   );
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
 
-  const rows = useMemo(() => toRecords(data), [data]);
+  const allRows = useMemo(() => toRecords(data), [data]);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+
+  const rows = useMemo(() => {
+    return allRows.filter((r) => {
+      if (search) {
+        const s = search.toLowerCase();
+        const matches =
+          asString(r.title).toLowerCase().includes(s) ||
+          asString(r.content_id).toLowerCase().includes(s) ||
+          asString(r.tags).toLowerCase().includes(s);
+        if (!matches) return false;
+      }
+      if (filterSubjectTag && asString(r.subject_tag).toLowerCase() !== filterSubjectTag.toLowerCase()) return false;
+      if (filterLessonTag && asString(r.lesson_tag).toLowerCase() !== filterLessonTag.toLowerCase()) return false;
+      if (filterCreatedBy && asString(r.created_by_name).toLowerCase() !== filterCreatedBy.toLowerCase()) return false;
+      return true;
+    });
+  }, [allRows, search, filterSubjectTag, filterLessonTag, filterCreatedBy]);
+
+  const subjectTagOptions = useMemo(() => {
+    const set = new Set(allRows.map((r) => asString(r.subject_tag)).filter(Boolean));
+    return [...set].sort().map((t) => ({ label: t, value: t }));
+  }, [allRows]);
+  const lessonTagOptions = useMemo(() => {
+    const set = new Set(allRows.map((r) => asString(r.lesson_tag)).filter(Boolean));
+    return [...set].sort().map((t) => ({ label: t, value: t }));
+  }, [allRows]);
+  const createdByOptions = useMemo(() => {
+    const set = new Set(allRows.map((r) => asString(r.created_by_name)).filter(Boolean));
+    return [...set].sort().map((t) => ({ label: t, value: t }));
+  }, [allRows]);
 
   const handleOpenAdd = useCallback(() => {
     setEditId('');
@@ -282,24 +319,78 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     <div className="space-y-4">
       <AdminPageHeader title="Content Library" addLabel="+ New Asset" onAdd={handleOpenAdd} />
 
-      {/* Filter */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="max-w-xs space-y-1">
-            <Label className="text-xs">Asset Type</Label>
-            <select className={selectClass} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="">All Types</option>
-              <option value="video">Video</option>
-              <option value="audio">Audio</option>
-              <option value="article">Article</option>
-              <option value="document">Document</option>
-              <option value="quiz">Quiz</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+      <AdminFilterBar
+        filters={
+          [
+            { key: 'search', label: 'Search', type: 'text' as const, value: search, placeholder: 'Title, ID, tags...', onChange: setSearch },
+            {
+              key: 'type',
+              label: 'Type',
+              type: 'select' as const,
+              value: filterType,
+              placeholder: 'All Types',
+              options: [
+                { label: 'Video', value: 'video' },
+                { label: 'Audio', value: 'audio' },
+                { label: 'Article', value: 'article' },
+                { label: 'Document', value: 'document' },
+                { label: 'Quiz', value: 'quiz' },
+              ],
+              onChange: setFilterType,
+            },
+            {
+              key: 'subject_tag',
+              label: 'Subject Tag',
+              type: 'select' as const,
+              value: filterSubjectTag,
+              placeholder: 'All Subjects',
+              options: subjectTagOptions,
+              onChange: setFilterSubjectTag,
+            },
+            {
+              key: 'lesson_tag',
+              label: 'Lesson Tag',
+              type: 'select' as const,
+              value: filterLessonTag,
+              placeholder: 'All Lessons',
+              options: lessonTagOptions,
+              onChange: setFilterLessonTag,
+            },
+            {
+              key: 'created_by',
+              label: 'Created By',
+              type: 'select' as const,
+              value: filterCreatedBy,
+              placeholder: 'Anyone',
+              options: createdByOptions,
+              onChange: setFilterCreatedBy,
+            },
+          ] as FilterField[]
+        }
+        onApply={() => {}}
+        onClear={() => {
+          setSearch('');
+          setFilterType('');
+          setFilterSubjectTag('');
+          setFilterLessonTag('');
+          setFilterCreatedBy('');
+        }}
+      />
 
-      <AdminDataTable columns={columns} rows={rows} actions={actions} />
+      {allRows.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <p className="text-sm font-medium text-slate-700">No content assets yet.</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Click <strong>+ New Asset</strong> to add the first one. Legacy lesson content from
+              the old LMS lives under each course&apos;s Lessons section, not here — the Content
+              Library is a fresh standalone repository for reusable assets.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <AdminDataTable columns={columns} rows={rows} actions={actions} />
+      )}
 
       {/* Add/Edit Asset Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>

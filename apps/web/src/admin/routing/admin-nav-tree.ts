@@ -50,6 +50,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'programs', label: 'Programs', href: '/admin/programs/index' },
       { id: 'course-directory', label: 'Course Directory', href: '/admin/course/index' },
+      { id: 'subjects', label: 'Subjects', href: '/admin/subjects/index' },
       { id: 'offerings', label: 'Course Offerings', href: '/admin/offerings/index' },
       { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
       { id: 'add-lesson', label: 'Add Lesson', href: '/admin/course_new/index' },
