@@ -394,23 +394,24 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
 
       {/* Add/Edit Asset Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void handleSave();
             }}
+            className="w-full min-w-0"
           >
-          <DialogHeader>
+          <DialogHeader className="mb-5">
             <DialogTitle>{editId ? 'Edit Asset' : 'New Content Asset'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
+          <div className="w-full min-w-0 space-y-4">
+            <div className="space-y-1.5">
               <Label>Title *</Label>
               <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Asset title" />
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <div>
+              <div className="space-y-1.5">
                 <Label>Type</Label>
                 <select className={selectClass} value={form.asset_type} onChange={(e) => setForm((f) => ({ ...f, asset_type: e.target.value }))}>
                   <option value="video">Video</option>
@@ -420,11 +421,11 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                   <option value="quiz">Quiz</option>
                 </select>
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label>Duration</Label>
                 <Input value={form.duration} onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} placeholder="e.g. 10:30" />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label>Language</Label>
                 <select className={selectClass} value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}>
                   <option value="">-- Any --</option>
@@ -433,23 +434,23 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div>
+              <div className="space-y-1.5">
                 <Label>Subject Tag</Label>
                 <Input value={form.subject_tag} onChange={(e) => setForm((f) => ({ ...f, subject_tag: e.target.value }))} placeholder="e.g. Child Development" />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label>Lesson Tag</Label>
                 <Input value={form.lesson_tag} onChange={(e) => setForm((f) => ({ ...f, lesson_tag: e.target.value }))} placeholder="e.g. Introduction" />
               </div>
             </div>
             {form.asset_type === 'video' && (
-              <div>
+              <div className="space-y-1.5">
                 <Label>Video URL</Label>
                 <Input value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://..." />
               </div>
             )}
             {form.asset_type === 'audio' && (
-              <div>
+              <div className="space-y-1.5">
                 <Label>Audio File</Label>
                 <FileUpload
                   value={form.audio_file}
@@ -461,7 +462,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               </div>
             )}
             {form.asset_type === 'document' && (
-              <div>
+              <div className="space-y-1.5">
                 <Label>File</Label>
                 <FileUpload
                   value={form.attachment}
@@ -473,7 +474,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               </div>
             )}
             {form.asset_type === 'article' ? (
-              <div>
+              <div className="space-y-1.5">
                 <Label>Article Content</Label>
                 <RichTextEditor
                   value={form.summary}
@@ -481,7 +482,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 />
               </div>
             ) : form.asset_type !== 'quiz' ? (
-              <div>
+              <div className="space-y-1.5">
                 <Label>Summary</Label>
                 <textarea
                   className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -490,7 +491,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 />
               </div>
             ) : null}
-            <div>
+            <div className="space-y-1.5">
               <Label>Tags (comma-separated)</Label>
               <Input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="e.g. montessori, child-development" />
             </div>
@@ -499,19 +500,19 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               <div className="space-y-3 rounded-md border p-3">
                 <div className="font-medium">Quiz Settings</div>
                 <div className="grid gap-3 sm:grid-cols-4">
-                  <div>
+                  <div className="space-y-1.5">
                     <Label>Time Limit (min)</Label>
                     <Input type="number" value={form.time_limit_minutes} onChange={(e) => setForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="0" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label>Attempts</Label>
                     <Input type="number" value={form.attempts_allowed} onChange={(e) => setForm((f) => ({ ...f, attempts_allowed: e.target.value }))} placeholder="1" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label>Pass Marks</Label>
                     <Input type="number" value={form.pass_marks} onChange={(e) => setForm((f) => ({ ...f, pass_marks: e.target.value }))} placeholder="0" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label>Shuffle</Label>
                     <div className="flex h-10 items-center">
                       <input
@@ -590,7 +591,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="mt-6 gap-2">
             <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
             <Button type="submit" disabled={saving || !form.title.trim()}>
               {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
