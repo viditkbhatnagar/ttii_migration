@@ -1028,10 +1028,43 @@ export class ContentService {
     };
   }
 
-  async listCourses(userId: string): Promise<Record<string, unknown>[]> {
+  async listCourses(
+    userId: string,
+    options?: { enrolledOnly?: boolean },
+  ): Promise<Record<string, unknown>[]> {
+    let courseIdFilter: number[] | undefined;
+
+    if (options?.enrolledOnly) {
+      const userIntId = toNullableIntId(userId);
+      if (userIntId === null) {
+        return [];
+      }
+
+      const enrolments = await this.prisma.enrol.findMany({
+        where: {
+          user_id: userIntId,
+          deleted_at: null,
+        },
+        select: { course_id: true },
+      });
+
+      courseIdFilter = [
+        ...new Set(
+          enrolments
+            .map((e) => e.course_id)
+            .filter((id): id is number => id !== null && id !== undefined),
+        ),
+      ];
+
+      if (courseIdFilter.length === 0) {
+        return [];
+      }
+    }
+
     const rows = await this.prisma.course.findMany({
       where: {
         deleted_at: null,
+        ...(courseIdFilter !== undefined ? { id: { in: courseIdFilter } } : {}),
       },
       orderBy: { id: 'asc' },
     });

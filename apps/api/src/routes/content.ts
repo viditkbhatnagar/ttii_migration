@@ -205,7 +205,9 @@ export function registerContentRoutes(
 
   app.get('/course/all_course', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
-      const courses = await contentService.listCourses(requestUserId(request));
+      const roleId = request.authContext?.user.role_id ?? null;
+      const enrolledOnly = roleId === 2;
+      const courses = await contentService.listCourses(requestUserId(request), { enrolledOnly });
       reply.code(200).send({
         status: 1,
         message: 'success',
