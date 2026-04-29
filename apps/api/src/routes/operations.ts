@@ -2035,6 +2035,46 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // ── Admin permissions (Track 3 of QA round 2026-04-30) ─────────────
+  app.get('/admin/permissions/catalog', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const { listAdminPermissions } = await import('../auth/permissions.js');
+      const rows = await listAdminPermissions();
+      reply.code(200).send({ status: 1, message: 'success', data: rows });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/permissions/user', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const userId = toInteger(payload.user_id);
+      if (!userId) {
+        reply.code(200).send({ status: 0, message: 'user_id is required', data: [] });
+        return;
+      }
+      const { listUserGrantedPermissionIds } = await import('../auth/permissions.js');
+      const ids = await listUserGrantedPermissionIds(userId);
+      reply.code(200).send({ status: 1, message: 'success', data: ids });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/permissions/user/set', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const targetUserId = toInteger(payload.user_id);
+      if (!targetUserId) {
+        reply.code(200).send({ status: 0, message: 'user_id is required', data: [] });
+        return;
+      }
+      const idsRaw = Array.isArray(payload.permission_ids) ? payload.permission_ids : [];
+      const ids = idsRaw.map((v) => toInteger(v)).filter((n): n is number => Number.isInteger(n) && n > 0);
+      const actorUserId = toInteger(requestUserId(request));
+      const { setUserPermissions } = await import('../auth/permissions.js');
+      await setUserPermissions(actorUserId, targetUserId, ids);
+      reply.code(200).send({ status: 1, message: 'Permissions updated.', data: { user_id: targetUserId, permission_ids: ids } });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/associates/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

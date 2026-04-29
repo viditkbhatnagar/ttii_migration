@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,43 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
   const [roleId, setRoleId] = useState(8);
   const [image, setImage] = useState('');
 
+  // Permission catalog + per-user grant state (Track 3)
+  const [permCatalog, setPermCatalog] = useState<Array<Record<string, unknown>>>([]);
+  const [grantedPermIds, setGrantedPermIds] = useState<Set<number>>(new Set());
+
+  // Load the catalog once when the dialog first opens.
+  useEffect(() => {
+    if (!dialogOpen || permCatalog.length > 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await api.listAdminPermissionsCatalog(session.token);
+        if (!cancelled) setPermCatalog(rows);
+      } catch { /* ignore — UI will fall back to "no permissions" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [dialogOpen, permCatalog.length, api, session.token]);
+
   const allUsers = useMemo(() => toRecords(data), [data]);
+
+  const permissionsByCategory = useMemo(() => {
+    const map = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of permCatalog) {
+      const cat = asString(row.category) || 'Other';
+      const list = map.get(cat) ?? [];
+      list.push(row);
+      map.set(cat, list);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [permCatalog]);
+
+  function togglePerm(id: number, checked: boolean) {
+    setGrantedPermIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  }
 
   function resetForm() {
     setName('');
@@ -48,6 +84,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
     setPhone('');
     setRoleId(8);
     setImage('');
+    setGrantedPermIds(new Set());
     setEditingUser(null);
   }
 
@@ -56,12 +93,19 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
     setDialogOpen(true);
   }
 
-  function openEditDialog(row: Record<string, unknown>) {
+  async function openEditDialog(row: Record<string, unknown>) {
     setEditingUser(row);
     setName(asString(row.name));
     setPhone(asString(row.phone));
     setImage(asString(row.image) || asString(row.profile_picture));
     setDialogOpen(true);
+    const userId = asString(row._id || row.id);
+    if (userId) {
+      try {
+        const ids = await api.listUserAdminPermissions(session.token, userId);
+        setGrantedPermIds(new Set(ids));
+      } catch { /* ignore */ }
+    }
   }
 
   async function handleDelete(row: Record<string, unknown>) {
@@ -92,6 +136,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
       setSubmitting(true);
       try {
         await api.editUser(session.token, id, { name: name.trim(), phone: phone.trim() });
+        await api.setUserAdminPermissions(session.token, id, [...grantedPermIds]);
         setDialogOpen(false);
         resetForm();
         reload();
@@ -152,9 +197,9 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
 
   const actions: DataTableAction[] = useMemo(
     () => [
-      { label: 'View', onClick: (row) => openEditDialog(row) },
-      { label: 'Edit', onClick: (row) => openEditDialog(row) },
-      { label: 'Delete', onClick: (row) => handleDelete(row), variant: 'destructive' },
+      { label: 'View', onClick: (row) => { void openEditDialog(row); } },
+      { label: 'Edit', onClick: (row) => { void openEditDialog(row); } },
+      { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
     ],
     [],
   );
@@ -234,9 +279,48 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
                   </select>
                 </div>
                 <p className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
-                  A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{email || 'this user'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in.
+                  A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{email || 'this user'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in. After creation, edit them to assign permissions.
                 </p>
               </>
+            )}
+            {editingUser && (
+              <div className="space-y-2">
+                <Label>Permissions</Label>
+                <p className="text-xs text-slate-500">
+                  Select what this admin can do. Super Admins have all permissions automatically.
+                </p>
+                <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200 p-3 space-y-3">
+                  {permissionsByCategory.length === 0 ? (
+                    <p className="text-xs text-slate-400">Loading permissions…</p>
+                  ) : (
+                    permissionsByCategory.map(([category, items]) => (
+                      <div key={category} className="space-y-1.5">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">{category}</p>
+                        <div className="space-y-1">
+                          {items.map((p) => {
+                            const id = Number(p.id);
+                            const checked = grantedPermIds.has(id);
+                            return (
+                              <label key={id} className="flex items-start gap-2 cursor-pointer rounded px-2 py-1 hover:bg-slate-50">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => togglePerm(id, e.target.checked)}
+                                  className="mt-0.5 size-4 rounded border-slate-300"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm text-slate-800">{asString(p.title)}</p>
+                                  {p.description ? <p className="text-xs text-slate-500">{asString(p.description)}</p> : null}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             )}
           </div>
           <DialogFooter>

@@ -1723,6 +1723,31 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/user/delete', authToken, { id });
   }
 
+  // ── Admin permissions (Track 3, 2026-04-30) ──────────────────────
+  async listAdminPermissionsCatalog(authToken: string): Promise<Array<Record<string, unknown>>> {
+    const payload = await this.get<LegacyEnvelope<Array<Record<string, unknown>>>>(
+      '/admin/permissions/catalog',
+      authToken,
+    );
+    return Array.isArray(payload.data) ? payload.data : [];
+  }
+
+  async listUserAdminPermissions(authToken: string, userId: string): Promise<number[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      '/admin/permissions/user',
+      authToken,
+      { user_id: userId },
+    );
+    return Array.isArray(payload.data) ? payload.data.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0) : [];
+  }
+
+  async setUserAdminPermissions(authToken: string, userId: string, permissionIds: number[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/permissions/user/set', authToken, {
+      user_id: userId,
+      permission_ids: permissionIds,
+    });
+  }
+
   async addAssociate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/associates/add', authToken, input);
   }
