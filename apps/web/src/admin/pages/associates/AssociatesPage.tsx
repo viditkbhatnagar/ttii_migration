@@ -195,7 +195,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
       if (dialogMode === 'add') {
         const res = await api.addAssociate(session.token, payload);
-        const message = asString((res as Record<string, unknown>).message);
+        const message = asString(res.message);
         if (message) toast.success(message);
       } else if (editRow) {
         await api.editAssociate(session.token, asString(editRow.id) || asString(editRow._id), payload);

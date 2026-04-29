@@ -155,7 +155,7 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
           role_id: roleId,
           image: image.trim() || undefined,
         });
-        const message = asString((result as Record<string, unknown>).message);
+        const message = asString(result.message);
         if (message) toast.success(message);
         setDialogOpen(false);
         resetForm();

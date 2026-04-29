@@ -107,7 +107,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
         await api.editInstructor(session.token, editingId, payload);
       } else {
         const res = await api.addInstructor(session.token, payload);
-        const message = asString((res as Record<string, unknown>).message);
+        const message = asString(res.message);
         if (message) toast.success(message);
       }
       setDialogOpen(false);

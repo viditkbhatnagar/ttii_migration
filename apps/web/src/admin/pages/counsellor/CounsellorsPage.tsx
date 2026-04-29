@@ -196,7 +196,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
 
       if (dialogMode === 'add') {
         const res = await api.addCounsellor(session.token, payload);
-        const message = asString((res as Record<string, unknown>).message);
+        const message = asString(res.message);
         if (message) toast.success(message);
       } else if (editRow) {
         await api.editCounsellor(session.token, asString(editRow.id) || asString(editRow._id), payload);
