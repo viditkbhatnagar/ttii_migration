@@ -2275,6 +2275,29 @@ export class ContentService {
 
   async addSubjectAdmin(actorUserId: string, input: AdminSubjectInput): Promise<Record<string, unknown>> {
     const courseIdInt = toIntId(input.course_id);
+
+    // Reject duplicate titles (case-insensitive, ignoring leading/trailing
+    // whitespace). Subjects are globally unique by title — if a subject
+    // already exists, the admin should "Link existing" instead of creating
+    // a clone. The error includes the existing id so the UI can offer that.
+    const trimmedTitle = input.title.trim();
+    if (trimmedTitle) {
+      const existing = await this.prisma.subject.findFirst({
+        where: {
+          deleted_at: null,
+          title: { equals: trimmedTitle },
+        },
+        select: { id: true, title: true },
+      });
+      if (existing) {
+        const err = new Error(
+          `A subject titled "${existing.title}" already exists. Use "Link Existing Subject" to add it to this course instead.`,
+        ) as Error & { existingSubjectId?: number };
+        err.existingSubjectId = existing.id;
+        throw err;
+      }
+    }
+
     const maxOrder = await this.prisma.subject.aggregate({
       where: { course_id: courseIdInt, deleted_at: null },
       _max: { order: true },
@@ -2423,8 +2446,30 @@ export class ContentService {
   }
 
   async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
+    const subjectIdInt = toIntId(subjectId);
+
+    // Prevent renaming a subject to a title another active subject already
+    // uses (case-insensitive, trimmed). Same intent as addSubjectAdmin's
+    // uniqueness check.
+    const trimmedTitle = input.title.trim();
+    if (trimmedTitle) {
+      const collision = await this.prisma.subject.findFirst({
+        where: {
+          deleted_at: null,
+          id: { not: subjectIdInt },
+          title: { equals: trimmedTitle },
+        },
+        select: { id: true, title: true },
+      });
+      if (collision) {
+        throw new Error(
+          `Another subject is already titled "${collision.title}". Pick a different name or merge the two manually.`,
+        );
+      }
+    }
+
     await this.prisma.subject.update({
-      where: { id: toIntId(subjectId) },
+      where: { id: subjectIdInt },
       data: {
         title: input.title,
         subject_code: toNullableString(input.subject_code),

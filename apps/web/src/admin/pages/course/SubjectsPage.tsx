@@ -83,9 +83,18 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
   const courseOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const r of allRows) {
-      const id = asString(r.course_id);
-      const title = asString(r.course_title);
-      if (id && title && !seen.has(id)) seen.set(id, title);
+      const courses = Array.isArray(r.courses) ? (r.courses as Array<Record<string, unknown>>) : [];
+      for (const c of courses) {
+        const id = asString(c.id);
+        const title = asString(c.title);
+        if (id && title && !seen.has(id)) seen.set(id, title);
+      }
+      // Fallback for any subject that hasn't been backfilled into courses[].
+      if (courses.length === 0) {
+        const id = asString(r.course_id);
+        const title = asString(r.course_title);
+        if (id && title && !seen.has(id)) seen.set(id, title);
+      }
     }
     return Array.from(seen.entries())
       .map(([value, label]) => ({ value, label }))
@@ -94,18 +103,26 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
 
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
+      const courses = Array.isArray(r.courses) ? (r.courses as Array<Record<string, unknown>>) : [];
       if (search) {
         const s = search.toLowerCase();
-        const matches =
+        const titleMatch =
           asString(r.title).toLowerCase().includes(s) ||
           asString(r.subject_code).toLowerCase().includes(s) ||
-          asString(r.short_name).toLowerCase().includes(s) ||
-          asString(r.course_title).toLowerCase().includes(s);
-        if (!matches) return false;
+          asString(r.short_name).toLowerCase().includes(s);
+        const courseMatch =
+          asString(r.course_title).toLowerCase().includes(s) ||
+          courses.some((c) => asString(c.title).toLowerCase().includes(s));
+        if (!titleMatch && !courseMatch) return false;
       }
       if (typeFilter && asString(r.subject_type).toLowerCase() !== typeFilter.toLowerCase()) return false;
       if (statusFilter && asString(r.status).toLowerCase() !== statusFilter.toLowerCase()) return false;
-      if (courseFilter && asString(r.course_id) !== courseFilter) return false;
+      if (courseFilter) {
+        const matchesAny =
+          asString(r.course_id) === courseFilter ||
+          courses.some((c) => asString(c.id) === courseFilter);
+        if (!matchesAny) return false;
+      }
       return true;
     });
   }, [allRows, search, typeFilter, statusFilter, courseFilter]);
@@ -215,7 +232,30 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
   const columns: DataTableColumn[] = [
     { key: 'subject_code', label: 'Code', sortable: true, render: (v) => asString(v) || '—' },
     { key: 'title', label: 'Subject Title', sortable: true },
-    { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '—' },
+    {
+      key: 'courses',
+      label: 'Courses',
+      render: (_v, row) => {
+        const courses = Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [];
+        if (courses.length === 0) {
+          const fallback = asString(row.course_title);
+          return fallback ? <span className="text-sm">{fallback}</span> : <span className="text-sm text-slate-400">—</span>;
+        }
+        return (
+          <div className="flex flex-wrap gap-1">
+            {courses.map((c, i) => (
+              <span
+                key={`${asString(c.id)}-${i}`}
+                className="inline-flex max-w-[180px] truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                title={asString(c.title)}
+              >
+                {asString(c.title)}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
     { key: 'subject_type', label: 'Type', render: (v) => asString(v) || '—' },
     { key: 'duration_hours', label: 'Hours', render: (v) => (v == null ? '—' : String(asNumber(v))) },
     { key: 'version', label: 'Version', render: (v) => asString(v) || '—' },

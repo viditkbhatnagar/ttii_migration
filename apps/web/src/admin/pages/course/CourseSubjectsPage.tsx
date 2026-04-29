@@ -419,6 +419,9 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
                 const id = asString(subject.id);
                 const checked = selectedSubjectIds.has(id);
                 const alreadyLinked = rows.some((r) => asString(r.id) === id);
+                const courses = Array.isArray(subject.courses) ? (subject.courses as Array<Record<string, unknown>>) : [];
+                const courseCount = courses.length;
+                const courseTitles = courses.map((c) => asString(c.title)).filter(Boolean).join(', ');
                 return (
                   <label key={id} className={`flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer ${alreadyLinked ? 'border-green-200 bg-green-50 opacity-60' : 'border-gray-200 hover:bg-gray-50'}`}>
                     <input type="checkbox" checked={checked} disabled={alreadyLinked} onChange={() => handleToggleSubject(id)} className="h-4 w-4 rounded border-gray-300" />
@@ -426,8 +429,15 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {asString(subject.title)}
                         {alreadyLinked && <span className="ml-2 text-xs text-green-600">(already linked)</span>}
+                        {!alreadyLinked && courseCount > 0 && (
+                          <span className="ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600" title={courseTitles}>
+                            in {courseCount} course{courseCount === 1 ? '' : 's'}
+                          </span>
+                        )}
                       </p>
-                      <p className="text-xs text-gray-500 truncate">{asString(subject.description) || 'No description'}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {courseTitles || asString(subject.description) || 'No description'}
+                      </p>
                     </div>
                   </label>
                 );
