@@ -71,6 +71,7 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.listAllSubjects(session.token),
@@ -79,6 +80,18 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
 
   const allRows = useMemo(() => toRecords(data), [data]);
 
+  const courseOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of allRows) {
+      const id = asString(r.course_id);
+      const title = asString(r.course_title);
+      if (id && title && !seen.has(id)) seen.set(id, title);
+    }
+    return Array.from(seen.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [allRows]);
+
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
       if (search) {
@@ -86,14 +99,16 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
         const matches =
           asString(r.title).toLowerCase().includes(s) ||
           asString(r.subject_code).toLowerCase().includes(s) ||
-          asString(r.short_name).toLowerCase().includes(s);
+          asString(r.short_name).toLowerCase().includes(s) ||
+          asString(r.course_title).toLowerCase().includes(s);
         if (!matches) return false;
       }
       if (typeFilter && asString(r.subject_type).toLowerCase() !== typeFilter.toLowerCase()) return false;
       if (statusFilter && asString(r.status).toLowerCase() !== statusFilter.toLowerCase()) return false;
+      if (courseFilter && asString(r.course_id) !== courseFilter) return false;
       return true;
     });
-  }, [allRows, search, typeFilter, statusFilter]);
+  }, [allRows, search, typeFilter, statusFilter, courseFilter]);
 
   const handleOpenAdd = useCallback(() => {
     setEditId('');
@@ -200,6 +215,7 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
   const columns: DataTableColumn[] = [
     { key: 'subject_code', label: 'Code', sortable: true, render: (v) => asString(v) || '—' },
     { key: 'title', label: 'Subject Title', sortable: true },
+    { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '—' },
     { key: 'subject_type', label: 'Type', render: (v) => asString(v) || '—' },
     { key: 'duration_hours', label: 'Hours', render: (v) => (v == null ? '—' : String(asNumber(v))) },
     { key: 'version', label: 'Version', render: (v) => asString(v) || '—' },
@@ -213,7 +229,16 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
 
   const filters: FilterField[] = useMemo(
     () => [
-      { key: 'search', label: 'Search', type: 'text' as const, value: search, placeholder: 'Title, code, short name...', onChange: setSearch },
+      { key: 'search', label: 'Search', type: 'text' as const, value: search, placeholder: 'Title, code, course...', onChange: setSearch },
+      {
+        key: 'course',
+        label: 'Course',
+        type: 'select' as const,
+        value: courseFilter,
+        placeholder: 'All Courses',
+        options: courseOptions,
+        onChange: setCourseFilter,
+      },
       {
         key: 'type',
         label: 'Type',
@@ -240,7 +265,7 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
         onChange: setStatusFilter,
       },
     ],
-    [search, typeFilter, statusFilter],
+    [search, typeFilter, statusFilter, courseFilter, courseOptions],
   );
 
   if (loading) return <PageLoader label="Loading subjects..." />;
@@ -264,6 +289,7 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
           setSearch('');
           setTypeFilter('');
           setStatusFilter('');
+          setCourseFilter('');
         }}
       />
 
@@ -279,7 +305,7 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
           }
         }}
       >
-        <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-[min(680px,calc(100vw-2rem))] overflow-hidden">
+        <DialogContent className="w-[min(880px,calc(100vw-2rem))] max-w-[min(880px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -345,9 +371,11 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
               </div>
 
               <div>
-                <h3 className="mb-1 text-sm font-semibold text-slate-700">Assessment Configuration</h3>
-                <p className="mb-3 text-xs text-slate-500">Marks across components add up to <span className="font-medium text-slate-700">{totalMarks}</span> total.</p>
-                <div className="space-y-3">
+                <div className="mb-3 flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-700">Assessment Configuration</h3>
+                  <p className="text-xs text-slate-500">Total: <span className="font-medium text-slate-700">{totalMarks}</span></p>
+                </div>
+                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
                   {(
                     [
                       { key: 'assignment', label: 'Assignment' },
@@ -359,15 +387,17 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
                     const maxKey = `${row.key}_max_marks` as keyof SubjectFormState;
                     const passKey = `${row.key}_pass_marks` as keyof SubjectFormState;
                     return (
-                      <div key={row.key} className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-                        <Label className="self-center">{row.label}</Label>
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-slate-500">Max marks</p>
-                          <Input type="number" min="0" value={form[maxKey]} onChange={(e) => setForm((f) => ({ ...f, [maxKey]: e.target.value }))} className="w-24" />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-slate-500">Pass marks</p>
-                          <Input type="number" min="0" value={form[passKey]} onChange={(e) => setForm((f) => ({ ...f, [passKey]: e.target.value }))} className="w-24" />
+                      <div key={row.key} className="rounded-md border border-slate-200 p-3">
+                        <Label className="text-xs font-semibold uppercase tracking-wide text-slate-600">{row.label}</Label>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <p className="text-[11px] text-slate-500">Max marks</p>
+                            <Input type="number" min="0" value={form[maxKey]} onChange={(e) => setForm((f) => ({ ...f, [maxKey]: e.target.value }))} />
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-[11px] text-slate-500">Pass marks</p>
+                            <Input type="number" min="0" value={form[passKey]} onChange={(e) => setForm((f) => ({ ...f, [passKey]: e.target.value }))} />
+                          </div>
                         </div>
                       </div>
                     );
@@ -375,13 +405,15 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
                 </div>
               </div>
 
-              <div className="md:max-w-xs space-y-1.5">
-                <Label>Status</Label>
-                <select className={selectClass} value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-                  <option value="draft">Draft</option>
-                  <option value="active">Active</option>
-                  <option value="archived">Archived</option>
-                </select>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <select className={selectClass} value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                    <option value="draft">Draft</option>
+                    <option value="active">Active</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
               </div>
             </div>
 

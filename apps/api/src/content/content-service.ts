@@ -2171,16 +2171,58 @@ export class ContentService {
   async listAllSubjects(): Promise<Record<string, unknown>[]> {
     const subjects = await this.prisma.subject.findMany({
       where: { deleted_at: null },
-      select: { id: true, title: true, description: true, course_id: true },
       orderBy: { title: 'asc' },
     });
 
-    return subjects.map((s) => ({
-      id: s.id,
-      title: s.title,
-      description: s.description ?? '',
-      course_count: s.course_id !== null ? 1 : 0,
-    }));
+    const courseIds = [
+      ...new Set(
+        subjects
+          .map((s) => s.course_id)
+          .filter((id): id is number => id !== null && id !== undefined),
+      ),
+    ];
+
+    const courses = courseIds.length
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds } },
+          select: { id: true, title: true, deleted_at: true },
+        })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c]));
+
+    return subjects
+      .filter((s) => {
+        if (s.course_id === null || s.course_id === undefined) return true;
+        const parent = courseMap.get(s.course_id);
+        return parent !== undefined && parent.deleted_at === null;
+      })
+      .map((s) => {
+        const parent = s.course_id !== null && s.course_id !== undefined ? courseMap.get(s.course_id) : undefined;
+        return {
+          id: s.id,
+          title: s.title,
+          subject_code: s.subject_code,
+          short_name: s.short_name,
+          subject_type: s.subject_type,
+          duration_hours: s.duration_hours,
+          version: s.version,
+          description: s.description ?? '',
+          learning_outcomes: s.learning_outcomes,
+          skills_covered: s.skills_covered,
+          assignment_max_marks: s.assignment_max_marks,
+          assignment_pass_marks: s.assignment_pass_marks,
+          examination_max_marks: s.examination_max_marks,
+          examination_pass_marks: s.examination_pass_marks,
+          project_max_marks: s.project_max_marks,
+          project_pass_marks: s.project_pass_marks,
+          viva_max_marks: s.viva_max_marks,
+          viva_pass_marks: s.viva_pass_marks,
+          status: s.status,
+          course_id: s.course_id,
+          course_title: parent?.title ?? null,
+          course_count: s.course_id !== null && s.course_id !== undefined ? 1 : 0,
+        };
+      });
   }
 
   async addSubjectAdmin(actorUserId: string, input: AdminSubjectInput): Promise<Record<string, unknown>> {
