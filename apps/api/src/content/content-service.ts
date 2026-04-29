@@ -404,6 +404,39 @@ export class ContentService {
     });
   }
 
+  /** Subject IDs linked to the given course via the course_subject pivot,
+   * preserving pivot.position then subject.id for ordering. Returns [] for
+   * an invalid courseId or a course with no linked subjects. */
+  private async loadSubjectIdsForCourse(courseId: string): Promise<number[]> {
+    const courseIdInt = toNullableIntId(courseId);
+    if (courseIdInt === null) return [];
+
+    const links = await this.prisma.course_subject.findMany({
+      where: { course_id: courseIdInt, deleted_at: null },
+      select: { subject_id: true, position: true },
+      orderBy: [{ position: 'asc' }, { subject_id: 'asc' }],
+    });
+
+    return links.map((l) => l.subject_id);
+  }
+
+  /** Count of active subjects linked to a course via course_subject. */
+  private async countSubjectsForCourse(courseId: string): Promise<number> {
+    const courseIdInt = toNullableIntId(courseId);
+    if (courseIdInt === null) return 0;
+
+    const links = await this.prisma.course_subject.findMany({
+      where: { course_id: courseIdInt, deleted_at: null },
+      select: { subject_id: true },
+    });
+
+    if (links.length === 0) return 0;
+
+    return this.prisma.subject.count({
+      where: { id: { in: links.map((l) => l.subject_id) }, deleted_at: null },
+    });
+  }
+
   private async isUserEnrolled(userId: string, courseId: string): Promise<boolean> {
     const total = await this.prisma.enrol.count({
       where: {
@@ -896,12 +929,7 @@ export class ContentService {
       },
     });
 
-    const subjectCount = await this.prisma.subject.count({
-      where: {
-        course_id: toNullableIntId(courseId),
-        deleted_at: null,
-      },
-    });
+    const subjectCount = await this.countSubjectsForCourse(courseId);
 
     const totalReviews = await this.totalReviewsByCourse(courseId);
     const totalRating = await this.averageRatingByCourse(courseId);
@@ -1086,20 +1114,27 @@ export class ContentService {
     const user = await this.getUserById(userId);
     const courseData = await this.buildCourseData(course as unknown as Record<string, unknown>, userId);
 
-    const subjects = await this.prisma.subject.findMany({
-      where: {
-        course_id: toNullableIntId(courseId),
-        deleted_at: null,
-      },
-      select: {
-        id: true,
-        title: true,
-        thumbnail: true,
-      },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
-    });
+    const subjectIdsForCourse = await this.loadSubjectIdsForCourse(courseId);
+    const subjects = subjectIdsForCourse.length === 0
+      ? []
+      : await this.prisma.subject.findMany({
+          where: {
+            id: { in: subjectIdsForCourse },
+            deleted_at: null,
+          },
+          select: {
+            id: true,
+            title: true,
+            thumbnail: true,
+          },
+        });
+    // Preserve pivot ordering (loadSubjectIdsForCourse orders by position).
+    const subjectByIdForDetails = new Map(subjects.map((s) => [s.id, s]));
+    const orderedSubjectsForDetails = subjectIdsForCourse
+      .map((id) => subjectByIdForDetails.get(id))
+      .filter((s): s is NonNullable<typeof s> => s !== undefined);
 
-    const subjectData = subjects.map((subject) => ({
+    const subjectData = orderedSubjectsForDetails.map((subject) => ({
       id: subject.id,
       title: subject.title,
       thumbnail: this.toFileUrl(subject.thumbnail),
@@ -1326,11 +1361,12 @@ export class ContentService {
   }
 
   async getSubjects(userId: string, courseId: string): Promise<Record<string, unknown>[]> {
-    // course_subjects junction does not exist in MySQL; filter subjects
-    // by their direct subject.course_id column instead.
-    const subjects = await this.prisma.subject.findMany({
+    const subjectIds = await this.loadSubjectIdsForCourse(courseId);
+    if (subjectIds.length === 0) return [];
+
+    const rows = await this.prisma.subject.findMany({
       where: {
-        course_id: toNullableIntId(courseId),
+        id: { in: subjectIds },
         deleted_at: null,
       },
       select: {
@@ -1338,12 +1374,13 @@ export class ContentService {
         title: true,
         description: true,
         thumbnail: true,
-        order: true,
       },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
-
-    if (subjects.length === 0) return [];
+    // Preserve pivot ordering (subjectIds is already ordered by position, then id).
+    const subjectMap = new Map(rows.map((s) => [s.id, s]));
+    const subjects = subjectIds
+      .map((id) => subjectMap.get(id))
+      .filter((s): s is NonNullable<typeof s> => s !== undefined);
 
     const subjectData: Record<string, unknown>[] = [];
 
@@ -2121,15 +2158,17 @@ export class ContentService {
   // ── Admin Subject CRUD ────────────────────────────────────────────
 
   async listCourseSubjectsAdmin(courseId: string): Promise<Record<string, unknown>[]> {
-    // course_subjects junction does not exist in MySQL — use direct
-    // subject.course_id column instead.
-    const subjects = await this.prisma.subject.findMany({
-      where: { course_id: toNullableIntId(courseId), deleted_at: null },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
-    });
-    if (subjects.length === 0) return [];
+    const subjectIds = await this.loadSubjectIdsForCourse(courseId);
+    if (subjectIds.length === 0) return [];
 
-    const subjectIds = subjects.map((s) => s.id);
+    const subjectRows = await this.prisma.subject.findMany({
+      where: { id: { in: subjectIds }, deleted_at: null },
+    });
+    // Preserve pivot ordering.
+    const subjectMap = new Map(subjectRows.map((s) => [s.id, s]));
+    const subjects = subjectIds
+      .map((id) => subjectMap.get(id))
+      .filter((s): s is NonNullable<typeof s> => s !== undefined);
 
     const lessonCounts = await this.prisma.lesson.groupBy({
       by: ['subject_id'],
@@ -2174,14 +2213,15 @@ export class ContentService {
       orderBy: { title: 'asc' },
     });
 
-    const courseIds = [
-      ...new Set(
-        subjects
-          .map((s) => s.course_id)
-          .filter((id): id is number => id !== null && id !== undefined),
-      ),
-    ];
+    if (subjects.length === 0) return [];
 
+    const subjectIds = subjects.map((s) => s.id);
+    const links = await this.prisma.course_subject.findMany({
+      where: { subject_id: { in: subjectIds }, deleted_at: null },
+      select: { course_id: true, subject_id: true, position: true },
+    });
+
+    const courseIds = [...new Set(links.map((l: { course_id: number }) => l.course_id))];
     const courses = courseIds.length
       ? await this.prisma.course.findMany({
           where: { id: { in: courseIds } },
@@ -2190,14 +2230,21 @@ export class ContentService {
       : [];
     const courseMap = new Map(courses.map((c) => [c.id, c]));
 
+    // Group active courses by subject_id.
+    const linksBySubject = new Map<number, Array<{ id: number; title: string }>>();
+    for (const link of links) {
+      const course = courseMap.get(link.course_id);
+      if (!course || course.deleted_at !== null) continue;
+      const list = linksBySubject.get(link.subject_id) ?? [];
+      list.push({ id: course.id, title: course.title ?? '' });
+      linksBySubject.set(link.subject_id, list);
+    }
+
     return subjects
-      .filter((s) => {
-        if (s.course_id === null || s.course_id === undefined) return true;
-        const parent = courseMap.get(s.course_id);
-        return parent !== undefined && parent.deleted_at === null;
-      })
+      .filter((s) => (linksBySubject.get(s.id)?.length ?? 0) > 0)
       .map((s) => {
-        const parent = s.course_id !== null && s.course_id !== undefined ? courseMap.get(s.course_id) : undefined;
+        const linked = linksBySubject.get(s.id) ?? [];
+        const primary = linked[0];
         return {
           id: s.id,
           title: s.title,
@@ -2218,9 +2265,10 @@ export class ContentService {
           viva_max_marks: s.viva_max_marks,
           viva_pass_marks: s.viva_pass_marks,
           status: s.status,
-          course_id: s.course_id,
-          course_title: parent?.title ?? null,
-          course_count: s.course_id !== null && s.course_id !== undefined ? 1 : 0,
+          course_id: primary?.id ?? null,
+          course_title: primary?.title ?? null,
+          courses: linked,
+          course_count: linked.length,
         };
       });
   }
@@ -2263,34 +2311,115 @@ export class ContentService {
       },
     });
 
-    return { id: subject.id };
-  }
-
-  /** Link an existing subject to a course — MySQL has no junction table,
-   * so we overwrite subject.course_id. */
-  async linkSubjectToCourse(actorUserId: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
-    await this.prisma.subject.update({
-      where: { id: toIntId(subjectId) },
-      data: {
-        course_id: toIntId(courseId),
+    // Mirror into the course_subject pivot so reads through the M:N model
+    // see the new subject immediately.
+    await this.prisma.course_subject.upsert({
+      where: { course_id_subject_id: { course_id: courseIdInt, subject_id: subject.id } },
+      create: {
+        course_id: courseIdInt,
+        subject_id: subject.id,
+        position: nextOrder,
+        created_by: toNullableIntId(actorUserId),
+        created_at: new Date(),
+      },
+      update: {
+        position: nextOrder,
+        deleted_at: null,
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
+
+    return { id: subject.id };
+  }
+
+  /** Link an existing subject to a course. Writes the link to the
+   * course_subject pivot (M:N), and keeps subject.course_id in sync as a
+   * denormalised "primary owner" pointer for any callers still reading it. */
+  async linkSubjectToCourse(actorUserId: string, courseId: string, subjectId: string): Promise<Record<string, unknown>> {
+    const courseIdInt = toIntId(courseId);
+    const subjectIdInt = toIntId(subjectId);
+
+    // Use the next position within the target course.
+    const maxPos = await this.prisma.course_subject.aggregate({
+      where: { course_id: courseIdInt, deleted_at: null },
+      _max: { position: true },
+    });
+    const nextPos = (maxPos._max?.position ?? 0) + 1;
+
+    await this.prisma.course_subject.upsert({
+      where: { course_id_subject_id: { course_id: courseIdInt, subject_id: subjectIdInt } },
+      create: {
+        course_id: courseIdInt,
+        subject_id: subjectIdInt,
+        position: nextPos,
+        created_by: toNullableIntId(actorUserId),
+        created_at: new Date(),
+      },
+      update: {
+        deleted_at: null,
+        position: nextPos,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
+
+    // Dual-write subject.course_id only when it's currently null/unset, to
+    // avoid stomping a primary owner that other links depend on.
+    const current = await this.prisma.subject.findUnique({
+      where: { id: subjectIdInt },
+      select: { course_id: true },
+    });
+    if (current && (current.course_id === null || current.course_id === undefined)) {
+      await this.prisma.subject.update({
+        where: { id: subjectIdInt },
+        data: {
+          course_id: courseIdInt,
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: new Date(),
+        },
+      });
+    }
 
     return { id: subjectId };
   }
 
-  /** Unlink a subject from a course — clears subject.course_id. */
-  async unlinkSubjectFromCourse(actorUserId: string, _courseId: string, subjectId: string): Promise<void> {
-    await this.prisma.subject.update({
-      where: { id: toIntId(subjectId) },
+  /** Unlink a subject from a course. Soft-deletes the pivot row; clears
+   * subject.course_id only if that was its primary-owner course (so other
+   * pivot links to the same subject remain intact). */
+  async unlinkSubjectFromCourse(actorUserId: string, courseId: string, subjectId: string): Promise<void> {
+    const courseIdInt = toIntId(courseId);
+    const subjectIdInt = toIntId(subjectId);
+
+    await this.prisma.course_subject.update({
+      where: { course_id_subject_id: { course_id: courseIdInt, subject_id: subjectIdInt } },
       data: {
-        course_id: null,
+        deleted_at: new Date(),
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
+
+    const current = await this.prisma.subject.findUnique({
+      where: { id: subjectIdInt },
+      select: { course_id: true },
+    });
+    if (current && current.course_id === courseIdInt) {
+      // Repoint to any remaining linked course, else clear.
+      const remaining = await this.prisma.course_subject.findFirst({
+        where: { subject_id: subjectIdInt, deleted_at: null },
+        orderBy: { position: 'asc' },
+        select: { course_id: true },
+      });
+      await this.prisma.subject.update({
+        where: { id: subjectIdInt },
+        data: {
+          course_id: remaining?.course_id ?? null,
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: new Date(),
+        },
+      });
+    }
   }
 
   async editSubjectAdmin(actorUserId: string, subjectId: string, input: AdminSubjectInput): Promise<void> {
