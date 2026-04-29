@@ -2481,6 +2481,21 @@ model cohort_offerings {
   @@index([offering_id])
 }
 
+model course_subject {
+  course_id  Int
+  subject_id Int
+  position   Int?
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  created_by Int?
+  updated_at DateTime? @db.DateTime(0)
+  updated_by Int?
+  deleted_at DateTime? @db.DateTime(0)
+
+  @@id([course_id, subject_id])
+  @@index([course_id], map: "idx_cs_course")
+  @@index([subject_id], map: "idx_cs_subject")
+}
+
 model offerings {
   id                       Int       @id @default(autoincrement()) @db.UnsignedInt
   course_id                Int
