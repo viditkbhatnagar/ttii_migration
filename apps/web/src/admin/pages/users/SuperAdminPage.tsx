@@ -17,6 +17,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 export default function SuperAdminPage({ api, session }: AdminPageProps) {
@@ -30,13 +31,13 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
   const [editingUser, setEditingUser] = useState<Record<string, unknown> | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state
+  // Form state — passwords are NOT collected here. The server generates a
+  // secure temp password on create and emails it to the new user.
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [roleId, setRoleId] = useState(1);
+  const [image, setImage] = useState('');
 
   const allUsers = useMemo(() => toRecords(data), [data]);
 
@@ -44,9 +45,8 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
     setName('');
     setEmail('');
     setPhone('');
-    setPassword('');
-    setConfirmPassword('');
     setRoleId(1);
+    setImage('');
     setEditingUser(null);
   }
 
@@ -59,6 +59,7 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
     setEditingUser(row);
     setName(asString(row.name));
     setPhone(asString(row.phone));
+    setImage(asString(row.image) || asString(row.profile_picture));
     setDialogOpen(true);
   }
 
@@ -82,10 +83,14 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
   async function handleSubmit() {
     if (editingUser) {
       const id = asString(editingUser._id || editingUser.id);
-      if (!id || !name.trim()) return;
+      if (!id) return;
+      if (!name.trim() || !phone.trim()) {
+        toast.error('All fields are required.');
+        return;
+      }
       setSubmitting(true);
       try {
-        await api.editUser(session.token, id, { name: name.trim(), phone: phone.trim() || undefined });
+        await api.editUser(session.token, id, { name: name.trim(), phone: phone.trim() });
         setDialogOpen(false);
         resetForm();
         reload();
@@ -95,20 +100,21 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
         setSubmitting(false);
       }
     } else {
-      if (!name.trim() || !email.trim() || !password) return;
-      if (password !== confirmPassword) {
-        toast.error('Passwords do not match');
+      if (!name.trim() || !email.trim() || !phone.trim()) {
+        toast.error('Full name, email, and phone are required.');
         return;
       }
       setSubmitting(true);
       try {
-        await api.addUser(session.token, {
+        const result = await api.addUser(session.token, {
           name: name.trim(),
           email: email.trim(),
-          phone: phone.trim() || undefined,
-          password,
+          phone: phone.trim(),
           role_id: roleId,
+          image: image.trim() || undefined,
         });
+        const message = asString((result as Record<string, unknown>).message);
+        if (message) toast.success(message);
         setDialogOpen(false);
         resetForm();
         reload();
@@ -122,6 +128,19 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
 
   const columns: DataTableColumn[] = useMemo(
     () => [
+      {
+        key: 'image',
+        label: '',
+        render: (_v, row) => {
+          const url = asString(row.image) || asString(row.profile_picture);
+          const initials = asString(row.name).split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+          return url ? (
+            <img src={url} alt="" className="size-8 rounded-full object-cover" />
+          ) : (
+            <div className="flex size-8 items-center justify-center rounded-full bg-slate-200 text-xs font-medium text-slate-600">{initials || '—'}</div>
+          );
+        },
+      },
       { key: 'name', label: 'Name', sortable: true },
       { key: 'phone', label: 'Phone' },
       { key: 'user_email', label: 'Email' },
@@ -158,53 +177,63 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
       <AdminDataTable columns={columns} rows={allUsers} actions={actions} />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); resetForm(); } }}>
-        <DialogContent>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void handleSubmit();
             }}
+            className="w-full min-w-0"
           >
           <DialogHeader>
             <DialogTitle>{editingUser ? 'Edit User' : 'Create Super Admin'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="w-full min-w-0 space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="sa-name">Full Name</Label>
-              <Input id="sa-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full Name" />
+              <Label>Profile Photo</Label>
+              <FileUpload
+                value={image}
+                onChange={setImage}
+                onUpload={async (file) => {
+                  const r = await api.uploadFile(session.token, file);
+                  return r.url;
+                }}
+                accept="image/*"
+                placeholder="Upload profile photo"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sa-name">Full Name *</Label>
+              <Input id="sa-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full Name" required />
             </div>
             {!editingUser && (
               <div className="space-y-1.5">
-                <Label htmlFor="sa-email">Email</Label>
-                <Input id="sa-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+                <Label htmlFor="sa-email">Email *</Label>
+                <Input id="sa-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required />
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="sa-phone">Phone</Label>
-              <Input id="sa-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" />
+              <Label htmlFor="sa-phone">Phone *</Label>
+              <Input id="sa-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" required />
             </div>
             {!editingUser && (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sa-password">Password</Label>
-                  <Input id="sa-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sa-confirm">Confirm Password</Label>
-                  <Input id="sa-confirm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm Password" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sa-role">Role</Label>
+                  <Label htmlFor="sa-role">Role *</Label>
                   <select
                     id="sa-role"
                     value={roleId}
                     onChange={(e) => setRoleId(Number(e.target.value))}
+                    required
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     <option value={1}>Super Admin</option>
                     <option value={8}>Admin</option>
                   </select>
                 </div>
+                <p className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                  A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{email || 'this user'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in.
+                </p>
               </>
             )}
           </div>
