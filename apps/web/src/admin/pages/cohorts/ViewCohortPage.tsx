@@ -1404,8 +1404,7 @@ function AddLiveSessionModal({
   onSuccess: () => void;
 }) {
   const [platform, setPlatform] = useState<'teams' | 'zoom' | 'manual'>('teams');
-  const [teamsHosts, setTeamsHosts] = useState<Array<{ id: number; email: string; name: string; active: boolean; verified: boolean }>>([]);
-  const [teamsHostEmail, setTeamsHostEmail] = useState('');
+  const [teamsHostCount, setTeamsHostCount] = useState<number | null>(null);
   const [manualJoinUrl, setManualJoinUrl] = useState('');
   const [zoomId, setZoomId] = useState('');
   const [password, setPassword] = useState('');
@@ -1416,7 +1415,8 @@ function AddLiveSessionModal({
   const [toTime, setToTime] = useState('');
   const [isRepetitive, setIsRepetitive] = useState(false);
 
-  // Load Teams hosts when Teams platform is selected
+  // Show how many Teams hosts are in the pool — reassures the user that
+  // auto-assignment has options. Doesn't drive selection.
   useEffect(() => {
     if (!open || platform !== 'teams') return;
     let cancelled = false;
@@ -1424,21 +1424,14 @@ function AddLiveSessionModal({
       try {
         const hosts = await api.listTeamsMeetingHosts(token);
         if (cancelled) return;
-        const normalized = hosts.map((h) => ({
-          id: Number(h.id),
-          email: String(h.teams_email),
-          name: h.display_name ? String(h.display_name) : String(h.teams_email),
-          active: h.is_active === 1,
-          verified: !!h.policy_verified_at,
-        })).filter((h) => h.active);
-        setTeamsHosts(normalized);
-        if (normalized.length > 0 && !teamsHostEmail) {
-          setTeamsHostEmail(normalized[0]?.email ?? '');
-        }
-      } catch { /* ignore, user will see empty dropdown */ }
+        const activeCount = hosts.filter((h) => h.is_active === 1).length;
+        setTeamsHostCount(activeCount);
+      } catch {
+        if (!cancelled) setTeamsHostCount(null);
+      }
     })();
     return () => { cancelled = true; };
-  }, [api, token, open, platform, teamsHostEmail]);
+  }, [api, token, open, platform]);
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -1446,10 +1439,7 @@ function AddLiveSessionModal({
       const payload: Parameters<typeof api.addCohortLiveSession>[2] = {
         sessionId, title, date, fromTime, toTime, isRepetitive, platform,
       };
-      if (platform === 'teams') {
-        if (!teamsHostEmail) { toast.error('Pick a trainer for the Teams meeting.'); setSubmitting(false); return; }
-        payload.teamsHostEmail = teamsHostEmail;
-      } else if (platform === 'manual') {
+      if (platform === 'manual') {
         if (!manualJoinUrl.trim()) { toast.error('Paste the meeting link.'); setSubmitting(false); return; }
         payload.manualJoinUrl = manualJoinUrl.trim();
       } else if (platform === 'zoom') {
@@ -1498,27 +1488,21 @@ function AddLiveSessionModal({
           </div>
 
           {platform === 'teams' && (
-            <div>
-              <Label className="mb-1 text-xs">Trainer (Teams host) *</Label>
-              {teamsHosts.length === 0 ? (
-                <p className="text-xs text-amber-700">
-                  No Teams meeting hosts configured. Ask an admin to add trainers under
+            <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
+              {teamsHostCount === null ? (
+                <p className="text-xs text-blue-800">Auto-assigning a free Teams faculty account from the pool…</p>
+              ) : teamsHostCount === 0 ? (
+                <p className="text-xs text-amber-800">
+                  No Teams faculty accounts configured. Ask an admin to add hosts under
                   <span className="font-semibold"> Integrations → Teams Meeting Hosts</span>.
                 </p>
               ) : (
-                <select
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={teamsHostEmail}
-                  onChange={(e) => setTeamsHostEmail(e.target.value)}
-                >
-                  {teamsHosts.map((h) => (
-                    <option key={h.id} value={h.email}>
-                      {h.name}{h.verified ? ' — verified' : ' — not yet tested'}
-                    </option>
-                  ))}
-                </select>
+                <p className="text-xs text-blue-800">
+                  <span className="font-semibold">Auto-assign</span> — the system will pick a free Teams faculty account
+                  from the pool of <span className="font-semibold">{teamsHostCount}</span>. If none are free for the
+                  chosen time, the form will warn you and block saving.
+                </p>
               )}
-              <p className="mt-1 text-[11px] text-gray-500">Meeting will be created on the trainer's Teams calendar via Microsoft Graph.</p>
             </div>
           )}
 

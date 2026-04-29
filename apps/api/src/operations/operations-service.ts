@@ -1643,6 +1643,72 @@ export class OperationsService {
     return rows as unknown as SqlRow[];
   }
 
+  /** Auto-pick the first active Teams host with no live_class conflict across
+   * every entry in the scheduling request. Returns { host: null, reason } when
+   * the entire pool is busy for at least one entry's slot. Conflict check uses
+   * the primary date + time window of each entry; repeat-date occurrences are
+   * not yet considered (TODO when scheduler supports recurrence natively).
+   */
+  private async pickAvailableTeamsHost(
+    entries: LiveClassEntryInput[],
+  ): Promise<{ host: { teams_email: string } | null; reason?: string }> {
+    const hosts = await this.prisma.teams_meeting_hosts.findMany({
+      where: { is_active: 1, deleted_at: null },
+      orderBy: [{ id: 'asc' }],
+      select: { teams_email: true, display_name: true },
+    });
+
+    if (hosts.length === 0) {
+      return {
+        host: null,
+        reason:
+          'No Teams meeting hosts are configured. Add at least one under Integrations → Teams Meeting Hosts before scheduling a live session.',
+      };
+    }
+
+    const parseTime = (t: string): Date => {
+      const cleaned = /^\d{1,2}:\d{2}(:\d{2})?$/.test(t) ? (t.length === 5 ? `${t}:00` : t) : '00:00:00';
+      return new Date(`1970-01-01T${cleaned}Z`);
+    };
+
+    for (const host of hosts) {
+      let conflictedEntry: LiveClassEntryInput | null = null;
+
+      for (const entry of entries) {
+        const entryDate = new Date(entry.date);
+        const entryFrom = parseTime(entry.fromTime);
+        const entryTo = parseTime(entry.toTime);
+
+        const conflict = await this.prisma.live_class.findFirst({
+          where: {
+            host_email: host.teams_email,
+            deleted_at: null,
+            date: entryDate,
+            // Overlap: existing.fromTime < new.toTime AND existing.toTime > new.fromTime
+            fromTime: { lt: entryTo },
+            toTime: { gt: entryFrom },
+            status: { not: 'cancelled' },
+          },
+          select: { id: true },
+        });
+
+        if (conflict) {
+          conflictedEntry = entry;
+          break;
+        }
+      }
+
+      if (!conflictedEntry) {
+        return { host: { teams_email: host.teams_email } };
+      }
+    }
+
+    return {
+      host: null,
+      reason: `All ${hosts.length} Teams faculty accounts are already booked for this time slot. Pick a different time, or contact admin to add another host.`,
+    };
+  }
+
   async addTeamsMeetingHost(
     actorUserId: string,
     input: { teamsEmail: string; displayName?: string | undefined; userId?: string | undefined; isActive?: boolean | undefined },
@@ -1838,26 +1904,22 @@ export class OperationsService {
     // fail fast with a clear message before creating DB rows.
     const platform = input.platform ?? 'zoom';
 
-    // For Teams: verify the requested trainer is in the allowlist.
+    // For Teams: auto-assign a free host from the pool. Per product decision
+    // (Naji 2026-04-30): no manual override — system picks the first available
+    // active host whose calendar has no overlapping live_class in the requested
+    // window. If none free, hard-block with a clear warning.
     let teamsHostEmail: string | null = null;
     if (platform === 'teams') {
-      if (!input.teamsHostEmail) {
-        return { success: false, message: 'Teams platform selected but no host email provided.' };
-      }
-      const host = await this.prisma.teams_meeting_hosts.findFirst({
-        where: {
-          teams_email: input.teamsHostEmail,
-          is_active: 1,
-          deleted_at: null,
-        },
-      });
-      if (!host) {
+      const assignment = await this.pickAvailableTeamsHost(input.entries);
+      if (!assignment.host) {
         return {
           success: false,
-          message: `Trainer "${input.teamsHostEmail}" is not in the Teams meeting hosts allowlist. Ask an admin to add + enable them under Integrations → Teams Meeting Hosts.`,
+          message:
+            assignment.reason ??
+            'No faculty Teams account is free for the selected time slot. Pick a different time or add another host under Integrations → Teams Meeting Hosts.',
         };
       }
-      teamsHostEmail = host.teams_email;
+      teamsHostEmail = assignment.host.teams_email;
     }
 
     if (platform === 'manual' || platform === 'other') {
