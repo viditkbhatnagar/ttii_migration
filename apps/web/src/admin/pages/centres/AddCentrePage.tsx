@@ -166,11 +166,13 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
           address: form.addressLine1.trim(),
           registrationDate: form.registrationDate,
           expiryDate: form.expiryDate,
-          password: form.password,
+          image: form.logo.trim() || undefined,
         });
         if (asString(result.status) === '0' || result.status === 0) {
           toast.error(asString(result.message) || 'Failed to add centre');
         } else {
+          const message = asString(result.message);
+          if (message) toast.success(message);
           onNavigate('/admin/centres/index');
         }
       }
@@ -352,11 +354,9 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
                 <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="centre@example.com" disabled />
                 <p className="text-xs text-gray-500">Set in Contact Information section</p>
               </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label>Password *</Label>
-                <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Enter password" />
-                <p className="text-xs text-gray-500">Centre will use this to log in to their portal.</p>
-              </div>
+              <p className="md:col-span-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{form.email || 'this centre'}</span> on save. The contact person will be prompted to change it on first sign-in.
+              </p>
             </div>
           )}
         </CardContent>

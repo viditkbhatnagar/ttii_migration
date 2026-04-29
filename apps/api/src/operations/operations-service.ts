@@ -190,7 +190,11 @@ export type CentreInput = {
   address: string;
   registrationDate?: string;
   expiryDate?: string;
+  /** @deprecated Centre admin password is now auto-generated and emailed.
+   *  Field kept temporarily for back-compat with old clients still posting it. */
   password?: string;
+  /** Profile photo URL (uploaded via /admin/upload). */
+  image?: string;
 };
 
 export type CentrePlanInput = {
@@ -504,14 +508,20 @@ export type AddInstructorInput = {
   phone?: string;
   bio?: string;
   status?: number;
+  /** Profile photo URL (uploaded via /admin/upload). */
+  image?: string;
 };
 
 export type AddUserInput = {
   name: string;
   email: string;
   phone?: string;
-  password: string;
+  /** @deprecated Password is now auto-generated and emailed to the new
+   *  user. Field kept for back-compat with older clients; ignored. */
+  password?: string;
   roleId: number;
+  /** Profile photo URL (uploaded via /admin/upload). */
+  image?: string;
 };
 
 export type AddTargetInput = {
@@ -528,6 +538,8 @@ export type AddAssociateInput = {
   email: string;
   phone?: string;
   status?: number;
+  /** Profile photo URL (uploaded via /admin/upload). */
+  image?: string;
 };
 
 function normalizeSqlRow(row: SqlRow): SqlRow {
@@ -1375,7 +1387,15 @@ export class OperationsService {
         },
       });
 
-      const centrePassword = await hashPassword(input.password?.trim() ? input.password : 'Centre@1234');
+      // Generate a secure temp password and email it to the centre admin.
+      // The admin-supplied password / "Centre@1234" fallback are no longer
+      // used (per Naji's QA round 2026-04-30).
+      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+      const creds = await issueAndEmailCredentials({
+        name: input.contactPerson || input.centreName,
+        email: input.email,
+        roleLabel: 'Centre admin',
+      });
 
       await tx.users.create({
         data: {
@@ -1385,12 +1405,12 @@ export class OperationsService {
           phone: input.phone,
           role_id: 7,
           centre_id: String(centre.id),
-          password: centrePassword,
+          password: creds.hashedPassword,
           status: 1,
           gender: '',
           dynamic_link: '',
-          image: '',
-          profile_picture: '',
+          image: input.image?.trim() ?? '',
+          profile_picture: input.image?.trim() ?? '',
           application_id: 0,
           created_by: toIntId(actorUserId),
           updated_by: toIntId(actorUserId),
@@ -4125,6 +4145,13 @@ export class OperationsService {
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
     if (existing) return { status: 0, message: 'Email already exists.' };
 
+    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+    const creds = await issueAndEmailCredentials({
+      name: input.name.trim(),
+      email: input.email.trim(),
+      roleLabel: 'Instructor',
+    });
+
     const now = new Date();
     await this.prisma.users.create({
       data: {
@@ -4132,18 +4159,22 @@ export class OperationsService {
         user_email: input.email.trim(),
         email: input.email.trim(),
         phone: input.phone?.trim() || null,
+        password: creds.hashedPassword,
         role_id: 3,
         status: input.status ?? 1,
         gender: '',
         dynamic_link: '',
-        image: '',
-        profile_picture: '',
+        image: input.image?.trim() ?? '',
+        profile_picture: input.image?.trim() ?? '',
         application_id: 0,
         created_at: now,
         updated_at: now,
       },
     });
-    return { status: 1, message: 'Instructor added successfully.' };
+    const message = creds.emailDelivered
+      ? 'Instructor added. Login credentials have been emailed.'
+      : `Instructor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    return { status: 1, message };
   }
 
   async editInstructor(actorUserId: string, id: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
@@ -4170,10 +4201,17 @@ export class OperationsService {
   async addUser(actorUserId: string, input: AddUserInput): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
-    if (!input.password.trim()) return { status: 0, message: 'Password is required.' };
 
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
     if (existing) return { status: 0, message: 'Email already exists.' };
+
+    const roleLabel = input.roleId === 1 ? 'Super Admin' : 'Admin';
+    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+    const creds = await issueAndEmailCredentials({
+      name: input.name.trim(),
+      email: input.email.trim(),
+      roleLabel,
+    });
 
     const now = new Date();
     await this.prisma.users.create({
@@ -4182,19 +4220,22 @@ export class OperationsService {
         user_email: input.email.trim(),
         email: input.email.trim(),
         phone: input.phone?.trim() || null,
-        password: input.password,
+        password: creds.hashedPassword,
         role_id: input.roleId,
         status: 1,
         gender: '',
         dynamic_link: '',
-        image: '',
-        profile_picture: '',
+        image: input.image?.trim() ?? '',
+        profile_picture: input.image?.trim() ?? '',
         application_id: 0,
         created_at: now,
         updated_at: now,
       },
     });
-    return { status: 1, message: 'User created successfully.' };
+    const message = creds.emailDelivered
+      ? `${roleLabel} created. Login credentials have been emailed.`
+      : `${roleLabel} created, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    return { status: 1, message };
   }
 
   async editUser(actorUserId: string, id: string, input: { name: string; phone?: string }): Promise<Record<string, unknown>> {
@@ -4220,6 +4261,13 @@ export class OperationsService {
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
     if (existing) return { status: 0, message: 'Email already exists.' };
 
+    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+    const creds = await issueAndEmailCredentials({
+      name: input.name.trim(),
+      email: input.email.trim(),
+      roleLabel: 'Associate',
+    });
+
     const now = new Date();
     await this.prisma.users.create({
       data: {
@@ -4227,18 +4275,22 @@ export class OperationsService {
         user_email: input.email.trim(),
         email: input.email.trim(),
         phone: input.phone?.trim() || null,
+        password: creds.hashedPassword,
         role_id: 10,
         status: input.status ?? 1,
         gender: '',
         dynamic_link: '',
-        image: '',
-        profile_picture: '',
+        image: input.image?.trim() ?? '',
+        profile_picture: input.image?.trim() ?? '',
         application_id: 0,
         created_at: now,
         updated_at: now,
       },
     });
-    return { status: 1, message: 'Associate added successfully.' };
+    const message = creds.emailDelivered
+      ? 'Associate added. Login credentials have been emailed.'
+      : `Associate added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    return { status: 1, message };
   }
 
   async addCounsellorTarget(actorUserId: string, input: AddTargetInput): Promise<Record<string, unknown>> {
@@ -5298,6 +5350,13 @@ export class OperationsService {
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
     if (existing) return { status: 0, message: 'Email already exists.' };
 
+    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+    const creds = await issueAndEmailCredentials({
+      name: input.name.trim(),
+      email: input.email.trim(),
+      roleLabel: 'Counsellor',
+    });
+
     const now = new Date();
     await this.prisma.users.create({
       data: {
@@ -5305,18 +5364,22 @@ export class OperationsService {
         user_email: input.email.trim(),
         email: input.email.trim(),
         phone: input.phone?.trim() || null,
+        password: creds.hashedPassword,
         role_id: 9,
         status: input.status ?? 1,
         gender: '',
         dynamic_link: '',
-        image: '',
-        profile_picture: '',
+        image: input.image?.trim() ?? '',
+        profile_picture: input.image?.trim() ?? '',
         application_id: 0,
         created_at: now,
         updated_at: now,
       },
     });
-    return { status: 1, message: 'Counsellor added successfully.' };
+    const message = creds.emailDelivered
+      ? 'Counsellor added. Login credentials have been emailed.'
+      : `Counsellor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    return { status: 1, message };
   }
 
   async editCounsellor(actorUserId: string, id: string, input: { name: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {

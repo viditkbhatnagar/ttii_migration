@@ -513,7 +513,7 @@ export function registerOperationsRoutes(
         address: toStringValue(payload.address),
         registrationDate: toStringValue(payload.date_of_registration),
         expiryDate: toStringValue(payload.date_of_expiry),
-        password: toStringValue(payload.password),
+        image: toStringValue(payload.image),
       };
 
       const result = await operationsService.addCentre(requestUserId(request), input);
@@ -1970,6 +1970,7 @@ export function registerOperationsRoutes(
         phone: toStringValue(payload.phone),
         bio: toStringValue(payload.bio),
         status: toInteger(payload.status),
+        image: toStringValue(payload.image),
       };
       const result = await operationsService.addInstructor(requestUserId(request), input);
       reply.code(200).send(result);
@@ -2006,8 +2007,8 @@ export function registerOperationsRoutes(
         name: toStringValue(payload.name),
         email: toStringValue(payload.email),
         phone: toStringValue(payload.phone),
-        password: toStringValue(payload.password),
         roleId: toInteger(payload.role_id),
+        image: toStringValue(payload.image),
       };
       const result = await operationsService.addUser(requestUserId(request), input);
       reply.code(200).send(result);
@@ -2042,6 +2043,7 @@ export function registerOperationsRoutes(
         email: toStringValue(payload.email),
         phone: toStringValue(payload.phone),
         status: toInteger(payload.status),
+        image: toStringValue(payload.image),
       };
       const result = await operationsService.addAssociate(requestUserId(request), input);
       reply.code(200).send(result);
@@ -2484,6 +2486,7 @@ export function registerOperationsRoutes(
         email: toStringValue(payload.email),
         phone: toStringValue(payload.phone),
         status: toInteger(payload.status),
+        image: toStringValue(payload.image),
       };
       const result = await operationsService.addCounsellor(requestUserId(request), input);
       reply.code(200).send(result);

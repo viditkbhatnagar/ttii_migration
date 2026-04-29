@@ -12,6 +12,7 @@ import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-uti
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 interface InstructorForm {
@@ -20,19 +21,12 @@ interface InstructorForm {
   phone: string;
   whatsapp_phone: string;
   qualification: string;
-  password: string;
   bio: string;
+  image: string;
   status: number;
 }
 
-const emptyForm: InstructorForm = { name: '', email: '', phone: '', whatsapp_phone: '', qualification: '', password: '', bio: '', status: 1 };
-
-function generatePassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-  let p = '';
-  for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
-  return p;
-}
+const emptyForm: InstructorForm = { name: '', email: '', phone: '', whatsapp_phone: '', qualification: '', bio: '', image: '', status: 1 };
 
 export default function InstructorsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
@@ -62,8 +56,8 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       phone: asString(row.phone),
       whatsapp_phone: asString(row.whatsapp_phone),
       qualification: asString(row.qualification),
-      password: '',
       bio: asString(row.biography || row.bio || row.description),
+      image: asString(row.image) || asString(row.profile_picture),
       status: asNumber(row.status),
     });
     setDialogOpen(true);
@@ -86,7 +80,17 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
   }, [api, session.token, reload, confirm]);
 
   const handleSubmit = useCallback(async () => {
-    if (!form.name.trim() || !form.email.trim()) return;
+    if (!editingId) {
+      const missing = !form.name.trim() || !form.email.trim() || !form.phone.trim()
+        || !form.whatsapp_phone.trim() || !form.qualification.trim() || !form.bio.trim();
+      if (missing) {
+        toast.error('All fields are required.');
+        return;
+      }
+    } else if (!form.name.trim()) {
+      toast.error('Name is required.');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -95,14 +99,16 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
         phone: form.phone.trim() || undefined,
         whatsapp_phone: form.whatsapp_phone.trim() || undefined,
         qualification: form.qualification.trim() || undefined,
-        password: form.password.trim() || undefined,
         bio: form.bio.trim() || undefined,
+        image: form.image.trim() || undefined,
         status: form.status,
       };
       if (editingId) {
         await api.editInstructor(session.token, editingId, payload);
       } else {
-        await api.addInstructor(session.token, payload);
+        const res = await api.addInstructor(session.token, payload);
+        const message = asString((res as Record<string, unknown>).message);
+        if (message) toast.success(message);
       }
       setDialogOpen(false);
       reload();
@@ -205,12 +211,26 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
 
           <div className="grid gap-4 py-2 max-h-[70vh] overflow-y-auto">
             <div className="grid gap-2">
+              <Label>Profile Photo</Label>
+              <FileUpload
+                value={form.image}
+                onChange={(url) => setForm((f) => ({ ...f, image: url }))}
+                onUpload={async (file) => {
+                  const r = await api.uploadFile(session.token, file);
+                  return r.url;
+                }}
+                accept="image/*"
+                placeholder="Upload profile photo"
+              />
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="inst-name">Name *</Label>
               <Input
                 id="inst-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Name"
+                required
               />
             </div>
 
@@ -254,29 +274,15 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
                 disabled={!!editingId}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 placeholder="email@example.com"
+                required
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="inst-pwd">Password (Without Space) {!editingId ? '*' : '(leave empty to keep current)'}</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="inst-pwd"
-                  type="text"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value.replace(/\s/g, '') }))}
-                  placeholder="Password"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setForm((f) => ({ ...f, password: generatePassword() }))}
-                >
-                  Generate
-                </Button>
-              </div>
-            </div>
+            {!editingId && (
+              <p className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{form.email || 'this instructor'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in.
+              </p>
+            )}
 
             <div className="grid gap-2">
               <Label htmlFor="inst-bio">Biography *</Label>

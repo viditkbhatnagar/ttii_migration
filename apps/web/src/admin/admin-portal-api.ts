@@ -113,7 +113,7 @@ export interface AddAdminCentreInput {
   address: string;
   registrationDate: string;
   expiryDate: string;
-  password: string;
+  image?: string | undefined;
 }
 
 export interface AssignCentrePlanInput {
@@ -360,7 +360,7 @@ export class AdminPortalApi {
       address: input.address,
       date_of_registration: input.registrationDate,
       date_of_expiry: input.expiryDate,
-      password: input.password,
+      image: input.image,
     });
   }
 
@@ -1711,7 +1711,7 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/instructor/delete', authToken, { id });
   }
 
-  async addUser(authToken: string, input: { name: string; email: string; phone?: string | undefined; password: string; role_id: number }): Promise<Record<string, unknown>> {
+  async addUser(authToken: string, input: { name: string; email: string; phone?: string | undefined; role_id: number; image?: string | undefined }): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/user/add', authToken, input);
   }
 

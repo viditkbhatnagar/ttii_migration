@@ -19,6 +19,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 export default function AssociatesPage({ api, session }: AdminPageProps) {
@@ -49,7 +50,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const [formPhone, setFormPhone] = useState('');
   const [formQualification, setFormQualification] = useState('');
   const [formDoj, setFormDoj] = useState('');
-  const [formPassword, setFormPassword] = useState('');
+  const [formImage, setFormImage] = useState('');
   const [formStatus, setFormStatus] = useState('1');
   const [formSaving, setFormSaving] = useState(false);
 
@@ -136,7 +137,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const resetForm = useCallback(() => {
     setFormName(''); setFormGender(''); setFormDob(''); setFormNationality('');
     setFormLanguages(''); setFormEmail(''); setFormPhone(''); setFormQualification('');
-    setFormDoj(''); setFormPassword(''); setFormStatus('1');
+    setFormDoj(''); setFormImage(''); setFormStatus('1');
   }, []);
 
   const openAddDialog = useCallback(() => {
@@ -158,30 +159,44 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     setFormPhone(asString(row.phone));
     setFormQualification(asString(row.highest_qualification));
     setFormDoj(asString(row.doj).slice(0, 10));
-    setFormPassword('');
+    setFormImage(asString(row.image) || asString(row.profile_picture));
     setFormStatus(String(asNumber(row.status)));
     setDialogOpen(true);
   }, []);
 
   const handleDialogSave = useCallback(async () => {
+    if (dialogMode === 'add') {
+      const missing = !formName.trim() || !formGender || !formDob || !formNationality.trim()
+        || !formLanguages.trim() || !formEmail.trim() || !formPhone.trim()
+        || !formQualification.trim() || !formDoj;
+      if (missing) {
+        toast.error('All fields are required.');
+        return;
+      }
+    } else if (!formName.trim()) {
+      toast.error('Full name is required.');
+      return;
+    }
     setFormSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        name: formName,
+        name: formName.trim(),
         gender: formGender,
         dob: formDob,
-        nationality: formNationality,
-        languages_spoken: formLanguages,
-        email: formEmail,
-        phone: formPhone || undefined,
-        highest_qualification: formQualification,
+        nationality: formNationality.trim(),
+        languages_spoken: formLanguages.trim(),
+        email: formEmail.trim(),
+        phone: formPhone.trim() || undefined,
+        highest_qualification: formQualification.trim(),
         doj: formDoj,
+        image: formImage.trim() || undefined,
         status: Number(formStatus),
       };
-      if (formPassword) payload.password = formPassword;
 
       if (dialogMode === 'add') {
-        await api.addAssociate(session.token, payload);
+        const res = await api.addAssociate(session.token, payload);
+        const message = asString((res as Record<string, unknown>).message);
+        if (message) toast.success(message);
       } else if (editRow) {
         await api.editAssociate(session.token, asString(editRow.id) || asString(editRow._id), payload);
       }
@@ -194,7 +209,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     } finally {
       setFormSaving(false);
     }
-  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formQualification, formDoj, formPassword, formStatus, reload]);
+  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formQualification, formDoj, formImage, formStatus, reload]);
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
@@ -294,8 +309,21 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
           </DialogHeader>
           <div className="grid gap-4 py-2 md:grid-cols-2">
             <div className="grid gap-2 md:col-span-2">
+              <Label>Profile Photo</Label>
+              <FileUpload
+                value={formImage}
+                onChange={setFormImage}
+                onUpload={async (file) => {
+                  const r = await api.uploadFile(session.token, file);
+                  return r.url;
+                }}
+                accept="image/*"
+                placeholder="Upload profile photo"
+              />
+            </div>
+            <div className="grid gap-2 md:col-span-2">
               <Label htmlFor="a-name">Full Name *</Label>
-              <Input id="a-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" />
+              <Input id="a-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" required />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-gender">Gender *</Label>
@@ -332,12 +360,13 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-email">Email Address *</Label>
-              <Input id="a-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@example.com" disabled={dialogMode === 'edit'} />
+              <Input id="a-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@example.com" disabled={dialogMode === 'edit'} required />
             </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label htmlFor="a-pwd">Password {dialogMode === 'add' ? '*' : '(leave empty to keep current)'}</Label>
-              <Input id="a-pwd" type="text" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} placeholder="Password" />
-            </div>
+            {dialogMode === 'add' && (
+              <p className="md:col-span-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{formEmail || 'this associate'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in.
+              </p>
+            )}
             <div className="grid gap-2 md:col-span-2">
               <Label htmlFor="a-status">Status *</Label>
               <select id="a-status" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={formStatus} onChange={(e) => setFormStatus(e.target.value)}>
