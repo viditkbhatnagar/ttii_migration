@@ -79,9 +79,9 @@ export interface AuthApi {
   getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }>;
   checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void>;
   logout(authToken: string): Promise<void>;
-  forgotPassword(email: string): Promise<ForgotPasswordResult>;
-  verifyOtp(email: string, otp: string): Promise<VerifyOtpResult>;
-  resetPassword(input: { email: string; resetToken: string; newPassword: string }): Promise<ResetPasswordResult>;
+  forgotPassword(email: string, roleId?: number): Promise<ForgotPasswordResult>;
+  verifyOtp(email: string, otp: string, roleId?: number): Promise<VerifyOtpResult>;
+  resetPassword(input: { email: string; resetToken: string; newPassword: string; roleId?: number }): Promise<ResetPasswordResult>;
 }
 
 export class LegacyAuthApi implements AuthApi {
@@ -179,11 +179,11 @@ export class LegacyAuthApi implements AuthApi {
     });
   }
 
-  async forgotPassword(email: string): Promise<ForgotPasswordResult> {
+  async forgotPassword(email: string, roleId?: number): Promise<ForgotPasswordResult> {
     const response = await this.apiClient.request<Record<string, unknown>>({
       method: 'POST',
       path: '/auth/forgot_password',
-      body: { email },
+      body: { email, ...(typeof roleId === 'number' ? { role_id: roleId } : {}) },
     });
 
     if (!isRecord(response)) {
@@ -204,11 +204,11 @@ export class LegacyAuthApi implements AuthApi {
     };
   }
 
-  async verifyOtp(email: string, otp: string): Promise<VerifyOtpResult> {
+  async verifyOtp(email: string, otp: string, roleId?: number): Promise<VerifyOtpResult> {
     const response = await this.apiClient.request<Record<string, unknown>>({
       method: 'POST',
       path: '/auth/verify_otp',
-      body: { email, otp },
+      body: { email, otp, ...(typeof roleId === 'number' ? { role_id: roleId } : {}) },
     });
 
     if (!isRecord(response)) {
@@ -236,7 +236,7 @@ export class LegacyAuthApi implements AuthApi {
     };
   }
 
-  async resetPassword(input: { email: string; resetToken: string; newPassword: string }): Promise<ResetPasswordResult> {
+  async resetPassword(input: { email: string; resetToken: string; newPassword: string; roleId?: number }): Promise<ResetPasswordResult> {
     const response = await this.apiClient.request<Record<string, unknown>>({
       method: 'POST',
       path: '/auth/reset_password',
@@ -244,6 +244,7 @@ export class LegacyAuthApi implements AuthApi {
         email: input.email,
         reset_token: input.resetToken,
         new_password: input.newPassword,
+        ...(typeof input.roleId === 'number' ? { role_id: input.roleId } : {}),
       },
     });
 

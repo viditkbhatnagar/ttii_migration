@@ -163,9 +163,11 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
   app.post('/auth/forgot_password', async (request, reply) => {
     const payload = requestPayload(request);
     const email = toStringValue(payload.email) ?? '';
+    const roleIdRaw = Number(payload.role_id);
+    const roleId = Number.isFinite(roleIdRaw) && roleIdRaw > 0 ? roleIdRaw : undefined;
 
     try {
-      const result = await authService.sendForgotPasswordOtp(email, requestMeta(request));
+      const result = await authService.sendForgotPasswordOtp(email, requestMeta(request), roleId);
       reply.code(200).send({
         status: 1,
         message: 'If an account exists for that email, an OTP has been sent.',
@@ -183,9 +185,11 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     const payload = requestPayload(request);
     const email = toStringValue(payload.email) ?? '';
     const otp = toStringValue(payload.otp) ?? '';
+    const roleIdRaw = Number(payload.role_id);
+    const roleId = Number.isFinite(roleIdRaw) && roleIdRaw > 0 ? roleIdRaw : undefined;
 
     try {
-      const result = await authService.verifyForgotPasswordOtp(email, otp, requestMeta(request));
+      const result = await authService.verifyForgotPasswordOtp(email, otp, requestMeta(request), roleId);
       reply.code(200).send({
         status: 1,
         message: 'OTP verified successfully.',
@@ -203,6 +207,8 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     const email = toStringValue(payload.email) ?? '';
     const resetToken = toStringValue(payload.reset_token) ?? '';
     const newPassword = toStringValue(payload.new_password) ?? '';
+    const roleIdRaw = Number(payload.role_id);
+    const roleId = Number.isFinite(roleIdRaw) && roleIdRaw > 0 ? roleIdRaw : undefined;
 
     try {
       await authService.resetPasswordWithSignedToken({
@@ -210,6 +216,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
         resetToken,
         newPassword,
         requestMeta: requestMeta(request),
+        ...(roleId !== undefined ? { roleId } : {}),
       });
       reply.code(200).send({
         status: 1,

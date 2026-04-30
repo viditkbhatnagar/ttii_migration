@@ -7,6 +7,11 @@ type Step = 'email' | 'otp' | 'verified' | 'set-password' | 'success';
 interface ForgotPasswordFlowProps {
   authApi: AuthApi;
   onBackToLogin: () => void;
+  /** Role of the portal we're recovering for. When the same email exists
+   * across multiple roles (e.g. Centre + Super Admin), this scopes the
+   * OTP/reset to the right user. Pass undefined to fall back to "first
+   * match wins" — which only works for single-role accounts. */
+  roleId?: number;
 }
 
 const OTP_LENGTH = 6;
@@ -39,7 +44,7 @@ function passwordStrength(password: string): { label: string; color: string; bar
   return { label: 'Strong', color: 'bg-green-500', bars: 4 };
 }
 
-export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPasswordFlowProps) {
+export default function ForgotPasswordFlow({ authApi, onBackToLogin, roleId }: ForgotPasswordFlowProps) {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [maskedEmailValue, setMaskedEmailValue] = useState('');
@@ -77,7 +82,7 @@ export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPas
     setError(null);
     setSubmitting(true);
     try {
-      const result = await authApi.forgotPassword(email.trim());
+      const result = await authApi.forgotPassword(email.trim(), roleId);
       setMaskedEmailValue(result.maskedEmail || maskEmail(email.trim()));
       setOtpTimer(result.expiresInSeconds || OTP_TIMER_SECONDS);
       setOtp(Array(OTP_LENGTH).fill(''));
@@ -87,7 +92,7 @@ export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPas
     } finally {
       setSubmitting(false);
     }
-  }, [authApi, email]);
+  }, [authApi, email, roleId]);
 
   const handleVerifyOtp = useCallback(async () => {
     const otpCode = otp.join('');
@@ -98,7 +103,7 @@ export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPas
     setError(null);
     setSubmitting(true);
     try {
-      const result = await authApi.verifyOtp(email.trim(), otpCode);
+      const result = await authApi.verifyOtp(email.trim(), otpCode, roleId);
       setResetToken(result.resetToken);
       setStep('verified');
     } catch (err) {
@@ -106,18 +111,18 @@ export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPas
     } finally {
       setSubmitting(false);
     }
-  }, [authApi, email, otp]);
+  }, [authApi, email, otp, roleId]);
 
   const handleResendOtp = useCallback(async () => {
     setError(null);
     try {
-      await authApi.forgotPassword(email.trim());
+      await authApi.forgotPassword(email.trim(), roleId);
       setOtpTimer(OTP_TIMER_SECONDS);
       setOtp(Array(OTP_LENGTH).fill(''));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to resend OTP.');
     }
-  }, [authApi, email]);
+  }, [authApi, email, roleId]);
 
   const handleSetPassword = useCallback(async () => {
     const reqs = checkPasswordRequirements(newPassword);
@@ -132,14 +137,14 @@ export default function ForgotPasswordFlow({ authApi, onBackToLogin }: ForgotPas
     setError(null);
     setSubmitting(true);
     try {
-      await authApi.resetPassword({ email: email.trim(), resetToken, newPassword });
+      await authApi.resetPassword({ email: email.trim(), resetToken, newPassword, ...(typeof roleId === 'number' ? { roleId } : {}) });
       setStep('success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset password.');
     } finally {
       setSubmitting(false);
     }
-  }, [authApi, email, resetToken, newPassword, confirmPassword]);
+  }, [authApi, email, resetToken, newPassword, confirmPassword, roleId]);
 
   const handleOtpChange = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '').slice(0, 1);

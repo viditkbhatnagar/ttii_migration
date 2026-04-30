@@ -302,7 +302,7 @@ export class AuthService {
     return n;
   }
 
-  async requestPasswordReset(email: string, requestMeta: RequestMeta): Promise<{ token?: string }> {
+  async requestPasswordReset(email: string, requestMeta: RequestMeta, roleId?: number): Promise<{ token?: string }> {
     const normalizedEmail = normalizeEmail(email);
     if (!isTruthyString(normalizedEmail)) {
       throw new AuthErrorClass(400, 'Please enter your email.', 'VALIDATION_ERROR');
@@ -334,6 +334,7 @@ export class AuthService {
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        ...(typeof roleId === 'number' ? { role_id: roleId } : {}),
       },
     });
 
@@ -439,6 +440,7 @@ export class AuthService {
   async sendForgotPasswordOtp(
     email: string,
     requestMeta: RequestMeta,
+    roleId?: number,
   ): Promise<{ maskedEmail: string; expiresInSeconds: number }> {
     const normalizedEmail = normalizeEmail(email);
     if (!isTruthyString(normalizedEmail)) {
@@ -456,10 +458,16 @@ export class AuthService {
       });
     }
 
+    // Scope by role_id when provided so multi-role users (same email, e.g.
+    // Centre + Super Admin) hit the right account. Without this filter
+    // findFirst can target a different role's row than the user is trying
+    // to reset (Naji 2026-04-30 — operations@learnerseducation.com hit the
+    // Centre row instead of his Super Admin row).
     const user = await this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        ...(typeof roleId === 'number' ? { role_id: roleId } : {}),
       },
     });
 
@@ -556,6 +564,7 @@ export class AuthService {
     email: string,
     otp: string,
     requestMeta: RequestMeta,
+    roleId?: number,
   ): Promise<{ resetToken: string }> {
     const normalizedEmail = normalizeEmail(email);
     const normalizedOtp = otp.trim();
@@ -575,6 +584,7 @@ export class AuthService {
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        ...(typeof roleId === 'number' ? { role_id: roleId } : {}),
       },
     });
 
@@ -648,6 +658,7 @@ export class AuthService {
     resetToken: string;
     newPassword: string;
     requestMeta: RequestMeta;
+    roleId?: number;
   }): Promise<void> {
     const normalizedEmail = normalizeEmail(input.email);
     if (!isTruthyString(normalizedEmail) || !isTruthyString(input.resetToken)) {
@@ -658,6 +669,7 @@ export class AuthService {
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        ...(typeof input.roleId === 'number' ? { role_id: input.roleId } : {}),
       },
     });
 

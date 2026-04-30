@@ -689,7 +689,7 @@ function LoginHome() {
               <button
                 type="button"
                 className="rounded text-sm font-semibold text-slate-800 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                onClick={() => navigateTo('/forgot-password')}
+                onClick={() => navigateTo(`/forgot-password?role_id=${encodeURIComponent(roleId)}`)}
               >
                 Forgot Password?
               </button>
@@ -771,9 +771,22 @@ function PortalRouter({
     }
   }, [subdomainPortal, pathname, session]);
 
-  // Forgot Password flow
+  // Forgot Password flow — role_id is forwarded so multi-role accounts
+  // (same email, e.g. Centre + Super Admin) hit the right user record.
   if (pathname === '/forgot-password') {
-    return <ForgotPasswordFlow authApi={authApi} onBackToLogin={() => navigateTo('/')} />;
+    const search = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const roleIdRaw = search?.get('role_id');
+    const parsedRole = roleIdRaw ? Number.parseInt(roleIdRaw, 10) : NaN;
+    const fpRoleId = Number.isFinite(parsedRole) && parsedRole > 0 ? parsedRole : undefined;
+    const subdomainRole = subdomainPortal ? Number.parseInt(SUBDOMAIN_DEFAULT_ROLE_ID[subdomainPortal] ?? '', 10) : NaN;
+    const fallbackRole = Number.isFinite(subdomainRole) && subdomainRole > 0 ? subdomainRole : undefined;
+    return (
+      <ForgotPasswordFlow
+        authApi={authApi}
+        onBackToLogin={() => navigateTo('/')}
+        {...(fpRoleId !== undefined ? { roleId: fpRoleId } : fallbackRole !== undefined ? { roleId: fallbackRole } : {})}
+      />
+    );
   }
 
   if (pathname === '/') {
