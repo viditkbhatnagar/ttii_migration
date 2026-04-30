@@ -1715,7 +1715,11 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/user/add', authToken, input);
   }
 
-  async editUser(authToken: string, id: string, input: { name: string; phone?: string | undefined }): Promise<Record<string, unknown>> {
+  async editUser(
+    authToken: string,
+    id: string,
+    input: { name: string; phone?: string | undefined; status?: number | undefined; image?: string | undefined },
+  ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/user/edit', authToken, { id, ...input });
   }
 

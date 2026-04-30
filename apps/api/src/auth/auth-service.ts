@@ -202,6 +202,26 @@ export class AuthService {
       throw toLegacyInvalidCredentialsError();
     }
 
+    // Block sign-in for admin-side users explicitly deactivated (status=0)
+    // by an admin via the user-management toggle (Naji 2026-04-30). Students
+    // (role 2) keep the legacy "auto-activate on first login" semantics
+    // since their onboarding flow uses status=0 as a "pending verification"
+    // marker.
+    if (user.status === 0 && user.role_id !== null && user.role_id !== 2) {
+      await this.writeAuditLog({
+        event: 'LOGIN_BLOCKED_INACTIVE',
+        success: false,
+        identifier,
+        userId: user.id,
+        requestMeta: input,
+      });
+      throw new AuthErrorClass(
+        403,
+        'Your account has been deactivated. Please contact your administrator.',
+        'ACCOUNT_INACTIVE',
+      );
+    }
+
     const now = new Date();
     const shouldUpdateDevice = isTruthyString(input.deviceId) && input.deviceId !== user.device_id;
     const shouldActivateUser = user.status === 0;

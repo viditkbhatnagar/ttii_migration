@@ -19,7 +19,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { FileUpload } from '../../shared/components/FileUpload.js';
+import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 export default function CounsellorsPage({ api, session }: AdminPageProps) {
@@ -311,15 +311,14 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
           <div className="grid gap-4 py-2 md:grid-cols-2">
             <div className="grid gap-2 md:col-span-2">
               <Label>Profile Photo</Label>
-              <FileUpload
+              <PhotoUpload
                 value={formImage}
                 onChange={setFormImage}
                 onUpload={async (file) => {
                   const r = await api.uploadFile(session.token, file);
                   return r.url;
                 }}
-                accept="image/*"
-                placeholder="Upload profile photo"
+                fallbackInitials={formName.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
               />
             </div>
             <div className="grid gap-2 md:col-span-2">

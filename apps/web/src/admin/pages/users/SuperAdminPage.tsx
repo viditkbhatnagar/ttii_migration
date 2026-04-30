@@ -14,10 +14,11 @@ import {
 } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { FileUpload } from '../../shared/components/FileUpload.js';
+import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 export default function SuperAdminPage({ api, session }: AdminPageProps) {
@@ -38,6 +39,7 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
   const [phone, setPhone] = useState('');
   const [roleId, setRoleId] = useState(1);
   const [image, setImage] = useState('');
+  const [statusValue, setStatusValue] = useState(1);
   const [permCatalog, setPermCatalog] = useState<Array<Record<string, unknown>>>([]);
   const [grantedPermIds, setGrantedPermIds] = useState<Set<number>>(new Set());
 
@@ -80,6 +82,7 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
     setPhone('');
     setRoleId(1);
     setImage('');
+    setStatusValue(1);
     setGrantedPermIds(new Set());
     setEditingUser(null);
   }
@@ -94,6 +97,7 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
     setName(asString(row.name));
     setPhone(asString(row.phone));
     setImage(asString(row.image) || asString(row.profile_picture));
+    setStatusValue(asNumber(row.status) || 1);
     setDialogOpen(true);
     const userId = asString(row._id || row.id);
     if (userId) {
@@ -131,7 +135,12 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
       }
       setSubmitting(true);
       try {
-        await api.editUser(session.token, id, { name: name.trim(), phone: phone.trim() });
+        await api.editUser(session.token, id, {
+          name: name.trim(),
+          phone: phone.trim(),
+          status: statusValue,
+          image: image.trim(),
+        });
         await api.setUserAdminPermissions(session.token, id, [...grantedPermIds]);
         setDialogOpen(false);
         resetForm();
@@ -186,14 +195,40 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
       { key: 'name', label: 'Name', sortable: true },
       { key: 'phone', label: 'Phone' },
       { key: 'user_email', label: 'Email' },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (v) => <AdminStatusBadge status={asNumber(v) === 1 ? 'Active' : 'Inactive'} />,
+      },
     ],
     [],
   );
+
+  const handleToggleStatus = async (row: Record<string, unknown>) => {
+    const id = asString(row._id || row.id);
+    if (!id) return;
+    const current = asNumber(row.status);
+    const next = current === 1 ? 0 : 1;
+    try {
+      await api.editUser(session.token, id, {
+        name: asString(row.name),
+        phone: asString(row.phone) || undefined,
+        status: next,
+      });
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update status');
+    }
+  };
 
   const actions: DataTableAction[] = useMemo(
     () => [
       { label: 'View', onClick: (row) => { void openEditDialog(row); } },
       { label: 'Edit', onClick: (row) => { void openEditDialog(row); } },
+      {
+        label: 'Toggle Active',
+        onClick: (row) => { void handleToggleStatus(row); },
+      },
       { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
     ],
     [],
@@ -233,15 +268,14 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
           <div className="w-full min-w-0 space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Profile Photo</Label>
-              <FileUpload
+              <PhotoUpload
                 value={image}
                 onChange={setImage}
                 onUpload={async (file) => {
                   const r = await api.uploadFile(session.token, file);
                   return r.url;
                 }}
-                accept="image/*"
-                placeholder="Upload profile photo"
+                fallbackInitials={name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
               />
             </div>
             <div className="space-y-1.5">
@@ -258,6 +292,20 @@ export default function SuperAdminPage({ api, session }: AdminPageProps) {
               <Label htmlFor="sa-phone">Phone *</Label>
               <Input id="sa-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" required />
             </div>
+            {editingUser && (
+              <div className="space-y-1.5">
+                <Label htmlFor="sa-status">Status</Label>
+                <select
+                  id="sa-status"
+                  value={statusValue}
+                  onChange={(e) => setStatusValue(Number(e.target.value))}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value={1}>Active — user can sign in</option>
+                  <option value={0}>Inactive — sign-in blocked</option>
+                </select>
+              </div>
+            )}
             {!editingUser && (
               <>
                 <div className="space-y-1.5">

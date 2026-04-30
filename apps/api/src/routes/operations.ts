@@ -2018,10 +2018,20 @@ export function registerOperationsRoutes(
   app.post('/admin/user/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
+      const statusRaw = payload.status;
+      const editInput: { name: string; phone?: string; status?: number; image?: string } = {
+        name: toStringValue(payload.name),
+        phone: toStringValue(payload.phone),
+      };
+      if (statusRaw !== undefined && statusRaw !== null && statusRaw !== '') {
+        const parsed = Number(statusRaw);
+        if (Number.isFinite(parsed)) editInput.status = parsed;
+      }
+      if (typeof payload.image === 'string') editInput.image = payload.image;
       const result = await operationsService.editUser(
         requestUserId(request),
         toStringValue(payload.id),
-        { name: toStringValue(payload.name), phone: toStringValue(payload.phone) },
+        editInput,
       );
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

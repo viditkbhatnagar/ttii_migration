@@ -3342,7 +3342,7 @@ export class OperationsService {
     const instructors = await this.prisma.users.findMany({
       where: { role_id: 3, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, image: true, profile_picture: true, created_at: true },
     });
 
     const instructorIds = instructors.map(i => i.id);
@@ -3390,7 +3390,17 @@ export class OperationsService {
     const users = await this.prisma.users.findMany({
       where: { role_id: roleId, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, created_at: true, updated_at: true },
+      select: {
+        id: true,
+        name: true,
+        user_email: true,
+        phone: true,
+        status: true,
+        image: true,
+        profile_picture: true,
+        created_at: true,
+        updated_at: true,
+      },
     });
     return users as unknown as SqlRow[];
   }
@@ -3792,7 +3802,7 @@ export class OperationsService {
     const counsellors = await this.prisma.users.findMany({
       where: { role_id: 9, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true },
     });
 
     const counsellorIds = counsellors.map(c => c.id);
@@ -3852,7 +3862,7 @@ export class OperationsService {
     const associates = await this.prisma.users.findMany({
       where: { role_id: 10, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true },
     });
 
     const associateIds = associates.map(a => a.id);
@@ -4242,12 +4252,28 @@ export class OperationsService {
     return { status: 1, message };
   }
 
-  async editUser(actorUserId: string, id: string, input: { name: string; phone?: string }): Promise<Record<string, unknown>> {
+  async editUser(
+    actorUserId: string,
+    id: string,
+    input: { name: string; phone?: string; status?: number; image?: string },
+  ): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     const now = new Date();
+    const data: Record<string, unknown> = {
+      name: input.name.trim(),
+      phone: input.phone?.trim() || null,
+      updated_by: toNullableIntId(actorUserId),
+      updated_at: now,
+    };
+    if (input.status !== undefined) data.status = input.status;
+    if (input.image !== undefined) {
+      const trimmed = input.image.trim();
+      data.image = trimmed;
+      data.profile_picture = trimmed;
+    }
     await this.prisma.users.updateMany({
       where: { id: toIntId(id), deleted_at: null },
-      data: { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now },
+      data,
     });
     return { status: 1, message: 'User updated successfully.' };
   }
