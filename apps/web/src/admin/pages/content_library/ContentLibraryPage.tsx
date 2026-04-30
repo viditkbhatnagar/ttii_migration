@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
+import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown, Upload as UploadIcon } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,48 @@ const emptyForm: AssetForm = {
 
 function isDocPdf(url: string): boolean {
   return /\.pdf($|\?)/i.test(url);
+}
+
+/** Tiny CSV parser that handles quoted fields with embedded commas + escaped
+ * quotes ("" → "). Good enough for the bulk-upload format we've documented:
+ *   question,option_a,option_b,option_c,option_d,correct_answer
+ * Returns rows as string[][] — no header detection here, the caller decides. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let current: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        current.push(field);
+        field = '';
+      } else if (ch === '\n') {
+        current.push(field);
+        if (current.some((c) => c.trim() !== '')) rows.push(current);
+        current = [];
+        field = '';
+      } else {
+        field += ch;
+      }
+    }
+  }
+  if (field !== '' || current.length > 0) {
+    current.push(field);
+    if (current.some((c) => c.trim() !== '')) rows.push(current);
+  }
+  return rows;
 }
 
 export default function ContentLibraryPage({ api, session }: AdminPageProps) {
@@ -274,6 +317,95 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
       next[target] = a;
       return { ...prev, questions: next };
     });
+  }, []);
+
+  /** Bulk upload of quiz questions from a CSV. Naji 2026-04-30 — wants
+   * the same flow available for the Major Exam section, so the parser
+   * lives here as plain code we can lift into a shared util later. */
+  const bulkUploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleBulkQuestionUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const rows = parseCsv(text);
+        if (rows.length === 0) {
+          toast.error('CSV is empty.');
+          return;
+        }
+        // Skip the header row if it looks like one.
+        const first = rows[0];
+        const isHeader =
+          !!first &&
+          first.length >= 6 &&
+          first[0]!.toLowerCase().includes('question') &&
+          first[5]!.toLowerCase().startsWith('correct');
+        const data = isHeader ? rows.slice(1) : rows;
+
+        const parsed: QuestionForm[] = [];
+        const errors: string[] = [];
+        data.forEach((row, idx) => {
+          const lineNum = idx + (isHeader ? 2 : 1);
+          if (row.length < 6) {
+            errors.push(`Line ${lineNum}: expected 6 columns (question, A, B, C, D, correct), got ${row.length}.`);
+            return;
+          }
+          const [question, a, b, c, d, correctRaw] = row;
+          const correct = (correctRaw ?? '').trim().toUpperCase();
+          if (!question?.trim()) {
+            errors.push(`Line ${lineNum}: empty question.`);
+            return;
+          }
+          if (!['A', 'B', 'C', 'D'].includes(correct)) {
+            errors.push(`Line ${lineNum}: correct_answer must be A/B/C/D, got "${correctRaw}".`);
+            return;
+          }
+          parsed.push({
+            question: question.trim(),
+            option_a: (a ?? '').trim(),
+            option_b: (b ?? '').trim(),
+            option_c: (c ?? '').trim(),
+            option_d: (d ?? '').trim(),
+            correct_answer: correct as CorrectAnswer,
+          });
+        });
+
+        if (parsed.length === 0) {
+          toast.error(errors[0] ?? 'No valid questions found.');
+          return;
+        }
+
+        setForm((prev) => ({ ...prev, questions: [...prev.questions, ...parsed] }));
+        if (errors.length > 0) {
+          toast.warning(`${parsed.length} questions imported. ${errors.length} skipped: ${errors.slice(0, 2).join(' ')}${errors.length > 2 ? '…' : ''}`);
+        } else {
+          toast.success(`${parsed.length} questions imported.`);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to parse CSV.');
+      } finally {
+        if (bulkUploadInputRef.current) bulkUploadInputRef.current.value = '';
+      }
+    },
+    [],
+  );
+
+  const handleDownloadCsvTemplate = useCallback(() => {
+    const sample =
+      'question,option_a,option_b,option_c,option_d,correct_answer\n' +
+      '"What is 2 + 2?",3,4,5,6,B\n' +
+      '"Capital of France?",Berlin,Madrid,Paris,Rome,C\n';
+    const blob = new Blob([sample], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'quiz-questions-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }, []);
 
   const columns: DataTableColumn[] = [
@@ -536,13 +668,38 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                   <span>Shuffle questions for each attempt</span>
                 </label>
 
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm font-medium">
                     Questions ({form.questions.length})
                   </div>
-                  <Button type="button" size="sm" variant="outline" onClick={addQuestion}>
-                    <Plus className="mr-1 h-3 w-3" /> Add Question
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadCsvTemplate}
+                      className="text-xs text-slate-500 underline-offset-2 hover:underline"
+                    >
+                      Download CSV template
+                    </button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => bulkUploadInputRef.current?.click()}
+                    >
+                      <UploadIcon className="mr-1 h-3 w-3" /> Bulk Upload
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={addQuestion}>
+                      <Plus className="mr-1 h-3 w-3" /> Add Question
+                    </Button>
+                    <input
+                      ref={bulkUploadInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      aria-label="Upload quiz questions CSV"
+                      className="hidden"
+                      onChange={(e) => { void handleBulkQuestionUpload(e); }}
+                    />
+                  </div>
                 </div>
 
                 {form.questions.length === 0 ? (
