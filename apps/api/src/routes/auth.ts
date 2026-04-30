@@ -396,12 +396,17 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     }
 
     const user = authContext.user;
+    // Surface display fields so the admin navbar can greet by name + role
+    // without an extra round trip (Naji 2026-04-30).
     reply.code(200).send({
       status: 1,
       message: 'success',
       data: {
         user_id: user.id,
         role_id: user.role_id,
+        name: user.name ?? '',
+        email: user.user_email ?? user.email ?? '',
+        image: user.image ?? user.profile_picture ?? '',
       },
     });
   });
