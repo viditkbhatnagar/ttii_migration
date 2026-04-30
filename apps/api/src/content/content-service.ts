@@ -2179,6 +2179,19 @@ export class ContentService {
       lessonCounts.map((l) => [l.subject_id, l._count?.id ?? 0] as const),
     );
 
+    // Count how many courses each subject is currently linked to via the
+    // pivot, so the per-row "Remove" confirmation in the admin UI can say
+    // "this is also linked to N other courses" instead of always
+    // "permanently delete" (which was misleading after the M:N migration).
+    const courseLinkCounts = await this.prisma.course_subject.groupBy({
+      by: ['subject_id'],
+      where: { subject_id: { in: subjectIds }, deleted_at: null },
+      _count: { course_id: true },
+    });
+    const courseCountMap = new Map(
+      courseLinkCounts.map((c) => [c.subject_id, c._count?.course_id ?? 0] as const),
+    );
+
     return subjects.map((s) => ({
       id: s.id,
       title: s.title,
@@ -2203,7 +2216,7 @@ export class ContentService {
       order: s.order ?? 0,
       lesson_count: lessonCountMap.get(s.id) ?? 0,
       total_lessons: lessonCountMap.get(s.id) ?? 0, // QA spec alias
-      course_count: 1, // single-owner model in MySQL (no M:N reuse)
+      course_count: courseCountMap.get(s.id) ?? 1,
     }));
   }
 
@@ -2496,14 +2509,73 @@ export class ContentService {
     });
   }
 
-  async deleteSubjectAdmin(actorUserId: string, subjectId: string, _courseId?: string): Promise<void> {
-    await this.prisma.subject.update({
-      where: { id: toIntId(subjectId) },
-      data: {
-        deleted_by: toNullableIntId(actorUserId),
-        deleted_at: new Date(),
-      },
-    });
+  async deleteSubjectAdmin(actorUserId: string, subjectId: string, courseId?: string): Promise<void> {
+    const subjectIdInt = toIntId(subjectId);
+    const now = new Date();
+
+    // When invoked from a per-course Subjects page, courseId is supplied —
+    // we only unlink that specific course/subject pivot. If the subject is
+    // still linked to other active courses we leave its global record
+    // alone (Naji 2026-04-30: removing a subject from one course must not
+    // delete it from the others). Only when no other links remain do we
+    // soft-delete the subject row.
+    const courseIdInt = courseId ? toNullableIntId(courseId) : null;
+
+    if (courseIdInt !== null) {
+      await this.prisma.course_subject.updateMany({
+        where: {
+          course_id: courseIdInt,
+          subject_id: subjectIdInt,
+          deleted_at: null,
+        },
+        data: {
+          deleted_at: now,
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: now,
+        },
+      });
+
+      const remainingLinks = await this.prisma.course_subject.count({
+        where: { subject_id: subjectIdInt, deleted_at: null },
+      });
+
+      // Keep subject.course_id in sync with the remaining canonical owner
+      // so callers that still read the legacy column see something valid.
+      const remaining = remainingLinks > 0
+        ? await this.prisma.course_subject.findFirst({
+            where: { subject_id: subjectIdInt, deleted_at: null },
+            orderBy: { position: 'asc' },
+            select: { course_id: true },
+          })
+        : null;
+
+      await this.prisma.subject.update({
+        where: { id: subjectIdInt },
+        data: {
+          course_id: remaining?.course_id ?? null,
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: now,
+          ...(remainingLinks === 0 ? { deleted_by: toNullableIntId(actorUserId), deleted_at: now } : {}),
+        },
+      });
+      return;
+    }
+
+    // No courseId supplied (global delete from the standalone Subjects
+    // page): soft-delete the subject and all its pivot rows.
+    await this.prisma.$transaction([
+      this.prisma.course_subject.updateMany({
+        where: { subject_id: subjectIdInt, deleted_at: null },
+        data: { deleted_at: now, updated_by: toNullableIntId(actorUserId), updated_at: now },
+      }),
+      this.prisma.subject.update({
+        where: { id: subjectIdInt },
+        data: {
+          deleted_by: toNullableIntId(actorUserId),
+          deleted_at: now,
+        },
+      }),
+    ]);
   }
 
   // ── Admin Lesson CRUD ─────────────────────────────────────────────

@@ -46,6 +46,7 @@ interface AssetForm {
   video_url: string;
   attachment: string;
   audio_file: string;
+  thumbnail: string;
   tags: string;
   time_limit_minutes: string;
   attempts_allowed: string;
@@ -60,7 +61,7 @@ const emptyQuestion: QuestionForm = {
 
 const emptyForm: AssetForm = {
   title: '', summary: '', asset_type: 'video', subject_tag: '', lesson_tag: '', language: '',
-  duration: '', video_url: '', attachment: '', audio_file: '', tags: '',
+  duration: '', video_url: '', attachment: '', audio_file: '', thumbnail: '', tags: '',
   time_limit_minutes: '', attempts_allowed: '', pass_marks: '', shuffle_questions: false,
   questions: [],
 };
@@ -161,6 +162,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
       video_url: asString(asset.video_url),
       attachment: asString(asset.attachment),
       audio_file: asString(asset.audio_file),
+      thumbnail: asString(asset.thumbnail),
       tags: asString(asset.tags),
       time_limit_minutes: timeLimit > 0 ? String(Math.floor(timeLimit / 60)) : '',
       attempts_allowed: asString(asset.attempts_allowed),
@@ -187,6 +189,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
         video_url: form.video_url.trim() || undefined,
         attachment: form.attachment.trim() || undefined,
         audio_file: form.audio_file.trim() || undefined,
+        thumbnail: form.thumbnail.trim() || undefined,
         tags: form.tags.trim() || undefined,
       };
       if (form.asset_type === 'quiz') {
@@ -449,6 +452,16 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 <Input value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://..." />
               </div>
             )}
+            <div className="space-y-1.5">
+              <Label>Thumbnail / Banner Image (optional)</Label>
+              <FileUpload
+                value={form.thumbnail}
+                onChange={(url) => setForm((f) => ({ ...f, thumbnail: url }))}
+                onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                accept="image/*"
+                placeholder="Upload an image or paste a URL"
+              />
+            </div>
             {form.asset_type === 'audio' && (
               <div className="space-y-1.5">
                 <Label>Audio File</Label>
@@ -612,8 +625,21 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               {(() => {
                 const url = asString(previewAsset?.video_url);
                 if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No video URL set.</p>;
-                if (/\.mp4($|\?)/i.test(url) || /\.webm($|\?)/i.test(url)) {
+                if (/\.mp4($|\?)/i.test(url) || /\.webm($|\?)/i.test(url) || /\.mov($|\?)/i.test(url)) {
                   return <video src={url} controls className="h-full w-full" />;
+                }
+                // Vimeo: https://vimeo.com/123 or https://player.vimeo.com/...
+                const vimeo = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+                if (vimeo) {
+                  return <iframe src={`https://player.vimeo.com/video/${vimeo[1]}`} className="h-full w-full" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />;
+                }
+                // YouTube: youtu.be/X, youtube.com/watch?v=X, youtube.com/embed/X
+                const yt =
+                  url.match(/youtu\.be\/([\w-]+)/) ||
+                  url.match(/youtube\.com\/watch\?v=([\w-]+)/) ||
+                  url.match(/youtube\.com\/embed\/([\w-]+)/);
+                if (yt) {
+                  return <iframe src={`https://www.youtube.com/embed/${yt[1]}`} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />;
                 }
                 return <iframe src={url} className="h-full w-full" allow="fullscreen" />;
               })()}

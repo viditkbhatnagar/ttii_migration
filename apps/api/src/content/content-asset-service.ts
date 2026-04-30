@@ -1,5 +1,20 @@
 import type { PrismaClient, content_asset, quiz_question } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { env } from '../env.js';
+
+const APP_BASE_URL = env.APP_BASE_URL.replace(/\/$/, '');
+
+/** Prepend APP_BASE_URL to relative paths so the admin/student UIs can
+ * fetch the asset directly. Already-absolute URLs (Vimeo, YouTube, S3
+ * CDN, etc.) are left untouched. */
+function toFileUrl(value: string | null | undefined): string {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('//')) return trimmed;
+  return `${APP_BASE_URL}/${trimmed.replace(/^\/+/, '')}`;
+}
 
 export type QuizQuestionInput = {
   id?: string | undefined;
@@ -90,11 +105,11 @@ function serializeAsset(
     language: row.language ?? '',
     duration: row.duration ?? '',
     provider: row.provider ?? '',
-    video_url: row.video_url ?? '',
-    download_url: row.download_url ?? '',
-    attachment: row.attachment ?? '',
-    audio_file: row.audio_file ?? '',
-    thumbnail: row.thumbnail ?? '',
+    video_url: toFileUrl(row.video_url),
+    download_url: toFileUrl(row.download_url),
+    attachment: toFileUrl(row.attachment),
+    audio_file: toFileUrl(row.audio_file),
+    thumbnail: toFileUrl(row.thumbnail),
     tags: row.tags ?? '',
     time_limit_seconds: row.time_limit_seconds ?? null,
     attempts_allowed: row.attempts_allowed ?? null,
