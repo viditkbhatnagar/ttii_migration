@@ -4142,8 +4142,10 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
 
-    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
-    if (existing) return { status: 0, message: 'Email already exists.' };
+    // One email per role, but the same email may be reused across different
+    // roles (Naji 2026-04-30). Scope the duplicate check to role_id=3 here.
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: 3, deleted_at: null } });
+    if (existing) return { status: 0, message: 'An Instructor with this email already exists.' };
 
     const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
     const creds = await issueAndEmailCredentials({
@@ -4202,10 +4204,12 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
 
-    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
-    if (existing) return { status: 0, message: 'Email already exists.' };
-
     const roleLabel = input.roleId === 1 ? 'Super Admin' : 'Admin';
+
+    // One email per role; same email allowed across different roles
+    // (Naji 2026-04-30). Scope the duplicate check by role_id.
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: input.roleId, deleted_at: null } });
+    if (existing) return { status: 0, message: `A ${roleLabel} with this email already exists.` };
     const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
     const creds = await issueAndEmailCredentials({
       name: input.name.trim(),
@@ -4258,8 +4262,10 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
 
-    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
-    if (existing) return { status: 0, message: 'Email already exists.' };
+    // Scope the duplicate-email check to Associates only (role_id=10) so
+    // the same email can be reused as Counsellor / Admin / etc.
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: 10, deleted_at: null } });
+    if (existing) return { status: 0, message: 'An Associate with this email already exists.' };
 
     const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
     const creds = await issueAndEmailCredentials({
@@ -5347,8 +5353,10 @@ export class OperationsService {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
 
-    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), deleted_at: null } });
-    if (existing) return { status: 0, message: 'Email already exists.' };
+    // Scope the duplicate-email check to Counsellors only (role_id=9) so
+    // the same email can be reused as Associate / Admin / etc.
+    const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: 9, deleted_at: null } });
+    if (existing) return { status: 0, message: 'A Counsellor with this email already exists.' };
 
     const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
     const creds = await issueAndEmailCredentials({
