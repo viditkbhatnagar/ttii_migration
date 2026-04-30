@@ -2782,6 +2782,38 @@ export class ContentService {
     await this.prisma.$transaction(updates);
   }
 
+  /** Reorder the subjects within a single course by writing new
+   * course_subject.position values in the order provided. Each subject_id
+   * must be linked to the given course (other links are left alone). */
+  async reorderCourseSubjectsAdmin(courseId: string, subjectIds: string[]): Promise<void> {
+    const courseIdInt = toIntId(courseId);
+    const now = new Date();
+    const updates = subjectIds.map((sid, index) =>
+      this.prisma.course_subject.updateMany({
+        where: {
+          course_id: courseIdInt,
+          subject_id: toIntId(sid),
+          deleted_at: null,
+        },
+        data: { position: index + 1, updated_at: now },
+      }),
+    );
+    await this.prisma.$transaction(updates);
+  }
+
+  /** Reorder lesson_files within a single lesson by writing new `order`
+   * values in the order provided. */
+  async reorderLessonFilesAdmin(lessonId: string, fileIds: string[]): Promise<void> {
+    const lessonIdInt = toIntId(lessonId);
+    const updates = fileIds.map((fid, index) =>
+      this.prisma.lesson_files.updateMany({
+        where: { id: toIntId(fid), lesson_id: lessonIdInt, deleted_at: null },
+        data: { order: index + 1, updated_at: new Date() },
+      }),
+    );
+    await this.prisma.$transaction(updates);
+  }
+
   // ── Admin Lesson File CRUD ────────────────────────────────────────
 
   async listLessonFilesAdmin(lessonId: string): Promise<Record<string, unknown>[]> {

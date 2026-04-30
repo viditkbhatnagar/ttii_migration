@@ -2279,6 +2279,20 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/course/lessons/reorder', authToken, { lesson_ids: lessonIds });
   }
 
+  async reorderCourseSubjects(authToken: string, courseId: string, subjectIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/subjects/reorder', authToken, {
+      course_id: courseId,
+      subject_ids: subjectIds,
+    });
+  }
+
+  async reorderLessonFiles(authToken: string, lessonId: string, fileIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/reorder', authToken, {
+      lesson_id: lessonId,
+      file_ids: fileIds,
+    });
+  }
+
   // ── Lesson File Admin CRUD ────────────────────────────────────────
 
   async listLessonFiles(authToken: string, lessonId: string): Promise<Record<string, unknown>[]> {

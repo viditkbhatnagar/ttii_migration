@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Database } from 'lucide-react';
+import { Database, ArrowUpDown } from 'lucide-react';
+import { SortableList } from '../../shared/components/SortableList.js';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -67,6 +68,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [showSelectDialog, setShowSelectDialog] = useState(false);
+  const [showReorderDialog, setShowReorderDialog] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<SubjectFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -185,6 +187,16 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
     } finally { setSaving(false); }
   }, [api, session.token, editId, buildPayload, form.title, reload]);
 
+  const handleReorderSubjects = useCallback(async (nextIds: string[]) => {
+    try {
+      await api.reorderCourseSubjects(session.token, courseId, nextIds);
+      toast.success('Order saved');
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save order');
+    }
+  }, [api, session.token, courseId, reload]);
+
   const handleUnlink = useCallback(async (row: Record<string, unknown>) => {
     const id = asString(row.id);
     const title = asString(row.title);
@@ -261,6 +273,10 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       )}
 
       <AdminPageHeader title="Course Subjects" addLabel="New Subject" onAdd={handleOpenAdd}>
+        <Button variant="outline" className="gap-1.5" onClick={() => setShowReorderDialog(true)} disabled={rows.length < 2}>
+          <ArrowUpDown className="size-4" />
+          Reorder
+        </Button>
         <Button variant="outline" className="gap-1.5" onClick={() => { setSelectedSubjectIds(new Set()); setShowSelectDialog(true); }}>
           <Database className="size-4" />
           Link Existing Subject
@@ -268,6 +284,36 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       </AdminPageHeader>
 
       <AdminDataTable columns={columns} rows={rows} actions={actions} />
+
+      {/* Reorder Subjects dialog — drag to rearrange, save on drop */}
+      <Dialog open={showReorderDialog} onOpenChange={(open) => { if (!open) setShowReorderDialog(false); }}>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Reorder Subjects</DialogTitle>
+          </DialogHeader>
+          <p className="mb-2 text-xs text-slate-500">Drag a subject to a new position. Order saves automatically.</p>
+          <SortableList
+            ids={rows.map((r) => asString(r.id))}
+            onReorder={(nextIds) => { void handleReorderSubjects(nextIds); }}
+            className="space-y-1"
+          >
+            {(id, handle) => {
+              const row = rows.find((r) => asString(r.id) === id);
+              if (!row) return null;
+              return (
+                <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-2">
+                  {handle}
+                  <span className="flex-1 text-sm text-slate-800">{asString(row.title) || '(untitled)'}</span>
+                  <span className="text-[11px] text-slate-400">{asString(row.subject_code) || '—'}</span>
+                </div>
+              );
+            }}
+          </SortableList>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowReorderDialog(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add / Edit Subject Dialog */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>

@@ -1,4 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
+import { ArrowUpDown } from 'lucide-react';
+import { SortableList } from '../../shared/components/SortableList.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,6 +64,11 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
   const [fileForm, setFileForm] = useState<FileForm>(emptyFileForm);
 
   const [saving, setSaving] = useState(false);
+
+  // Reorder dialogs (Naji 2026-04-30 — drag-to-reorder for lessons within
+  // a subject and content within a lesson). Save-on-drop UX.
+  const [showLessonReorder, setShowLessonReorder] = useState(false);
+  const [showFileReorder, setShowFileReorder] = useState(false);
 
   // Load courses
   const { data: coursesData, loading: coursesLoading } = useAdminPageData(
@@ -389,9 +397,15 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Lessons</CardTitle>
-            <Button size="sm" onClick={openAddLesson}>
-              + Add Lesson
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowLessonReorder(true)} disabled={lessons.length < 2}>
+                <ArrowUpDown className="size-4" />
+                Reorder
+              </Button>
+              <Button size="sm" onClick={openAddLesson}>
+                + Add Lesson
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {lessonsLoading ? (
@@ -451,6 +465,10 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
               </Button>
               <Button size="sm" variant="secondary" onClick={() => openAddFile('quiz')}>
                 + Quiz
+              </Button>
+              <Button size="sm" variant="outline" className="ml-auto gap-1.5" onClick={() => setShowFileReorder(true)} disabled={files.length < 2}>
+                <ArrowUpDown className="size-4" />
+                Reorder
               </Button>
             </div>
           </CardHeader>
@@ -642,6 +660,85 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
             </Button>
           </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reorder Lessons dialog */}
+      <Dialog open={showLessonReorder} onOpenChange={(open) => { if (!open) setShowLessonReorder(false); }}>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Reorder Lessons</DialogTitle>
+          </DialogHeader>
+          <p className="mb-2 text-xs text-slate-500">Drag a lesson to a new position. Order saves automatically.</p>
+          <SortableList
+            ids={lessons.map((l) => asString(l.id))}
+            onReorder={(nextIds) => {
+              void (async () => {
+                try {
+                  await api.reorderLessons(session.token, nextIds);
+                  toast.success('Order saved');
+                  reloadLessons();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Failed to save order');
+                }
+              })();
+            }}
+            className="space-y-1"
+          >
+            {(id, handle) => {
+              const lesson = lessons.find((l) => asString(l.id) === id);
+              if (!lesson) return null;
+              return (
+                <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-2">
+                  {handle}
+                  <span className="flex-1 text-sm text-slate-800">{asString(lesson.title) || '(untitled)'}</span>
+                </div>
+              );
+            }}
+          </SortableList>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowLessonReorder(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reorder Lesson Files dialog */}
+      <Dialog open={showFileReorder} onOpenChange={(open) => { if (!open) setShowFileReorder(false); }}>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Reorder Content</DialogTitle>
+          </DialogHeader>
+          <p className="mb-2 text-xs text-slate-500">Drag a content item to a new position. Order saves automatically.</p>
+          <SortableList
+            ids={files.map((f) => asString(f.id))}
+            onReorder={(nextIds) => {
+              void (async () => {
+                try {
+                  await api.reorderLessonFiles(session.token, selectedLessonId, nextIds);
+                  toast.success('Order saved');
+                  reloadFiles();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Failed to save order');
+                }
+              })();
+            }}
+            className="space-y-1"
+          >
+            {(id, handle) => {
+              const file = files.find((f) => asString(f.id) === id);
+              if (!file) return null;
+              return (
+                <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-2">
+                  {handle}
+                  <span className="flex-1 text-sm text-slate-800">{asString(file.title) || '(untitled)'}</span>
+                  <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(file.lesson_type) || 'file'}</span>
+                </div>
+              );
+            }}
+          </SortableList>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowFileReorder(false)}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

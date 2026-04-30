@@ -728,6 +728,42 @@ export function registerContentRoutes(
     }
   });
 
+  app.post('/admin/course/subjects/reorder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id);
+      const subjectIds = Array.isArray(payload.subject_ids)
+        ? payload.subject_ids.map(toStringValue).filter((s): s is string => !!s)
+        : [];
+      if (!courseId || subjectIds.length === 0) {
+        reply.code(200).send({ status: 0, message: 'course_id + subject_ids required', data: {} });
+        return;
+      }
+      await contentService.reorderCourseSubjectsAdmin(courseId, subjectIds);
+      reply.code(200).send({ status: 1, message: 'Subjects reordered', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/course/lesson_files/reorder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const lessonId = toStringValue(payload.lesson_id);
+      const fileIds = Array.isArray(payload.file_ids)
+        ? payload.file_ids.map(toStringValue).filter((s): s is string => !!s)
+        : [];
+      if (!lessonId || fileIds.length === 0) {
+        reply.code(200).send({ status: 0, message: 'lesson_id + file_ids required', data: {} });
+        return;
+      }
+      await contentService.reorderLessonFilesAdmin(lessonId, fileIds);
+      reply.code(200).send({ status: 1, message: 'Files reordered', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   app.post('/admin/course/lessons/reorder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
