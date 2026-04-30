@@ -1,19 +1,41 @@
 import type { PrismaClient, content_asset, quiz_question } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
-import { env } from '../env.js';
 
-const APP_BASE_URL = env.APP_BASE_URL.replace(/\/$/, '');
+// Legacy lesson_files content was uploaded by the old PHP LMS and lives at
+// `lms.teachersindia.in/uploads/...`. APP_BASE_URL on the new droplet
+// points at the dead `api.teachersindia.in` host (per the note in
+// CLAUDE.md), so we don't use it here. Anything matching `uploads/...` or
+// `uploads/lesson_files/...` resolves against the legacy files host;
+// anything else (Vimeo, YouTube, S3 CDN, full URLs already in the DB)
+// passes through unchanged.
+const LEGACY_FILES_BASE_URL = 'https://lms.teachersindia.in';
 
-/** Prepend APP_BASE_URL to relative paths so the admin/student UIs can
- * fetch the asset directly. Already-absolute URLs (Vimeo, YouTube, S3
- * CDN, etc.) are left untouched. */
 function toFileUrl(value: string | null | undefined): string {
   if (!value) return '';
   const trimmed = String(value).trim();
   if (!trimmed) return '';
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    // Defensive: if a row was previously stamped with the dead api host,
+    // rewrite it on the way out so downstream UIs don't break.
+    if (trimmed.startsWith('https://api.teachersindia.in/') || trimmed.startsWith('http://api.teachersindia.in/')) {
+      return trimmed.replace(/^https?:\/\/api\.teachersindia\.in/, LEGACY_FILES_BASE_URL);
+    }
+    return trimmed;
+  }
   if (trimmed.startsWith('//')) return trimmed;
-  return `${APP_BASE_URL}/${trimmed.replace(/^\/+/, '')}`;
+  return `${LEGACY_FILES_BASE_URL}/${trimmed.replace(/^\/+/, '')}`;
+}
+
+/** Rewrite embedded asset references inside HTML content (article bodies)
+ * so any <img src> / <a href> / <video src> pointing at the dead
+ * api.teachersindia.in host or at a relative `uploads/...` path resolves
+ * against the live legacy files host. Leaves all other URLs untouched. */
+function rewriteHtmlAssetUrls(html: string | null | undefined): string {
+  if (!html) return '';
+  const s = String(html);
+  return s
+    .replace(/https?:\/\/api\.teachersindia\.in/g, LEGACY_FILES_BASE_URL)
+    .replace(/(src|href)=("|')\/?(uploads\/)/g, `$1=$2${LEGACY_FILES_BASE_URL}/$3`);
 }
 
 export type QuizQuestionInput = {
@@ -98,7 +120,7 @@ function serializeAsset(
     id: String(row.id),
     content_id: `CA-${String(row.id).padStart(5, '0')}`,
     title: row.title,
-    summary: row.summary ?? '',
+    summary: rewriteHtmlAssetUrls(row.summary),
     asset_type: row.asset_type,
     subject_tag: row.subject_tag ?? '',
     lesson_tag: row.lesson_tag ?? '',

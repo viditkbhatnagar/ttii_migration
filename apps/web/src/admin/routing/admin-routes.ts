@@ -99,7 +99,6 @@ const FeeInstallmentsPage = lazy(() => import('../pages/fee/FeeInstallmentsPage.
 const PaymentStatusPage = lazy(() => import('../pages/fee/PaymentStatusPage.js'));
 const ScholarshipsPage = lazy(() => import('../pages/scholarships/ScholarshipsPage.js'));
 const InstructorsPage = lazy(() => import('../pages/instructor/InstructorsPage.js'));
-const SuperAdminPage = lazy(() => import('../pages/users/SuperAdminPage.js'));
 const AdminUsersPage = lazy(() => import('../pages/users/AdminUsersPage.js'));
 
 // Phase 5: Integrations & Polish pages
@@ -197,8 +196,11 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/instructor/index', aliases: ['/admin/instructor'], pageComponent: InstructorsPage, title: 'Instructors Directory' },
 
   // Users (Admin)
-  { path: '/admin/admin/index', pageComponent: SuperAdminPage, title: 'Super Admin' },
-  { path: '/admin/sub_admin/index', pageComponent: AdminUsersPage, title: 'Admin' },
+  // Both legacy paths now serve the unified Admin Users page (Naji
+  // 2026-04-30 — merged Super Admin + Admin into one list with a Role
+  // column). Keeping /admin/admin/index for back-compat with bookmarks.
+  { path: '/admin/admin/index', pageComponent: AdminUsersPage, title: 'Admin Users' },
+  { path: '/admin/sub_admin/index', pageComponent: AdminUsersPage, title: 'Admin Users' },
 
   // Counsellors
   { path: '/admin/counsellor/index', pageComponent: CounsellorsPage, title: 'Counsellors Directory' },

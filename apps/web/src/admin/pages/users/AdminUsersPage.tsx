@@ -23,8 +23,18 @@ import { useConfirm } from '@/components/confirm-dialog';
 
 export default function AdminUsersPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
+  // Naji asked us to combine the previous "Super Admin" (role 1) and
+  // "Admin" (role 8) lists into one unified Admin Users page (2026-04-30).
+  // Load both in parallel and surface role_id as a column so the admin
+  // can tell them apart.
   const { data, loading, error, reload } = useAdminPageData(
-    () => api.loadAdminUsers(session.token, 8),
+    async () => {
+      const [supers, admins] = await Promise.all([
+        api.loadAdminUsers(session.token, 1),
+        api.loadAdminUsers(session.token, 8),
+      ]);
+      return [...supers, ...admins];
+    },
     [],
   );
 
@@ -201,6 +211,18 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
       { key: 'phone', label: 'Phone' },
       { key: 'user_email', label: 'Email' },
       {
+        key: 'role_id',
+        label: 'Role',
+        sortable: true,
+        render: (v) => {
+          const roleNum = asNumber(v);
+          if (roleNum === 1) {
+            return <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">Super Admin</span>;
+          }
+          return <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Admin</span>;
+        },
+      },
+      {
         key: 'status',
         label: 'Status',
         render: (v) => <AdminStatusBadge status={asNumber(v) === 1 ? 'Active' : 'Inactive'} />,
@@ -255,7 +277,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Admin" addLabel="+ Create Admin" onAdd={openCreateDialog} />
+      <AdminPageHeader title="Admin Users" addLabel="+ Create Admin" onAdd={openCreateDialog} />
       <AdminDataTable columns={columns} rows={allUsers} actions={actions} />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) { setDialogOpen(false); resetForm(); } }}>

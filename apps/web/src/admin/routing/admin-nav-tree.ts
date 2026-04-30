@@ -101,8 +101,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     label: 'Users',
     icon: 'Shield',
     children: [
-      { id: 'super-admin', label: 'Super Admin', href: '/admin/admin/index' },
-      { id: 'admin', label: 'Admin', href: '/admin/sub_admin/index' },
+      { id: 'admin-users', label: 'Admin Users', href: '/admin/sub_admin/index' },
       { id: 'roles-permissions', label: 'Roles & Permissions', href: '/admin/roles/index' },
     ],
   },
