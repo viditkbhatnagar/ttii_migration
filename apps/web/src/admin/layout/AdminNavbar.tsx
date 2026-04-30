@@ -1,6 +1,9 @@
-import { Bell, Calendar, Maximize, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bell, Calendar, Maximize, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import type { AuthSession } from '@ttii/frontend-core';
+import type { AdminPortalApi } from '../admin-portal-api.js';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,10 +16,53 @@ import { useAdminLayout } from './AdminLayoutContext.js';
 interface AdminNavbarProps {
   onNavigate: (href: string) => void;
   onLogout: () => void;
+  api: AdminPortalApi;
+  session: AuthSession;
 }
 
-export function AdminNavbar({ onNavigate, onLogout }: AdminNavbarProps) {
+const ROLE_LABELS: Record<number, string> = {
+  1: 'Super Admin',
+  2: 'Student',
+  3: 'Instructor',
+  4: 'Centre',
+  7: 'Centre',
+  8: 'Admin',
+  9: 'Counsellor',
+  10: 'Associate',
+};
+
+function initialsOf(name: string): string {
+  return (
+    name
+      .split(' ')
+      .map((p) => p[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || 'AD'
+  );
+}
+
+export function AdminNavbar({ onNavigate, onLogout, api, session }: AdminNavbarProps) {
   const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar } = useAdminLayout();
+  const [profile, setProfile] = useState<{ name: string; email: string; image: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const me = await api.loadMyProfile(session.token);
+        if (!cancelled) setProfile({ name: me.name, email: me.email, image: me.image });
+      } catch {
+        if (!cancelled) setProfile({ name: '', email: '', image: '' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, session.token]);
+
+  const roleLabel = ROLE_LABELS[session.roleId] ?? 'User';
+  const displayName = profile?.name?.trim() || 'Admin';
+  const firstName = displayName.split(' ')[0] || displayName;
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -57,9 +103,11 @@ export function AdminNavbar({ onNavigate, onLogout }: AdminNavbarProps) {
           )}
         </Button>
 
-        <div aria-hidden="true" className="hidden items-center gap-2 rounded-md bg-white/10 px-3 py-1.5 sm:flex">
-          <Search className="size-4 text-white/70" />
-          <span className="text-sm text-white/70">Search...</span>
+        {/* Welcome message — replaces the fake search chip per Naji 2026-04-30.
+            Greets by first name when available, falls back to "Admin". */}
+        <div className="hidden sm:flex flex-col leading-tight text-white">
+          <span className="text-[11px] uppercase tracking-wide text-white/70">{roleLabel}</span>
+          <span className="text-sm font-medium">Welcome back, {firstName}</span>
         </div>
       </div>
 
@@ -106,14 +154,20 @@ export function AdminNavbar({ onNavigate, onLogout }: AdminNavbarProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" aria-label="Account menu" className="ml-2 gap-2 text-white hover:bg-white/10">
               <Avatar className="size-8">
-                <AvatarFallback className="bg-ttii-primary text-xs text-white">AD</AvatarFallback>
+                {profile?.image ? <AvatarImage src={profile.image} alt={displayName} /> : null}
+                <AvatarFallback className="bg-ttii-primary text-xs text-white">{initialsOf(displayName)}</AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm sm:inline">Admin</span>
+              <div className="hidden flex-col text-left leading-tight sm:flex">
+                <span className="text-sm font-medium">{displayName}</span>
+                <span className="text-[11px] text-white/70">{roleLabel}</span>
+              </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
-              <p className="text-sm font-medium">Welcome Admin!</p>
+              <p className="text-sm font-medium">{displayName}</p>
+              {profile?.email ? <p className="text-xs text-muted-foreground truncate">{profile.email}</p> : null}
+              <p className="mt-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">{roleLabel}</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onNavigate('/app/profile/index/1')}>

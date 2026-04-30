@@ -1727,6 +1727,21 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/user/delete', authToken, { id });
   }
 
+  /** Fetch the currently-signed-in user's display fields (name, email,
+   * image, role) for the admin navbar greeting. Hits the same /auth/me
+   * endpoint as the auth bootstrap but unwraps the new display fields. */
+  async loadMyProfile(authToken: string): Promise<{ userId: string; roleId: number; name: string; email: string; image: string }> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/auth/me', authToken);
+    const data = payload.data ?? {};
+    return {
+      userId: asString(data.user_id) || '',
+      roleId: Number(data.role_id) || 0,
+      name: asString(data.name) || '',
+      email: asString(data.email) || '',
+      image: asString(data.image) || '',
+    };
+  }
+
   // ── Admin permissions (Track 3, 2026-04-30) ──────────────────────
   async listAdminPermissionsCatalog(authToken: string): Promise<Array<Record<string, unknown>>> {
     const payload = await this.get<LegacyEnvelope<Array<Record<string, unknown>>>>(
