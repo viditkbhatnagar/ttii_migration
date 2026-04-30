@@ -24,9 +24,6 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
   const [search, setSearch] = useState('');
   const [courseFilter, setCourseFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedCourse, setAppliedCourse] = useState('');
-  const [appliedSubject, setAppliedSubject] = useState('');
 
   const allRows = useMemo(() => toRecords(data), [data]);
 
@@ -47,7 +44,7 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
     for (const row of allRows) {
       // Filter the visible subject list by selected course so the picker
       // is meaningful when the admin has narrowed down to one course.
-      if (appliedCourse && asString(row.course_id) !== appliedCourse) continue;
+      if (courseFilter && asString(row.course_id) !== courseFilter) continue;
       const id = asString(row.subject_id);
       const title = asString(row.subject_title);
       if (id && title && !seen.has(id)) seen.set(id, title);
@@ -55,23 +52,26 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
     return Array.from(seen.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [allRows, appliedCourse]);
+  }, [allRows, courseFilter]);
 
+  // Live filtering — same shape as SubjectsPage, no Apply button needed
+  // (Naji 2026-04-30: filter wasn't working, root cause was the applied/
+  // pending split nobody guessed they had to click through).
   const filteredRows = useMemo(() => {
     return allRows.filter((row) => {
-      if (appliedSearch) {
-        const s = appliedSearch.toLowerCase();
+      if (search) {
+        const s = search.toLowerCase();
         const match =
           asString(row.title).toLowerCase().includes(s) ||
           asString(row.course_title).toLowerCase().includes(s) ||
           asString(row.subject_title).toLowerCase().includes(s);
         if (!match) return false;
       }
-      if (appliedCourse && asString(row.course_id) !== appliedCourse) return false;
-      if (appliedSubject && asString(row.subject_id) !== appliedSubject) return false;
+      if (courseFilter && asString(row.course_id) !== courseFilter) return false;
+      if (subjectFilter && asString(row.subject_id) !== subjectFilter) return false;
       return true;
     });
-  }, [allRows, appliedSearch, appliedCourse, appliedSubject]);
+  }, [allRows, search, courseFilter, subjectFilter]);
 
   const filters: FilterField[] = useMemo(
     () => [
@@ -181,18 +181,11 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
 
       <AdminFilterBar
         filters={filters}
-        onApply={() => {
-          setAppliedSearch(search);
-          setAppliedCourse(courseFilter);
-          setAppliedSubject(subjectFilter);
-        }}
+        onApply={() => {}}
         onClear={() => {
           setSearch('');
           setCourseFilter('');
           setSubjectFilter('');
-          setAppliedSearch('');
-          setAppliedCourse('');
-          setAppliedSubject('');
         }}
       />
 
