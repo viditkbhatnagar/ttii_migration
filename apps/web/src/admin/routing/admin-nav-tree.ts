@@ -47,16 +47,19 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     id: 'courses',
     label: 'Courses',
     icon: 'BookOpen',
+    // Order locked by Naji 2026-04-30: Course Offerings first, then
+    // Program → Course → Subject → Lessons → Content Library →
+    // certification stack at the bottom.
     children: [
-      { id: 'programs', label: 'Programs', href: '/admin/programs/index' },
-      { id: 'course-directory', label: 'Course Directory', href: '/admin/course/index' },
-      { id: 'subjects', label: 'Subjects', href: '/admin/subjects/index' },
       { id: 'offerings', label: 'Course Offerings', href: '/admin/offerings/index' },
+      { id: 'programs', label: 'Program', href: '/admin/programs/index' },
+      { id: 'course-directory', label: 'Course', href: '/admin/course/index' },
+      { id: 'subjects', label: 'Subject', href: '/admin/subjects/index' },
+      { id: 'lessons', label: 'Lessons', href: '/admin/course_new/index' },
       { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
-      { id: 'add-lesson', label: 'Add Lesson', href: '/admin/course_new/index' },
-      { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },
       { id: 'certification-partners', label: 'Certification Partners', href: '/admin/certification-partners/index' },
       { id: 'certificate-combinations', label: 'Certificate Combinations', href: '/admin/certificate-combinations/index' },
+      { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },
       { id: 'certificates', label: 'Certificates', href: '/admin/certificates/index' },
     ],
   },
