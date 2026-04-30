@@ -139,16 +139,17 @@ function SidebarGroup({
               key={child.id}
               type="button"
               aria-current={child.id === activeItemId ? 'page' : undefined}
+              title={child.label}
               className={cn(
-                'flex w-full items-center rounded-md px-3 py-1.5 text-sm transition-colors',
+                'flex w-full items-start rounded-md px-3 py-1.5 text-sm transition-colors text-left',
                 child.id === activeItemId
                   ? 'font-medium text-ttii-sidebar-active'
                   : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900',
               )}
               onClick={() => onNavigate(child.href)}
             >
-              <span aria-hidden="true" className="mr-2 text-gray-400">–</span>
-              <span className="truncate">{child.label}</span>
+              <span aria-hidden="true" className="mr-2 mt-0.5 shrink-0 text-gray-400">–</span>
+              <span className="break-words leading-tight">{child.label}</span>
             </button>
           ))}
         </div>
