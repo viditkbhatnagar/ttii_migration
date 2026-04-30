@@ -319,6 +319,19 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
     }
   }, [guardStatus, pathname, route.surface]);
 
+  // Auto-redirect to the login landing when the guard determines the user
+  // is signed out (Naji 2026-04-30 — force-refresh + logout was leaving the
+  // URL on the protected page with the "Login required" notice instead of
+  // sending the user to /). Skip when we're already on '/' so we don't
+  // ping-pong; phase must be 'ready' so we don't redirect during the
+  // initial bootstrap before the session has been loaded.
+  useEffect(() => {
+    if (phase !== 'ready') return;
+    if (guardStatus !== 'unauthenticated') return;
+    if (pathname === '/' || pathname === '/forgot-password') return;
+    navigateTo('/');
+  }, [guardStatus, pathname, phase]);
+
   if (guardStatus === 'checking') {
     return (
       <InlineNotice tone="info" title="Route guard in progress">
