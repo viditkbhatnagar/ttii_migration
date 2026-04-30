@@ -30,9 +30,18 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
   const courseOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const row of allRows) {
-      const id = asString(row.course_id);
-      const title = asString(row.course_title);
-      if (id && title && !seen.has(id)) seen.set(id, title);
+      const courses = Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [];
+      for (const c of courses) {
+        const id = asString(c.id);
+        const title = asString(c.title);
+        if (id && title && !seen.has(id)) seen.set(id, title);
+      }
+      // Fallback for any row missing the courses[] array.
+      if (courses.length === 0) {
+        const id = asString(row.course_id);
+        const title = asString(row.course_title);
+        if (id && title && !seen.has(id)) seen.set(id, title);
+      }
     }
     return Array.from(seen.entries())
       .map(([value, label]) => ({ value, label }))
@@ -42,9 +51,13 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
   const subjectOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const row of allRows) {
-      // Filter the visible subject list by selected course so the picker
-      // is meaningful when the admin has narrowed down to one course.
-      if (courseFilter && asString(row.course_id) !== courseFilter) continue;
+      // When narrowed to a specific course, only show subjects linked to
+      // that course in the dependent picker.
+      if (courseFilter) {
+        const courses = Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [];
+        const ids = courses.length > 0 ? courses.map((c) => asString(c.id)) : [asString(row.course_id)];
+        if (!ids.includes(courseFilter)) continue;
+      }
       const id = asString(row.subject_id);
       const title = asString(row.subject_title);
       if (id && title && !seen.has(id)) seen.set(id, title);
@@ -54,20 +67,24 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [allRows, courseFilter]);
 
-  // Live filtering — same shape as SubjectsPage, no Apply button needed
-  // (Naji 2026-04-30: filter wasn't working, root cause was the applied/
-  // pending split nobody guessed they had to click through).
+  // Live filtering — same shape as SubjectsPage, no Apply button needed.
   const filteredRows = useMemo(() => {
     return allRows.filter((row) => {
+      const courses = Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [];
       if (search) {
         const s = search.toLowerCase();
-        const match =
+        const titleMatch =
           asString(row.title).toLowerCase().includes(s) ||
-          asString(row.course_title).toLowerCase().includes(s) ||
           asString(row.subject_title).toLowerCase().includes(s);
-        if (!match) return false;
+        const courseMatch =
+          asString(row.course_title).toLowerCase().includes(s) ||
+          courses.some((c) => asString(c.title).toLowerCase().includes(s));
+        if (!titleMatch && !courseMatch) return false;
       }
-      if (courseFilter && asString(row.course_id) !== courseFilter) return false;
+      if (courseFilter) {
+        const ids = courses.length > 0 ? courses.map((c) => asString(c.id)) : [asString(row.course_id)];
+        if (!ids.includes(courseFilter)) return false;
+      }
       if (subjectFilter && asString(row.subject_id) !== subjectFilter) return false;
       return true;
     });
@@ -112,7 +129,30 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
   const columns: DataTableColumn[] = useMemo(
     () => [
       { key: 'title', label: 'Lesson', sortable: true, render: (v) => asString(v) || '—' },
-      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '—' },
+      {
+        key: 'courses',
+        label: 'Courses',
+        render: (_v, row) => {
+          const courses = Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [];
+          if (courses.length === 0) {
+            const fallback = asString(row.course_title);
+            return fallback ? <span className="text-sm">{fallback}</span> : <span className="text-sm text-slate-400">—</span>;
+          }
+          return (
+            <div className="flex flex-wrap gap-1">
+              {courses.map((c, i) => (
+                <span
+                  key={`${asString(c.id)}-${i}`}
+                  className="inline-flex max-w-[180px] truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                  title={asString(c.title)}
+                >
+                  {asString(c.title)}
+                </span>
+              ))}
+            </div>
+          );
+        },
+      },
       { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '—' },
       {
         key: 'files_count',

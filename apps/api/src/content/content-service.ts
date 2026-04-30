@@ -2595,24 +2595,26 @@ export class ContentService {
     const subjectIds = [
       ...new Set(lessons.map((l) => l.subject_id).filter((id): id is number => id !== null && id !== undefined)),
     ];
-    const courseIds = [
-      ...new Set(lessons.map((l) => l.course_id).filter((id): id is number => id !== null && id !== undefined)),
-    ];
     const lessonIds = lessons.map((l) => l.id);
 
-    const [subjects, courses, fileCounts] = await Promise.all([
+    // Pull every active course_subject pivot row for the lessons' parent
+    // subjects in one go. After the M:N migration a single subject is
+    // linked to multiple courses, so the same lesson effectively appears
+    // in every linked course (Naji 2026-04-30 — wants this to be visible
+    // in the Lessons list).
+    const [subjects, pivotRows, fileCounts] = await Promise.all([
       subjectIds.length
         ? this.prisma.subject.findMany({
             where: { id: { in: subjectIds } },
             select: { id: true, title: true, deleted_at: true },
           })
         : Promise.resolve([] as Array<{ id: number; title: string | null; deleted_at: Date | null }>),
-      courseIds.length
-        ? this.prisma.course.findMany({
-            where: { id: { in: courseIds } },
-            select: { id: true, title: true, deleted_at: true },
+      subjectIds.length
+        ? this.prisma.course_subject.findMany({
+            where: { subject_id: { in: subjectIds }, deleted_at: null },
+            select: { subject_id: true, course_id: true, position: true },
           })
-        : Promise.resolve([] as Array<{ id: number; title: string | null; deleted_at: Date | null }>),
+        : Promise.resolve([] as Array<{ subject_id: number; course_id: number; position: number | null }>),
       this.prisma.lesson_files.groupBy({
         by: ['lesson_id'],
         where: { lesson_id: { in: lessonIds }, deleted_at: null },
@@ -2620,23 +2622,44 @@ export class ContentService {
       }),
     ]);
 
+    const allCourseIds = [...new Set(pivotRows.map((p) => p.course_id))];
+    const courses = allCourseIds.length
+      ? await this.prisma.course.findMany({
+          where: { id: { in: allCourseIds } },
+          select: { id: true, title: true, deleted_at: true },
+        })
+      : [];
+
     const subjectMap = new Map(subjects.map((s) => [s.id, s]));
     const courseMap = new Map(courses.map((c) => [c.id, c]));
     const fileCountMap = new Map(
       fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const),
     );
 
+    // Group every active course (pivot → course) by subject_id, skipping
+    // courses that are themselves soft-deleted.
+    const coursesBySubject = new Map<number, Array<{ id: number; title: string }>>();
+    for (const p of pivotRows) {
+      const c = courseMap.get(p.course_id);
+      if (!c || c.deleted_at !== null) continue;
+      const list = coursesBySubject.get(p.subject_id) ?? [];
+      list.push({ id: c.id, title: c.title ?? '' });
+      coursesBySubject.set(p.subject_id, list);
+    }
+
     return lessons
       .filter((l) => {
         const sub = l.subject_id !== null && l.subject_id !== undefined ? subjectMap.get(l.subject_id) : undefined;
-        const cse = l.course_id !== null && l.course_id !== undefined ? courseMap.get(l.course_id) : undefined;
-        if (sub && sub.deleted_at !== null) return false;
-        if (cse && cse.deleted_at !== null) return false;
-        return true;
+        // A lesson must have a non-deleted parent subject AND that subject
+        // must be linked to at least one active course; otherwise the
+        // lesson is unreachable.
+        if (!sub || sub.deleted_at !== null) return false;
+        return (coursesBySubject.get(sub.id)?.length ?? 0) > 0;
       })
       .map((l) => {
-        const sub = l.subject_id !== null && l.subject_id !== undefined ? subjectMap.get(l.subject_id) : undefined;
-        const cse = l.course_id !== null && l.course_id !== undefined ? courseMap.get(l.course_id) : undefined;
+        const sub = subjectMap.get(l.subject_id!);
+        const linkedCourses = coursesBySubject.get(l.subject_id!) ?? [];
+        const primary = linkedCourses[0];
         return {
           id: l.id,
           title: l.title,
@@ -2644,8 +2667,12 @@ export class ContentService {
           thumbnail: this.toFileUrl(l.thumbnail),
           order: l.order ?? 0,
           free: l.free ?? 'off',
-          course_id: l.course_id,
-          course_title: cse?.title ?? '',
+          // Keep course_id / course_title for back-compat (first linked
+          // course); courses[] is the M:N truth.
+          course_id: primary?.id ?? null,
+          course_title: primary?.title ?? '',
+          courses: linkedCourses,
+          course_count: linkedCourses.length,
           subject_id: l.subject_id,
           subject_title: sub?.title ?? '',
           files_count: fileCountMap.get(l.id) ?? 0,
