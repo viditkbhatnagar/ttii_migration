@@ -510,34 +510,31 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
             </div>
 
             {form.asset_type === 'quiz' && (
-              <div className="space-y-3 rounded-md border p-3">
+              <div className="space-y-4 rounded-md border p-4">
                 <div className="font-medium">Quiz Settings</div>
-                <div className="grid gap-3 sm:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5">
-                    <Label>Time Limit (min)</Label>
-                    <Input type="number" value={form.time_limit_minutes} onChange={(e) => setForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="0" />
+                    <Label htmlFor="quiz-time">Time Limit (min)</Label>
+                    <Input id="quiz-time" type="number" min="0" value={form.time_limit_minutes} onChange={(e) => setForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="0" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Attempts</Label>
-                    <Input type="number" value={form.attempts_allowed} onChange={(e) => setForm((f) => ({ ...f, attempts_allowed: e.target.value }))} placeholder="1" />
+                    <Label htmlFor="quiz-attempts">Attempts</Label>
+                    <Input id="quiz-attempts" type="number" min="1" value={form.attempts_allowed} onChange={(e) => setForm((f) => ({ ...f, attempts_allowed: e.target.value }))} placeholder="1" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Pass Marks</Label>
-                    <Input type="number" value={form.pass_marks} onChange={(e) => setForm((f) => ({ ...f, pass_marks: e.target.value }))} placeholder="0" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Shuffle</Label>
-                    <div className="flex h-10 items-center">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={form.shuffle_questions}
-                        onChange={(e) => setForm((f) => ({ ...f, shuffle_questions: e.target.checked }))}
-                      />
-                      <span className="ml-2 text-sm">Shuffle Questions</span>
-                    </div>
+                    <Label htmlFor="quiz-pass">Pass Marks</Label>
+                    <Input id="quiz-pass" type="number" min="0" value={form.pass_marks} onChange={(e) => setForm((f) => ({ ...f, pass_marks: e.target.value }))} placeholder="0" />
                   </div>
                 </div>
+                <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-slate-300"
+                    checked={form.shuffle_questions}
+                    onChange={(e) => setForm((f) => ({ ...f, shuffle_questions: e.target.checked }))}
+                  />
+                  <span>Shuffle questions for each attempt</span>
+                </label>
 
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">
