@@ -672,6 +672,15 @@ export function registerContentRoutes(
     }
   });
 
+  app.get('/admin/course/lessons/all', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const lessons = await contentService.listAllLessonsAdmin();
+      reply.code(200).send({ status: 1, message: 'success', data: lessons });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   app.post('/admin/course/lessons/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

@@ -2258,6 +2258,11 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async listAllLessonsAdmin(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lessons/all', authToken);
+    return toRecords(payload.data);
+  }
+
   async addLesson(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/course/lessons/add', authToken, input);
   }

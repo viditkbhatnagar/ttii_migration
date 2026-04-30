@@ -2580,6 +2580,81 @@ export class ContentService {
 
   // ── Admin Lesson CRUD ─────────────────────────────────────────────
 
+  /** Flat list of every active lesson with course + subject + file-count
+   * denormalised for the new Lessons table view (Naji 2026-04-30 — wants
+   * the Lessons section to look like Subjects + Content Library, not the
+   * step-by-step builder). Filters out lessons whose parent subject or
+   * parent course has been soft-deleted. */
+  async listAllLessonsAdmin(): Promise<Record<string, unknown>[]> {
+    const lessons = await this.prisma.lesson.findMany({
+      where: { deleted_at: null },
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+    });
+    if (lessons.length === 0) return [];
+
+    const subjectIds = [
+      ...new Set(lessons.map((l) => l.subject_id).filter((id): id is number => id !== null && id !== undefined)),
+    ];
+    const courseIds = [
+      ...new Set(lessons.map((l) => l.course_id).filter((id): id is number => id !== null && id !== undefined)),
+    ];
+    const lessonIds = lessons.map((l) => l.id);
+
+    const [subjects, courses, fileCounts] = await Promise.all([
+      subjectIds.length
+        ? this.prisma.subject.findMany({
+            where: { id: { in: subjectIds } },
+            select: { id: true, title: true, deleted_at: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; title: string | null; deleted_at: Date | null }>),
+      courseIds.length
+        ? this.prisma.course.findMany({
+            where: { id: { in: courseIds } },
+            select: { id: true, title: true, deleted_at: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; title: string | null; deleted_at: Date | null }>),
+      this.prisma.lesson_files.groupBy({
+        by: ['lesson_id'],
+        where: { lesson_id: { in: lessonIds }, deleted_at: null },
+        _count: { id: true },
+      }),
+    ]);
+
+    const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+    const courseMap = new Map(courses.map((c) => [c.id, c]));
+    const fileCountMap = new Map(
+      fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const),
+    );
+
+    return lessons
+      .filter((l) => {
+        const sub = l.subject_id !== null && l.subject_id !== undefined ? subjectMap.get(l.subject_id) : undefined;
+        const cse = l.course_id !== null && l.course_id !== undefined ? courseMap.get(l.course_id) : undefined;
+        if (sub && sub.deleted_at !== null) return false;
+        if (cse && cse.deleted_at !== null) return false;
+        return true;
+      })
+      .map((l) => {
+        const sub = l.subject_id !== null && l.subject_id !== undefined ? subjectMap.get(l.subject_id) : undefined;
+        const cse = l.course_id !== null && l.course_id !== undefined ? courseMap.get(l.course_id) : undefined;
+        return {
+          id: l.id,
+          title: l.title,
+          summary: l.summary ?? '',
+          thumbnail: this.toFileUrl(l.thumbnail),
+          order: l.order ?? 0,
+          free: l.free ?? 'off',
+          course_id: l.course_id,
+          course_title: cse?.title ?? '',
+          subject_id: l.subject_id,
+          subject_title: sub?.title ?? '',
+          files_count: fileCountMap.get(l.id) ?? 0,
+          created_at: l.created_at,
+          updated_at: l.updated_at,
+        };
+      });
+  }
+
   async listLessonsAdmin(subjectId: string): Promise<Record<string, unknown>[]> {
     const lessons = await this.prisma.lesson.findMany({
       where: { subject_id: toNullableIntId(subjectId), deleted_at: null },

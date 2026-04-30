@@ -61,6 +61,7 @@ const ViewCoursePage = lazy(() => import('../pages/course/ViewCoursePage.js'));
 const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
 const SubjectsPage = lazy(() => import('../pages/course/SubjectsPage.js'));
 const AddLessonPage = lazy(() => import('../pages/course_new/AddLessonPage.js'));
+const LessonsListPage = lazy(() => import('../pages/course_new/LessonsListPage.js'));
 const AppVersionPage = lazy(() => import('../pages/settings/AppVersionPage.js'));
 const TeamsMeetingHostsPage = lazy(() => import('../pages/integrations/TeamsMeetingHostsPage.js'));
 const SystemSettingsPage = lazy(() => import('../pages/settings/SystemSettingsPage.js'));
@@ -173,7 +174,11 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/course/view/:id', pageComponent: ViewCoursePage, title: 'View Course' },
   { path: '/admin/course/subjects/:id', pageComponent: CourseSubjectsPage, title: 'Course Subjects' },
   { path: '/admin/subjects/index', aliases: ['/admin/subjects'], pageComponent: SubjectsPage, title: 'Subjects' },
-  { path: '/admin/course_new/index', aliases: ['/admin/course_new'], pageComponent: AddLessonPage, title: 'Add Lesson' },
+  // Lessons section (Naji 2026-04-30): the index lands on a flat
+  // table view of every lesson; the wizard-style builder is reachable
+  // from the Open Builder action and the "+ Add Lesson" button.
+  { path: '/admin/course_new/index', aliases: ['/admin/course_new'], pageComponent: LessonsListPage, title: 'Lessons' },
+  { path: '/admin/course_new/builder', pageComponent: AddLessonPage, title: 'Lesson Builder' },
 
   // Cohorts Management
   { path: '/admin/cohorts/index', aliases: ['/admin/cohorts'], pageComponent: CohortsPage, title: 'Cohorts' },
