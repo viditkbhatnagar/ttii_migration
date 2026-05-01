@@ -1815,6 +1815,22 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/associates_target/delete', authToken, { id });
   }
 
+  // ── Email verification (MX + disposable check, no OTP) ────────────────────
+
+  async verifyEmail(authToken: string, email: string): Promise<{ valid: boolean; message: string; reason?: string }> {
+    const payload = await this.get<{ status?: number | string; message?: string; data?: { valid?: boolean; reason?: string; message?: string } }>(
+      '/admin/email/verify',
+      authToken,
+      { email },
+    );
+    const valid = payload.status === 1 || payload.status === '1';
+    return {
+      valid,
+      message: payload.data?.message ?? payload.message ?? '',
+      ...(payload.data?.reason ? { reason: payload.data.reason } : {}),
+    };
+  }
+
   // ── Quiz questions for lesson_files (lesson-builder dialog) ────────────────
 
   async listLessonQuizQuestions(authToken: string, lessonFileId: string): Promise<Record<string, unknown>[]> {

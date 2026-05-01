@@ -453,7 +453,15 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                       placeholder="Enter email"
                       onBlur={(e) => {
                         const v = e.target.value.trim();
-                        if (v && !EMAIL_REGEX.test(v)) toast.error('Email is not a valid format.');
+                        if (!v) return;
+                        if (!EMAIL_REGEX.test(v)) {
+                          toast.error('Email is not a valid format.');
+                          return;
+                        }
+                        // Server-side MX + disposable check. Quietly succeeds; loud only on failure.
+                        void api.verifyEmail(session.token, v).then((result) => {
+                          if (!result.valid) toast.error(result.message || 'Email failed verification.');
+                        }).catch(() => { /* ignore network errors — server validates again on submit */ });
                       }}
                     />
                   </div>

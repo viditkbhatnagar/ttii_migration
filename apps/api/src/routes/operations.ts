@@ -4,6 +4,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
+import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import {
   OperationsService,
@@ -2254,9 +2255,39 @@ export function registerOperationsRoutes(
         notes: toStringValue(payload.notes),
         crmTags: toStringValue(payload.crm_tags),
       };
+
+      // Server-side email check (MX + disposable). Defense in depth — the
+      // form does the same check on blur but we must not trust client.
+      if (input.email) {
+        const verification = await verifyEmail(input.email);
+        if (!verification.valid) {
+          reply.code(200).send({
+            status: 0,
+            message: verification.message ?? 'Email failed verification.',
+            data: { reason: verification.reason },
+          });
+          return;
+        }
+      }
+
       const result = await operationsService.createApplication(requestUserId(request), input);
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Public endpoint used by the Add Application form on email blur — runs
+  // the same server-side check (MX + disposable) so the user gets early
+  // feedback. Authenticated to limit abuse but available to any signed-in
+  // staff role.
+  app.get('/admin/email/verify', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const email = toStringValue(payload.email);
+      const result = await verifyEmail(email);
+      reply.code(200).send({ status: result.valid ? 1 : 0, message: result.message ?? 'OK', data: result });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
   });
 
   app.post('/admin/applications/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
