@@ -13,12 +13,17 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
+import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { useConfirm } from '@/components/confirm-dialog';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface InstructorForm {
   name: string;
   email: string;
+  phoneCountryCode: string;
   phone: string;
+  whatsappCountryCode: string;
   whatsapp_phone: string;
   qualification: string;
   bio: string;
@@ -26,7 +31,17 @@ interface InstructorForm {
   status: number;
 }
 
-const emptyForm: InstructorForm = { name: '', email: '', phone: '', whatsapp_phone: '', qualification: '', bio: '', image: '', status: 1 };
+const emptyForm: InstructorForm = {
+  name: '', email: '',
+  phoneCountryCode: '91', phone: '',
+  whatsappCountryCode: '91', whatsapp_phone: '',
+  qualification: '', bio: '', image: '', status: 1,
+};
+
+function splitPhone(raw: string): { code: string; number: string } {
+  const m = raw.match(/^\+?(\d{1,4})\s+(.+)$/);
+  return m ? { code: m[1] ?? '91', number: m[2] ?? '' } : { code: '91', number: raw };
+}
 
 export default function InstructorsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
@@ -50,11 +65,15 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
 
   const openEdit = useCallback((row: Record<string, unknown>) => {
     setEditingId(asString(row._id || row.id));
+    const phone = splitPhone(asString(row.phone));
+    const wa = splitPhone(asString(row.whatsapp_phone));
     setForm({
       name: asString(row.name),
       email: asString(row.user_email),
-      phone: asString(row.phone),
-      whatsapp_phone: asString(row.whatsapp_phone),
+      phoneCountryCode: phone.code,
+      phone: phone.number,
+      whatsappCountryCode: wa.code,
+      whatsapp_phone: wa.number,
       qualification: asString(row.qualification),
       bio: asString(row.biography || row.bio || row.description),
       image: asString(row.image) || asString(row.profile_picture),
@@ -91,13 +110,19 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       toast.error('Name is required.');
       return;
     }
+    if (form.email.trim() && !EMAIL_REGEX.test(form.email.trim())) {
+      toast.error('Email is not a valid format.');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
         email: form.email.trim(),
-        phone: form.phone.trim() || undefined,
-        whatsapp_phone: form.whatsapp_phone.trim() || undefined,
+        phone: form.phone.trim() ? `+${form.phoneCountryCode} ${form.phone.trim()}` : undefined,
+        country_code: form.phoneCountryCode,
+        whatsapp_phone: form.whatsapp_phone.trim() ? `+${form.whatsappCountryCode} ${form.whatsapp_phone.trim()}` : undefined,
+        whatsapp_country_code: form.whatsappCountryCode,
         qualification: form.qualification.trim() || undefined,
         bio: form.bio.trim() || undefined,
         image: form.image.trim() || undefined,
@@ -236,20 +261,20 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="inst-phone">Phone *</Label>
-                <Input
+                <PhoneInput
                   id="inst-phone"
-                  value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="91 0000000000"
+                  countryCode={form.phoneCountryCode}
+                  number={form.phone}
+                  onChange={({ countryCode, number }) => setForm((f) => ({ ...f, phoneCountryCode: countryCode, phone: number }))}
                 />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="inst-whatsapp">Whatsapp *</Label>
-                <Input
+                <PhoneInput
                   id="inst-whatsapp"
-                  value={form.whatsapp_phone}
-                  onChange={(e) => setForm((f) => ({ ...f, whatsapp_phone: e.target.value }))}
-                  placeholder="91 0000000000"
+                  countryCode={form.whatsappCountryCode}
+                  number={form.whatsapp_phone}
+                  onChange={({ countryCode, number }) => setForm((f) => ({ ...f, whatsappCountryCode: countryCode, whatsapp_phone: number }))}
                 />
               </div>
             </div>
@@ -274,6 +299,17 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 placeholder="email@example.com"
                 required
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (!v || editingId) return;
+                  if (!EMAIL_REGEX.test(v)) {
+                    toast.error('Email is not a valid format.');
+                    return;
+                  }
+                  void api.verifyEmail(session.token, v).then((r) => {
+                    if (!r.valid) toast.error(r.message || 'Email failed verification.');
+                  }).catch(() => { /* network — server validates again on submit */ });
+                }}
               />
             </div>
 

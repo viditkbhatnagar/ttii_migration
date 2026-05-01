@@ -9,16 +9,10 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { PhoneInput } from '../../shared/components/PhoneInput.js';
+import { INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
-];
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SECTION_LABELS = ['Basic Centre Information', 'Contact Information', 'Affiliation Information', 'Login Credentials'];
 
@@ -68,6 +62,9 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
   const [activeSection, setActiveSection] = useState(0);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  // Dial code for the contact phone, kept separate from form.countryCode
+  // (which the existing form repurposes for the country ISO dropdown).
+  const [phoneDialCode, setPhoneDialCode] = useState('91');
 
   // Determine mode from URL
   const { isEdit, centreId } = useMemo(() => {
@@ -258,7 +255,21 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
               </div>
               <div className="grid gap-2">
                 <Label>District *</Label>
-                <Input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Enter district" />
+                {(() => {
+                  const list = form.state ? getDistrictsForState(form.state) : null;
+                  return list ? (
+                    <select className={selectClass} value={form.city} onChange={(e) => set('city', e.target.value)}>
+                      <option value="">Select District</option>
+                      {list.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  ) : (
+                    <Input
+                      value={form.city}
+                      onChange={(e) => set('city', e.target.value)}
+                      placeholder={form.state ? `Enter district in ${form.state}` : 'Pick a state first'}
+                    />
+                  );
+                })()}
               </div>
               <div className="grid gap-2">
                 <Label>Status</Label>
@@ -288,11 +299,34 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
               </div>
               <div className="grid gap-2">
                 <Label>Contact Phone</Label>
-                <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="Enter phone number" />
+                <PhoneInput
+                  countryCode={phoneDialCode}
+                  number={form.phone}
+                  onChange={({ countryCode, number }) => {
+                    setPhoneDialCode(countryCode);
+                    set('phone', number);
+                  }}
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Contact Email</Label>
-                <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Enter email" />
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => set('email', e.target.value)}
+                  placeholder="Enter email"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (!v) return;
+                    if (!EMAIL_REGEX.test(v)) {
+                      toast.error('Email is not a valid format.');
+                      return;
+                    }
+                    void api.verifyEmail(session.token, v).then((r) => {
+                      if (!r.valid) toast.error(r.message || 'Email failed verification.');
+                    }).catch(() => { /* network — server validates again on submit */ });
+                  }}
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Address Line 1</Label>

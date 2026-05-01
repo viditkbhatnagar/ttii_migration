@@ -20,7 +20,11 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
+import { PhoneInput } from '../../shared/components/PhoneInput.js';
+import { COUNTRIES } from '@/lib/locations';
 import { useConfirm } from '@/components/confirm-dialog';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AssociatesPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -44,9 +48,10 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
   const [formName, setFormName] = useState('');
   const [formGender, setFormGender] = useState('');
   const [formDob, setFormDob] = useState('');
-  const [formNationality, setFormNationality] = useState('');
+  const [formNationality, setFormNationality] = useState('India');
   const [formLanguages, setFormLanguages] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formPhoneCountryCode, setFormPhoneCountryCode] = useState('91');
   const [formPhone, setFormPhone] = useState('');
   const [formQualification, setFormQualification] = useState('');
   const [formDoj, setFormDoj] = useState('');
@@ -135,8 +140,8 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
 
   // --- Dialog handlers ---
   const resetForm = useCallback(() => {
-    setFormName(''); setFormGender(''); setFormDob(''); setFormNationality('');
-    setFormLanguages(''); setFormEmail(''); setFormPhone(''); setFormQualification('');
+    setFormName(''); setFormGender(''); setFormDob(''); setFormNationality('India');
+    setFormLanguages(''); setFormEmail(''); setFormPhoneCountryCode('91'); setFormPhone(''); setFormQualification('');
     setFormDoj(''); setFormImage(''); setFormStatus('1');
   }, []);
 
@@ -153,10 +158,20 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     setFormName(asString(row.name));
     setFormGender(asString(row.gender));
     setFormDob(asString(row.dob).slice(0, 10));
-    setFormNationality(asString(row.nationality));
+    setFormNationality(asString(row.nationality) || 'India');
     setFormLanguages(asString(row.languages_spoken));
     setFormEmail(asString(row.user_email));
-    setFormPhone(asString(row.phone));
+    {
+      const raw = asString(row.phone);
+      const m = raw.match(/^\+?(\d{1,4})\s+(.+)$/);
+      if (m) {
+        setFormPhoneCountryCode(m[1] ?? '91');
+        setFormPhone(m[2] ?? '');
+      } else {
+        setFormPhoneCountryCode('91');
+        setFormPhone(raw);
+      }
+    }
     setFormQualification(asString(row.highest_qualification));
     setFormDoj(asString(row.doj).slice(0, 10));
     setFormImage(asString(row.image) || asString(row.profile_picture));
@@ -177,6 +192,10 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
       toast.error('Full name is required.');
       return;
     }
+    if (formEmail.trim() && !EMAIL_REGEX.test(formEmail.trim())) {
+      toast.error('Email is not a valid format.');
+      return;
+    }
     setFormSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -186,7 +205,8 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
         nationality: formNationality.trim(),
         languages_spoken: formLanguages.trim(),
         email: formEmail.trim(),
-        phone: formPhone.trim() || undefined,
+        phone: formPhone.trim() ? `+${formPhoneCountryCode} ${formPhone.trim()}` : undefined,
+        country_code: formPhoneCountryCode,
         highest_qualification: formQualification.trim(),
         doj: formDoj,
         image: formImage.trim() || undefined,
@@ -209,7 +229,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
     } finally {
       setFormSaving(false);
     }
-  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formQualification, formDoj, formImage, formStatus, reload]);
+  }, [api, session.token, dialogMode, editRow, formName, formGender, formDob, formNationality, formLanguages, formEmail, formPhone, formPhoneCountryCode, formQualification, formDoj, formImage, formStatus, reload]);
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
@@ -339,7 +359,15 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-nat">Nationality *</Label>
-              <Input id="a-nat" value={formNationality} onChange={(e) => setFormNationality(e.target.value)} placeholder="e.g. Indian" />
+              <select
+                id="a-nat"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={formNationality}
+                onChange={(e) => setFormNationality(e.target.value)}
+              >
+                <option value="">Select Nationality</option>
+                {COUNTRIES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
+              </select>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-lang">Languages Spoken *</Label>
@@ -347,7 +375,15 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-phone">Phone Number *</Label>
-              <Input id="a-phone" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} placeholder="91 0000000000" />
+              <PhoneInput
+                id="a-phone"
+                countryCode={formPhoneCountryCode}
+                number={formPhone}
+                onChange={({ countryCode, number }) => {
+                  setFormPhoneCountryCode(countryCode);
+                  setFormPhone(number);
+                }}
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-qual">Highest Qualification *</Label>
@@ -359,7 +395,26 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-email">Email Address *</Label>
-              <Input id="a-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@example.com" disabled={dialogMode === 'edit'} required />
+              <Input
+                id="a-email"
+                type="email"
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
+                placeholder="email@example.com"
+                disabled={dialogMode === 'edit'}
+                required
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (!v || dialogMode === 'edit') return;
+                  if (!EMAIL_REGEX.test(v)) {
+                    toast.error('Email is not a valid format.');
+                    return;
+                  }
+                  void api.verifyEmail(session.token, v).then((r) => {
+                    if (!r.valid) toast.error(r.message || 'Email failed verification.');
+                  }).catch(() => { /* network — server validates again on submit */ });
+                }}
+              />
             </div>
             {dialogMode === 'add' && (
               <p className="md:col-span-2 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
