@@ -210,35 +210,13 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
   },
 ];
 
-/** Nav item IDs visible to Counsellor (role_id=9) */
-const COUNSELLOR_ALLOWED_IDS = new Set<string>([
-  'dashboard',
-  'applications',
-  'counsellor-target',
-  'student-referrals',
-  'students',
-]);
-
 /**
- * Returns filtered nav tree based on roleId.
- * Admins (1), SubAdmins (8), Instructors (3) see full tree.
- * Counsellors (9) see a scoped subset.
+ * Returns the nav tree for the admin shell. Counsellors (role 9) get
+ * routed to /counsellor (their own portal) before this function is reached,
+ * so we no longer need a role-9 carve-out here.
  */
-export function getNavTreeForRole(roleId: number): readonly AdminNavEntry[] {
-  if (roleId !== 9) return ADMIN_NAV_TREE;
-
-  const filtered: AdminNavEntry[] = [];
-  for (const entry of ADMIN_NAV_TREE) {
-    if (isNavGroup(entry)) {
-      const allowedChildren = entry.children.filter((c) => COUNSELLOR_ALLOWED_IDS.has(c.id));
-      if (allowedChildren.length > 0) {
-        filtered.push({ ...entry, children: allowedChildren });
-      }
-    } else if (COUNSELLOR_ALLOWED_IDS.has(entry.id)) {
-      filtered.push(entry);
-    }
-  }
-  return filtered;
+export function getNavTreeForRole(_roleId: number): readonly AdminNavEntry[] {
+  return ADMIN_NAV_TREE;
 }
 
 export function findActiveNavIds(pathname: string): { groupId: string | null; itemId: string | null } {

@@ -160,6 +160,40 @@ export class CounsellorPortalApi {
     return toRecords(payload.data);
   }
 
+  // ── Applications CRUD (Phase 2) ────────────────────────────────────────────
+
+  async getApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/applications/get', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
+  async createApplication(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/add', authToken, input);
+  }
+
+  async convertApplication(authToken: string, applicationId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/convert', authToken, { application_id: applicationId });
+  }
+
+  async updateApplicationStatus(
+    authToken: string,
+    id: string,
+    status: string,
+    rejectReason?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/update_status', authToken, {
+      id,
+      status,
+      reject_reason: rejectReason || '',
+    });
+  }
+
+  // Reference data the Add Application form needs.
+  async loadCourses(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken);
+    return toRecords(payload.data);
+  }
+
   /** Quick numeric counts used by the dashboard skeleton. */
   async loadDashboardStats(authToken: string): Promise<{
     totalApplications: number;
