@@ -14,6 +14,8 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { FileUpload } from '../../shared/components/FileUpload.js';
+import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
 const selectClass =
@@ -37,11 +39,13 @@ interface FileForm {
   video_url: string;
   audio_file: string;
   attachment: string;
+  thumbnail: string;
+  language: string;
   free: boolean;
 }
 
 const emptyLessonForm: LessonForm = { title: '', summary: '', free: false };
-const emptyFileForm: FileForm = { title: '', summary: '', duration: '', video_url: '', audio_file: '', attachment: '', free: false };
+const emptyFileForm: FileForm = { title: '', summary: '', duration: '', video_url: '', audio_file: '', attachment: '', thumbnail: '', language: '', free: false };
 
 export default function AddLessonPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -183,7 +187,9 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
       video_url: asString(row.video_url),
       audio_file: asString(row.audio_file),
       attachment: asString(row.attachment),
-      free: row.free === true || row.free === 1 || row.free === '1',
+      thumbnail: asString(row.thumbnail),
+      language: asString(row.languages) || asString(row.language),
+      free: row.free === true || row.free === 1 || row.free === '1' || row.free === 'on',
     });
     setFileDialogOpen(true);
   }, []);
@@ -201,6 +207,8 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
         video_url: fileForm.video_url.trim(),
         attachment: fileForm.attachment.trim(),
         audio_file: fileForm.audio_file.trim(),
+        thumbnail: fileForm.thumbnail.trim(),
+        language: fileForm.language.trim(),
         free: fileForm.free,
       };
       if (editingFileId) {
@@ -562,7 +570,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
               {editingFileId ? 'Edit' : 'Add'} {fileTypeLabel[fileDialogType]}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto py-2">
             <div className="space-y-2">
               <Label>Title *</Label>
               <Input
@@ -579,66 +587,108 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
                 <Input
                   value={fileForm.video_url}
                   onChange={(e) => setFileForm((f) => ({ ...f, video_url: e.target.value }))}
-                  placeholder="https://..."
+                  placeholder="https://vimeo.com/… or https://youtu.be/…"
                 />
+                <p className="text-[11px] text-slate-500">Vimeo / YouTube share URLs auto-embed in the player.</p>
               </div>
             )}
 
-            {/* Audio File URL — shown for audio type */}
+            {/* Audio file upload — shown for audio type */}
             {fileDialogType === 'audio' && (
               <div className="space-y-2">
-                <Label>Audio File URL</Label>
-                <Input
+                <Label>Audio File</Label>
+                <FileUpload
                   value={fileForm.audio_file}
-                  onChange={(e) => setFileForm((f) => ({ ...f, audio_file: e.target.value }))}
-                  placeholder="https://..."
+                  onChange={(url) => setFileForm((f) => ({ ...f, audio_file: url }))}
+                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                  accept="audio/*"
+                  placeholder="Upload audio or paste a URL"
                 />
               </div>
             )}
 
-            {/* File URL — shown for document type */}
+            {/* Document upload — shown for document type */}
             {fileDialogType === 'document' && (
               <div className="space-y-2">
-                <Label>File URL</Label>
-                <Input
+                <Label>Document File</Label>
+                <FileUpload
                   value={fileForm.attachment}
-                  onChange={(e) => setFileForm((f) => ({ ...f, attachment: e.target.value }))}
-                  placeholder="https://..."
+                  onChange={(url) => setFileForm((f) => ({ ...f, attachment: url }))}
+                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*"
+                  placeholder="Upload file or paste a URL"
                 />
               </div>
             )}
 
-            {/* Summary / Content */}
+            {/* Thumbnail — useful for every type */}
             <div className="space-y-2">
-              <Label>{fileDialogType === 'article' ? 'Content' : 'Summary'}</Label>
-              <textarea
-                className={textareaClass}
-                value={fileForm.summary}
-                onChange={(e) => setFileForm((f) => ({ ...f, summary: e.target.value }))}
-                placeholder={
-                  fileDialogType === 'article'
-                    ? 'Article content'
-                    : fileDialogType === 'quiz'
-                      ? 'Quiz description (questions managed in Question Bank)'
-                      : 'Brief summary'
-                }
+              <Label>Thumbnail / Banner Image (optional)</Label>
+              <FileUpload
+                value={fileForm.thumbnail}
+                onChange={(url) => setFileForm((f) => ({ ...f, thumbnail: url }))}
+                onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+                accept="image/*"
+                placeholder="Upload image or paste a URL"
               />
-              {fileDialogType === 'quiz' && (
-                <p className="text-xs text-gray-500">Quiz questions are managed in the Question Bank section.</p>
-              )}
             </div>
 
-            {/* Duration — shown for video, audio */}
-            {(fileDialogType === 'video' || fileDialogType === 'audio') && (
+            {/* Content / Summary — Rich text editor for articles, plain textarea otherwise */}
+            {fileDialogType === 'article' ? (
               <div className="space-y-2">
-                <Label>Duration</Label>
-                <Input
-                  value={fileForm.duration}
-                  onChange={(e) => setFileForm((f) => ({ ...f, duration: e.target.value }))}
-                  placeholder="e.g. 10:30"
+                <Label>Article Content</Label>
+                <RichTextEditor
+                  value={fileForm.summary}
+                  onChange={(html) => setFileForm((f) => ({ ...f, summary: html }))}
                 />
               </div>
+            ) : fileDialogType !== 'quiz' ? (
+              <div className="space-y-2">
+                <Label>Summary</Label>
+                <textarea
+                  className={textareaClass}
+                  value={fileForm.summary}
+                  onChange={(e) => setFileForm((f) => ({ ...f, summary: e.target.value }))}
+                  placeholder="Brief summary"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Quiz Description (optional)</Label>
+                <textarea
+                  className={textareaClass}
+                  value={fileForm.summary}
+                  onChange={(e) => setFileForm((f) => ({ ...f, summary: e.target.value }))}
+                  placeholder="Short description shown above the questions"
+                />
+                <p className="text-xs text-amber-700">
+                  Question editor + bulk CSV upload for quiz files is shipping next — for now Save the metadata and use the existing Question Bank flow.
+                </p>
+              </div>
             )}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {/* Duration — shown for video, audio */}
+              {(fileDialogType === 'video' || fileDialogType === 'audio') && (
+                <div className="space-y-2">
+                  <Label>Duration</Label>
+                  <Input
+                    value={fileForm.duration}
+                    onChange={(e) => setFileForm((f) => ({ ...f, duration: e.target.value }))}
+                    placeholder="e.g. 10:30"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Language</Label>
+                <Input
+                  value={fileForm.language}
+                  onChange={(e) => setFileForm((f) => ({ ...f, language: e.target.value }))}
+                  placeholder="e.g. English"
+                />
+              </div>
+            </div>
 
             <div className="flex items-center gap-2">
               <input

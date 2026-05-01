@@ -345,6 +345,8 @@ export type AdminLessonFileInput = {
   video_url?: string | undefined;
   attachment?: string | undefined;
   audio_file?: string | undefined;
+  thumbnail?: string | undefined;
+  language?: string | undefined;
   free?: boolean | undefined;
 };
 
@@ -2855,10 +2857,11 @@ export class ContentService {
         video_url: toNullableString(input.video_url),
         attachment: toNullableString(input.attachment),
         audio_file: toNullableString(input.audio_file),
+        thumbnail: toNullableString(input.thumbnail) ?? '',
+        languages: toNullableString(input.language),
         free: input.free ? 'on' : 'off',
         order: (maxOrder._max?.order ?? 0) + 1,
         lesson_provider: '',
-        thumbnail: '',
         created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
@@ -2869,20 +2872,23 @@ export class ContentService {
   }
 
   async editLessonFileAdmin(actorUserId: string, fileId: string, input: AdminLessonFileInput): Promise<void> {
+    const data: Record<string, unknown> = {
+      title: input.title ?? null,
+      summary: toNullableString(input.summary),
+      duration: toNullableString(input.duration),
+      lesson_type: input.lesson_type ?? null,
+      video_url: toNullableString(input.video_url),
+      attachment: toNullableString(input.attachment),
+      audio_file: toNullableString(input.audio_file),
+      free: input.free ? 'on' : 'off',
+      updated_by: toNullableIntId(actorUserId),
+      updated_at: new Date(),
+    };
+    if (input.thumbnail !== undefined) data.thumbnail = input.thumbnail;
+    if (input.language !== undefined) data.languages = input.language;
     await this.prisma.lesson_files.update({
       where: { id: toIntId(fileId) },
-      data: {
-        title: input.title ?? null,
-        summary: toNullableString(input.summary),
-        duration: toNullableString(input.duration),
-        lesson_type: input.lesson_type ?? null,
-        video_url: toNullableString(input.video_url),
-        attachment: toNullableString(input.attachment),
-        audio_file: toNullableString(input.audio_file),
-        free: input.free ? 'on' : 'off',
-        updated_by: toNullableIntId(actorUserId),
-        updated_at: new Date(),
-      },
+      data,
     });
   }
 

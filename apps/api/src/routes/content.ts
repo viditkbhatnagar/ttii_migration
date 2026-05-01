@@ -800,6 +800,8 @@ export function registerContentRoutes(
         video_url: toStringValue(payload.video_url),
         attachment: toStringValue(payload.attachment),
         audio_file: toStringValue(payload.audio_file),
+        thumbnail: toStringValue(payload.thumbnail),
+        language: toStringValue(payload.language),
         free: payload.free === true || payload.free === 'true' || payload.free === 'on',
       };
       const result = await contentService.addLessonFileAdmin(requestUserId(request), input);
@@ -822,6 +824,8 @@ export function registerContentRoutes(
         video_url: toStringValue(payload.video_url),
         attachment: toStringValue(payload.attachment),
         audio_file: toStringValue(payload.audio_file),
+        thumbnail: toStringValue(payload.thumbnail),
+        language: toStringValue(payload.language),
         free: payload.free === true || payload.free === 'true' || payload.free === 'on',
       };
       await contentService.editLessonFileAdmin(requestUserId(request), fileId, input);
