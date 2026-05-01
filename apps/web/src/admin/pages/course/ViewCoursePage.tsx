@@ -233,8 +233,6 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
 
   const c = data;
   const totalHours = asNumber(c.total_learning_hours);
-  const price = asNumber(c.price);
-  const salePrice = asNumber(c.sale_price);
 
   return (
     <div className="space-y-4">
@@ -271,7 +269,6 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
           <Field label="Course Duration" value={asString(c.duration)} />
           <Field label="Total Learning Hours" value={totalHours ? String(totalHours) : ''} />
           <Field label="Language" value={asString(c.language)} />
-          <Field label="Pricing" value={asString(c.is_free_course) === '1' || c.is_free_course === true ? 'Free' : `Paid — ₹${price}${salePrice ? ` (sale ₹${salePrice})` : ''}`} />
         </div>
       </Section>
 
