@@ -1815,6 +1815,37 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/associates_target/delete', authToken, { id });
   }
 
+  // ── Quiz questions for lesson_files (lesson-builder dialog) ────────────────
+
+  async listLessonQuizQuestions(authToken: string, lessonFileId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      '/admin/course/lesson_files/quiz_questions',
+      authToken,
+      { id: lessonFileId },
+    );
+    return toRecords(payload.data);
+  }
+
+  async replaceLessonQuizQuestions(
+    authToken: string,
+    lessonFileId: string,
+    questions: Array<{
+      question: string;
+      option_a?: string;
+      option_b?: string;
+      option_c?: string;
+      option_d?: string;
+      correct_answer: string;
+    }>,
+  ): Promise<{ count: number }> {
+    const payload = await this.post<LegacyEnvelope<{ count: number }>>(
+      '/admin/course/lesson_files/quiz_questions/replace',
+      authToken,
+      { id: lessonFileId, questions },
+    );
+    return payload.data ?? { count: 0 };
+  }
+
   // ── Applications Phase B ────────────────────────────────────────────────────
 
   async getApplication(authToken: string, id: string): Promise<Record<string, unknown>> {

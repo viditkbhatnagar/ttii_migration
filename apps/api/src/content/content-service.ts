@@ -2901,4 +2901,87 @@ export class ContentService {
       },
     });
   }
+
+  // ── Quiz questions for lesson_files (lesson_type='quiz') ──────────────────
+
+  /**
+   * Returns the questions stored against a lesson_file. Output shape mirrors
+   * what the lesson-builder dialog expects (question + 4 options + correct
+   * letter A-D), parsed out of the legacy `quiz` table's JSON-encoded
+   * `answers` column. answer_id is 1-based; we surface 'A'..'D'.
+   */
+  async listLessonQuizQuestions(lessonFileId: string): Promise<Record<string, unknown>[]> {
+    const id = toIntId(lessonFileId);
+    const rows = await this.prisma.quiz.findMany({
+      where: { lesson_file_id: id, deleted_at: null },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map((r) => {
+      let options: string[] = [];
+      try {
+        const parsed: unknown = r.answers ? JSON.parse(r.answers) : [];
+        options = Array.isArray(parsed) ? parsed.map((x) => (typeof x === 'string' ? x : '')) : [];
+      } catch {
+        options = [];
+      }
+      while (options.length < 4) options.push('');
+      const answerIdx = (r.answer_id ?? 1) - 1;
+      const correct = ['A', 'B', 'C', 'D'][Math.max(0, Math.min(3, answerIdx))] ?? 'A';
+      return {
+        id: String(r.id),
+        question: r.question ?? '',
+        option_a: options[0] ?? '',
+        option_b: options[1] ?? '',
+        option_c: options[2] ?? '',
+        option_d: options[3] ?? '',
+        correct_answer: correct,
+      };
+    });
+  }
+
+  /**
+   * Atomically replaces all quiz questions for a lesson_file. Soft-deletes
+   * existing rows, inserts the new set. Used by the lesson-builder dialog's
+   * Save action and the bulk CSV import.
+   */
+  async replaceLessonQuizQuestions(
+    actorUserId: string,
+    lessonFileId: string,
+    questions: ReadonlyArray<{
+      question: string;
+      option_a?: string;
+      option_b?: string;
+      option_c?: string;
+      option_d?: string;
+      correct_answer: string;
+    }>,
+  ): Promise<void> {
+    const id = toIntId(lessonFileId);
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    const letterToIdx = (letter: string): number => {
+      const i = ['A', 'B', 'C', 'D'].indexOf((letter || 'A').toUpperCase());
+      return i >= 0 ? i + 1 : 1;
+    };
+    await this.prisma.$transaction(async (tx) => {
+      // Soft-delete existing rows so attempt history can still resolve them.
+      await tx.quiz.updateMany({
+        where: { lesson_file_id: id, deleted_at: null },
+        data: { deleted_at: now, deleted_by: actor },
+      });
+      if (questions.length === 0) return;
+      await tx.quiz.createMany({
+        data: questions.map((q) => ({
+          lesson_file_id: id,
+          question: q.question,
+          question_type: 0,
+          answer_id: letterToIdx(q.correct_answer),
+          answers: JSON.stringify([q.option_a ?? '', q.option_b ?? '', q.option_c ?? '', q.option_d ?? '']),
+          created_by: actor,
+          created_at: now,
+          updated_at: now,
+        })),
+      });
+    });
+  }
 }

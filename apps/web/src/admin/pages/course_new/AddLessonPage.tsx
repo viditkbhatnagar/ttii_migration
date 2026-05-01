@@ -44,8 +44,83 @@ interface FileForm {
   free: boolean;
 }
 
+interface QuizQuestion {
+  question: string;
+  option_a: string;
+  option_b: string;
+  option_c: string;
+  option_d: string;
+  correct_answer: 'A' | 'B' | 'C' | 'D';
+}
+
+const emptyQuizQuestion: QuizQuestion = {
+  question: '',
+  option_a: '',
+  option_b: '',
+  option_c: '',
+  option_d: '',
+  correct_answer: 'A',
+};
+
 const emptyLessonForm: LessonForm = { title: '', summary: '', free: false };
 const emptyFileForm: FileForm = { title: '', summary: '', duration: '', video_url: '', audio_file: '', attachment: '', thumbnail: '', language: '', free: false };
+
+/**
+ * Minimal CSV parser. Handles quoted fields, escaped quotes ("") and
+ * commas inside quotes. Trailing empty lines are ignored. Header row is
+ * required and column order is matched by name (question, option_a..d,
+ * correct_answer).
+ */
+function splitCsvRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseQuizCsv(text: string): QuizQuestion[] {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim() !== '');
+  if (lines.length < 2) return [];
+  const header = splitCsvRow(lines[0]!).map((h) => h.trim().toLowerCase());
+  const idx = (name: string): number => header.indexOf(name);
+  const qi = idx('question');
+  const ai = idx('option_a');
+  const bi = idx('option_b');
+  const ci = idx('option_c');
+  const di = idx('option_d');
+  const ki = idx('correct_answer');
+  if (qi < 0 || ki < 0) return [];
+  const out: QuizQuestion[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvRow(lines[i]!);
+    const q = (cells[qi] ?? '').trim();
+    if (!q) continue;
+    const correctRaw = (cells[ki] ?? 'A').trim().toUpperCase();
+    const correct = (['A', 'B', 'C', 'D'].includes(correctRaw) ? correctRaw : 'A') as 'A' | 'B' | 'C' | 'D';
+    out.push({
+      question: q,
+      option_a: ai >= 0 ? (cells[ai] ?? '').trim() : '',
+      option_b: bi >= 0 ? (cells[bi] ?? '').trim() : '',
+      option_c: ci >= 0 ? (cells[ci] ?? '').trim() : '',
+      option_d: di >= 0 ? (cells[di] ?? '').trim() : '',
+      correct_answer: correct,
+    });
+  }
+  return out;
+}
 
 export default function AddLessonPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -66,6 +141,12 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
   const [fileDialogType, setFileDialogType] = useState<FileType>('video');
   const [editingFileId, setEditingFileId] = useState('');
   const [fileForm, setFileForm] = useState<FileForm>(emptyFileForm);
+
+  // Quiz question editor state. Lives alongside fileForm — questions are
+  // stored against lesson_files.id (legacy `quiz` table). Loaded from the
+  // backend on Edit, replaced atomically on Save.
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizLoading, setQuizLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
@@ -173,12 +254,14 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
     setEditingFileId('');
     setFileDialogType(type);
     setFileForm(emptyFileForm);
+    setQuizQuestions(type === 'quiz' ? [{ ...emptyQuizQuestion }] : []);
     setFileDialogOpen(true);
   }, []);
 
   const openEditFile = useCallback((row: Record<string, unknown>) => {
     const type = (asString(row.lesson_type) || 'video') as FileType;
-    setEditingFileId(asString(row.id));
+    const fileId = asString(row.id);
+    setEditingFileId(fileId);
     setFileDialogType(type);
     setFileForm({
       title: asString(row.title),
@@ -191,8 +274,26 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
       language: asString(row.languages) || asString(row.language),
       free: row.free === true || row.free === 1 || row.free === '1' || row.free === 'on',
     });
+    setQuizQuestions([]);
     setFileDialogOpen(true);
-  }, []);
+    if (type === 'quiz' && fileId) {
+      setQuizLoading(true);
+      void api.listLessonQuizQuestions(session.token, fileId)
+        .then((rows) => {
+          const loaded: QuizQuestion[] = rows.map((r) => ({
+            question: asString(r.question),
+            option_a: asString(r.option_a),
+            option_b: asString(r.option_b),
+            option_c: asString(r.option_c),
+            option_d: asString(r.option_d),
+            correct_answer: ((asString(r.correct_answer).toUpperCase() || 'A') as 'A' | 'B' | 'C' | 'D'),
+          }));
+          setQuizQuestions(loaded.length > 0 ? loaded : [{ ...emptyQuizQuestion }]);
+        })
+        .catch(() => setQuizQuestions([{ ...emptyQuizQuestion }]))
+        .finally(() => setQuizLoading(false));
+    }
+  }, [api, session.token]);
 
   const handleSaveFile = useCallback(async () => {
     if (!fileForm.title.trim()) return;
@@ -211,19 +312,41 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
         language: fileForm.language.trim(),
         free: fileForm.free,
       };
+      let savedFileId = editingFileId;
       if (editingFileId) {
         await api.editLessonFile(session.token, editingFileId, payload);
       } else {
-        await api.addLessonFile(session.token, payload);
+        const result = await api.addLessonFile(session.token, payload);
+        const data = result?.data;
+        const newIdRaw = data && typeof data === 'object' && 'id' in data ? (data as Record<string, unknown>).id : undefined;
+        savedFileId = typeof newIdRaw === 'number' || typeof newIdRaw === 'string' ? String(newIdRaw) : '';
       }
+
+      // For quiz files, persist the question list against the lesson_file_id.
+      // Empty rows are filtered server-side.
+      if (fileDialogType === 'quiz' && savedFileId) {
+        const cleaned = quizQuestions
+          .filter((q) => q.question.trim() !== '')
+          .map((q) => ({
+            question: q.question.trim(),
+            option_a: q.option_a.trim(),
+            option_b: q.option_b.trim(),
+            option_c: q.option_c.trim(),
+            option_d: q.option_d.trim(),
+            correct_answer: q.correct_answer,
+          }));
+        await api.replaceLessonQuizQuestions(session.token, savedFileId, cleaned);
+      }
+
+      toast.success(editingFileId ? 'Updated.' : 'Created.');
       setFileDialogOpen(false);
       reloadFiles();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save.');
     } finally {
       setSaving(false);
     }
-  }, [api, session.token, selectedLessonId, editingFileId, fileDialogType, fileForm, reloadFiles]);
+  }, [api, session.token, selectedLessonId, editingFileId, fileDialogType, fileForm, quizQuestions, reloadFiles]);
 
   const handleDeleteFile = useCallback(
     async (row: Record<string, unknown>) => {
@@ -653,17 +776,121 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
                 />
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label>Quiz Description (optional)</Label>
-                <textarea
-                  className={textareaClass}
-                  value={fileForm.summary}
-                  onChange={(e) => setFileForm((f) => ({ ...f, summary: e.target.value }))}
-                  placeholder="Short description shown above the questions"
-                />
-                <p className="text-xs text-amber-700">
-                  Question editor + bulk CSV upload for quiz files is shipping next — for now Save the metadata and use the existing Question Bank flow.
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Quiz Description (optional)</Label>
+                  <textarea
+                    className={textareaClass}
+                    value={fileForm.summary}
+                    onChange={(e) => setFileForm((f) => ({ ...f, summary: e.target.value }))}
+                    placeholder="Short description shown above the questions"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Questions ({quizQuestions.length})</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="quiz-csv-upload"
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const text = typeof reader.result === 'string' ? reader.result : '';
+                          const parsed = parseQuizCsv(text);
+                          if (parsed.length === 0) {
+                            toast.error('No questions found in CSV. Expected columns: question, option_a, option_b, option_c, option_d, correct_answer');
+                            return;
+                          }
+                          setQuizQuestions((prev) => {
+                            const existing = prev.filter((q) => q.question.trim() !== '');
+                            return [...existing, ...parsed];
+                          });
+                          toast.success(`Imported ${parsed.length} question${parsed.length === 1 ? '' : 's'}.`);
+                        };
+                        reader.readAsText(file);
+                        e.target.value = '';
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => document.getElementById('quiz-csv-upload')?.click()}
+                    >
+                      Upload CSV
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setQuizQuestions((prev) => [...prev, { ...emptyQuizQuestion }])}
+                    >
+                      + Add Question
+                    </Button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+                  CSV columns: <code>question, option_a, option_b, option_c, option_d, correct_answer</code> (correct_answer = A/B/C/D).
                 </p>
+
+                {quizLoading ? (
+                  <p className="text-xs text-slate-500">Loading questions…</p>
+                ) : quizQuestions.length === 0 ? (
+                  <p className="text-xs text-slate-400">No questions yet. Click + Add Question or upload a CSV.</p>
+                ) : (
+                  <ol className="space-y-3">
+                    {quizQuestions.map((q, idx) => (
+                      <li key={idx} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-slate-600">Q{idx + 1}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => setQuizQuestions((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <textarea
+                          className={textareaClass}
+                          value={q.question}
+                          onChange={(e) => setQuizQuestions((prev) => prev.map((x, i) => i === idx ? { ...x, question: e.target.value } : x))}
+                          placeholder="Question text"
+                        />
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {(['A', 'B', 'C', 'D'] as const).map((letter) => {
+                            const key = `option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d';
+                            return (
+                              <div key={letter} className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name={`q-${idx}-correct`}
+                                  className="size-4"
+                                  checked={q.correct_answer === letter}
+                                  onChange={() => setQuizQuestions((prev) => prev.map((x, i) => i === idx ? { ...x, correct_answer: letter } : x))}
+                                  aria-label={`Mark ${letter} as correct`}
+                                />
+                                <Input
+                                  value={q[key]}
+                                  onChange={(e) => setQuizQuestions((prev) => prev.map((x, i) => i === idx ? { ...x, [key]: e.target.value } : x))}
+                                  placeholder={`Option ${letter}`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             )}
 

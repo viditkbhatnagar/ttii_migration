@@ -846,6 +846,46 @@ export function registerContentRoutes(
     }
   });
 
+  // List quiz questions stored against a lesson_file (lesson_type='quiz').
+  app.get('/admin/course/lesson_files/quiz_questions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const fileId = toStringValue(payload.id || payload.lesson_file_id);
+      const questions = await contentService.listLessonQuizQuestions(fileId);
+      reply.code(200).send({ status: 1, message: 'success', data: questions });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  // Replace all quiz questions for a lesson_file. Body: { id, questions: [{question, option_a..d, correct_answer}] }
+  app.post('/admin/course/lesson_files/quiz_questions/replace', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const fileId = toStringValue(payload.id || payload.lesson_file_id);
+      const rawQuestions = Array.isArray(payload.questions) ? payload.questions : [];
+      const questions = rawQuestions
+        .map((raw: unknown) => {
+          const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+          const question = toStringValue(r.question).trim();
+          if (!question) return null;
+          return {
+            question,
+            option_a: toStringValue(r.option_a),
+            option_b: toStringValue(r.option_b),
+            option_c: toStringValue(r.option_c),
+            option_d: toStringValue(r.option_d),
+            correct_answer: toStringValue(r.correct_answer || 'A'),
+          };
+        })
+        .filter((q): q is NonNullable<typeof q> => q !== null);
+      await contentService.replaceLessonQuizQuestions(requestUserId(request), fileId, questions);
+      reply.code(200).send({ status: 1, message: 'Saved', data: { count: questions.length } });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // ── Admin Program CRUD routes ─────────────────────────────────────
 
   const programService = new ProgramService();
