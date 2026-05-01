@@ -77,13 +77,22 @@ export function firstValueByKey(rows: Record<string, unknown>[], key: string): s
   return asString(found?.value);
 }
 
+/**
+ * System-wide date display format: dd/mm/yyyy.
+ * Naji 2026-05-02 — locked to numeric Indian style across all admin/student
+ * surfaces so dates read the same everywhere. Storage stays ISO; only the
+ * display formatter changed.
+ */
 export function formatDate(value: unknown): string {
   const str = asString(value);
   if (!str) return '';
   try {
     const date = new Date(str);
     if (Number.isNaN(date.getTime())) return str;
-    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
   } catch {
     return str;
   }

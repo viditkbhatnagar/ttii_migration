@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,16 +10,11 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { PhoneInput } from '../../shared/components/PhoneInput.js';
+import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
+import { COUNTRIES, INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
-];
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const QUALIFICATIONS = [
   '10th Pass', '12th Pass', 'Diploma', 'Bachelor\'s Degree', 'Master\'s Degree',
@@ -46,8 +41,8 @@ interface EducationRow {
 
 interface FormState {
   // Tab 1: Basic Info — Personal Information
-  firstName: string;
-  lastName: string;
+  photoUrl: string;
+  fullName: string;
   dateOfBirth: string;
   gender: string;
   nationality: string;
@@ -59,14 +54,17 @@ interface FormState {
   passportNo: string;
   // Tab 1: Basic Info — Contact Information
   email: string;
+  phoneCountryCode: string;
   phone: string;
   alternatePhone: string;
+  whatsappCountryCode: string;
   whatsappNo: string;
   country: string;
   state: string;
   district: string;
   permanentAddress: string;
   correspondenceAddress: string;
+  correspondenceSameAsPermanent: boolean;
   // Tab 2: Qualification
   highestQualification: string;
   specialization: string;
@@ -93,11 +91,16 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
-  firstName: '', lastName: '', dateOfBirth: '', gender: '', nationality: 'Indian',
+  photoUrl: '',
+  fullName: '', dateOfBirth: '', gender: '', nationality: 'India',
   maritalStatus: '', fatherName: '', motherName: '', guardianName: '',
   aadharNo: '', passportNo: '',
-  email: '', phone: '', alternatePhone: '', whatsappNo: '',
-  country: 'India', state: '', district: '', permanentAddress: '', correspondenceAddress: '',
+  email: '',
+  phoneCountryCode: '91', phone: '',
+  alternatePhone: '',
+  whatsappCountryCode: '91', whatsappNo: '',
+  country: 'India', state: '', district: '',
+  permanentAddress: '', correspondenceAddress: '', correspondenceSameAsPermanent: false,
   highestQualification: '', specialization: '', institutionName: '',
   yearOfPassing: '', employmentStatus: '', currentOccupation: '', workExperience: '',
   courseId: '', offeringId: '', certificateCombination: '', enrollmentDate: '',
@@ -160,7 +163,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   );
   const certificateCombinations = useMemo(() => toRecords(combinationsData), [combinationsData]);
 
-  const set = useCallback((key: keyof FormState, value: string) => {
+  const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((f) => {
       const updated = { ...f, [key]: value };
       // Auto-calculate final course fee when discount or courseFee changes
@@ -174,6 +177,34 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
       return updated;
     });
   }, []);
+
+  // "Use same as permanent" — keep correspondence address synced when toggle on.
+  useEffect(() => {
+    if (form.correspondenceSameAsPermanent && form.correspondenceAddress !== form.permanentAddress) {
+      setForm((f) => ({ ...f, correspondenceAddress: f.permanentAddress }));
+    }
+  }, [form.correspondenceSameAsPermanent, form.permanentAddress, form.correspondenceAddress]);
+
+  // Reset district when state changes (the previous value almost certainly
+  // doesn't belong to the new state).
+  useEffect(() => {
+    setForm((f) => (f.district ? { ...f, district: '' } : f));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.state]);
+
+  // When country changes off India, clear state/district (those lists are
+  // India-specific) and let the user enter free-text below.
+  useEffect(() => {
+    if (form.country !== 'India') {
+      setForm((f) => (f.state || f.district ? { ...f, state: '', district: '' } : f));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.country]);
+
+  const districtList = useMemo(
+    () => (form.country === 'India' && form.state ? getDistrictsForState(form.state) : null),
+    [form.country, form.state],
+  );
 
   // Auto-fill course fee when offering is selected
   const handleOfferingChange = useCallback((offeringId: string) => {
@@ -205,17 +236,29 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   };
 
   const handleSubmit = useCallback(async () => {
-    if (!form.firstName.trim()) { toast.error('First name is required.'); setActiveTab(0); return; }
+    const fullName = form.fullName.trim();
+    if (!fullName) { toast.error('Full name is required.'); setActiveTab(0); return; }
     if (!form.email.trim()) { toast.error('Email is required.'); setActiveTab(0); return; }
+    if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is not a valid format.'); setActiveTab(0); return; }
     if (!form.phone.trim()) { toast.error('Phone is required.'); setActiveTab(0); return; }
+
+    // Split full name into first/last for the legacy schema. Last name = the
+    // last whitespace-separated token; first name = everything before. If
+    // the user only typed one word, last name comes through empty (legacy
+    // tolerates that).
+    const parts = fullName.split(/\s+/);
+    const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+    const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : fullName;
 
     setSaving(true);
     try {
       const payload: Record<string, string> = {
-        first_name: form.firstName.trim(),
-        last_name: form.lastName.trim(),
+        full_name: fullName,
+        first_name: firstName,
+        last_name: lastName ?? '',
         email: form.email.trim(),
-        phone: form.phone.trim(),
+        phone: `+${form.phoneCountryCode} ${form.phone.trim()}`.trim(),
+        country_code: form.phoneCountryCode,
         alternate_phone: form.alternatePhone.trim(),
         date_of_birth: form.dateOfBirth,
         gender: form.gender,
@@ -226,12 +269,14 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         guardian_name: form.guardianName.trim(),
         aadhar_no: form.aadharNo.trim(),
         passport_no: form.passportNo.trim(),
-        whatsapp_no: form.whatsappNo.trim(),
+        whatsapp_no: form.whatsappNo.trim() ? `+${form.whatsappCountryCode} ${form.whatsappNo.trim()}` : '',
+        whatsapp_country_code: form.whatsappCountryCode,
         country: form.country.trim(),
         state: form.state,
         city: form.district.trim(),
         permanent_address: form.permanentAddress.trim(),
-        correspondence_address: form.correspondenceAddress.trim(),
+        correspondence_address: (form.correspondenceSameAsPermanent ? form.permanentAddress : form.correspondenceAddress).trim(),
+        photo_url: form.photoUrl,
         highest_qualification: form.highestQualification,
         specialization: form.specialization.trim(),
         institution_name: form.institutionName.trim(),
@@ -316,20 +361,30 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
           {/* Tab 1: Basic Info */}
           {activeTab === 0 && (
             <div className="space-y-6">
+              {/* Photo */}
+              <div>
+                <h3 className="mb-4 text-sm font-semibold text-gray-700 uppercase tracking-wide">Profile Photo</h3>
+                <PhotoUpload
+                  value={form.photoUrl}
+                  onChange={(url) => set('photoUrl', url)}
+                  onUpload={async (file) => {
+                    const r = await api.uploadFile(session.token, file);
+                    return r.url;
+                  }}
+                  fallbackInitials={(form.fullName || '?').slice(0, 2).toUpperCase()}
+                />
+              </div>
+
               {/* Personal Information */}
               <div>
                 <h3 className="mb-4 text-sm font-semibold text-gray-700 uppercase tracking-wide">Personal Information</h3>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label>First Name *</Label>
-                    <Input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} placeholder="Enter first name" />
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label>Full Name *</Label>
+                    <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Enter full name" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Last Name</Label>
-                    <Input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="Enter last name" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Date of Birth</Label>
+                    <Label>Date of Birth (dd/mm/yyyy)</Label>
                     <Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} />
                   </div>
                   <div className="grid gap-2">
@@ -347,7 +402,10 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   </div>
                   <div className="grid gap-2">
                     <Label>Nationality</Label>
-                    <Input value={form.nationality} onChange={(e) => set('nationality', e.target.value)} placeholder="Enter nationality" />
+                    <select className={selectClass} value={form.nationality} onChange={(e) => set('nationality', e.target.value)}>
+                      <option value="">Select Nationality</option>
+                      {COUNTRIES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
+                    </select>
                   </div>
                   <div className="grid gap-2">
                     <Label>Marital Status</Label>
@@ -388,11 +446,27 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label>Email ID *</Label>
-                    <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Enter email" />
+                    <Input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => set('email', e.target.value)}
+                      placeholder="Enter email"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        if (v && !EMAIL_REGEX.test(v)) toast.error('Email is not a valid format.');
+                      }}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Phone Number *</Label>
-                    <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="Enter phone number" />
+                    <PhoneInput
+                      countryCode={form.phoneCountryCode}
+                      number={form.phone}
+                      onChange={({ countryCode, number }) => {
+                        set('phoneCountryCode', countryCode);
+                        set('phone', number);
+                      }}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Alternate Phone Number</Label>
@@ -400,22 +474,47 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   </div>
                   <div className="grid gap-2">
                     <Label>WhatsApp Number</Label>
-                    <Input value={form.whatsappNo} onChange={(e) => set('whatsappNo', e.target.value)} placeholder="Enter WhatsApp number" />
+                    <PhoneInput
+                      countryCode={form.whatsappCountryCode}
+                      number={form.whatsappNo}
+                      onChange={({ countryCode, number }) => {
+                        set('whatsappCountryCode', countryCode);
+                        set('whatsappNo', number);
+                      }}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Country</Label>
-                    <Input value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="Enter country" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>State</Label>
-                    <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
-                      <option value="">Select State</option>
-                      {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    <select className={selectClass} value={form.country} onChange={(e) => set('country', e.target.value)}>
+                      <option value="">Select Country</option>
+                      {COUNTRIES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div className="grid gap-2">
+                    <Label>State</Label>
+                    {form.country === 'India' ? (
+                      <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
+                        <option value="">Select State</option>
+                        {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <Input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Enter state / province" />
+                    )}
+                  </div>
+                  <div className="grid gap-2">
                     <Label>District</Label>
-                    <Input value={form.district} onChange={(e) => set('district', e.target.value)} placeholder="Enter district" />
+                    {districtList ? (
+                      <select className={selectClass} value={form.district} onChange={(e) => set('district', e.target.value)}>
+                        <option value="">Select District</option>
+                        {districtList.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    ) : (
+                      <Input
+                        value={form.district}
+                        onChange={(e) => set('district', e.target.value)}
+                        placeholder={form.country === 'India' && form.state ? `Enter district in ${form.state}` : 'Enter district / city'}
+                      />
+                    )}
                   </div>
                   <div className="grid gap-2 md:col-span-2">
                     <Label>Permanent Address</Label>
@@ -426,13 +525,26 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                       placeholder="Enter permanent address"
                     />
                   </div>
+                  <div className="md:col-span-2 flex items-center gap-2">
+                    <input
+                      id="same-as-permanent"
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300"
+                      checked={form.correspondenceSameAsPermanent}
+                      onChange={(e) => set('correspondenceSameAsPermanent', e.target.checked)}
+                    />
+                    <Label htmlFor="same-as-permanent" className="cursor-pointer text-sm font-normal">
+                      Correspondence address same as permanent
+                    </Label>
+                  </div>
                   <div className="grid gap-2 md:col-span-2">
                     <Label>Correspondence Address</Label>
                     <textarea
-                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                       value={form.correspondenceAddress}
                       onChange={(e) => set('correspondenceAddress', e.target.value)}
                       placeholder="Enter correspondence address"
+                      disabled={form.correspondenceSameAsPermanent}
                     />
                   </div>
                 </div>
