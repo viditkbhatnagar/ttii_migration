@@ -159,6 +159,9 @@ export type AdminApplicationInput = {
   applicationStatus?: string;
   notes?: string;
   crmTags?: string;
+  photoUrl?: string;
+  countryCode?: string;
+  whatsappCountryCode?: string;
 };
 
 export type CentreApplicationInput = {
@@ -4512,7 +4515,7 @@ export class OperationsService {
         phone,
         email: phone,
         user_email: email,
-        country_code: '+91',
+        country_code: input.countryCode ? `+${input.countryCode.replace(/^\+/, '')}` : '+91',
         date_of_birth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
         age,
         gender: input.gender || null,
@@ -4530,7 +4533,7 @@ export class OperationsService {
         native_address: input.correspondenceAddress || null,
         second_code: 0,
         second_phone: input.alternatePhone || '',
-        image: '',
+        image: input.photoUrl || '',
         course_id: toNullableIntId(input.courseId),
         batch_id: toNullableIntId(input.batchId),
         enrollment_date: input.enrollmentDate || null,

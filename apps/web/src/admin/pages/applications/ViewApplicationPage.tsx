@@ -219,23 +219,42 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               <CardTitle className="text-base">Personal Information</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Application ID" value={asString(app.application_id)} />
-                  <InfoRow label="Full Name" value={asString(app.name)} />
-                  <InfoRow label="Date of Birth" value={formatDate(app.date_of_birth)} />
-                  <InfoRow label="Age" value={asString(app.age)} />
-                  <InfoRow label="Gender" value={asString(app.gender)} />
-                  <InfoRow label="Nationality" value={asString(app.nationality)} />
-                  <InfoRow label="Marital Status" value={asString(app.marital_status)} />
+              <div className="flex flex-col gap-6 md:flex-row md:items-start">
+                {/* Profile photo */}
+                <div className="flex shrink-0 flex-col items-center gap-2">
+                  {asString(app.image) ? (
+                    <img
+                      src={asString(app.image)}
+                      alt={asString(app.name) || 'Profile photo'}
+                      className="size-32 rounded-xl border border-gray-200 object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex size-32 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-2xl font-semibold text-gray-400">
+                      {(asString(app.name) || '?').slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-xs text-gray-500">Profile Photo</span>
                 </div>
-                <div>
-                  <InfoRow label="Father Name" value={asString(app.father_name)} />
-                  <InfoRow label="Mother Name" value={asString(app.mother_name)} />
-                  <InfoRow label="Guardian Name" value={asString(app.guardian_name)} />
-                  <InfoRow label="Aadhar No." value={asString(app.aadhar_no)} />
-                  <InfoRow label="Passport No." value={asString(app.passport_no)} />
-                  <InfoRow label="Applied Date" value={formatDate(app.created_at)} />
+
+                <div className="grid flex-1 gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow label="Application ID" value={asString(app.application_id)} />
+                    <InfoRow label="Full Name" value={asString(app.name)} />
+                    <InfoRow label="Date of Birth" value={formatDate(app.date_of_birth)} />
+                    <InfoRow label="Age" value={asString(app.age)} />
+                    <InfoRow label="Gender" value={asString(app.gender)} />
+                    <InfoRow label="Nationality" value={asString(app.nationality)} />
+                    <InfoRow label="Marital Status" value={asString(app.marital_status)} />
+                  </div>
+                  <div>
+                    <InfoRow label="Father Name" value={asString(app.father_name)} />
+                    <InfoRow label="Mother Name" value={asString(app.mother_name)} />
+                    <InfoRow label="Guardian Name" value={asString(app.guardian_name)} />
+                    <InfoRow label="Aadhar No." value={asString(app.aadhar_no)} />
+                    <InfoRow label="Passport No." value={asString(app.passport_no)} />
+                    <InfoRow label="Applied Date" value={formatDate(app.created_at)} />
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -249,12 +268,15 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               <div className="grid gap-x-8 md:grid-cols-2">
                 <div>
                   <InfoRow label="Email" value={asString(app.user_email) || asString(app.email)} />
-                  <InfoRow label="Phone" value={asString(app.phone)} />
+                  <InfoRow
+                    label="Phone"
+                    value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
+                  />
                   <InfoRow label="Alternate Phone" value={asString(app.second_phone)} />
                   <InfoRow label="WhatsApp" value={asString(app.whatsapp_no)} />
                 </div>
                 <div>
-                  <InfoRow label="Country" value={asString(app.nationality)} />
+                  <InfoRow label="Country" value={asString(app.country) || asString(app.nationality)} />
                   <InfoRow label="State" value={asString(app.state)} />
                   <InfoRow label="District" value={asString(app.district)} />
                   <InfoRow label="Permanent Address" value={asString(app.address)} />

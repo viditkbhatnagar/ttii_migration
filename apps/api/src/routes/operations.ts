@@ -2254,6 +2254,9 @@ export function registerOperationsRoutes(
         applicationStatus: toStringValue(payload.application_status) || 'pending',
         notes: toStringValue(payload.notes),
         crmTags: toStringValue(payload.crm_tags),
+        photoUrl: toStringValue(payload.photo_url),
+        countryCode: toStringValue(payload.country_code),
+        whatsappCountryCode: toStringValue(payload.whatsapp_country_code),
       };
 
       // Server-side email check (MX + disposable). Defense in depth — the
