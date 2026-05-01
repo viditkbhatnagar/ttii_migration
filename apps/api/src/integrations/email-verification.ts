@@ -39,11 +39,11 @@ const DISPOSABLE_DOMAINS = new Set<string>([
   'emailtemporanea.net', 'emailtemporario.com.br', 'emailthe.net',
   'fakeinbox.com', 'fakemailgenerator.com', 'fastacura.com', 'filzmail.com',
   'fleckens.hu', 'forwardemail.net', 'getairmail.com', 'getnada.com',
-  'gettempmail.com', 'gishpuppy.com', 'gmial.com', 'gnail.com',
+  'gettempmail.com', 'gishpuppy.com',
   'grr.la', 'guerrillamail.biz', 'guerrillamail.com', 'guerrillamail.de',
   'guerrillamail.info', 'guerrillamail.net', 'guerrillamail.org',
   'guerrillamailblock.com', 'gustr.com', 'harakirimail.com',
-  'hidzz.com', 'hotmial.com', 'inboxalias.com', 'inboxbear.com',
+  'hidzz.com', 'inboxalias.com', 'inboxbear.com',
   'inboxkitten.com', 'incognitomail.org', 'jetable.org', 'jourrapide.com',
   'kasmail.com', 'kurzepost.de', 'lroid.com', 'mailbidon.com',
   'mailcatch.com', 'maildrop.cc', 'maileater.com', 'maileimer.de',
@@ -128,19 +128,27 @@ export async function verifyEmail(emailRaw: string): Promise<EmailVerificationRe
     return { valid: false, reason: 'disposable_domain', message: 'Disposable email addresses are not allowed.' };
   }
 
-  // MX lookup. ENODATA / ENOTFOUND mean no mail servers — domain can't
-  // receive email. Other errors (timeout, server failure) we treat as
-  // pass: better to let a borderline submission through than to block
-  // legitimate users on a transient DNS hiccup. Server logs the warning.
+  // MX lookup. ENODATA / ENOTFOUND / ESERVFAIL mean no mail servers — the
+  // domain can't receive email. Truly transient errors (timeout, network
+  // unreachable) fall open: better to let a borderline submission through
+  // than to block legitimate users on a network hiccup. Server logs the
+  // warning either way.
+  //
+  // Also catch RFC 7505 "Null MX" records: a single MX of priority 0 with
+  // an empty exchange explicitly says "this domain does not accept mail".
   try {
     const records = await dns.resolveMx(domain);
     if (!records || records.length === 0) {
       return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't accept mail." };
     }
+    const allEmptyExchange = records.every((r) => !r.exchange || r.exchange.trim() === '' || r.exchange === '.');
+    if (allEmptyExchange) {
+      return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't accept mail." };
+    }
     return { valid: true };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code ?? '';
-    if (code === 'ENODATA' || code === 'ENOTFOUND') {
+    if (code === 'ENODATA' || code === 'ENOTFOUND' || code === 'ESERVFAIL' || code === 'EREFUSED') {
       return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't exist." };
     }
     // eslint-disable-next-line no-console
