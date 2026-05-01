@@ -2908,7 +2908,11 @@ export class ContentService {
    * Returns the questions stored against a lesson_file. Output shape mirrors
    * what the lesson-builder dialog expects (question + 4 options + correct
    * letter A-D), parsed out of the legacy `quiz` table's JSON-encoded
-   * `answers` column. answer_id is 1-based; we surface 'A'..'D'.
+   * `answers` column.
+   *
+   * answer_id is 0-based in the legacy DB (verified against prod 2026-05-01:
+   * `["A","B","C","D"]` with answer_id=2 means option C). We surface
+   * 'A'..'D'.
    */
   async listLessonQuizQuestions(lessonFileId: string): Promise<Record<string, unknown>[]> {
     const id = toIntId(lessonFileId);
@@ -2925,7 +2929,7 @@ export class ContentService {
         options = [];
       }
       while (options.length < 4) options.push('');
-      const answerIdx = (r.answer_id ?? 1) - 1;
+      const answerIdx = r.answer_id ?? 0;
       const correct = ['A', 'B', 'C', 'D'][Math.max(0, Math.min(3, answerIdx))] ?? 'A';
       return {
         id: String(r.id),
@@ -2959,9 +2963,10 @@ export class ContentService {
     const id = toIntId(lessonFileId);
     const actor = toNullableIntId(actorUserId);
     const now = new Date();
+    // answer_id is stored 0-based in the legacy `quiz` table.
     const letterToIdx = (letter: string): number => {
       const i = ['A', 'B', 'C', 'D'].indexOf((letter || 'A').toUpperCase());
-      return i >= 0 ? i + 1 : 1;
+      return i >= 0 ? i : 0;
     };
     await this.prisma.$transaction(async (tx) => {
       // Soft-delete existing rows so attempt history can still resolve them.
