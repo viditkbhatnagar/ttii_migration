@@ -24,7 +24,7 @@ export const LEGACY_ROLE_ID = {
 
 export type LegacyRoleId = (typeof LEGACY_ROLE_ID)[keyof typeof LEGACY_ROLE_ID];
 
-export type PortalSurface = 'admin' | 'centre' | 'student' | 'instructor';
+export type PortalSurface = 'admin' | 'centre' | 'student' | 'instructor' | 'counsellor';
 
 export interface LegacyAuthUserData {
   user_id: number;

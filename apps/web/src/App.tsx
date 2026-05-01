@@ -25,6 +25,8 @@ import { CentrePortal, normalizeCentrePath } from './centre/centre-portal.js';
 import { CentrePortalApi } from './centre/centre-portal-api.js';
 import { InstructorPortal, normalizeInstructorPath } from './instructor/instructor-portal.js';
 import { InstructorPortalApi } from './instructor/instructor-portal-api.js';
+import { CounsellorPortal, normalizeCounsellorPath } from './counsellor/counsellor-portal.js';
+import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
@@ -205,6 +207,14 @@ function createDefaultInstructorPortalApi(baseUrl = resolveApiBaseUrl()): Instru
   );
 }
 
+function createDefaultCounsellorPortalApi(baseUrl = resolveApiBaseUrl()): CounsellorPortalApi {
+  return new CounsellorPortalApi(
+    new LegacyApiClient({
+      baseUrl,
+    }),
+  );
+}
+
 interface RoleShellRouteProps {
   route: RoleRouteDefinition;
   pathname: string;
@@ -212,6 +222,7 @@ interface RoleShellRouteProps {
   centrePortalApi: CentrePortalApi;
   adminPortalApi: AdminPortalApi;
   instructorPortalApi: InstructorPortalApi;
+  counsellorPortalApi: CounsellorPortalApi;
 }
 
 function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteDefinition; pathname: string; guardStatus: string }) {
@@ -264,7 +275,7 @@ function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteD
   );
 }
 
-function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi }: RoleShellRouteProps) {
+function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi }: RoleShellRouteProps) {
   const { authApi, phase, session, logout } = useAuthState();
   const [guardStatus, setGuardStatus] = useState<'checking' | 'ready' | 'unauthenticated' | 'forbidden' | 'error'>(
     'checking',
@@ -313,7 +324,9 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
         ? normalizeCentrePath(pathname)
         : route.surface === 'instructor'
           ? normalizeInstructorPath(pathname)
-          : normalizeAdminPath(pathname);
+          : route.surface === 'counsellor'
+            ? normalizeCounsellorPath(pathname)
+            : normalizeAdminPath(pathname);
     if (normalizedPath !== pathname) {
       navigateTo(normalizedPath);
     }
@@ -438,6 +451,29 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
         pathname={pathname}
         session={session}
         api={instructorPortalApi}
+        onNavigate={navigateTo}
+        onLogout={() => {
+          void logout();
+          navigateTo('/');
+        }}
+      />
+    );
+  }
+
+  if (route.surface === 'counsellor') {
+    if (!session) {
+      return (
+        <InlineNotice tone="warning" title="Session missing">
+          Counsellor portal requires an active session.
+        </InlineNotice>
+      );
+    }
+
+    return (
+      <CounsellorPortal
+        pathname={pathname}
+        session={session}
+        api={counsellorPortalApi}
         onNavigate={navigateTo}
         onLogout={() => {
           void logout();
@@ -760,12 +796,14 @@ function PortalRouter({
   centrePortalApi,
   adminPortalApi,
   instructorPortalApi,
+  counsellorPortalApi,
 }: {
   initialPath: string;
   studentPortalApi: StudentPortalApi;
   centrePortalApi: CentrePortalApi;
   adminPortalApi: AdminPortalApi;
   instructorPortalApi: InstructorPortalApi;
+  counsellorPortalApi: CounsellorPortalApi;
 }) {
   const pathname = usePathname(initialPath);
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
@@ -832,6 +870,7 @@ function PortalRouter({
       centrePortalApi={centrePortalApi}
       adminPortalApi={adminPortalApi}
       instructorPortalApi={instructorPortalApi}
+      counsellorPortalApi={counsellorPortalApi}
     />
   );
 }
@@ -843,9 +882,10 @@ export interface AppProps {
   centrePortalApi?: CentrePortalApi;
   adminPortalApi?: AdminPortalApi;
   instructorPortalApi?: InstructorPortalApi;
+  counsellorPortalApi?: CounsellorPortalApi;
 }
 
-export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi }: AppProps) {
+export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi }: AppProps) {
   const resolvedAuthApi = useMemo(() => authApi ?? createDefaultAuthApi(), [authApi]);
   const resolvedStudentPortalApi = useMemo(
     () => studentPortalApi ?? createDefaultStudentPortalApi(),
@@ -863,6 +903,10 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
     () => instructorPortalApi ?? createDefaultInstructorPortalApi(),
     [instructorPortalApi],
   );
+  const resolvedCounsellorPortalApi = useMemo(
+    () => counsellorPortalApi ?? createDefaultCounsellorPortalApi(),
+    [counsellorPortalApi],
+  );
 
   return (
     <AppErrorBoundary>
@@ -874,6 +918,7 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
             centrePortalApi={resolvedCentrePortalApi}
             adminPortalApi={resolvedAdminPortalApi}
             instructorPortalApi={resolvedInstructorPortalApi}
+            counsellorPortalApi={resolvedCounsellorPortalApi}
           />
         </ConfirmDialogProvider>
       </AuthProvider>

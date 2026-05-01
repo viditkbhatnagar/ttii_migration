@@ -3,8 +3,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth-service.js';
 import { extractAuthToken, requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import {
-  ADMIN_PORTAL_ROLES,
+  ADMIN_PORTAL_SURFACE_ROLES,
   CENTRE_PORTAL_ROLES,
+  COUNSELLOR_PORTAL_ROLES,
   INSTRUCTOR_PORTAL_ROLES,
   LEGACY_ROLE,
 } from '../auth/roles.js';
@@ -414,7 +415,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
   app.get(
     '/auth/portal/admin',
     {
-      preHandler: [requireAuth, requireLegacyRoles(authService, ADMIN_PORTAL_ROLES)],
+      preHandler: [requireAuth, requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES)],
     },
     async (_request, reply) => {
       reply.code(200).send({
@@ -462,6 +463,20 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
       reply.code(200).send({
         status: 1,
         message: 'Instructor surface access granted.',
+        data: {},
+      });
+    },
+  );
+
+  app.get(
+    '/auth/portal/counsellor',
+    {
+      preHandler: [requireAuth, requireLegacyRoles(authService, COUNSELLOR_PORTAL_ROLES)],
+    },
+    async (_request, reply) => {
+      reply.code(200).send({
+        status: 1,
+        message: 'Counsellor surface access granted.',
         data: {},
       });
     },
