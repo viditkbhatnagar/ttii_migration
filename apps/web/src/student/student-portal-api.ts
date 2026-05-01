@@ -679,6 +679,26 @@ export class StudentPortalApi {
     return asRecord(payload.data) ?? {};
   }
 
+  /**
+   * Verifies a Razorpay payment server-side after the checkout popup
+   * resolves. Returns true on success, false otherwise — the caller should
+   * reload the payments view either way (server has already mutated the
+   * fee_installment / payment rows).
+   */
+  async completeOrder(
+    authToken: string,
+    input: { courseId: string; razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    const payload = await this.get<{ status?: number | string; message?: string }>('/payment/complete_order', authToken, {
+      course_id: input.courseId,
+      razorpay_order_id: input.razorpayOrderId,
+      razorpay_payment_id: input.razorpayPaymentId,
+      razorpay_signature: input.razorpaySignature,
+    });
+    const ok = payload.status === 1 || payload.status === '1';
+    return { ok, message: typeof payload.message === 'string' ? payload.message : '' };
+  }
+
   async loadNotifications(authToken: string): Promise<StudentNotificationsSnapshot> {
     const [notificationsPayload, notificationListPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/home/get_notification', authToken),

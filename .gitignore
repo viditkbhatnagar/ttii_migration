@@ -19,3 +19,8 @@ apps/api/prisma/*.db-*
 DEPLOYMENT.local.md
 *.secrets.md
 .secrets/
+
+# Payment provider key dumps downloaded from dashboards
+razorpay_*.csv
+razorpay_*_keys*.txt
+*_api_keys_*.csv

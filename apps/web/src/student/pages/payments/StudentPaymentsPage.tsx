@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { CreditCard, Package, Tag, History, Calendar, Receipt, Wallet } from 'lucide-react';
+import { CreditCard, Package, Tag, History, Calendar, Receipt, Wallet, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import { openRazorpayCheckout } from '@/lib/razorpay-checkout';
 import type { StudentPaymentHistoryItem, StudentInstallmentItem, StudentPortalApi } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -52,6 +54,68 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
   const [couponCode, setCouponCode] = useState('');
   const [couponResult, setCouponResult] = useState<{ success: boolean; message: string } | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
+  const [payingCourseId, setPayingCourseId] = useState<string | null>(null);
+
+  /**
+   * Razorpay payment flow:
+   *   1. POST our backend to create a Razorpay order (returns order_id + key + amount)
+   *   2. Open Razorpay Checkout popup with those params
+   *   3. On success, send the signed response back so the server can verify
+   *      the HMAC signature and mark the fee_installment paid.
+   *   4. Reload the payments view either way so the UI reflects state.
+   */
+  const handlePay = useCallback(async (courseId: string, courseTitle: string) => {
+    if (!courseId || payingCourseId) return;
+    setPayingCourseId(courseId);
+    try {
+      const order = await api.createOrder(session.token, courseId);
+      const orderId = asString(order.order_id);
+      const key = asString(order.key);
+      const amount = asNumber(order.amount);
+      const currency = asString(order.currency) || 'INR';
+
+      if (!orderId || !key || amount <= 0) {
+        toast.error('Could not start payment — please try again.');
+        return;
+      }
+
+      const result = await openRazorpayCheckout({
+        orderId,
+        amount,
+        currency,
+        keyId: key,
+        name: 'Teachers’ Training Institute of India',
+        description: courseTitle,
+      });
+
+      if (result.status === 'cancelled') {
+        toast.info('Payment cancelled.');
+        return;
+      }
+      if (result.status === 'failed') {
+        toast.error(result.message || 'Payment failed.');
+        reload();
+        return;
+      }
+
+      const verify = await api.completeOrder(session.token, {
+        courseId,
+        razorpayOrderId: result.orderId,
+        razorpayPaymentId: result.paymentId,
+        razorpaySignature: result.signature,
+      });
+      if (verify.ok) {
+        toast.success('Payment successful.');
+      } else {
+        toast.error(verify.message || 'Payment verification failed.');
+      }
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Payment could not be processed.');
+    } finally {
+      setPayingCourseId(null);
+    }
+  }, [api, payingCourseId, reload, session.token]);
 
   const handleApplyCoupon = useCallback(async () => {
     if (!couponCode.trim() || !data?.selectedCourseId || !data?.selectedPackageId) return;
@@ -261,9 +325,10 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               const status = asString(course.status);
               const balance = asNumber(course.balance);
 
+              const isPaying = payingCourseId === courseId;
               return (
-                <div key={courseId} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
-                  <div>
+                <div key={courseId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-student-text">{title}</p>
                     {status ? (
                       <span className={`mt-1 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
@@ -275,11 +340,24 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
                       </span>
                     ) : null}
                   </div>
-                  {balance > 0 ? (
-                    <p className="text-sm font-semibold text-red-600">Balance: {formatCurrency(balance)}</p>
-                  ) : (
-                    <p className="text-sm font-semibold text-emerald-600">Paid</p>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {balance > 0 ? (
+                      <>
+                        <p className="text-sm font-semibold text-red-600">Balance: {formatCurrency(balance)}</p>
+                        <Button
+                          size="sm"
+                          className="bg-student-primary text-white hover:bg-student-primary/90"
+                          onClick={() => void handlePay(courseId, title)}
+                          disabled={isPaying || payingCourseId !== null}
+                        >
+                          {isPaying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {isPaying ? 'Processing…' : 'Pay Now'}
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="text-sm font-semibold text-emerald-600">Paid</p>
+                    )}
+                  </div>
                 </div>
               );
             })}
