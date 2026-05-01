@@ -100,6 +100,85 @@ export interface EmailVerificationResult {
   reason?: 'invalid_format' | 'disposable_domain' | 'no_mx_record' | 'dns_error';
   /** Human-readable message safe to show to the user. */
   message?: string;
+  /**
+   * If the entered domain looks like a typo of a popular provider
+   * (Levenshtein distance <= 2), the suggested correction. Caller decides
+   * whether to surface this as a "Did you mean ...?" prompt.
+   */
+  suggestion?: string;
+}
+
+/**
+ * Top consumer email providers used in India + globally. Used as targets
+ * for the typo detector below. Order doesn't matter; only domain set
+ * membership and Levenshtein distance are checked.
+ */
+const POPULAR_EMAIL_DOMAINS: readonly string[] = [
+  'gmail.com', 'googlemail.com',
+  'yahoo.com', 'yahoo.co.in', 'yahoo.in',
+  'hotmail.com', 'hotmail.co.in',
+  'outlook.com', 'outlook.in',
+  'live.com', 'msn.com', 'aol.com',
+  'icloud.com', 'me.com',
+  'protonmail.com', 'proton.me',
+  'zoho.com', 'zohomail.com', 'zohomail.in',
+  'rediffmail.com', 'indiatimes.com', 'sify.com',
+  'teachersindia.in',
+];
+
+const POPULAR_DOMAIN_SET = new Set<string>(POPULAR_EMAIL_DOMAINS);
+
+/**
+ * Standard iterative Levenshtein. Returns the minimum number of single
+ * character insertions, deletions, or substitutions to turn a into b.
+ * Used purely for nearest-neighbour ranking in the typo suggester — not
+ * a security primitive.
+ */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const m = a.length;
+  const n = b.length;
+  let prev = new Array<number>(n + 1);
+  let curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    const ai = a.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const cost = ai === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(
+        (prev[j] ?? 0) + 1,           // deletion
+        (curr[j - 1] ?? 0) + 1,       // insertion
+        (prev[j - 1] ?? 0) + cost,    // substitution
+      );
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n] ?? 0;
+}
+
+/**
+ * If the input domain is unlikely to be intended (i.e. it's not in the
+ * popular set, but is within 1-2 edits of one of them), return the closest
+ * popular domain. Returns null when nothing close enough is found, or when
+ * the input is itself a popular domain.
+ *
+ * Skips suggestions for very short domains where small edit distances are
+ * misleading (e.g. x.com vs y.com).
+ */
+function suggestDomainCorrection(domain: string): string | null {
+  if (!domain || domain.length < 5) return null;
+  if (POPULAR_DOMAIN_SET.has(domain)) return null;
+  let best: { domain: string; distance: number } | null = null;
+  for (const popular of POPULAR_EMAIL_DOMAINS) {
+    const d = levenshtein(domain, popular);
+    if (d === 0) return null;
+    if (d > 2) continue;
+    if (!best || d < best.distance) best = { domain: popular, distance: d };
+  }
+  return best ? best.domain : null;
 }
 
 function extractDomain(email: string): string | null {
@@ -128,6 +207,11 @@ export async function verifyEmail(emailRaw: string): Promise<EmailVerificationRe
     return { valid: false, reason: 'disposable_domain', message: 'Disposable email addresses are not allowed.' };
   }
 
+  // Even when MX passes, surface a "did you mean ...?" hint for likely
+  // typos of popular providers (e.g. gnail.com → gmail.com). Built once
+  // here so every caller gets it in one round-trip.
+  const typoSuggestion = suggestDomainCorrection(domain);
+
   // MX lookup. ENODATA / ENOTFOUND / ESERVFAIL mean no mail servers — the
   // domain can't receive email. Truly transient errors (timeout, network
   // unreachable) fall open: better to let a borderline submission through
@@ -139,21 +223,39 @@ export async function verifyEmail(emailRaw: string): Promise<EmailVerificationRe
   try {
     const records = await dns.resolveMx(domain);
     if (!records || records.length === 0) {
-      return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't accept mail." };
+      return {
+        valid: false,
+        reason: 'no_mx_record',
+        message: "Email domain doesn't accept mail.",
+        ...(typoSuggestion ? { suggestion: typoSuggestion } : {}),
+      };
     }
     const allEmptyExchange = records.every((r) => !r.exchange || r.exchange.trim() === '' || r.exchange === '.');
     if (allEmptyExchange) {
-      return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't accept mail." };
+      return {
+        valid: false,
+        reason: 'no_mx_record',
+        message: "Email domain doesn't accept mail.",
+        ...(typoSuggestion ? { suggestion: typoSuggestion } : {}),
+      };
     }
-    return { valid: true };
+    // Valid MX, but the domain might still be a typo of a popular one.
+    // Surface the suggestion alongside the pass so the form can prompt
+    // ("Did you mean gmail.com?") without rejecting.
+    return { valid: true, ...(typoSuggestion ? { suggestion: typoSuggestion } : {}) };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code ?? '';
     if (code === 'ENODATA' || code === 'ENOTFOUND' || code === 'ESERVFAIL' || code === 'EREFUSED') {
-      return { valid: false, reason: 'no_mx_record', message: "Email domain doesn't exist." };
+      return {
+        valid: false,
+        reason: 'no_mx_record',
+        message: "Email domain doesn't exist.",
+        ...(typoSuggestion ? { suggestion: typoSuggestion } : {}),
+      };
     }
     // eslint-disable-next-line no-console
     console.warn('[email-verification] MX lookup transient failure', { domain, code });
-    return { valid: true };
+    return { valid: true, ...(typoSuggestion ? { suggestion: typoSuggestion } : {}) };
   }
 }
 

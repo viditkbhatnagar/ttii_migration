@@ -14,6 +14,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
+import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 import { useConfirm } from '@/components/confirm-dialog';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -306,9 +307,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
                     toast.error('Email is not a valid format.');
                     return;
                   }
-                  void api.verifyEmail(session.token, v).then((r) => {
-                    if (!r.valid) toast.error(r.message || 'Email failed verification.');
-                  }).catch(() => { /* network — server validates again on submit */ });
+                  void verifyEmailWithFeedback(api, session.token, v, (corrected) => setForm((f) => ({ ...f, email: corrected })));
                 }}
               />
             </div>

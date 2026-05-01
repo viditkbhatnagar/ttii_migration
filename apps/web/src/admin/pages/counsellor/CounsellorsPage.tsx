@@ -21,6 +21,7 @@ import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { COUNTRIES } from '@/lib/locations';
+import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
@@ -412,9 +413,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
                     toast.error('Email is not a valid format.');
                     return;
                   }
-                  void api.verifyEmail(session.token, v).then((r) => {
-                    if (!r.valid) toast.error(r.message || 'Email failed verification.');
-                  }).catch(() => { /* network — server validates again on submit */ });
+                  void verifyEmailWithFeedback(api, session.token, v, setFormEmail);
                 }}
               />
             </div>

@@ -13,6 +13,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { COUNTRIES, INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
+import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -458,10 +459,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                           toast.error('Email is not a valid format.');
                           return;
                         }
-                        // Server-side MX + disposable check. Quietly succeeds; loud only on failure.
-                        void api.verifyEmail(session.token, v).then((result) => {
-                          if (!result.valid) toast.error(result.message || 'Email failed verification.');
-                        }).catch(() => { /* ignore network errors — server validates again on submit */ });
+                        void verifyEmailWithFeedback(api, session.token, v, (corrected) => set('email', corrected));
                       }}
                     />
                   </div>

@@ -11,6 +11,7 @@ import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
+import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -322,9 +323,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
                       toast.error('Email is not a valid format.');
                       return;
                     }
-                    void api.verifyEmail(session.token, v).then((r) => {
-                      if (!r.valid) toast.error(r.message || 'Email failed verification.');
-                    }).catch(() => { /* network — server validates again on submit */ });
+                    void verifyEmailWithFeedback(api, session.token, v, (corrected) => set('email', corrected));
                   }}
                 />
               </div>

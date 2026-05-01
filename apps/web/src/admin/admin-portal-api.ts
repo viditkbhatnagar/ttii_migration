@@ -1817,8 +1817,15 @@ export class AdminPortalApi {
 
   // ── Email verification (MX + disposable check, no OTP) ────────────────────
 
-  async verifyEmail(authToken: string, email: string): Promise<{ valid: boolean; message: string; reason?: string }> {
-    const payload = await this.get<{ status?: number | string; message?: string; data?: { valid?: boolean; reason?: string; message?: string } }>(
+  async verifyEmail(
+    authToken: string,
+    email: string,
+  ): Promise<{ valid: boolean; message: string; reason?: string; suggestion?: string }> {
+    const payload = await this.get<{
+      status?: number | string;
+      message?: string;
+      data?: { valid?: boolean; reason?: string; message?: string; suggestion?: string };
+    }>(
       '/admin/email/verify',
       authToken,
       { email },
@@ -1828,6 +1835,7 @@ export class AdminPortalApi {
       valid,
       message: payload.data?.message ?? payload.message ?? '',
       ...(payload.data?.reason ? { reason: payload.data.reason } : {}),
+      ...(payload.data?.suggestion ? { suggestion: payload.data.suggestion } : {}),
     };
   }
 
