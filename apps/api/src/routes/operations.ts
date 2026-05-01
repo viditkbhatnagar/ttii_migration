@@ -1813,6 +1813,19 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.get('/admin/referrals/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      // Counsellors see only the rows they referred; admins/sub-admins see all.
+      const callerRoleId = request.authContext?.user.role_id ?? null;
+      const callerUserId = request.authContext?.user.id ?? null;
+      const scopedToUserId = callerRoleId === 9 && callerUserId !== null ? callerUserId : null;
+      const data = await operationsService.listReferrals(scopedToUserId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/associates/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listAssociates();

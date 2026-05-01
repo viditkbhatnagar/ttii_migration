@@ -3858,6 +3858,41 @@ export class OperationsService {
     })) as unknown as SqlRow[];
   }
 
+  /**
+   * Refer-a-friend rows joined with the referring user's name. The legacy
+   * `refer_a_friend` table only stores name/phone/user_id; admins see all
+   * rows, counsellors see only their own (rows where `user_id = caller`).
+   * Counsellor scoping is applied at the router layer when we know who's
+   * calling.
+   */
+  async listReferrals(scopedToUserId?: number | null): Promise<SqlRow[]> {
+    const rows = await this.prisma.refer_a_friend.findMany({
+      where: scopedToUserId != null ? { user_id: scopedToUserId } : {},
+      orderBy: { id: 'desc' },
+    });
+
+    const userIds = [...new Set(rows.map((r) => r.user_id).filter((x): x is number => x != null))];
+    const users = userIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, user_email: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return rows.map((r) => ({
+      id: r.id,
+      student_name: r.name,
+      phone: r.phone,
+      status: r.status ? 'converted' : 'pending',
+      referrer_id: r.user_id,
+      referrer_name: r.user_id != null ? userMap.get(r.user_id)?.name ?? null : null,
+      referrer_email: r.user_id != null ? userMap.get(r.user_id)?.user_email ?? null : null,
+      created_at: null,
+      course_name: null,
+    })) as unknown as SqlRow[];
+  }
+
   async listAssociates(): Promise<SqlRow[]> {
     const associates = await this.prisma.users.findMany({
       where: { role_id: 10, deleted_at: null },
