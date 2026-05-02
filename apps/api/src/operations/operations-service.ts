@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 
 type SqlRow = Record<string, unknown>;
@@ -1260,7 +1261,11 @@ export class OperationsService {
 
     const users = await this.prisma.users.findMany({
       where: where as Prisma.usersWhereInput,
-      select: { id: true, student_id: true, name: true, user_email: true, phone: true, course_id: true, added_under_centre: true, status: true, profile_picture: true, email: true },
+      select: {
+        id: true, student_id: true, name: true, user_email: true, phone: true,
+        course_id: true, added_under_centre: true, status: true,
+        image: true, profile_picture: true, email: true,
+      },
       orderBy: { id: 'desc' },
     });
 
@@ -1304,8 +1309,14 @@ export class OperationsService {
       .filter(u => filteredUserIds === null || filteredUserIds.has(u.id))
       .map(u => {
         const enrol = enrolments.find(e => e.user_id === u.id && e.course_id === u.course_id);
+        // Legacy data populates `profile_picture` for almost every student;
+        // `image` is set on rows created by the new LMS. Surface both as
+        // absolute URLs and let the frontend pick whichever is non-empty.
+        const photo = toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture);
         return {
           ...u,
+          image: photo,
+          profile_picture: toLegacyFileUrl(u.profile_picture),
           course_enrol_status: enrol?.enrollment_status ?? null,
           enrollment_id: enrol?.enrollment_id ?? null,
           batch_id: enrol?.batch_id ?? null,
