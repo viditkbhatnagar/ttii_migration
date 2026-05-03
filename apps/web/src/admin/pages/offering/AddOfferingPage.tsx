@@ -27,10 +27,6 @@ interface OfferingForm {
   publish_type: string;
   course_expiry_days: string;
   content_release_strategy: string;
-  fee_category: string;
-  base_fee: string;
-  discount: string;
-  offered_fee: string;
   completion_policy_id: string;
   certificate_template_id: string;
   language_id: string;
@@ -51,10 +47,6 @@ const emptyForm: OfferingForm = {
   publish_type: 'public',
   course_expiry_days: '',
   content_release_strategy: 'full',
-  fee_category: 'paid',
-  base_fee: '',
-  discount: '',
-  offered_fee: '',
   completion_policy_id: '',
   certificate_template_id: '',
   language_id: '',
@@ -238,10 +230,6 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         publish_type: asString(offering.publish_type) || 'public',
         course_expiry_days: offering.course_expiry_days ? String(asNumber(offering.course_expiry_days)) : '',
         content_release_strategy: asString(offering.content_release_strategy) || 'full',
-        fee_category: asString(offering.fee_category) || 'paid',
-        base_fee: offering.base_fee ? String(asNumber(offering.base_fee)) : '',
-        discount: offering.discount ? String(asNumber(offering.discount)) : '',
-        offered_fee: offering.offered_fee ? String(asNumber(offering.offered_fee)) : '',
         completion_policy_id: asString(offering.completion_policy_id),
         certificate_template_id: asString(offering.certificate_template_id),
         language_id: asString(offering.language_id),
@@ -251,21 +239,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
   }, [editId, api, session.token]);
 
   const updateField = useCallback((field: keyof OfferingForm, value: string) => {
-    setForm((prev) => {
-      const next = { ...prev, [field]: value };
-      if (field === 'base_fee' || field === 'discount') {
-        next.offered_fee = computeOfferedFee(
-          field === 'base_fee' ? value : next.base_fee,
-          field === 'discount' ? value : next.discount,
-        );
-      }
-      if (field === 'fee_category' && value === 'free') {
-        next.base_fee = '';
-        next.discount = '';
-        next.offered_fee = '';
-      }
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -288,10 +262,6 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         publish_type: form.publish_type,
         course_expiry_days: isSelfPaced && form.course_expiry_days ? Number(form.course_expiry_days) : undefined,
         content_release_strategy: form.content_release_strategy,
-        fee_category: form.fee_category,
-        base_fee: form.fee_category === 'paid' && form.base_fee ? Number(form.base_fee) : undefined,
-        discount: form.fee_category === 'paid' && form.discount ? Number(form.discount) : undefined,
-        offered_fee: form.fee_category === 'paid' && form.offered_fee ? Number(form.offered_fee) : undefined,
         completion_policy_id: form.completion_policy_id || undefined,
         certificate_template_id: form.certificate_template_id || undefined,
         language_id: form.language_id || undefined,
@@ -430,35 +400,6 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
               </select>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Pricing</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="max-w-xs space-y-1">
-            <Label>Fee Category</Label>
-            <select className={selectClass} value={form.fee_category} onChange={(e) => updateField('fee_category', e.target.value)}>
-              <option value="free">Free</option>
-              <option value="paid">Paid</option>
-            </select>
-          </div>
-          {form.fee_category === 'paid' && (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label>Base Fee (INR)</Label>
-                <Input type="number" value={form.base_fee} onChange={(e) => updateField('base_fee', e.target.value)} placeholder="0" />
-              </div>
-              <div className="space-y-1">
-                <Label>Discount (INR)</Label>
-                <Input type="number" value={form.discount} onChange={(e) => updateField('discount', e.target.value)} placeholder="0" />
-              </div>
-              <div className="space-y-1">
-                <Label>Offered Fee (auto)</Label>
-                <Input type="number" value={form.offered_fee} readOnly className="bg-muted" />
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
