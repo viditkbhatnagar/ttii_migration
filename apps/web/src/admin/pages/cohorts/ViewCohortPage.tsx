@@ -1024,9 +1024,9 @@ function AssignmentsTab({
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">File</p>
-                    {asString(selected.attachment) ? (
+                    {asString(selected.file) || asString(selected.attachment) ? (
                       <a
-                        href={asString(selected.attachment)}
+                        href={asString(selected.file) || asString(selected.attachment)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
@@ -1934,16 +1934,25 @@ function AssignmentModal({
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      // The /admin/cohorts/{add,edit}_assignment endpoints don't exist on
+      // the backend — assignments are managed through /admin/assignment/*.
+      // Route through the working API methods so saves actually persist.
+      const payload: Parameters<typeof api.addAssignment>[1] = {
+        title,
+        description,
+        dueDate,
+        fromTime,
+        toTime: dueTime,
+        instructions,
+        courseId: '',
+        cohortId,
+        ...(totalMarks ? { totalMarks: Number(totalMarks) } : {}),
+      };
       if (assignment) {
         const id = asString(assignment.id) || asString(assignment._id);
-        await api.editCohortAssignment(token, id, {
-          title, description, total_marks: totalMarks, due_date: dueDate,
-          from_time: fromTime, due_time: dueTime, instructions,
-        });
+        await api.editAssignment(token, id, payload);
       } else {
-        await api.addCohortAssignment(token, cohortId, {
-          title, description, totalMarks, dueDate, fromTime, dueTime, instructions,
-        });
+        await api.addAssignment(token, payload);
       }
       onSuccess();
     } catch (err) {
