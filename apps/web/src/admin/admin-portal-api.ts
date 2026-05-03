@@ -18,11 +18,15 @@ function asArray(value: unknown): unknown[] {
 }
 
 function asString(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '';
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  // Numeric IDs come straight from Prisma as `number`; without this coercion
+  // every {id, title} pair we map for the Course dropdown ends up with
+  // value="", making selection a no-op.
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    return String(value);
   }
-
-  return value.trim();
+  return '';
 }
 
 function asNumber(value: unknown): number {
