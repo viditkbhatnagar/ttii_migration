@@ -835,6 +835,47 @@ export class AdminPortalApi {
     });
   }
 
+  // Bulk creation — used by the Multiple Sessions schedule builder. Backend
+  // already loops over `entries`, so we just pass them all in a single POST.
+  async addCohortLiveSessionsBulk(
+    authToken: string,
+    cohortId: string,
+    input: {
+      platform?: 'teams' | 'zoom' | 'manual' | 'other';
+      teamsHostEmail?: string;
+      manualJoinUrl?: string;
+      zoomId?: string;
+      password?: string;
+      entries: Array<{
+        sessionId: string;
+        title: string;
+        date: string;
+        fromTime: string;
+        toTime: string;
+        isRepetitive?: boolean;
+        repeatDates?: string[];
+      }>;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/live_class/add', authToken, {
+      cohort_id: cohortId,
+      zoom_id: input.zoomId ?? '',
+      password: input.password ?? '',
+      entries: input.entries.map((e) => ({
+        session_id: e.sessionId,
+        title: e.title,
+        date: e.date,
+        fromTime: e.fromTime,
+        toTime: e.toTime,
+        is_repetitive: e.isRepetitive ? 1 : 0,
+        repeat_dates: e.repeatDates ?? [],
+      })),
+      platform: input.platform,
+      teams_host_email: input.teamsHostEmail,
+      manual_join_url: input.manualJoinUrl,
+    });
+  }
+
   async deleteCohortLiveSession(authToken: string, sessionId: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/cohorts/delete_live_session', authToken, { id: sessionId });
   }
