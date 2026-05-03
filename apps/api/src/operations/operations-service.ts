@@ -102,6 +102,14 @@ function rowsToCsv(headers: string[], rows: Array<Record<string, unknown>>): str
   return `${lines.join('\n')}\n`;
 }
 
+function safeParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 export type AdminApplicationFilters = {
   fromDate?: string;
   toDate?: string;
@@ -166,6 +174,12 @@ export type AdminApplicationInput = {
   certificateCombinationId?: string;
   applicationDate?: string;
   referenceStudentId?: string;
+  discountType?: string;
+  registrationFee?: string;
+  gstPercent?: string;
+  finalCourseFee?: string;
+  installmentPlan?: string;
+  documents?: string;
 };
 
 export type CentreApplicationInput = {
@@ -4657,6 +4671,21 @@ export class OperationsService {
           input.leadSource === 'Reference' && input.referenceStudentId
             ? `Reference#${input.referenceStudentId}`
             : input.leadSource || null,
+        application_discount: input.discount ? Number(input.discount) : null,
+        application_gst_percent: input.gstPercent ? Number(input.gstPercent) : null,
+        application_final_fee: input.finalCourseFee ? Number(input.finalCourseFee) : null,
+        // Biography is free-text; until dedicated columns exist, stash the
+        // installment plan, documents and discount type / registration fee
+        // there as JSON. Read back via JSON.parse when surfacing on the
+        // View Application page.
+        biography: (input.installmentPlan || input.documents || input.registrationFee || input.discountType)
+          ? JSON.stringify({
+              discount_type: input.discountType || null,
+              registration_fee: input.registrationFee || null,
+              installment_plan: input.installmentPlan ? safeParseJson(input.installmentPlan) : null,
+              documents: input.documents ? safeParseJson(input.documents) : null,
+            })
+          : null,
         pipeline_user: toNullableIntId(input.pipelineUser),
         pipeline: input.pipeline || (input.pipelineUser ? '9' : null),
         status: (input.applicationStatus as $Enums.applications_status | null) || 'pending',

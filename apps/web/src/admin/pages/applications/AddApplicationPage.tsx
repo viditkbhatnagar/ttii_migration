@@ -104,9 +104,28 @@ interface FormState {
   referenceStudentId: string;
   // Tab 4: Fee Information
   courseFee: string;
+  registrationFee: string;
+  discountType: 'percent' | 'flat';
   discount: string;
+  gstPercent: string;
   gstApplicability: string;
   finalCourseFee: string;
+  installmentCount: string;
+  installmentStartDate: string;
+  preferredPaymentDay: string;
+}
+
+interface InstallmentRow {
+  description: string;
+  due_date: string;
+  amount: string;
+  gst: string;
+  total: string;
+}
+
+interface DocumentRow {
+  name: string;
+  url: string;
 }
 
 const emptyForm: FormState = {
@@ -127,7 +146,9 @@ const emptyForm: FormState = {
   enrollmentDate: '',
   modeOfStudy: '', language: '', pipeline: '', pipelineUser: '', leadSource: '',
   referenceStudentId: '',
-  courseFee: '', discount: '', gstApplicability: 'No', finalCourseFee: '',
+  courseFee: '', registrationFee: '', discountType: 'percent', discount: '',
+  gstPercent: '18', gstApplicability: 'No', finalCourseFee: '',
+  installmentCount: '', installmentStartDate: '', preferredPaymentDay: '5',
 };
 
 const TAB_LABELS = ['Basic Info', 'Qualification', 'Enrolment', 'Fee Information'];
@@ -149,6 +170,8 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [educationRows, setEducationRows] = useState<EducationRow[]>([]);
+  const [installments, setInstallments] = useState<InstallmentRow[]>([]);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
 
   // Load dropdown data
   const { data: refData, loading: refLoading } = useAdminPageData(
@@ -216,12 +239,17 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((f) => {
       const updated = { ...f, [key]: value };
-      // Auto-calculate final course fee when discount or courseFee changes
-      if (key === 'discount' || key === 'courseFee' || key === 'gstApplicability') {
+      if (
+        key === 'discount' || key === 'courseFee' || key === 'gstApplicability' ||
+        key === 'discountType' || key === 'gstPercent'
+      ) {
         const fee = parseFloat(updated.courseFee) || 0;
         const disc = parseFloat(updated.discount) || 0;
-        const afterDiscount = fee - (fee * disc / 100);
-        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * 0.18 : 0;
+        const afterDiscount = updated.discountType === 'flat'
+          ? Math.max(0, fee - disc)
+          : fee - (fee * disc / 100);
+        const gstPct = parseFloat(updated.gstPercent) || 0;
+        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * (gstPct / 100) : 0;
         updated.finalCourseFee = (afterDiscount + gst).toFixed(2);
       }
       return updated;
@@ -276,22 +304,95 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     [form.country, form.state],
   );
 
-  // Auto-fill course fee when offering is selected
+  // Auto-fill fee fields when offering is selected. Pull registration_fee
+  // and gst_percent off the offering record if the backend exposes them;
+  // fall back to sensible defaults otherwise.
   const handleOfferingChange = useCallback((offeringId: string) => {
     setForm((f) => {
       const offering = offerings.find((o) => asString(o.id) === offeringId);
       const fee = offering ? asString(offering.pricing_amount) : '';
-      const updated = { ...f, offeringId, courseFee: fee };
+      const regFee = offering ? (asString(offering.registration_fee) || asString(offering.reg_fee)) : '';
+      const offeringGst = offering ? asString(offering.gst_percent) : '';
+      const updated = {
+        ...f,
+        offeringId,
+        courseFee: fee,
+        registrationFee: regFee || f.registrationFee,
+        gstPercent: offeringGst || f.gstPercent || '18',
+      };
       if (fee) {
         const feeNum = parseFloat(fee) || 0;
         const disc = parseFloat(updated.discount) || 0;
-        const afterDiscount = feeNum - (feeNum * disc / 100);
-        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * 0.18 : 0;
+        const afterDiscount = updated.discountType === 'flat'
+          ? Math.max(0, feeNum - disc)
+          : feeNum - (feeNum * disc / 100);
+        const gstPct = parseFloat(updated.gstPercent) || 0;
+        const gst = updated.gstApplicability === 'Yes' ? afterDiscount * (gstPct / 100) : 0;
         updated.finalCourseFee = (afterDiscount + gst).toFixed(2);
       }
       return updated;
     });
   }, [offerings]);
+
+  const generateInstallments = useCallback(() => {
+    const count = parseInt(form.installmentCount, 10) || 0;
+    if (count <= 0) { toast.error('Enter how many installments to generate.'); return; }
+    if (!form.installmentStartDate) { toast.error('Pick a start date.'); return; }
+    const total = parseFloat(form.finalCourseFee) || 0;
+    const reg = parseFloat(form.registrationFee) || 0;
+    const remaining = Math.max(0, total - reg);
+    const per = count > 0 ? remaining / count : 0;
+    const gstPct = parseFloat(form.gstPercent) || 0;
+    const includeGst = form.gstApplicability === 'Yes';
+
+    const start = new Date(form.installmentStartDate);
+    const day = parseInt(form.preferredPaymentDay, 10) || start.getDate();
+    const rows: InstallmentRow[] = [];
+    if (reg > 0) {
+      const gstAmt = includeGst ? (reg * gstPct / 100) : 0;
+      rows.push({
+        description: 'Registration Fee',
+        due_date: form.installmentStartDate,
+        amount: reg.toFixed(2),
+        gst: gstAmt.toFixed(2),
+        total: (reg + gstAmt).toFixed(2),
+      });
+    }
+    for (let i = 0; i < count; i++) {
+      const due = new Date(start.getFullYear(), start.getMonth() + i, day);
+      const yyyy = due.getFullYear();
+      const mm = String(due.getMonth() + 1).padStart(2, '0');
+      const dd = String(due.getDate()).padStart(2, '0');
+      const gstAmt = includeGst ? (per * gstPct / 100) : 0;
+      rows.push({
+        description: `Installment ${i + 1}`,
+        due_date: `${yyyy}-${mm}-${dd}`,
+        amount: per.toFixed(2),
+        gst: gstAmt.toFixed(2),
+        total: (per + gstAmt).toFixed(2),
+      });
+    }
+    setInstallments(rows);
+  }, [form.installmentCount, form.installmentStartDate, form.finalCourseFee, form.registrationFee, form.gstPercent, form.gstApplicability, form.preferredPaymentDay]);
+
+  const updateInstallment = (idx: number, patch: Partial<InstallmentRow>) => {
+    setInstallments((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+  const removeInstallment = (idx: number) => {
+    setInstallments((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleDocumentUpload = useCallback(async (file: File) => {
+    try {
+      const result = await api.uploadFile(session.token, file);
+      setDocuments((prev) => [...prev, { name: file.name, url: result.url }]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload document');
+    }
+  }, [api, session.token]);
+  const removeDocument = (idx: number) => {
+    setDocuments((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const addEducationRow = () => {
     setEducationRows((prev) => [...prev, { qualification: '', institution: '', yearOfPassing: '', percentage: '' }]);
@@ -366,7 +467,13 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         lead_source: form.leadSource,
         reference_student_id: form.leadSource === 'Reference' ? form.referenceStudentId : '',
         discount: form.discount.trim(),
+        discount_type: form.discountType,
+        registration_fee: form.registrationFee,
+        gst_percent: form.gstPercent,
         gst_applicability: form.gstApplicability,
+        final_course_fee: form.finalCourseFee,
+        installment_plan: JSON.stringify(installments),
+        documents: JSON.stringify(documents),
         application_status: 'pending',
       };
 
@@ -869,26 +976,231 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
 
           {/* Tab 4: Fee Information */}
           {activeTab === 3 && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>Course Fee</Label>
-                <Input value={form.courseFee} readOnly className="bg-gray-50" placeholder="Auto-filled from offering" />
-                <p className="text-xs text-gray-400">Static — Based on Course Offering</p>
+            <div className="space-y-6">
+              <div>
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Pricing</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>Course Fee</Label>
+                    <Input value={form.courseFee} readOnly className="bg-gray-50" placeholder="Auto-filled from offering" />
+                    <p className="text-xs text-gray-400">From Course Offering</p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Registration Fee</Label>
+                    <Input
+                      value={form.registrationFee}
+                      onChange={(e) => set('registrationFee', e.target.value)}
+                      placeholder="From offering"
+                    />
+                    <p className="text-xs text-gray-400">Pulled from offering when available; editable for one-off cases.</p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Discount</Label>
+                    <div className="flex gap-2">
+                      <select
+                        className={`${selectClass} w-32`}
+                        value={form.discountType}
+                        onChange={(e) => set('discountType', e.target.value as 'percent' | 'flat')}
+                      >
+                        <option value="percent">Percentage</option>
+                        <option value="flat">Flat (INR)</option>
+                      </select>
+                      <Input
+                        value={form.discount}
+                        onChange={(e) => set('discount', e.target.value)}
+                        placeholder={form.discountType === 'percent' ? 'e.g. 10' : 'e.g. 5000'}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>GST</Label>
+                    <div className="flex gap-2">
+                      <select
+                        className={`${selectClass} w-32`}
+                        value={form.gstApplicability}
+                        onChange={(e) => set('gstApplicability', e.target.value)}
+                      >
+                        <option value="No">Not applicable</option>
+                        <option value="Yes">Applicable</option>
+                      </select>
+                      <Input
+                        type="number"
+                        value={form.gstPercent}
+                        onChange={(e) => set('gstPercent', e.target.value)}
+                        placeholder="%"
+                        disabled={form.gstApplicability !== 'Yes'}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400">Default 18%; override if the offering specifies otherwise.</p>
+                  </div>
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label>Final Course Fee</Label>
+                    <Input
+                      value={form.finalCourseFee ? `₹${form.finalCourseFee}` : ''}
+                      readOnly
+                      className="bg-gray-50 font-semibold"
+                      placeholder="Auto-calculated"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>Discount (%)</Label>
-                <Input value={form.discount} onChange={(e) => set('discount', e.target.value)} placeholder="e.g. 10" />
+
+              <div>
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Instalment Plan</h3>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label>Number of Instalments</Label>
+                    <Input
+                      type="number"
+                      value={form.installmentCount}
+                      onChange={(e) => set('installmentCount', e.target.value)}
+                      placeholder="e.g. 6"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Start Date</Label>
+                    <Input
+                      type="date"
+                      value={form.installmentStartDate}
+                      onChange={(e) => set('installmentStartDate', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Preferred Payment Day</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="28"
+                      value={form.preferredPaymentDay}
+                      onChange={(e) => set('preferredPaymentDay', e.target.value)}
+                      placeholder="1–28"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={generateInstallments}>
+                    Generate Schedule
+                  </Button>
+                </div>
+
+                {installments.length > 0 && (
+                  <div className="mt-3 overflow-x-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">#</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">Description</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">Due Date</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">Amount</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">GST</th>
+                          <th className="px-2 py-2 text-left font-medium text-gray-600">Total</th>
+                          <th className="px-2 py-2 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {installments.map((row, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-2 py-1.5">{idx + 1}</td>
+                            <td className="px-2 py-1.5">
+                              <Input
+                                value={row.description}
+                                onChange={(e) => updateInstallment(idx, { description: e.target.value })}
+                                className="h-8 text-sm"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input
+                                type="date"
+                                value={row.due_date}
+                                onChange={(e) => updateInstallment(idx, { due_date: e.target.value })}
+                                className="h-8 text-sm"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input
+                                value={row.amount}
+                                onChange={(e) => updateInstallment(idx, { amount: e.target.value })}
+                                className="h-8 text-sm"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input
+                                value={row.gst}
+                                onChange={(e) => updateInstallment(idx, { gst: e.target.value })}
+                                className="h-8 text-sm"
+                                disabled={form.gstApplicability !== 'Yes'}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Input
+                                value={row.total}
+                                onChange={(e) => updateInstallment(idx, { total: e.target.value })}
+                                className="h-8 text-sm"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="size-7 p-0 text-red-500 hover:text-red-700"
+                                onClick={() => removeInstallment(idx)}
+                                aria-label="Remove instalment"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden="true" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {installments.length === 0 && (
+                  <p className="mt-3 rounded-md border border-dashed px-3 py-4 text-center text-sm text-gray-400">
+                    Set the number of instalments and dates, then click <strong>Generate Schedule</strong>.
+                  </p>
+                )}
               </div>
-              <div className="grid gap-2">
-                <Label>GST Applicability</Label>
-                <select className={selectClass} value={form.gstApplicability} onChange={(e) => set('gstApplicability', e.target.value)}>
-                  <option value="No">No</option>
-                  <option value="Yes">Yes (18%)</option>
-                </select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Final Course Fee</Label>
-                <Input value={form.finalCourseFee ? `₹${form.finalCourseFee}` : ''} readOnly className="bg-gray-50 font-semibold" placeholder="Auto-calculated" />
+
+              <div>
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Documents</h3>
+                <p className="mb-2 text-xs text-gray-500">
+                  Upload supporting documents for this application (ID proof, qualification certificates, etc.).
+                </p>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                  className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      void handleDocumentUpload(f);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                {documents.length > 0 && (
+                  <ul className="mt-3 space-y-1.5">
+                    {documents.map((d, idx) => (
+                      <li key={idx} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                        <a href={d.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
+                          {d.name}
+                        </a>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0 text-red-500 hover:text-red-700"
+                          onClick={() => removeDocument(idx)}
+                          aria-label="Remove document"
+                        >
+                          <Trash2 className="size-3.5" aria-hidden="true" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           )}

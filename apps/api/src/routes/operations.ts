@@ -2265,6 +2265,12 @@ export function registerOperationsRoutes(
         certificateCombinationId: toStringValue(payload.certificate_combination_id),
         applicationDate: toStringValue(payload.application_date),
         referenceStudentId: toStringValue(payload.reference_student_id),
+        discountType: toStringValue(payload.discount_type),
+        registrationFee: toStringValue(payload.registration_fee),
+        gstPercent: toStringValue(payload.gst_percent),
+        finalCourseFee: toStringValue(payload.final_course_fee),
+        installmentPlan: toStringValue(payload.installment_plan),
+        documents: toStringValue(payload.documents),
       };
 
       // Server-side email check (MX + disposable). Defense in depth — the
