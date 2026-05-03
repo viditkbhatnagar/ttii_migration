@@ -485,80 +485,89 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     setEducationRows((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Per-tab mandatory-field check. Returns { tab, label } of the first
+  // missing field on or before `upTo`, or null when everything's filled.
+  // Used by both goNext (validate current tab before advancing) and
+  // handleSubmit (validate all 5 tabs before sending the payload).
+  const findMissingField = useCallback((upTo: number): { tab: number; label: string } | null => {
+    if (upTo >= TAB_BASIC) {
+      const fullName = form.fullName.trim();
+      const tab1: { value: string; label: string }[] = [
+        { value: form.photoUrl, label: 'Profile Photo' },
+        { value: fullName, label: 'Full Name' },
+        { value: form.dateOfBirth, label: 'Date of Birth' },
+        { value: form.gender, label: 'Gender' },
+        { value: form.nationality.trim(), label: 'Nationality' },
+        { value: form.maritalStatus, label: 'Marital Status' },
+        { value: form.fatherName.trim(), label: "Father's Name" },
+        { value: form.motherName.trim(), label: "Mother's Name" },
+        { value: form.aadharNo.trim(), label: 'Aadhar Number' },
+        { value: form.passportNo.trim(), label: 'Passport Number' },
+        { value: form.email.trim(), label: 'Email' },
+        { value: form.phone.trim(), label: 'Phone' },
+        { value: form.alternatePhone.trim(), label: 'Alternate Phone' },
+        { value: form.whatsappNo.trim(), label: 'WhatsApp Number' },
+        { value: form.country.trim(), label: 'Country' },
+        { value: form.state.trim(), label: 'State' },
+        { value: form.district.trim(), label: 'District' },
+        { value: form.permanentAddress.trim(), label: 'Permanent Address' },
+        {
+          value: form.correspondenceSameAsPermanent
+            ? form.permanentAddress.trim()
+            : form.correspondenceAddress.trim(),
+          label: 'Correspondence Address',
+        },
+      ];
+      const miss1 = tab1.find((r) => !r.value);
+      if (miss1) return { tab: TAB_BASIC, label: miss1.label };
+      if (!EMAIL_REGEX.test(form.email.trim())) return { tab: TAB_BASIC, label: 'Email (invalid format)' };
+    }
+    if (upTo >= TAB_QUAL) {
+      const tab2: { value: string; label: string }[] = [
+        { value: form.highestQualification, label: 'Highest Qualification' },
+        { value: form.institutionName.trim(), label: 'School / College' },
+        { value: form.yearOfPassing, label: 'Year of Passing' },
+        { value: form.employmentStatus, label: 'Current Employment Status' },
+        { value: form.workExperience, label: 'Experience' },
+      ];
+      const miss2 = tab2.find((r) => !r.value);
+      if (miss2) return { tab: TAB_QUAL, label: miss2.label };
+    }
+    if (upTo >= TAB_ENROL) {
+      const tab3: { value: string; label: string }[] = [
+        { value: form.courseId, label: 'Course' },
+        { value: form.offeringId, label: 'Course Offering' },
+        { value: form.certificateCombination, label: 'Certificate Combination' },
+        { value: form.applicationDate, label: 'Date of Application' },
+        { value: form.modeOfStudy, label: 'Mode of Study' },
+        { value: form.language, label: 'Language' },
+        { value: form.pipeline, label: 'Pipeline' },
+        { value: form.pipelineUser, label: 'Pipeline User' },
+        { value: form.leadSource, label: 'Lead Source' },
+      ];
+      const miss3 = tab3.find((r) => !r.value);
+      if (miss3) return { tab: TAB_ENROL, label: miss3.label };
+      if (form.leadSource === 'Reference' && !form.referenceStudentId) {
+        return { tab: TAB_ENROL, label: 'Referred By (student)' };
+      }
+    }
+    if (upTo >= TAB_DOCS) {
+      const missingDoc = requiredDocSlots.find(
+        (slot) => slot.is_mandatory && !documents.some((d) => d.document_type_id === slot.document_type_id),
+      );
+      if (missingDoc) return { tab: TAB_DOCS, label: `${missingDoc.label} document` };
+    }
+    return null;
+  }, [form, requiredDocSlots, documents]);
+
   const handleSubmit = useCallback(async () => {
     const fullName = form.fullName.trim();
-
-    // Tab 1 — Naji's spec: every Basic Info field is mandatory except
-    // Guardian Name. Profile photo also mandatory.
-    const tab1Required: { value: string; label: string }[] = [
-      { value: form.photoUrl, label: 'Profile Photo' },
-      { value: fullName, label: 'Full Name' },
-      { value: form.dateOfBirth, label: 'Date of Birth' },
-      { value: form.gender, label: 'Gender' },
-      { value: form.nationality.trim(), label: 'Nationality' },
-      { value: form.maritalStatus, label: 'Marital Status' },
-      { value: form.fatherName.trim(), label: "Father's Name" },
-      { value: form.motherName.trim(), label: "Mother's Name" },
-      { value: form.aadharNo.trim(), label: 'Aadhar Number' },
-      { value: form.passportNo.trim(), label: 'Passport Number' },
-      { value: form.email.trim(), label: 'Email' },
-      { value: form.phone.trim(), label: 'Phone' },
-      { value: form.alternatePhone.trim(), label: 'Alternate Phone' },
-      { value: form.whatsappNo.trim(), label: 'WhatsApp Number' },
-      { value: form.country.trim(), label: 'Country' },
-      { value: form.state.trim(), label: 'State' },
-      { value: form.district.trim(), label: 'District' },
-      { value: form.permanentAddress.trim(), label: 'Permanent Address' },
-      {
-        value: form.correspondenceSameAsPermanent
-          ? form.permanentAddress.trim()
-          : form.correspondenceAddress.trim(),
-        label: 'Correspondence Address',
-      },
-    ];
-    const missingTab1 = tab1Required.find((r) => !r.value);
-    if (missingTab1) { toast.error(`${missingTab1.label} is required.`); setActiveTab(0); return; }
-    if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is not a valid format.'); setActiveTab(0); return; }
-
-    // Tab 2 — Qualification. Naji's spec: every field mandatory except
-    // Specialization and Current Occupation.
-    const tab2Required: { value: string; label: string }[] = [
-      { value: form.highestQualification, label: 'Highest Qualification' },
-      { value: form.institutionName.trim(), label: 'School / College' },
-      { value: form.yearOfPassing, label: 'Year of Passing' },
-      { value: form.employmentStatus, label: 'Current Employment Status' },
-      { value: form.workExperience, label: 'Experience' },
-    ];
-    const missingTab2 = tab2Required.find((r) => !r.value);
-    if (missingTab2) { toast.error(`${missingTab2.label} is required.`); setActiveTab(TAB_QUAL); return; }
-
-    // Tab 3 — Enrolment. Naji's spec: every field on this tab is mandatory.
-    // (Date of Enrolment was removed; it gets auto-set when admin accepts.)
-    const tab3Required: { value: string; label: string }[] = [
-      { value: form.courseId, label: 'Course' },
-      { value: form.offeringId, label: 'Course Offering' },
-      { value: form.certificateCombination, label: 'Certificate Combination' },
-      { value: form.applicationDate, label: 'Date of Application' },
-      { value: form.modeOfStudy, label: 'Mode of Study' },
-      { value: form.language, label: 'Language' },
-      { value: form.pipeline, label: 'Pipeline' },
-      { value: form.pipelineUser, label: 'Pipeline User' },
-      { value: form.leadSource, label: 'Lead Source' },
-    ];
-    const missingTab3 = tab3Required.find((r) => !r.value);
-    if (missingTab3) { toast.error(`${missingTab3.label} is required.`); setActiveTab(TAB_ENROL); return; }
-    if (form.leadSource === 'Reference' && !form.referenceStudentId) {
-      toast.error('Pick the student that referred this applicant.');
-      setActiveTab(TAB_ENROL);
+    const missingAll = findMissingField(TAB_FEE);
+    if (missingAll) {
+      toast.error(`${missingAll.label} is required.`);
+      setActiveTab(missingAll.tab);
       return;
     }
-
-    // Tab 4 — every required document slot for the chosen course must be
-    // uploaded. Mandatory-only check: optional slots can stay empty.
-    const missingDoc = requiredDocSlots.find(
-      (slot) => slot.is_mandatory && !documents.some((d) => d.document_type_id === slot.document_type_id),
-    );
-    if (missingDoc) { toast.error(`${missingDoc.label} document is required.`); setActiveTab(TAB_DOCS); return; }
 
     // Split full name into first/last for the legacy schema. Last name = the
     // last whitespace-separated token; first name = everything before. If
@@ -637,7 +646,17 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     }
   }, [form, api, session.token, onNavigate]);
 
-  const goNext = () => setActiveTab((t) => Math.min(t + 1, TAB_FEE));
+  const goNext = useCallback(() => {
+    // Validate the active tab before advancing — Naji's UAT note:
+    // "shouldn't move to next section without filling mandatory fields".
+    const missing = findMissingField(activeTab);
+    if (missing) {
+      toast.error(`${missing.label} is required.`);
+      setActiveTab(missing.tab);
+      return;
+    }
+    setActiveTab((t) => Math.min(t + 1, TAB_FEE));
+  }, [activeTab, findMissingField]);
   const goPrev = () => setActiveTab((t) => Math.max(t - 1, TAB_BASIC));
 
   if (refLoading) {
@@ -711,7 +730,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Enter full name" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Date of Birth (dd/mm/yyyy)</Label>
+                    <Label>Date of Birth (dd/mm/yyyy) *</Label>
                     <Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} />
                   </div>
                   <div className="grid gap-2">
@@ -719,7 +738,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     <Input value={calculateAge(form.dateOfBirth)} readOnly className="bg-gray-50" placeholder="Auto-calculated" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Gender</Label>
+                    <Label>Gender *</Label>
                     <select className={selectClass} value={form.gender} onChange={(e) => set('gender', e.target.value)}>
                       <option value="">Select Gender</option>
                       <option value="Male">Male</option>
@@ -728,14 +747,14 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     </select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Nationality</Label>
+                    <Label>Nationality *</Label>
                     <select className={selectClass} value={form.nationality} onChange={(e) => set('nationality', e.target.value)}>
                       <option value="">Select Nationality</option>
                       {COUNTRIES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Marital Status</Label>
+                    <Label>Marital Status *</Label>
                     <select className={selectClass} value={form.maritalStatus} onChange={(e) => set('maritalStatus', e.target.value)}>
                       <option value="">Select Marital Status</option>
                       <option value="Single">Single</option>
@@ -745,11 +764,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     </select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Father Name</Label>
+                    <Label>Father Name *</Label>
                     <Input value={form.fatherName} onChange={(e) => set('fatherName', e.target.value)} placeholder="Enter father's name" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Mother Name</Label>
+                    <Label>Mother Name *</Label>
                     <Input value={form.motherName} onChange={(e) => set('motherName', e.target.value)} placeholder="Enter mother's name" />
                   </div>
                   <div className="grid gap-2">
@@ -757,11 +776,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     <Input value={form.guardianName} onChange={(e) => set('guardianName', e.target.value)} placeholder="Enter guardian's name" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Aadhar Number</Label>
+                    <Label>Aadhar Number *</Label>
                     <Input value={form.aadharNo} onChange={(e) => set('aadharNo', e.target.value)} placeholder="Enter Aadhar number" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Passport Number</Label>
+                    <Label>Passport Number *</Label>
                     <Input value={form.passportNo} onChange={(e) => set('passportNo', e.target.value)} placeholder="Enter passport number" />
                   </div>
                 </div>
@@ -801,11 +820,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Alternate Phone Number</Label>
+                    <Label>Alternate Phone Number *</Label>
                     <Input value={form.alternatePhone} onChange={(e) => set('alternatePhone', e.target.value)} placeholder="Enter alternate phone" />
                   </div>
                   <div className="grid gap-2">
-                    <Label>WhatsApp Number</Label>
+                    <Label>WhatsApp Number *</Label>
                     <PhoneInput
                       countryCode={form.whatsappCountryCode}
                       number={form.whatsappNo}
@@ -816,14 +835,14 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Country</Label>
+                    <Label>Country *</Label>
                     <select className={selectClass} value={form.country} onChange={(e) => set('country', e.target.value)}>
                       <option value="">Select Country</option>
                       {COUNTRIES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>State</Label>
+                    <Label>State *</Label>
                     {form.country === 'India' ? (
                       <select className={selectClass} value={form.state} onChange={(e) => set('state', e.target.value)}>
                         <option value="">Select State</option>
@@ -834,7 +853,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     )}
                   </div>
                   <div className="grid gap-2">
-                    <Label>District</Label>
+                    <Label>District *</Label>
                     {districtList ? (
                       <select className={selectClass} value={form.district} onChange={(e) => set('district', e.target.value)}>
                         <option value="">Select District</option>
@@ -849,7 +868,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     )}
                   </div>
                   <div className="grid gap-2 md:col-span-2">
-                    <Label>Permanent Address</Label>
+                    <Label>Permanent Address *</Label>
                     <textarea
                       className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       value={form.permanentAddress}
@@ -870,7 +889,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     </Label>
                   </div>
                   <div className="grid gap-2 md:col-span-2">
-                    <Label>Correspondence Address</Label>
+                    <Label>Correspondence Address *</Label>
                     <textarea
                       className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                       value={form.correspondenceAddress}
@@ -889,7 +908,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label>Highest Qualification</Label>
+                  <Label>Highest Qualification *</Label>
                   <select className={selectClass} value={form.highestQualification} onChange={(e) => set('highestQualification', e.target.value)}>
                     <option value="">Select Qualification</option>
                     {QUALIFICATIONS.map((q) => <option key={q} value={q}>{q}</option>)}
@@ -900,18 +919,18 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Enter specialization" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>School / College</Label>
+                  <Label>School / College *</Label>
                   <Input value={form.institutionName} onChange={(e) => set('institutionName', e.target.value)} placeholder="Enter school/college name" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Year of Passing</Label>
+                  <Label>Year of Passing *</Label>
                   <select className={selectClass} value={form.yearOfPassing} onChange={(e) => set('yearOfPassing', e.target.value)}>
                     <option value="">Select Year</option>
                     {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
                 <div className="grid gap-2">
-                  <Label>Current Employment Status</Label>
+                  <Label>Current Employment Status *</Label>
                   <select className={selectClass} value={form.employmentStatus} onChange={(e) => set('employmentStatus', e.target.value)}>
                     <option value="">Select Status</option>
                     <option value="Employed">Employed</option>
@@ -927,7 +946,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   <Input value={form.currentOccupation} onChange={(e) => set('currentOccupation', e.target.value)} placeholder="Enter current occupation" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Experience</Label>
+                  <Label>Experience *</Label>
                   <select className={selectClass} value={form.workExperience} onChange={(e) => set('workExperience', e.target.value)}>
                     <option value="">Select Experience</option>
                     {WORK_EXPERIENCE.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -998,14 +1017,14 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
           {activeTab === 2 && (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
-                <Label>Course</Label>
+                <Label>Course *</Label>
                 <select className={selectClass} value={form.courseId} onChange={(e) => set('courseId', e.target.value)}>
                   <option value="">Select Course</option>
                   {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Course Offering</Label>
+                <Label>Course Offering *</Label>
                 <select
                   className={selectClass}
                   value={form.offeringId}
@@ -1017,7 +1036,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Certificate Combination</Label>
+                <Label>Certificate Combination *</Label>
                 <select
                   className={selectClass}
                   value={form.certificateCombination}
@@ -1038,19 +1057,19 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Date of Application</Label>
+                <Label>Date of Application *</Label>
                 <Input type="date" value={form.applicationDate} onChange={(e) => set('applicationDate', e.target.value)} />
                 <p className="text-xs text-gray-400">Date of Enrolment is auto-set when the admin accepts the application.</p>
               </div>
               <div className="grid gap-2">
-                <Label>Mode of Study</Label>
+                <Label>Mode of Study *</Label>
                 <select className={selectClass} value={form.modeOfStudy} onChange={(e) => set('modeOfStudy', e.target.value)}>
                   <option value="">Select Mode</option>
                   {MODE_OF_STUDY.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Language</Label>
+                <Label>Language *</Label>
                 <select className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
                   <option value="">Select Language</option>
                   {languages.map((l) => {
@@ -1061,7 +1080,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Pipeline</Label>
+                <Label>Pipeline *</Label>
                 <select className={selectClass} value={form.pipeline} onChange={(e) => set('pipeline', e.target.value)}>
                   <option value="">Select Pipeline</option>
                   <option value="Admin">Admin</option>
@@ -1071,7 +1090,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Pipeline User</Label>
+                <Label>Pipeline User *</Label>
                 <select
                   className={selectClass}
                   value={form.pipelineUser}
@@ -1087,7 +1106,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label>Lead Source</Label>
+                <Label>Lead Source *</Label>
                 <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
                   <option value="">Select Lead Source</option>
                   {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1095,7 +1114,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               </div>
               {form.leadSource === 'Reference' && (
                 <div className="grid gap-2">
-                  <Label>Referred By</Label>
+                  <Label>Referred By *</Label>
                   <select
                     className={selectClass}
                     value={form.referenceStudentId}
