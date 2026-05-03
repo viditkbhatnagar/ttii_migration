@@ -18,8 +18,9 @@ import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const QUALIFICATIONS = [
-  '10th Pass', '12th Pass', 'Diploma', 'Bachelor\'s Degree', 'Master\'s Degree',
-  'Ph.D.', 'Professional Certification', 'Other',
+  'Secondary School', 'Higher Secondary', 'Diploma', "Bachelor's Degree",
+  'Postgraduate Diploma', "Master's Degree", 'M.Phil.', 'Ph.D.',
+  'Professional Certification', 'Other',
 ];
 
 const WORK_EXPERIENCE = [
@@ -27,11 +28,26 @@ const WORK_EXPERIENCE = [
 ];
 
 const LEAD_SOURCES = [
-  'Website', 'Social Media', 'Referral', 'Walk-in', 'Advertisement',
-  'Agent/Associate', 'Event', 'Other',
+  'Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference',
 ];
 
 const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
+
+const PIPELINE_ROLE_MAP: Record<string, number> = {
+  Admin: 8,
+  Counsellor: 9,
+  Associate: 10,
+};
+
+const COUNSELLOR_ROLE_ID = 9;
+
+// Year-of-passing options: current+1 down to 1960. Generated once.
+const YEAR_OPTIONS = (() => {
+  const current = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = current + 1; y >= 1960; y--) years.push(String(y));
+  return years;
+})();
 
 interface EducationRow {
   qualification: string;
@@ -78,12 +94,14 @@ interface FormState {
   courseId: string;
   offeringId: string;
   certificateCombination: string;
+  applicationDate: string;
   enrollmentDate: string;
   modeOfStudy: string;
   language: string;
   pipeline: string;
   pipelineUser: string;
   leadSource: string;
+  referenceStudentId: string;
   // Tab 4: Fee Information
   courseFee: string;
   discount: string;
@@ -104,8 +122,11 @@ const emptyForm: FormState = {
   permanentAddress: '', correspondenceAddress: '', correspondenceSameAsPermanent: false,
   highestQualification: '', specialization: '', institutionName: '',
   yearOfPassing: '', employmentStatus: '', currentOccupation: '', workExperience: '',
-  courseId: '', offeringId: '', certificateCombination: '', enrollmentDate: '',
+  courseId: '', offeringId: '', certificateCombination: '',
+  applicationDate: new Date().toISOString().split('T')[0] ?? '',
+  enrollmentDate: '',
   modeOfStudy: '', language: '', pipeline: '', pipelineUser: '', leadSource: '',
+  referenceStudentId: '',
   courseFee: '', discount: '', gstApplicability: 'No', finalCourseFee: '',
 };
 
@@ -144,12 +165,6 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   );
   const offerings = useMemo(() => toRecords(offeringsData), [offeringsData]);
 
-  // Load pipeline users (counsellors)
-  const { data: counsellors } = useAdminPageData(
-    () => api.loadPipelineUsers(session.token, 9),
-    [],
-  );
-
   // Load batches
   const { data: batchesData } = useAdminPageData(
     () => api.loadBatches(session.token),
@@ -157,12 +172,46 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   );
   const _batches = useMemo(() => toRecords(batchesData), [batchesData]);
 
-  // Load certificate combinations for the picker (Phase D)
+  // Load certificate combinations once; filter client-side by selected course
+  // (combinations carry course_id; offering scope is implied by course).
   const { data: combinationsData } = useAdminPageData(
     () => api.listCertificateCombinations(session.token),
     [],
   );
-  const certificateCombinations = useMemo(() => toRecords(combinationsData), [combinationsData]);
+  const certificateCombinations = useMemo(() => {
+    const all = toRecords(combinationsData);
+    if (!form.courseId) return all;
+    return all.filter((c) => asString(c.course_id) === form.courseId);
+  }, [combinationsData, form.courseId]);
+
+  // Languages dropdown source (replaces free-text input).
+  const { data: languagesData } = useAdminPageData(
+    () => api.loadLanguages(session.token),
+    [],
+  );
+  const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+
+  // Pipeline User options depend on the selected Pipeline (Admin/Counsellor/
+  // Associate map to a role; Centre lists centres).
+  const { data: pipelineUsersData } = useAdminPageData(
+    () => {
+      if (form.pipeline === 'Centre') return api.loadCentres(session.token);
+      const roleId = PIPELINE_ROLE_MAP[form.pipeline];
+      if (!roleId) return Promise.resolve([]);
+      return api.loadPipelineUsers(session.token, roleId);
+    },
+    [form.pipeline],
+  );
+  const pipelineUsers = useMemo(() => toRecords(pipelineUsersData), [pipelineUsersData]);
+
+  // Lead Source = Reference reveals a student picker.
+  const { data: studentsData } = useAdminPageData(
+    () => form.leadSource === 'Reference' ? api.loadStudents(session.token, {}) : Promise.resolve([]),
+    [form.leadSource],
+  );
+  const students = useMemo(() => toRecords(studentsData), [studentsData]);
+
+  const isCounsellor = session.roleId === COUNSELLOR_ROLE_ID;
 
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((f) => {
@@ -201,6 +250,26 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.country]);
+
+  // Cascade: changing Course invalidates the chosen Offering / Combination.
+  useEffect(() => {
+    setForm((f) => (f.offeringId || f.certificateCombination ? { ...f, offeringId: '', certificateCombination: '' } : f));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.courseId]);
+
+  // Cascade: changing Pipeline invalidates the chosen Pipeline User.
+  useEffect(() => {
+    setForm((f) => (f.pipelineUser ? { ...f, pipelineUser: '' } : f));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.pipeline]);
+
+  // Cascade: leaving Lead Source = Reference clears the referenced student.
+  useEffect(() => {
+    if (form.leadSource !== 'Reference') {
+      setForm((f) => (f.referenceStudentId ? { ...f, referenceStudentId: '' } : f));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.leadSource]);
 
   const districtList = useMemo(
     () => (form.country === 'India' && form.state ? getDistrictsForState(form.state) : null),
@@ -287,12 +356,15 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         work_experience: form.workExperience,
         course_id: form.courseId,
         offering_id: form.offeringId,
+        certificate_combination_id: form.certificateCombination,
+        application_date: form.applicationDate,
         enrollment_date: form.enrollmentDate,
         mode_of_study: form.modeOfStudy,
-        language: form.language.trim(),
+        language: form.language,
         pipeline: form.pipeline,
         pipeline_user: form.pipelineUser,
         lead_source: form.leadSource,
+        reference_student_id: form.leadSource === 'Reference' ? form.referenceStudentId : '',
         discount: form.discount.trim(),
         gst_applicability: form.gstApplicability,
         application_status: 'pending',
@@ -579,7 +651,10 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </div>
                 <div className="grid gap-2">
                   <Label>Year of Passing</Label>
-                  <Input value={form.yearOfPassing} onChange={(e) => set('yearOfPassing', e.target.value)} placeholder="e.g. 2023" />
+                  <select className={selectClass} value={form.yearOfPassing} onChange={(e) => set('yearOfPassing', e.target.value)}>
+                    <option value="">Select Year</option>
+                    {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
                 </div>
                 <div className="grid gap-2">
                   <Label>Current Employment Status</Label>
@@ -636,7 +711,14 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                               <Input value={row.institution} onChange={(e) => updateEducationRow(idx, 'institution', e.target.value)} placeholder="Institution name" className="h-8 text-sm" />
                             </td>
                             <td className="px-2 py-1.5">
-                              <Input value={row.yearOfPassing} onChange={(e) => updateEducationRow(idx, 'yearOfPassing', e.target.value)} placeholder="e.g. 2023" className="h-8 text-sm" />
+                              <select
+                                className={`${selectClass} h-8 text-sm`}
+                                value={row.yearOfPassing}
+                                onChange={(e) => updateEducationRow(idx, 'yearOfPassing', e.target.value)}
+                              >
+                                <option value="">Year</option>
+                                {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                              </select>
                             </td>
                             <td className="px-2 py-1.5">
                               <Input value={row.percentage} onChange={(e) => updateEducationRow(idx, 'percentage', e.target.value)} placeholder="e.g. 85%" className="h-8 text-sm" />
@@ -670,8 +752,13 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               </div>
               <div className="grid gap-2">
                 <Label>Course Offering</Label>
-                <select className={selectClass} value={form.offeringId} onChange={(e) => handleOfferingChange(e.target.value)}>
-                  <option value="">Select Offering</option>
+                <select
+                  className={selectClass}
+                  value={form.offeringId}
+                  onChange={(e) => handleOfferingChange(e.target.value)}
+                  disabled={!form.courseId}
+                >
+                  <option value="">{form.courseId ? 'Select Offering' : 'Select a course first'}</option>
                   {offerings.map((o) => <option key={asString(o.id)} value={asString(o.id)}>{asString(o.title) || asString(o.offering_code) || 'Untitled'}</option>)}
                 </select>
               </div>
@@ -681,8 +768,9 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   className={selectClass}
                   value={form.certificateCombination}
                   onChange={(e) => set('certificateCombination', e.target.value)}
+                  disabled={!form.offeringId}
                 >
-                  <option value="">Select Combination</option>
+                  <option value="">{form.offeringId ? 'Select Combination' : 'Select an offering first'}</option>
                   {certificateCombinations.map((c) => {
                     const id = asString(c.id);
                     const code = asString(c.combination_code);
@@ -694,6 +782,10 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                     );
                   })}
                 </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Date of Application</Label>
+                <Input type="date" value={form.applicationDate} onChange={(e) => set('applicationDate', e.target.value)} />
               </div>
               <div className="grid gap-2">
                 <Label>Date of Enrolment</Label>
@@ -708,34 +800,70 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               </div>
               <div className="grid gap-2">
                 <Label>Language</Label>
-                <Input value={form.language} onChange={(e) => set('language', e.target.value)} placeholder="Enter preferred language" />
+                <select className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
+                  <option value="">Select Language</option>
+                  {languages.map((l) => {
+                    const id = asString(l.id);
+                    const title = asString(l.title) || asString(l.name);
+                    return <option key={id || title} value={title}>{title}</option>;
+                  })}
+                </select>
               </div>
               <div className="grid gap-2">
                 <Label>Pipeline</Label>
                 <select className={selectClass} value={form.pipeline} onChange={(e) => set('pipeline', e.target.value)}>
                   <option value="">Select Pipeline</option>
-                  <option value="senders">Senders</option>
-                  <option value="9">Counsellors</option>
-                  <option value="student_referral">Student Referral</option>
-                  <option value="10">Associates</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Counsellor">Counsellor</option>
+                  <option value="Associate">Associate</option>
+                  <option value="Centre">Centre</option>
                 </select>
               </div>
               <div className="grid gap-2">
                 <Label>Pipeline User</Label>
-                <select className={selectClass} value={form.pipelineUser} onChange={(e) => set('pipelineUser', e.target.value)}>
-                  <option value="">Select Pipeline User</option>
-                  {toRecords(counsellors).map((c) => (
-                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.name)}</option>
-                  ))}
+                <select
+                  className={selectClass}
+                  value={form.pipelineUser}
+                  onChange={(e) => set('pipelineUser', e.target.value)}
+                  disabled={!form.pipeline}
+                >
+                  <option value="">{form.pipeline ? 'Select Pipeline User' : 'Select a pipeline first'}</option>
+                  {pipelineUsers.map((u) => {
+                    const id = asString(u.id);
+                    const label = asString(u.name) || asString(u.centre_name) || asString(u.title) || `#${id}`;
+                    return <option key={id} value={id}>{label}</option>;
+                  })}
                 </select>
               </div>
-              <div className="grid gap-2">
-                <Label>Lead Source</Label>
-                <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
-                  <option value="">Select Lead Source</option>
-                  {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
+              {isCounsellor && (
+                <>
+                  <div className="grid gap-2">
+                    <Label>Lead Source</Label>
+                    <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
+                      <option value="">Select Lead Source</option>
+                      {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  {form.leadSource === 'Reference' && (
+                    <div className="grid gap-2">
+                      <Label>Referred By</Label>
+                      <select
+                        className={selectClass}
+                        value={form.referenceStudentId}
+                        onChange={(e) => set('referenceStudentId', e.target.value)}
+                      >
+                        <option value="">Select Student</option>
+                        {students.map((s) => {
+                          const id = asString(s.id);
+                          const name = asString(s.name);
+                          const sid = asString(s.student_id);
+                          return <option key={id} value={id}>{name}{sid ? ` (${sid})` : ''}</option>;
+                        })}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

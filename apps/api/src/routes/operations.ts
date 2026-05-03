@@ -2262,6 +2262,9 @@ export function registerOperationsRoutes(
         photoUrl: toStringValue(payload.photo_url),
         countryCode: toStringValue(payload.country_code),
         whatsappCountryCode: toStringValue(payload.whatsapp_country_code),
+        certificateCombinationId: toStringValue(payload.certificate_combination_id),
+        applicationDate: toStringValue(payload.application_date),
+        referenceStudentId: toStringValue(payload.reference_student_id),
       };
 
       // Server-side email check (MX + disposable). Defense in depth — the

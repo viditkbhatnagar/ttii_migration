@@ -163,6 +163,9 @@ export type AdminApplicationInput = {
   photoUrl?: string;
   countryCode?: string;
   whatsappCountryCode?: string;
+  certificateCombinationId?: string;
+  applicationDate?: string;
+  referenceStudentId?: string;
 };
 
 export type CentreApplicationInput = {
@@ -4603,7 +4606,10 @@ export class OperationsService {
     });
     if (duplicate) return { status: 0, message: 'Application with same phone or email already exists.' };
 
-    const now = new Date();
+    // Application date is user-controlled; if omitted, falls back to now.
+    // Backend stores it on `created_at` so we don't need a new column.
+    const applicationDate = input.applicationDate ? new Date(input.applicationDate) : new Date();
+    const now = applicationDate;
     const fullName = `${input.firstName.trim()} ${input.lastName?.trim() || ''}`.trim();
 
     // Auto-calculate age from DOB
@@ -4642,10 +4648,15 @@ export class OperationsService {
         image: input.photoUrl || '',
         course_id: toNullableIntId(input.courseId),
         batch_id: toNullableIntId(input.batchId),
+        offering_id: toNullableIntId(input.offeringId),
+        certificate_combination_id: toNullableIntId(input.certificateCombinationId),
         enrollment_date: input.enrollmentDate || null,
         mode_of_study: input.modeOfStudy || null,
         preferred_language: input.language || null,
-        marketing_source: input.leadSource || null,
+        marketing_source:
+          input.leadSource === 'Reference' && input.referenceStudentId
+            ? `Reference#${input.referenceStudentId}`
+            : input.leadSource || null,
         pipeline_user: toNullableIntId(input.pipelineUser),
         pipeline: input.pipeline || (input.pipelineUser ? '9' : null),
         status: (input.applicationStatus as $Enums.applications_status | null) || 'pending',
