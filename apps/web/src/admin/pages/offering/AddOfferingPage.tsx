@@ -73,6 +73,8 @@ interface PackageForm {
   base_fee: string;
   discount: string;
   offered_fee: string;
+  registration_fee: string;
+  gst_percent: string;
 }
 
 const emptyPackageForm: PackageForm = {
@@ -81,6 +83,8 @@ const emptyPackageForm: PackageForm = {
   base_fee: '',
   discount: '',
   offered_fee: '',
+  registration_fee: '',
+  gst_percent: '',
 };
 
 export default function AddOfferingPage({ api, session, onNavigate }: AdminPageProps) {
@@ -147,6 +151,8 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       base_fee: pkg.base_fee == null ? '' : String(asNumber(pkg.base_fee)),
       discount: pkg.discount == null ? '' : String(asNumber(pkg.discount)),
       offered_fee: pkg.offered_fee == null ? '' : String(asNumber(pkg.offered_fee)),
+      registration_fee: pkg.registration_fee == null ? '' : String(asNumber(pkg.registration_fee)),
+      gst_percent: pkg.gst_percent == null ? '' : String(asNumber(pkg.gst_percent)),
     });
     setPackageDialog(true);
   }, []);
@@ -174,6 +180,8 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         base_fee: packageForm.base_fee ? Number(packageForm.base_fee) : undefined,
         discount: packageForm.discount ? Number(packageForm.discount) : undefined,
         offered_fee: packageForm.offered_fee ? Number(packageForm.offered_fee) : undefined,
+        registration_fee: packageForm.registration_fee ? Number(packageForm.registration_fee) : undefined,
+        gst_percent: packageForm.gst_percent ? Number(packageForm.gst_percent) : undefined,
       };
       if (editingPackageId) {
         await api.updateOfferingPackage(session.token, editingPackageId, payload);
@@ -613,6 +621,30 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   disabled={packageForm.fee_category === 'free'}
                 />
                 <p className="text-xs text-slate-400">Auto-calculated from Base − Discount; override if needed.</p>
+              </div>
+              <div className="space-y-1">
+                <Label>Registration Fee (₹)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={packageForm.registration_fee}
+                  onChange={(e) => updatePackageField('registration_fee', e.target.value)}
+                  disabled={packageForm.fee_category === 'free'}
+                  placeholder="0"
+                />
+                <p className="text-xs text-slate-400">One-off registration charge for this package; flows into the application instalment plan as the first row.</p>
+              </div>
+              <div className="space-y-1">
+                <Label>GST (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={packageForm.gst_percent}
+                  onChange={(e) => updatePackageField('gst_percent', e.target.value)}
+                  disabled={packageForm.fee_category === 'free'}
+                  placeholder="e.g. 18"
+                />
+                <p className="text-xs text-slate-400">Override the combination's default GST for this package (leave blank to inherit).</p>
               </div>
             </div>
           </div>

@@ -438,13 +438,14 @@ export class OfferingService {
         combination_id: String(r.combination_id),
         combination_code: combo?.combination_code ?? '',
         gst_applicable: combo?.gst_applicable ?? false,
-        gst_percent: combo?.gst_percent === null || combo?.gst_percent === undefined
-          ? null
-          : Number(combo.gst_percent),
+        gst_percent: r.gst_percent === null || r.gst_percent === undefined
+          ? (combo?.gst_percent === null || combo?.gst_percent === undefined ? null : Number(combo.gst_percent))
+          : Number(r.gst_percent),
         fee_category: r.fee_category,
         base_fee: r.base_fee === null ? null : Number(r.base_fee),
         discount: r.discount === null ? null : Number(r.discount),
         offered_fee: r.offered_fee === null ? null : Number(r.offered_fee),
+        registration_fee: r.registration_fee === null ? null : Number(r.registration_fee),
         position: r.position,
         created_at: r.created_at,
       };
@@ -460,6 +461,8 @@ export class OfferingService {
       base_fee?: number | undefined;
       discount?: number | undefined;
       offered_fee?: number | undefined;
+      registration_fee?: number | undefined;
+      gst_percent?: number | undefined;
       position?: number | undefined;
     },
   ): Promise<Record<string, unknown>> {
@@ -477,6 +480,8 @@ export class OfferingService {
         base_fee: toNullableDecimal(input.base_fee),
         discount: toNullableDecimal(input.discount),
         offered_fee: toNullableDecimal(input.offered_fee),
+        registration_fee: toNullableDecimal(input.registration_fee),
+        gst_percent: toNullableDecimal(input.gst_percent),
         position: input.position ?? 0,
         created_by: actor,
         updated_by: actor,
@@ -491,6 +496,8 @@ export class OfferingService {
       base_fee: created.base_fee === null ? null : Number(created.base_fee),
       discount: created.discount === null ? null : Number(created.discount),
       offered_fee: created.offered_fee === null ? null : Number(created.offered_fee),
+      registration_fee: created.registration_fee === null ? null : Number(created.registration_fee),
+      gst_percent: created.gst_percent === null ? null : Number(created.gst_percent),
       position: created.position,
     };
   }
@@ -503,6 +510,8 @@ export class OfferingService {
       base_fee?: number | undefined;
       discount?: number | undefined;
       offered_fee?: number | undefined;
+      registration_fee?: number | undefined;
+      gst_percent?: number | undefined;
       position?: number | undefined;
     },
   ): Promise<void> {
@@ -515,6 +524,8 @@ export class OfferingService {
         base_fee: toNullableDecimal(input.base_fee),
         discount: toNullableDecimal(input.discount),
         offered_fee: toNullableDecimal(input.offered_fee),
+        registration_fee: toNullableDecimal(input.registration_fee),
+        gst_percent: toNullableDecimal(input.gst_percent),
         position: input.position ?? 0,
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),

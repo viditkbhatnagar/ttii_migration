@@ -2419,14 +2419,16 @@ model certificate_combination_partners {
 /// Added 2026-04-26 per Naji's TTII LMS Correction_new_corrections doc
 /// (Course Offerings → Certificate Package sub-section).
 model offering_certificate_packages {
-  id              Int       @id @default(autoincrement()) @db.UnsignedInt
-  offering_id     Int
-  combination_id  Int
-  fee_category    String    @default("paid") @db.VarChar(10)
-  base_fee        Decimal?  @db.Decimal(10, 2)
-  discount        Decimal?  @db.Decimal(10, 2)
-  offered_fee     Decimal?  @db.Decimal(10, 2)
-  position        Int       @default(0)
+  id                Int       @id @default(autoincrement()) @db.UnsignedInt
+  offering_id       Int
+  combination_id    Int
+  fee_category      String    @default("paid") @db.VarChar(10)
+  base_fee          Decimal?  @db.Decimal(10, 2)
+  discount          Decimal?  @db.Decimal(10, 2)
+  offered_fee       Decimal?  @db.Decimal(10, 2)
+  registration_fee  Decimal?  @db.Decimal(10, 2)
+  gst_percent       Decimal?  @db.Decimal(5, 2)
+  position          Int       @default(0)
   created_by      Int?
   updated_by      Int?
   created_at      DateTime? @default(now()) @db.DateTime(0)

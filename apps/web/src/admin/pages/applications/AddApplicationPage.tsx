@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
@@ -254,6 +254,17 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
       : Promise.resolve([]),
     [form.courseId],
   );
+
+  // Certificate packages for the chosen offering — each row carries the
+  // registration_fee and gst_percent that drive Tab 4's pricing once a
+  // certificate combination is picked.
+  const { data: offeringPackagesData } = useAdminPageData(
+    () => form.offeringId
+      ? api.listOfferingPackages(session.token, form.offeringId)
+      : Promise.resolve([]),
+    [form.offeringId],
+  );
+  const offeringPackages = useMemo(() => toRecords(offeringPackagesData), [offeringPackagesData]);
   const requiredDocSlots = useMemo<RequiredDocSlot[]>(() => {
     return toRecords(requiredDocsData).map((r) => ({
       document_type_id: asString(r.document_type_id),
@@ -325,6 +336,39 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.leadSource]);
+
+  // When the user picks a Certificate Combination, pull its package's
+  // pricing (offered_fee, registration_fee, gst_percent) so Tab 5's pricing
+  // matches Naji's "Registration Fee defined per package" model.
+  useEffect(() => {
+    if (!form.certificateCombination) return;
+    const pkg = offeringPackages.find(
+      (p) => asString(p.combination_id) === form.certificateCombination,
+    );
+    if (!pkg) return;
+    const offered = asNumber(pkg.offered_fee);
+    const baseFee = offered ? String(offered) : asString(pkg.base_fee) ? String(asNumber(pkg.base_fee)) : '';
+    const regFee = pkg.registration_fee != null ? String(asNumber(pkg.registration_fee)) : '';
+    const gstPct = pkg.gst_percent != null ? String(asNumber(pkg.gst_percent)) : '';
+    setForm((f) => {
+      const updated = {
+        ...f,
+        courseFee: baseFee || f.courseFee,
+        registrationFee: regFee || f.registrationFee,
+        gstPercent: gstPct || f.gstPercent,
+      };
+      const fee = parseFloat(updated.courseFee) || 0;
+      const disc = parseFloat(updated.discount) || 0;
+      const afterDiscount = updated.discountType === 'flat'
+        ? Math.max(0, fee - disc)
+        : fee - (fee * disc / 100);
+      const gstNum = parseFloat(updated.gstPercent) || 0;
+      const gst = updated.gstApplicability === 'Yes' ? afterDiscount * (gstNum / 100) : 0;
+      updated.finalCourseFee = (afterDiscount + gst).toFixed(2);
+      return updated;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.certificateCombination, offeringPackages]);
 
   const districtList = useMemo(
     () => (form.country === 'India' && form.state ? getDistrictsForState(form.state) : null),

@@ -1147,6 +1147,8 @@ export function registerContentRoutes(
         base_fee: typeof p.base_fee === 'number' ? p.base_fee : (p.base_fee ? Number(p.base_fee) : undefined),
         discount: typeof p.discount === 'number' ? p.discount : (p.discount ? Number(p.discount) : undefined),
         offered_fee: typeof p.offered_fee === 'number' ? p.offered_fee : (p.offered_fee ? Number(p.offered_fee) : undefined),
+        registration_fee: typeof p.registration_fee === 'number' ? p.registration_fee : (p.registration_fee ? Number(p.registration_fee) : undefined),
+        gst_percent: typeof p.gst_percent === 'number' ? p.gst_percent : (p.gst_percent ? Number(p.gst_percent) : undefined),
         position: typeof p.position === 'number' ? p.position : 0,
       });
       reply.code(200).send({ status: 1, message: 'Package added.', data });
@@ -1164,6 +1166,8 @@ export function registerContentRoutes(
         base_fee: typeof p.base_fee === 'number' ? p.base_fee : (p.base_fee ? Number(p.base_fee) : undefined),
         discount: typeof p.discount === 'number' ? p.discount : (p.discount ? Number(p.discount) : undefined),
         offered_fee: typeof p.offered_fee === 'number' ? p.offered_fee : (p.offered_fee ? Number(p.offered_fee) : undefined),
+        registration_fee: typeof p.registration_fee === 'number' ? p.registration_fee : (p.registration_fee ? Number(p.registration_fee) : undefined),
+        gst_percent: typeof p.gst_percent === 'number' ? p.gst_percent : (p.gst_percent ? Number(p.gst_percent) : undefined),
         position: typeof p.position === 'number' ? p.position : 0,
       });
       reply.code(200).send({ status: 1, message: 'Package updated.', data: {} });
