@@ -202,6 +202,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'testimonials', label: 'Testimonials', href: '/admin/testimonials/index' },
       { id: 'faqs', label: 'FAQs', href: '/admin/faq/index' },
       { id: 'language', label: 'Language', href: '/admin/language/index' },
+      { id: 'document-types', label: 'Document Types', href: '/admin/settings/document_types' },
       { id: 'app-version', label: 'App Version', href: '/admin/settings/app_version' },
       { id: 'system-settings', label: 'System Settings', href: '/admin/settings/system_settings' },
       { id: 'contact-settings', label: 'Contact Settings', href: '/admin/settings/contact_settings' },

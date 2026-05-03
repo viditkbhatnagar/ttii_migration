@@ -67,6 +67,7 @@ const TeamsMeetingHostsPage = lazy(() => import('../pages/integrations/TeamsMeet
 const SystemSettingsPage = lazy(() => import('../pages/settings/SystemSettingsPage.js'));
 const ContactSettingsPage = lazy(() => import('../pages/settings/ContactSettingsPage.js'));
 const WebsiteSettingsPage = lazy(() => import('../pages/settings/WebsiteSettingsPage.js'));
+const DocumentTypesPage = lazy(() => import('../pages/settings/DocumentTypesPage.js'));
 const NotificationsPage = lazy(() => import('../pages/notification/NotificationsPage.js'));
 const BannersPage = lazy(() => import('../pages/banners/BannersPage.js'));
 const FaqPage = lazy(() => import('../pages/faq/FaqPage.js'));
@@ -259,6 +260,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/settings/system_settings', pageComponent: SystemSettingsPage, title: 'System Settings' },
   { path: '/admin/settings/contact_settings', pageComponent: ContactSettingsPage, title: 'Contact Settings' },
   { path: '/admin/settings/website_settings', pageComponent: WebsiteSettingsPage, title: 'Website Settings' },
+  { path: '/admin/settings/document_types', pageComponent: DocumentTypesPage, title: 'Document Types' },
 
   // Phase 6: Additional pages
   { path: '/admin/roles/index', aliases: ['/admin/roles'], pageComponent: RolesPermissionsPage, title: 'Roles & Permissions' },

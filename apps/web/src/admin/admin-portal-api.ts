@@ -2343,6 +2343,36 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>(`/admin/certification_partners/${id}/delete`, authToken, {});
   }
 
+  // ── Document Types (settings) + per-course required docs ────────
+
+  async listDocumentTypes(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/settings/document-types', authToken);
+    return toRecords(payload.data);
+  }
+
+  async createDocumentType(authToken: string, label: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/settings/document-types', authToken, { label });
+  }
+
+  async updateDocumentType(authToken: string, id: string, label: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/settings/document-types/${id}/update`, authToken, { label });
+  }
+
+  async deleteDocumentType(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/settings/document-types/${id}/delete`, authToken, {});
+  }
+
+  async listCourseRequiredDocuments(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(`/admin/courses/${courseId}/required-documents`, authToken);
+    return toRecords(payload.data);
+  }
+
+  async setCourseRequiredDocuments(authToken: string, courseId: string, documentTypeIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/courses/${courseId}/required-documents`, authToken, {
+      document_type_ids: documentTypeIds,
+    });
+  }
+
   // ── Certificate Combinations ─────────────────────────────────────
 
   async listCertificateCombinations(authToken: string): Promise<Record<string, unknown>[]> {

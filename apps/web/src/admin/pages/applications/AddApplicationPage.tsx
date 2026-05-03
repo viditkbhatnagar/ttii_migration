@@ -126,6 +126,13 @@ interface InstallmentRow {
 interface DocumentRow {
   name: string;
   url: string;
+  document_type_id?: string;
+}
+
+interface RequiredDocSlot {
+  document_type_id: string;
+  label: string;
+  is_mandatory: boolean;
 }
 
 const emptyForm: FormState = {
@@ -233,6 +240,23 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     [form.leadSource],
   );
   const students = useMemo(() => toRecords(studentsData), [studentsData]);
+
+  // Required documents per the chosen course (defined under Settings →
+  // Document Types and attached to a course on the Course form). Drives
+  // the labelled upload slots on Tab 4.
+  const { data: requiredDocsData } = useAdminPageData(
+    () => form.courseId
+      ? api.listCourseRequiredDocuments(session.token, form.courseId)
+      : Promise.resolve([]),
+    [form.courseId],
+  );
+  const requiredDocSlots = useMemo<RequiredDocSlot[]>(() => {
+    return toRecords(requiredDocsData).map((r) => ({
+      document_type_id: asString(r.document_type_id),
+      label: asString(r.label),
+      is_mandatory: r.is_mandatory !== false,
+    })).filter((r) => r.document_type_id);
+  }, [requiredDocsData]);
 
   const isCounsellor = session.roleId === COUNSELLOR_ROLE_ID;
 
@@ -382,10 +406,18 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     setInstallments((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleDocumentUpload = useCallback(async (file: File) => {
+  const handleDocumentUpload = useCallback(async (file: File, documentTypeId?: string) => {
     try {
       const result = await api.uploadFile(session.token, file);
-      setDocuments((prev) => [...prev, { name: file.name, url: result.url }]);
+      setDocuments((prev) => {
+        // For a typed slot, replace any existing upload for that slot.
+        const filtered = documentTypeId
+          ? prev.filter((d) => d.document_type_id !== documentTypeId)
+          : prev;
+        const row: DocumentRow = { name: file.name, url: result.url };
+        if (documentTypeId) row.document_type_id = documentTypeId;
+        return [...filtered, row];
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to upload document');
     }
@@ -408,10 +440,45 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
 
   const handleSubmit = useCallback(async () => {
     const fullName = form.fullName.trim();
-    if (!fullName) { toast.error('Full name is required.'); setActiveTab(0); return; }
-    if (!form.email.trim()) { toast.error('Email is required.'); setActiveTab(0); return; }
+
+    // Tab 1 — Naji's spec: every Basic Info field is mandatory except
+    // Guardian Name. Profile photo also mandatory.
+    const tab1Required: { value: string; label: string }[] = [
+      { value: form.photoUrl, label: 'Profile Photo' },
+      { value: fullName, label: 'Full Name' },
+      { value: form.dateOfBirth, label: 'Date of Birth' },
+      { value: form.gender, label: 'Gender' },
+      { value: form.nationality.trim(), label: 'Nationality' },
+      { value: form.maritalStatus, label: 'Marital Status' },
+      { value: form.fatherName.trim(), label: "Father's Name" },
+      { value: form.motherName.trim(), label: "Mother's Name" },
+      { value: form.aadharNo.trim(), label: 'Aadhar Number' },
+      { value: form.passportNo.trim(), label: 'Passport Number' },
+      { value: form.email.trim(), label: 'Email' },
+      { value: form.phone.trim(), label: 'Phone' },
+      { value: form.alternatePhone.trim(), label: 'Alternate Phone' },
+      { value: form.whatsappNo.trim(), label: 'WhatsApp Number' },
+      { value: form.country.trim(), label: 'Country' },
+      { value: form.state.trim(), label: 'State' },
+      { value: form.district.trim(), label: 'District' },
+      { value: form.permanentAddress.trim(), label: 'Permanent Address' },
+      {
+        value: form.correspondenceSameAsPermanent
+          ? form.permanentAddress.trim()
+          : form.correspondenceAddress.trim(),
+        label: 'Correspondence Address',
+      },
+    ];
+    const missingTab1 = tab1Required.find((r) => !r.value);
+    if (missingTab1) { toast.error(`${missingTab1.label} is required.`); setActiveTab(0); return; }
     if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is not a valid format.'); setActiveTab(0); return; }
-    if (!form.phone.trim()) { toast.error('Phone is required.'); setActiveTab(0); return; }
+
+    // Tab 4 — every required document slot for the chosen course must be
+    // uploaded. Mandatory-only check: optional slots can stay empty.
+    const missingDoc = requiredDocSlots.find(
+      (slot) => slot.is_mandatory && !documents.some((d) => d.document_type_id === slot.document_type_id),
+    );
+    if (missingDoc) { toast.error(`${missingDoc.label} document is required.`); setActiveTab(3); return; }
 
     // Split full name into first/last for the legacy schema. Last name = the
     // last whitespace-separated token; first name = everything before. If
@@ -1165,42 +1232,102 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
 
               <div>
                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Documents</h3>
-                <p className="mb-2 text-xs text-gray-500">
-                  Upload supporting documents for this application (ID proof, qualification certificates, etc.).
-                </p>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      void handleDocumentUpload(f);
-                      e.target.value = '';
-                    }
-                  }}
-                />
-                {documents.length > 0 && (
-                  <ul className="mt-3 space-y-1.5">
-                    {documents.map((d, idx) => (
-                      <li key={idx} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
-                        <a href={d.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
-                          {d.name}
-                        </a>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="size-7 p-0 text-red-500 hover:text-red-700"
-                          onClick={() => removeDocument(idx)}
-                          aria-label="Remove document"
-                        >
-                          <Trash2 className="size-3.5" aria-hidden="true" />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
+                {!form.courseId ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
+                    Pick a Course on the Enrolment tab to see which documents are required.
+                  </p>
+                ) : requiredDocSlots.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
+                    This course has no required documents configured. (Configure under Courses → Edit Course → Required Documents.)
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {requiredDocSlots.map((slot) => {
+                      const existing = documents.find((d) => d.document_type_id === slot.document_type_id);
+                      return (
+                        <div key={slot.document_type_id} className="rounded-md border p-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">
+                              {slot.label}
+                              {slot.is_mandatory ? <span className="ml-1 text-red-500">*</span> : null}
+                            </Label>
+                            {existing ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-500 hover:text-red-700"
+                                onClick={() => setDocuments((prev) => prev.filter((d) => d.document_type_id !== slot.document_type_id))}
+                              >
+                                <Trash2 className="size-3.5" aria-hidden="true" /> Remove
+                              </Button>
+                            ) : null}
+                          </div>
+                          {existing ? (
+                            <a href={existing.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-xs text-blue-600 hover:underline">
+                              {existing.name}
+                            </a>
+                          ) : (
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                              className="mt-2 block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) {
+                                  void handleDocumentUpload(f, slot.document_type_id);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+
+                {/* Optional ad-hoc extras the admin wants to attach beyond the
+                    course's defined slots. */}
+                <div className="mt-4 rounded-md border-t pt-3">
+                  <p className="mb-2 text-xs text-gray-500">Other documents (optional)</p>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        void handleDocumentUpload(f);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  {documents.filter((d) => !d.document_type_id).length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {documents.map((d, idx) => {
+                        if (d.document_type_id) return null;
+                        return (
+                          <li key={idx} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
+                              {d.name}
+                            </a>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="size-7 p-0 text-red-500 hover:text-red-700"
+                              onClick={() => removeDocument(idx)}
+                              aria-label="Remove document"
+                            >
+                              <Trash2 className="size-3.5" aria-hidden="true" />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
           )}

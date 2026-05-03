@@ -2510,6 +2510,37 @@ model course_subject {
   @@index([subject_id], map: "idx_cs_subject")
 }
 
+// Master list of document types admins can require per course.
+model document_types {
+  id         Int       @id @default(autoincrement())
+  label      String    @db.VarChar(150)
+  position   Int?      @default(0)
+  created_by Int?
+  updated_by Int?
+  deleted_by Int?
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  updated_at DateTime? @db.DateTime(0)
+  deleted_at DateTime? @db.DateTime(0)
+}
+
+// Pivot: which document types each course requires on application.
+model course_required_documents {
+  course_id        Int
+  document_type_id Int
+  is_mandatory     Boolean   @default(true)
+  position         Int?      @default(0)
+  created_by       Int?
+  updated_by       Int?
+  deleted_by       Int?
+  created_at       DateTime? @default(now()) @db.DateTime(0)
+  updated_at       DateTime? @db.DateTime(0)
+  deleted_at       DateTime? @db.DateTime(0)
+
+  @@id([course_id, document_type_id])
+  @@index([course_id], map: "idx_crd_course")
+  @@index([document_type_id], map: "idx_crd_doc_type")
+}
+
 model offerings {
   id                       Int       @id @default(autoincrement()) @db.UnsignedInt
   course_id                Int

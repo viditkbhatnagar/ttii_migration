@@ -556,6 +556,59 @@ export function registerContentRoutes(
     }
   });
 
+  // ─── Document Types (settings) + per-course required docs ──────────────
+  app.get('/admin/settings/document-types', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await contentService.listDocumentTypes();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  app.post('/admin/settings/document-types', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await contentService.createDocumentType(requestUserId(request), toStringValue(payload.label));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  app.post('/admin/settings/document-types/:id/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const id = toStringValue((request.params as { id?: string }).id);
+      const payload = requestPayload(request);
+      const result = await contentService.updateDocumentType(requestUserId(request), id, toStringValue(payload.label));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  app.post('/admin/settings/document-types/:id/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const id = toStringValue((request.params as { id?: string }).id);
+      const result = await contentService.deleteDocumentType(requestUserId(request), id);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  app.get('/admin/courses/:id/required-documents', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const id = toStringValue((request.params as { id?: string }).id);
+      const data = await contentService.listCourseRequiredDocuments(id);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  app.post('/admin/courses/:id/required-documents', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const id = toStringValue((request.params as { id?: string }).id);
+      const payload = requestPayload(request);
+      const ids = Array.isArray(payload.document_type_ids)
+        ? (payload.document_type_ids as unknown[]).map((v) => toStringValue(v))
+        : [];
+      const result = await contentService.setCourseRequiredDocuments(requestUserId(request), id, ids);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
   app.post('/admin/course/subjects/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

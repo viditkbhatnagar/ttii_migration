@@ -71,6 +71,7 @@ const emptyForm: FormState = {
 export default function AddCoursePage({ api, session, onNavigate }: AdminPageProps) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [requiredDocIds, setRequiredDocIds] = useState<Set<string>>(new Set());
 
   // Determine mode from URL
   const { isEdit, courseId } = useMemo(() => {
@@ -93,6 +94,36 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     () => (isEdit && courseId ? api.getCourse(session.token, courseId) : Promise.resolve(null)),
     [isEdit, courseId],
   );
+
+  // Document type master list (for the Required Documents multi-select)
+  const { data: documentTypes } = useAdminPageData(
+    () => api.listDocumentTypes(session.token),
+    [],
+  );
+
+  // In edit mode, prefill the chosen required docs.
+  useEffect(() => {
+    if (!isEdit || !courseId) return;
+    api.listCourseRequiredDocuments(session.token, courseId)
+      .then((rows) => {
+        const ids = new Set<string>();
+        for (const r of rows) {
+          const id = asString(r.document_type_id);
+          if (id) ids.add(id);
+        }
+        setRequiredDocIds(ids);
+      })
+      .catch(() => {});
+  }, [isEdit, courseId, api, session.token]);
+
+  const toggleDocType = useCallback((id: string) => {
+    setRequiredDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Pre-fill form in edit mode
   useEffect(() => {
@@ -182,11 +213,21 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         visibility: 'public',
       };
 
+      const saveRequiredDocs = async (cid: string) => {
+        if (!cid) return;
+        try {
+          await api.setCourseRequiredDocuments(session.token, cid, Array.from(requiredDocIds));
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Course saved, but failed to save required documents.');
+        }
+      };
+
       if (isEdit) {
         const result = await api.updateCourse(session.token, courseId, payload);
         if (asString(result.status) === '0' || result.status === 0) {
           toast.error(asString(result.message) || 'Failed to update course');
         } else {
+          await saveRequiredDocs(courseId);
           onNavigate('/admin/course/index');
         }
       } else {
@@ -194,6 +235,8 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         if (asString(result.status) === '0' || result.status === 0) {
           toast.error(asString(result.message) || 'Failed to create course');
         } else {
+          const newId = asString(result.id) || asString((result as Record<string, unknown>).course_id);
+          await saveRequiredDocs(newId);
           onNavigate('/admin/course/index');
         }
       }
@@ -359,6 +402,47 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               </select>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Required Documents</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-gray-600">
+            Pick which documents an applicant must upload when applying for this
+            course. Manage the master list under <span className="font-medium">Settings → Document Types</span>.
+          </p>
+          {(documentTypes ?? []).length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
+              No document types defined yet. Add them under Settings → Document Types first.
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {(documentTypes ?? []).map((d) => {
+                const id = asString(d.id);
+                const label = asString(d.label);
+                const checked = requiredDocIds.has(id);
+                return (
+                  <label
+                    key={id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                      checked ? 'border-ttii-primary bg-ttii-primary/5' : 'border-gray-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleDocType(id)}
+                      className="size-4"
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 

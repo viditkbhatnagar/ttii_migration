@@ -2989,4 +2989,119 @@ export class ContentService {
       });
     });
   }
+
+  // ─── Document Types (settings master list) ─────────────────────────────
+  async listDocumentTypes(): Promise<Record<string, unknown>[]> {
+    return this.prisma.document_types.findMany({
+      where: { deleted_at: null },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    }) as Promise<Record<string, unknown>[]>;
+  }
+
+  async createDocumentType(actorUserId: string, label: string): Promise<Record<string, unknown>> {
+    if (!label.trim()) return { status: 0, message: 'Label is required.' };
+    const now = new Date();
+    const created = await this.prisma.document_types.create({
+      data: {
+        label: label.trim(),
+        position: 0,
+        created_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Document type added.', id: created.id };
+  }
+
+  async updateDocumentType(actorUserId: string, id: string, label: string): Promise<Record<string, unknown>> {
+    if (!label.trim()) return { status: 0, message: 'Label is required.' };
+    const now = new Date();
+    await this.prisma.document_types.updateMany({
+      where: { id: toIntId(id), deleted_at: null },
+      data: { label: label.trim(), updated_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    return { status: 1, message: 'Document type updated.' };
+  }
+
+  async deleteDocumentType(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    await this.prisma.document_types.updateMany({
+      where: { id: toIntId(id), deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+    // Also clear from any course pivots so courses stop referencing it.
+    await this.prisma.course_required_documents.updateMany({
+      where: { document_type_id: toIntId(id), deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+    return { status: 1, message: 'Document type removed.' };
+  }
+
+  async listCourseRequiredDocuments(courseId: string): Promise<Record<string, unknown>[]> {
+    const cid = toNullableIntId(courseId);
+    if (!cid) return [];
+    const links = await this.prisma.course_required_documents.findMany({
+      where: { course_id: cid, deleted_at: null },
+      orderBy: [{ position: 'asc' }, { document_type_id: 'asc' }],
+    });
+    if (links.length === 0) return [];
+    const docTypeIds = links.map((l) => l.document_type_id);
+    const types = await this.prisma.document_types.findMany({
+      where: { id: { in: docTypeIds }, deleted_at: null },
+    });
+    const typeMap = new Map(types.map((t) => [t.id, t]));
+    return links.map((l) => {
+      const t = typeMap.get(l.document_type_id);
+      return {
+        course_id: l.course_id,
+        document_type_id: l.document_type_id,
+        label: t?.label ?? `#${l.document_type_id}`,
+        is_mandatory: l.is_mandatory,
+        position: l.position ?? 0,
+      };
+    });
+  }
+
+  async setCourseRequiredDocuments(
+    actorUserId: string,
+    courseId: string,
+    documentTypeIds: string[],
+  ): Promise<Record<string, unknown>> {
+    const cid = toNullableIntId(courseId);
+    if (!cid) return { status: 0, message: 'Invalid course id.' };
+    const now = new Date();
+    const actor = toNullableIntId(actorUserId);
+    const wantedIds = documentTypeIds
+      .map((d) => toNullableIntId(d))
+      .filter((n): n is number => n !== null && n !== undefined);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Soft-delete any existing pivot rows not in the new set.
+      await tx.course_required_documents.updateMany({
+        where: {
+          course_id: cid,
+          deleted_at: null,
+          ...(wantedIds.length > 0 ? { document_type_id: { notIn: wantedIds } } : {}),
+        },
+        data: { deleted_by: actor, deleted_at: now },
+      });
+      for (let i = 0; i < wantedIds.length; i++) {
+        const docTypeId = wantedIds[i] as number;
+        await tx.course_required_documents.upsert({
+          where: { course_id_document_type_id: { course_id: cid, document_type_id: docTypeId } },
+          create: {
+            course_id: cid, document_type_id: docTypeId,
+            position: i, is_mandatory: true,
+            created_by: actor, created_at: now, updated_at: now,
+          },
+          update: {
+            position: i, is_mandatory: true, deleted_at: null, deleted_by: null,
+            updated_by: actor, updated_at: now,
+          },
+        });
+      }
+    });
+
+    return { status: 1, message: 'Required documents updated.' };
+  }
 }
