@@ -79,6 +79,7 @@ export interface ResetPasswordResult {
 
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
+  resolveLoginRoles(input: { email: string; password: string }): Promise<number[]>;
   getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }>;
   checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void>;
   logout(authToken: string): Promise<void>;
@@ -131,6 +132,18 @@ export class LegacyAuthApi implements AuthApi {
       userId,
       roleId,
     };
+  }
+
+  async resolveLoginRoles(input: { email: string; password: string }): Promise<number[]> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/login/resolve_roles',
+      body: { email: input.email, password: input.password },
+    });
+    if (!isRecord(response) || !Array.isArray(response.role_ids)) return [];
+    return response.role_ids
+      .map((v) => asNumber(v))
+      .filter((n): n is number => typeof n === 'number');
   }
 
   async getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }> {

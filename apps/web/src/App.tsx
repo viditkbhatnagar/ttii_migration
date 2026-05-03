@@ -13,8 +13,8 @@ import {
   type RoleRouteDefinition,
 } from '@ttii/frontend-core';
 import { InlineNotice, MetricCard, PortalScaffold, ShellCard } from '@ttii/ui';
-import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { ConfirmDialogProvider } from '@/components/confirm-dialog';
 
@@ -543,7 +543,7 @@ const ALL_ROLE_OPTIONS = [
 ];
 
 function LoginHome() {
-  const { error, clearError, login, logout, session } = useAuthState();
+  const { authApi, error, clearError, login, logout, session } = useAuthState();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const portal = useMemo(() => detectPortalFromSubdomain(), []);
@@ -551,33 +551,78 @@ function LoginHome() {
     if (portal && SUBDOMAIN_ROLE_OPTIONS[portal]) return SUBDOMAIN_ROLE_OPTIONS[portal];
     return ALL_ROLE_OPTIONS;
   }, [portal]);
-  const [roleId, setRoleId] = useState(() => {
-    if (portal && SUBDOMAIN_ROLE_OPTIONS[portal]?.[0]) {
-      return SUBDOMAIN_ROLE_OPTIONS[portal][0].value;
-    }
-    return portal ? (SUBDOMAIN_DEFAULT_ROLE_ID[portal] ?? '2') : '2';
-  });
+  // Subdomain default role used by the Forgot Password link (the upfront
+  // Login As dropdown is gone, so this is the only consumer left).
+  const _defaultRole = portal && SUBDOMAIN_ROLE_OPTIONS[portal]?.[0]
+    ? SUBDOMAIN_ROLE_OPTIONS[portal][0].value
+    : portal ? (SUBDOMAIN_DEFAULT_ROLE_ID[portal] ?? '2') : '2';
   const [loginError, setLoginError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [pendingRoles, setPendingRoles] = useState<{ value: string; label: string }[] | null>(null);
+
+  const allowedRoleValues = useMemo(() => new Set(roleOptions.map((o) => o.value)), [roleOptions]);
+
+  const finalizeLogin = useCallback(async (chosenRoleId: string) => {
+    const parsedRoleId = Number.parseInt(chosenRoleId, 10);
+    const loginInput = {
+      email,
+      password,
+      ...(Number.isFinite(parsedRoleId) ? { roleId: parsedRoleId } : {}),
+    };
+    const nextSession = await login(loginInput);
+    navigateTo(resolveShellPathForRole(nextSession.roleId));
+  }, [email, password, login]);
 
   const onSubmit = async (): Promise<void> => {
     setSubmitting(true);
     setLoginError(null);
+    setPendingRoles(null);
 
     try {
-      const parsedRoleId = Number.parseInt(roleId, 10);
-      const loginInput = {
-        email,
-        password,
-        ...(Number.isFinite(parsedRoleId) ? { roleId: parsedRoleId } : {}),
-      };
-      const nextSession = await login(loginInput);
+      // Resolve which roles the email + password are valid for, then scope
+      // to the subdomain's allowed roles. One match → log in; many → show
+      // a picker; zero → invalid credentials.
+      const matchingRoleIds = await authApi.resolveLoginRoles({ email, password });
+      const matchingForSubdomain = matchingRoleIds
+        .map(String)
+        .filter((rid) => allowedRoleValues.has(rid));
 
-      navigateTo(resolveShellPathForRole(nextSession.roleId));
+      if (matchingForSubdomain.length === 0) {
+        if (matchingRoleIds.length > 0) {
+          setLoginError('This account is not allowed on this portal.');
+        } else {
+          setLoginError('Email or password is incorrect.');
+        }
+        setSubmitting(false);
+        return;
+      }
+      if (matchingForSubdomain.length === 1) {
+        await finalizeLogin(matchingForSubdomain[0] as string);
+        setSubmitting(false);
+        return;
+      }
+      // Multi-role case: show the picker. Build the {value, label} list
+      // from the subdomain's roleOptions so the labels match the same
+      // dictionary used elsewhere.
+      const candidates = roleOptions.filter((o) => matchingForSubdomain.includes(o.value));
+      setPendingRoles(candidates);
     } catch (submitError: unknown) {
       const message = submitError instanceof Error ? submitError.message : 'Unable to login with provided credentials.';
+      setLoginError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onPickRole = async (chosenRoleId: string): Promise<void> => {
+    setSubmitting(true);
+    setLoginError(null);
+    try {
+      await finalizeLogin(chosenRoleId);
+    } catch (submitError: unknown) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to continue with selected role.';
       setLoginError(message);
     } finally {
       setSubmitting(false);
@@ -678,7 +723,42 @@ function LoginHome() {
             </div>
           ) : null}
 
-          {/* Form */}
+          {/* Multi-role picker shown after a successful password resolve.
+              Replaces the form so the user can't accidentally re-submit. */}
+          {pendingRoles ? (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Continue as…</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Your account is valid for more than one role on this portal. Pick one to continue.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {pendingRoles.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => { void onPickRole(opt.value); }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium text-slate-800 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="flex items-center gap-3">
+                      <User aria-hidden="true" className="size-4 text-slate-400" />
+                      {opt.label}
+                    </span>
+                    <span aria-hidden="true">&rarr;</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="text-xs text-slate-500 underline-offset-2 hover:underline"
+                onClick={() => setPendingRoles(null)}
+              >
+                ← back to login
+              </button>
+            </div>
+          ) : (
           <form
             className="space-y-5"
             onSubmit={(event) => {
@@ -734,29 +814,9 @@ function LoginHome() {
               </div>
             </div>
 
-            {/* Role Selector — only shown when the subdomain allows multiple
-                roles (admin: Super/Sub/Counsellor, admissions: Centre/Associate).
-                On learn.* the dropdown is hidden because Student is the only
-                option. With no subdomain match we fall back to the full list. */}
-            {roleOptions.length > 1 && (
-              <div className="space-y-1.5">
-                <label htmlFor="login-role" className="text-sm font-semibold text-slate-800">Login As</label>
-                <div className="relative">
-                  <User aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                  <select
-                    id="login-role"
-                    value={roleId}
-                    onChange={(event) => setRoleId(event.target.value)}
-                    className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  >
-                    {roleOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                </div>
-              </div>
-            )}
+            {/* Login As dropdown removed — the system now resolves roles
+                after correct email + password and shows a picker when an
+                account is valid for more than one role on this subdomain. */}
 
             {/* Remember Me + Forgot Password */}
             <div className="flex items-center justify-between">
@@ -772,7 +832,7 @@ function LoginHome() {
               <button
                 type="button"
                 className="rounded text-sm font-semibold text-slate-800 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                onClick={() => navigateTo(`/forgot-password?role_id=${encodeURIComponent(roleId)}`)}
+                onClick={() => navigateTo(`/forgot-password?role_id=${encodeURIComponent(_defaultRole)}`)}
               >
                 Forgot Password?
               </button>
@@ -794,6 +854,7 @@ function LoginHome() {
               {submitting ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+          )}
 
           {/* Need Help */}
           <div className="mt-6 text-center">

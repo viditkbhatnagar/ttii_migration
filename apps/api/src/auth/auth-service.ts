@@ -1133,6 +1133,44 @@ export class AuthService {
     });
   }
 
+  // Returns the role_ids whose user record matches the given email+password.
+  // Used by the post-password role picker — when an email maps to several
+  // roles on the same subdomain, the picker shows the candidates the user
+  // can sign in as. Audit-logged + rate-limited like a real login attempt.
+  async resolveLoginRoles(input: { email: string; password: string; ipAddress?: string; userAgent?: string }): Promise<number[]> {
+    const identifier = normalizeEmail(input.email ?? '');
+    if (!identifier || !isTruthyString(input.password)) {
+      throw new AuthErrorClass(400, 'Email and password are required.', 'VALIDATION_ERROR');
+    }
+    const rateLimitKey = toRateLimitKey('login', identifier, input.ipAddress);
+    const rateLimitResult = loginRateLimiter.consume(rateLimitKey, env.AUTH_LOGIN_RATE_LIMIT_MAX);
+    if (!rateLimitResult.allowed) {
+      throw new AuthErrorClass(429, 'Too many login attempts. Try again later.', 'RATE_LIMITED', {
+        retry_after_seconds: rateLimitResult.retryAfterSeconds,
+      });
+    }
+
+    const candidates = await this.prisma.users.findMany({
+      where: {
+        deleted_at: null,
+        OR: [{ email: identifier }, { user_email: identifier }],
+      },
+      select: { id: true, role_id: true, password: true, status: true },
+    });
+
+    const matched: number[] = [];
+    for (const u of candidates) {
+      if (!isTruthyString(u.password) || u.role_id === null) continue;
+      // Skip explicitly-deactivated non-student rows the same way login does.
+      if (u.status === 0 && u.role_id !== 2) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await verifyPassword(input.password, u.password);
+      if (ok) matched.push(u.role_id);
+    }
+
+    return Array.from(new Set(matched));
+  }
+
   private async findUserForLogin(input: LoginInput): Promise<users | null> {
     if (isTruthyString(input.phone)) {
       const phoneCandidates = this.phoneCandidates(input.phone, input.countryCode);

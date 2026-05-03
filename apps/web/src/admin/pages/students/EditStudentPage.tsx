@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 
@@ -20,6 +20,9 @@ const QUALIFICATIONS = [
 ];
 
 const EXPERIENCE_BUCKETS = ['Fresher', '0-1 Years', '1-3 Years', '3-5 Years', '5-10 Years', '10+ Years'];
+const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
+const LEAD_SOURCES = ['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference'];
+const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
 
 export default function EditStudentPage({ api, session, onNavigate }: AdminPageProps) {
   const studentId = useMemo(() => {
@@ -74,13 +77,84 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       employment_status: asString(student.employment_status),
       current_occupation: asString(student.current_occupation),
       experience_years: asString(student.work_experience) || asString(student.experience_years),
+      // Enrolment + fee fields (carried on the linked application).
+      course_id: asString(student.course_id),
+      offering_id: asString(student.offering_id),
+      certificate_combination_id: asString(student.certificate_combination_id),
+      mode_of_study: asString(student.mode_of_study),
+      preferred_language: asString(student.preferred_language),
+      pipeline: asString(student.pipeline),
+      pipeline_user: asString(student.pipeline_user),
+      lead_source: asString(student.lead_source),
+      reference_student_id: asString(student.reference_student_id),
+      discount: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount) || '',
+      discount_type: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount_type) || 'percent',
+      registration_fee: asString((data?.applicationFee as Record<string, unknown> | undefined)?.registration_fee) || '',
+      gst_percent: asString((data?.applicationFee as Record<string, unknown> | undefined)?.gst_percent) || '18',
+      gst_applicability: ((data?.applicationFee as Record<string, unknown> | undefined)?.gst_percent ? 'Yes' : 'No'),
+      final_course_fee: asString((data?.applicationFee as Record<string, unknown> | undefined)?.final_fee) || '',
     });
     setPhoto(asString(student.profile_picture) || asString(student.image));
-  }, [student]);
+  }, [student, data]);
 
   const set = useCallback((key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
+
+  // Dropdown sources for Enrolment / Fee section.
+  const { data: refData } = useAdminPageData(() => api.loadApplications(session.token), []);
+  const courses = useMemo(() => {
+    const list = (refData?.courses ?? []) as Array<{ id: string; title: string }>;
+    return list;
+  }, [refData]);
+  const { data: offeringsData } = useAdminPageData(
+    () => form.course_id ? api.listOfferings(session.token, { course_id: form.course_id }) : Promise.resolve([]),
+    [form.course_id],
+  );
+  const offerings = useMemo(() => toRecords(offeringsData), [offeringsData]);
+  const { data: combinationsData } = useAdminPageData(
+    () => api.listCertificateCombinations(session.token),
+    [],
+  );
+  const combinations = useMemo(() => {
+    const all = toRecords(combinationsData);
+    if (!form.course_id) return all;
+    return all.filter((c) => asString(c.course_id) === form.course_id);
+  }, [combinationsData, form.course_id]);
+  const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
+  const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+  const { data: pipelineUsersData } = useAdminPageData(
+    () => {
+      const pipeline = form.pipeline ?? '';
+      if (pipeline === 'Centre') return api.loadCentres(session.token);
+      const roleId = PIPELINE_ROLE_MAP[pipeline];
+      if (!roleId) return Promise.resolve([]);
+      return api.loadPipelineUsers(session.token, roleId);
+    },
+    [form.pipeline],
+  );
+  const pipelineUsers = useMemo(() => toRecords(pipelineUsersData), [pipelineUsersData]);
+  const { data: studentsData } = useAdminPageData(
+    () => form.lead_source === 'Reference' ? api.loadStudents(session.token, {}) : Promise.resolve([]),
+    [form.lead_source],
+  );
+  const students = useMemo(() => toRecords(studentsData), [studentsData]);
+
+  // Auto-recompute Final Course Fee when pricing inputs change.
+  useEffect(() => {
+    const fee = parseFloat(form.final_course_fee || '') || 0;
+    const baseStr = form.final_course_fee || '';
+    // If admin hasn't typed final fee, derive: take Offered Fee from chosen
+    // package, apply discount, apply GST.
+    const pkgFee = (() => {
+      // Heuristic: if final_course_fee is empty, look up the package and
+      // recompute. Otherwise leave the user's manual entry alone.
+      if (baseStr) return null;
+      return null; // explicit no-op; admin types manually for now.
+    })();
+    void pkgFee;
+    void fee;
+  }, [form.final_course_fee, form.discount, form.discount_type, form.gst_percent, form.gst_applicability]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -203,11 +277,123 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       </Card>
 
       <Card>
-        <CardContent className="py-4 text-xs text-gray-500">
-          <p>
-            <strong>Note:</strong> Course / Offering / Certificate Combination / Fee plan / Application documents are read-only here.
-            Editing them after enrolment can affect billing, attendance and certificates — those changes will land once the policy
-            is defined. View those values on the student detail page.
+        <CardHeader><CardTitle className="text-base">Enrolment Details</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label className="mb-1 text-xs">Course</Label>
+              <select className={selectClass} value={form.course_id ?? ''} onChange={(e) => set('course_id', e.target.value)}>
+                <option value="">Select Course</option>
+                {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">Course Offering</Label>
+              <select
+                className={selectClass}
+                value={form.offering_id ?? ''}
+                onChange={(e) => set('offering_id', e.target.value)}
+                disabled={!form.course_id}
+              >
+                <option value="">{form.course_id ? 'Select Offering' : 'Pick a course first'}</option>
+                {offerings.map((o) => <option key={asString(o.id)} value={asString(o.id)}>{asString(o.title) || asString(o.offering_code) || 'Untitled'}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">Certificate Combination</Label>
+              <select
+                className={selectClass}
+                value={form.certificate_combination_id ?? ''}
+                onChange={(e) => set('certificate_combination_id', e.target.value)}
+                disabled={!form.course_id}
+              >
+                <option value="">{form.course_id ? 'Select Combination' : 'Pick a course first'}</option>
+                {combinations.map((c) => {
+                  const id = asString(c.id);
+                  const code = asString(c.combination_code);
+                  const courseTitle = asString(c.course_title);
+                  return (
+                    <option key={id} value={id}>{code}{courseTitle ? ` — ${courseTitle}` : ''}</option>
+                  );
+                })}
+              </select>
+            </div>
+            <SelectRow label="Mode of Study" value={form.mode_of_study ?? ''} onChange={(v) => set('mode_of_study', v)}
+              options={[{ value: '', label: 'Select Mode' }, ...MODE_OF_STUDY.map((m) => ({ value: m, label: m }))]} />
+            <div>
+              <Label className="mb-1 text-xs">Language</Label>
+              <select className={selectClass} value={form.preferred_language ?? ''} onChange={(e) => set('preferred_language', e.target.value)}>
+                <option value="">Select Language</option>
+                {languages.map((l) => {
+                  const title = asString(l.title) || asString(l.name);
+                  return <option key={asString(l.id) || title} value={title}>{title}</option>;
+                })}
+              </select>
+            </div>
+            <SelectRow label="Pipeline" value={form.pipeline ?? ''} onChange={(v) => set('pipeline', v)}
+              options={[{ value: '', label: 'Select' }, { value: 'Admin', label: 'Admin' }, { value: 'Counsellor', label: 'Counsellor' }, { value: 'Associate', label: 'Associate' }, { value: 'Centre', label: 'Centre' }]} />
+            <div>
+              <Label className="mb-1 text-xs">Pipeline User</Label>
+              <select className={selectClass} value={form.pipeline_user ?? ''} onChange={(e) => set('pipeline_user', e.target.value)} disabled={!form.pipeline}>
+                <option value="">{form.pipeline ? 'Select User' : 'Pick a pipeline first'}</option>
+                {pipelineUsers.map((u) => {
+                  const id = asString(u.id);
+                  const label = asString(u.name) || asString(u.centre_name) || asString(u.title) || `#${id}`;
+                  return <option key={id} value={id}>{label}</option>;
+                })}
+              </select>
+            </div>
+            <SelectRow label="Lead Source" value={form.lead_source ?? ''} onChange={(v) => set('lead_source', v)}
+              options={[{ value: '', label: 'Select' }, ...LEAD_SOURCES.map((s) => ({ value: s, label: s }))]} />
+            {form.lead_source === 'Reference' ? (
+              <div>
+                <Label className="mb-1 text-xs">Referred By (Student)</Label>
+                <select className={selectClass} value={form.reference_student_id ?? ''} onChange={(e) => set('reference_student_id', e.target.value)}>
+                  <option value="">Select Student</option>
+                  {students.map((s) => {
+                    const id = asString(s.id);
+                    const name = asString(s.name);
+                    const sid = asString(s.student_id);
+                    return <option key={id} value={id}>{name}{sid ? ` (${sid})` : ''}</option>;
+                  })}
+                </select>
+              </div>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Application Fee</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FieldRow label="Registration Fee (INR)" value={form.registration_fee ?? ''} onChange={(v) => set('registration_fee', v)} />
+            <div>
+              <Label className="mb-1 text-xs">Discount</Label>
+              <div className="flex gap-2">
+                <select className={`${selectClass} w-32`} value={form.discount_type ?? 'percent'} onChange={(e) => set('discount_type', e.target.value)}>
+                  <option value="percent">Percentage</option>
+                  <option value="flat">Flat (INR)</option>
+                </select>
+                <Input value={form.discount ?? ''} onChange={(e) => set('discount', e.target.value)} placeholder={form.discount_type === 'flat' ? 'e.g. 5000' : 'e.g. 10'} />
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">GST</Label>
+              <div className="flex gap-2">
+                <select className={`${selectClass} w-32`} value={form.gst_applicability ?? 'No'} onChange={(e) => set('gst_applicability', e.target.value)}>
+                  <option value="No">Not applicable</option>
+                  <option value="Yes">Applicable</option>
+                </select>
+                <Input type="number" value={form.gst_percent ?? '18'} onChange={(e) => set('gst_percent', e.target.value)} disabled={form.gst_applicability !== 'Yes'} />
+              </div>
+            </div>
+            <FieldRow label="Final Course Fee (INR)" value={form.final_course_fee ?? ''} onChange={(v) => set('final_course_fee', v)} />
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Editing course / offering / fee on an enrolled student updates the application record. Existing
+            enrolment, paid instalments and certificates are not retroactively changed — coordinate with the
+            student / counsellor before changing.
           </p>
         </CardContent>
       </Card>

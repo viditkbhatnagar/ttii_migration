@@ -136,6 +136,27 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     },
   });
 
+  // After the upfront "Login As" dropdown was removed, the client posts
+  // email + password here first. Server validates and returns the role_ids
+  // that match. The client either logs straight in (single match) or shows
+  // a picker (multiple matches).
+  app.post('/login/resolve_roles', async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const email = toStringValue(payload.email) ?? '';
+      const password = toStringValue(payload.password) ?? '';
+      const meta = requestMeta(request);
+      const role_ids = await authService.resolveLoginRoles({
+        email, password,
+        ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
+        ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
+      });
+      reply.code(200).send({ status: 1, role_ids });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
   app.post('/login/forgot_password', async (request, reply) => {
     const payload = requestPayload(request);
     const email = toStringValue(payload.email) ?? '';
