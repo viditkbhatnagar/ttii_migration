@@ -4753,59 +4753,159 @@ export class OperationsService {
 
   async getStudentDetail(studentId: string): Promise<Record<string, unknown>> {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
+    const uid = toIntId(studentId);
 
     const user = await this.prisma.users.findFirst({
-      where: { id: toIntId(studentId), role_id: 2, deleted_at: null },
+      where: { id: uid, role_id: 2, deleted_at: null },
     });
     if (!user) return { status: 0, message: 'Student not found.' };
 
     const enrolments = await this.prisma.enrol.findMany({
-      where: { user_id: toIntId(studentId), deleted_at: null },
+      where: { user_id: uid, deleted_at: null },
     });
 
     const courseIds = [...new Set(enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
-    const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
-    const courseMap = new Map(courses.map(c => [c.id, c]));
-
     const batchIds = [...new Set(enrolments.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
-    const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
+
+    // Personal + qualification fields live on `applications`, not `users`.
+    // `users.application_id` is the canonical link; fall back to email match
+    // for users seeded outside the application flow.
+    const applicationLookup = user.application_id
+      ? this.prisma.applications.findFirst({
+          where: { id: user.application_id, deleted_at: null },
+        })
+      : user.user_email
+        ? this.prisma.applications.findFirst({
+            where: { user_email: user.user_email, deleted_at: null },
+            orderBy: { created_at: 'desc' },
+          })
+        : Promise.resolve(null);
+
+    const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application] = await Promise.all([
+      courseIds.length > 0
+        ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true, fee_structure: true } })
+        : Promise.resolve([]),
+      batchIds.length > 0
+        ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+      courseIds.length > 0
+        ? this.prisma.course_fees.findMany({ where: { course_id: { in: courseIds }, deleted_at: null }, select: { course_id: true, base_fee: true, discount: true } })
+        : Promise.resolve([]),
+      this.prisma.payment_info.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { payment_date: 'desc' },
+      }),
+      this.prisma.video_progress_status.findMany({
+        where: { user_id: uid, deleted_at: null },
+      }),
+      this.prisma.assignment_submissions.findMany({
+        where: { user_id: uid, deleted_at: null },
+      }),
+      applicationLookup,
+    ]);
+
+    // Offering lookup — applications carry the chosen offering_id; the
+    // enrol row doesn't, so we surface the application's offering for all
+    // enrolments under that course.
+    const applicationOfferingId = application?.offering_id ?? null;
+    const offering = applicationOfferingId
+      ? await this.prisma.offerings.findFirst({
+          where: { id: applicationOfferingId, deleted_at: null },
+          select: { id: true, title: true, offering_code: true },
+        })
+      : null;
+
+    const courseMap = new Map(courses.map(c => [c.id, c]));
     const batchMap = new Map(batches.map(b => [b.id, b]));
+    const courseFeeMap = new Map(courseFees.map(f => [f.course_id, f]));
 
-    const payments = await this.prisma.payment_info.findMany({
-      where: { user_id: toIntId(studentId), deleted_at: null },
-      orderBy: { payment_date: 'desc' },
+    // Sum payments per course_id so we can compute pending per enrolment.
+    const paidByCourse = new Map<number, number>();
+    for (const p of payments) {
+      if (p.course_id == null) continue;
+      paidByCourse.set(p.course_id, (paidByCourse.get(p.course_id) ?? 0) + Number(p.amount_paid ?? 0));
+    }
+
+    // Video progress per course, used to compute Tab 2 progress %.
+    const videoTotalByCourse = new Map<number, { total: number; completed: number }>();
+    for (const vp of videoProgress) {
+      if (vp.course_id == null) continue;
+      const cur = videoTotalByCourse.get(vp.course_id) ?? { total: 0, completed: 0 };
+      cur.total += 1;
+      if (vp.status === 1) cur.completed += 1;
+      videoTotalByCourse.set(vp.course_id, cur);
+    }
+
+    const enrichedEnrolments = enrolments.map(e => {
+      const course = e.course_id ? courseMap.get(e.course_id) : null;
+      const fee = e.course_id ? courseFeeMap.get(e.course_id) : null;
+      const baseFee = fee ? Number(fee.base_fee ?? 0) : Number(course?.total_amount ?? 0);
+      const discountPerc = e.discount_perc ? Number(e.discount_perc) : 0;
+      const courseFee = baseFee - (baseFee * (Number.isFinite(discountPerc) ? discountPerc : 0) / 100);
+      const vp = e.course_id ? videoTotalByCourse.get(e.course_id) : null;
+      const progress = vp && vp.total > 0 ? Math.round((vp.completed / vp.total) * 100) : 0;
+      return {
+        ...e,
+        course_title: course?.title ?? null,
+        offering_title: offering?.title ?? offering?.offering_code ?? null,
+        batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
+        course_fee: Math.round(courseFee),
+        progress,
+        status: e.enrollment_status ?? 'Active',
+      };
     });
 
-    const studentFees: unknown[] = [];
-
-    // LMS progress
-    const videoProgress = await this.prisma.video_progress_status.findMany({
-      where: { user_id: toIntId(studentId), deleted_at: null },
+    // Per-enrolment fee aggregation for Tab 3 (Course Fee).
+    const studentFees = enrichedEnrolments.map(e => {
+      const total = Number(e.course_fee ?? 0);
+      const paid = e.course_id ? (paidByCourse.get(e.course_id) ?? 0) : 0;
+      return {
+        enrollment_id: e.enrollment_id,
+        course_title: e.course_title,
+        offering_title: e.offering_title,
+        total_fee: total,
+        paid_amount: paid,
+        pending_amount: Math.max(0, total - paid),
+      };
     });
-    const materialProgress: unknown[] = [];
-    const assignmentSubs = await this.prisma.assignment_submissions.findMany({
-      where: { user_id: toIntId(studentId), deleted_at: null },
-    });
 
-    // Profile completion calc
-    const profileFields = [user.name, user.user_email, user.phone, user.profile_picture];
+    // Profile completion uses only fields the users table actually carries,
+    // plus key application-derived ones that the View page renders.
+    const profileFields = [
+      user.name, user.user_email, user.phone, user.profile_picture,
+      user.dob, user.gender, application?.address, application?.father_name,
+    ];
     const filled = profileFields.filter(Boolean).length;
     const profileCompletion = Math.round((filled / profileFields.length) * 100);
 
-    const enrichedEnrolments = enrolments.map(e => ({
-      ...e,
-      course_title: e.course_id ? courseMap.get(e.course_id)?.title ?? null : null,
-      batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
-    }));
-
-    // Mirror listStudents(): legacy rows populate `profile_picture`; rows
-    // created in the new LMS use `image`. Surface either as `profile_picture`
-    // so the View page's existing render path picks it up.
+    // Photo: legacy rows populate `profile_picture`; new rows use `image`.
     const photo = toLegacyFileUrl(user.profile_picture) || toLegacyFileUrl(user.image);
     const studentWithPhoto = {
       ...user,
       image: photo,
       profile_picture: photo,
+      // Application-derived personal fields the View page renders.
+      date_of_birth: user.dob ?? application?.date_of_birth ?? null,
+      address: application?.address ?? null,
+      father_name: application?.father_name ?? null,
+      mother_name: application?.mother_name ?? null,
+      guardian_name: application?.guardian_name ?? null,
+      aadhar_no: application?.aadhar_no ?? null,
+      passport_no: application?.passport_no ?? null,
+      country: application?.country_id ? String(application.country_id) : null,
+      state: application?.state ?? null,
+      city: application?.district ?? null,
+      whatsapp_no: application?.whatsapp_no != null ? String(application.whatsapp_no) : null,
+      // Qualification fields live on applications — pull them so Tab 1's
+      // Qualification card renders.
+      highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? null,
+      institution_name: application?.previous_school ?? null,
+      year_of_passing: application?.year_of_passing ?? null,
+      percentage_or_grade: application?.percentage_or_grade ?? null,
+      employment_status: application?.employment_status ?? null,
+      current_occupation: application?.current_occupation ?? null,
+      work_experience: application?.experience_years ?? application?.teaching_experience ?? null,
+      specialization: null as string | null,
     };
 
     return {
@@ -4816,7 +4916,7 @@ export class OperationsService {
       payments,
       studentFees,
       videoProgress,
-      materialProgress,
+      materialProgress: [],
       assignmentSubmissions: assignmentSubs,
       profileCompletion,
     };
@@ -5023,51 +5123,94 @@ export class OperationsService {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
 
     // Backward-compat: old call sites pass (name, phone) as positional args.
-    const fields: Record<string, unknown> = {};
+    // The new call shape is an object covering the full edit-student form.
+    // Personal / qualification fields live on `applications`, not `users` —
+    // we update both rows in one shot.
+    const userFields: Record<string, unknown> = {};
+    const appFields: Record<string, unknown> = {};
+
     if (typeof input === 'string') {
-      if (input.trim()) fields.name = input.trim();
-      if (legacyPhone && legacyPhone.trim()) fields.phone = legacyPhone.trim();
+      if (input.trim()) userFields.name = input.trim();
+      if (legacyPhone && legacyPhone.trim()) userFields.phone = legacyPhone.trim();
     } else {
-      if (input.name !== undefined) fields.name = input.name.trim();
-      if (input.phone !== undefined) fields.phone = input.phone.trim();
-      if (input.userEmail !== undefined) fields.user_email = input.userEmail.trim();
-      if (input.dateOfBirth !== undefined) fields.date_of_birth = input.dateOfBirth || null;
-      if (input.gender !== undefined) fields.gender = input.gender || null;
-      if (input.nationality !== undefined) fields.nationality = input.nationality || null;
-      if (input.maritalStatus !== undefined) fields.marital_status = input.maritalStatus || null;
-      if (input.fatherName !== undefined) fields.father_name = input.fatherName || null;
-      if (input.motherName !== undefined) fields.mother_name = input.motherName || null;
-      if (input.guardianName !== undefined) fields.guardian_name = input.guardianName || null;
-      if (input.aadharNo !== undefined) fields.aadhar_no = input.aadharNo || null;
-      if (input.passportNo !== undefined) fields.passport_no = input.passportNo || null;
-      if (input.whatsappNo !== undefined) fields.whatsapp_no = input.whatsappNo || null;
-      if (input.country !== undefined) fields.country = input.country || null;
-      if (input.state !== undefined) fields.state = input.state || null;
-      if (input.city !== undefined) fields.city = input.city || null;
-      if (input.address !== undefined) fields.address = input.address || null;
-      if (input.nativeAddress !== undefined) fields.native_address = input.nativeAddress || null;
-      if (input.profilePicture !== undefined) fields.profile_picture = input.profilePicture || null;
-      if (input.image !== undefined) fields.image = input.image || null;
-      if (input.countryCode !== undefined) fields.country_code = input.countryCode || null;
-      if (input.alternatePhone !== undefined) fields.second_phone = input.alternatePhone || null;
+      // Columns that exist on `users`:
+      if (input.name !== undefined) userFields.name = input.name.trim();
+      if (input.phone !== undefined) userFields.phone = input.phone.trim();
+      if (input.userEmail !== undefined) userFields.user_email = input.userEmail.trim();
+      if (input.dateOfBirth !== undefined) userFields.dob = input.dateOfBirth ? new Date(input.dateOfBirth) : null;
+      if (input.gender !== undefined) userFields.gender = input.gender || '';
+      if (input.profilePicture !== undefined) userFields.profile_picture = input.profilePicture || '';
+      if (input.image !== undefined) userFields.image = input.image || '';
+      if (input.countryCode !== undefined) userFields.country_code = input.countryCode || null;
+      if (input.whatsappNo !== undefined) userFields.whatsapp_phone = input.whatsappNo || null;
       if (input.status !== undefined) {
         const s = Number(input.status);
-        if (Number.isFinite(s)) fields.status = s;
+        if (Number.isFinite(s)) userFields.status = s;
       }
+
+      // Columns that exist on `applications`:
+      if (input.dateOfBirth !== undefined) appFields.date_of_birth = input.dateOfBirth ? new Date(input.dateOfBirth) : null;
+      if (input.gender !== undefined) appFields.gender = input.gender || null;
+      if (input.nationality !== undefined) appFields.nationality = input.nationality || null;
+      if (input.maritalStatus !== undefined) appFields.marital_status = input.maritalStatus || null;
+      if (input.fatherName !== undefined) appFields.father_name = input.fatherName || null;
+      if (input.motherName !== undefined) appFields.mother_name = input.motherName || null;
+      if (input.guardianName !== undefined) appFields.guardian_name = input.guardianName || null;
+      if (input.aadharNo !== undefined) appFields.aadhar_no = input.aadharNo || null;
+      if (input.passportNo !== undefined) appFields.passport_no = input.passportNo || null;
+      if (input.state !== undefined) appFields.state = input.state || null;
+      if (input.city !== undefined) appFields.district = input.city || null;
+      if (input.address !== undefined) appFields.address = input.address || null;
+      if (input.nativeAddress !== undefined) appFields.native_address = input.nativeAddress || null;
     }
 
-    if (Object.keys(fields).length === 0) {
+    if (Object.keys(userFields).length === 0 && Object.keys(appFields).length === 0) {
       return { status: 0, message: 'No fields to update.' };
     }
 
     const now = new Date();
-    fields.updated_by = toIntId(actorUserId);
-    fields.updated_at = now;
+    const actor = toIntId(actorUserId);
 
-    await this.prisma.users.updateMany({
-      where: { id: toIntId(studentId), deleted_at: null },
-      data: fields,
-    });
+    if (Object.keys(userFields).length > 0) {
+      userFields.updated_by = actor;
+      userFields.updated_at = now;
+      await this.prisma.users.updateMany({
+        where: { id: toIntId(studentId), deleted_at: null },
+        data: userFields,
+      });
+    }
+
+    if (Object.keys(appFields).length > 0) {
+      const user = await this.prisma.users.findFirst({
+        where: { id: toIntId(studentId), deleted_at: null },
+        select: { application_id: true, user_email: true },
+      });
+      const applicationId = user?.application_id;
+      if (applicationId) {
+        appFields.updated_by = actor;
+        appFields.updated_at = now;
+        await this.prisma.applications.updateMany({
+          where: { id: applicationId, deleted_at: null },
+          data: appFields,
+        });
+      } else if (user?.user_email) {
+        // Seeded user without a linked application — pick the most recent
+        // application by email, if any. Skip silently otherwise.
+        const fallback = await this.prisma.applications.findFirst({
+          where: { user_email: user.user_email, deleted_at: null },
+          orderBy: { created_at: 'desc' },
+          select: { id: true },
+        });
+        if (fallback) {
+          appFields.updated_by = actor;
+          appFields.updated_at = now;
+          await this.prisma.applications.updateMany({
+            where: { id: fallback.id, deleted_at: null },
+            data: appFields,
+          });
+        }
+      }
+    }
 
     return { status: 1, message: 'Student info updated successfully.' };
   }
