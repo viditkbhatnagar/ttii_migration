@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -97,10 +98,13 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
   const [editingPackageId, setEditingPackageId] = useState('');
   const [packageSaving, setPackageSaving] = useState(false);
 
-  const editId = useMemo(() => {
+  // editId is stateful so we can flip the form into edit mode after the
+  // first save without unmounting (the page-level router doesn't always
+  // re-mount on a same-route URL change). Initial value comes from the URL.
+  const [editId, setEditId] = useState<string>(() => {
     const match = window.location.pathname.match(/\/admin\/offerings\/edit\/(.+)/);
     return match?.[1] ?? '';
-  }, []);
+  });
 
   const { data: coursesData, loading: coursesLoading } = useAdminPageData(
     () => api.loadCourses(session.token),
@@ -280,14 +284,17 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         onNavigate('/admin/offerings/index');
       } else {
         // First save: stay on the form so the Certificate Package card
-        // unlocks. Land on /edit/{newId} which re-mounts the page in
-        // edit mode. The legacy client returns the full envelope, so the
-        // id lives at result.data.id.
+        // unlocks. Update editId state in place + replace the URL — relying
+        // on the router to re-mount AddOfferingPage doesn't reliably fire
+        // when the page key doesn't change. The legacy client returns the
+        // full envelope, so the new id lives at result.data.id.
         const result = await api.createOffering(session.token, payload);
         const data = (result.data ?? {}) as Record<string, unknown>;
         const newId = asString(data.id) || asString(result.id);
         if (newId) {
-          onNavigate(`/admin/offerings/edit/${newId}`);
+          window.history.replaceState({}, '', `/admin/offerings/edit/${newId}`);
+          setEditId(newId);
+          toast.success('Offering created. You can now attach Certificate Packages below.');
         } else {
           onNavigate('/admin/offerings/index');
         }

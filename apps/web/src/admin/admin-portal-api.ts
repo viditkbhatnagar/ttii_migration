@@ -1990,6 +1990,13 @@ export class AdminPortalApi {
       country_code: string;
       alternate_phone: string;
       status: string;
+      highest_qualification: string;
+      institution_name: string;
+      year_of_passing: string;
+      percentage_or_grade: string;
+      employment_status: string;
+      current_occupation: string;
+      experience_years: string;
     }>,
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, ...fields });

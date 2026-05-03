@@ -739,6 +739,13 @@ function EditStudentDialog({
       address: asString(student.address),
       native_address: asString(student.native_address),
       status: asString(student.status) || '1',
+      highest_qualification: asString(student.highest_qualification),
+      institution_name: asString(student.institution_name) || asString(student.previous_school),
+      year_of_passing: asString(student.year_of_passing),
+      percentage_or_grade: asString(student.percentage_or_grade),
+      employment_status: asString(student.employment_status),
+      current_occupation: asString(student.current_occupation),
+      experience_years: asString(student.work_experience) || asString(student.experience_years),
     });
     setPhoto(asString(student.profile_picture) || asString(student.image));
   }, [open, student]);
@@ -844,6 +851,60 @@ function EditStudentDialog({
                 value={form.native_address ?? ''}
                 onChange={(e) => setField('native_address', e.target.value)}
               />
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-700">Qualification & Employment</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-1 text-xs">Highest Qualification</Label>
+                  <select
+                    className={editSelectClass}
+                    value={form.highest_qualification ?? ''}
+                    onChange={(e) => setField('highest_qualification', e.target.value)}
+                  >
+                    <option value="">Select</option>
+                    {[
+                      'Secondary School', 'Higher Secondary', 'Diploma', "Bachelor's Degree",
+                      'Postgraduate Diploma', "Master's Degree", 'M.Phil.', 'Ph.D.',
+                      'Professional Certification', 'Other',
+                    ].map((q) => <option key={q} value={q}>{q}</option>)}
+                  </select>
+                </div>
+                <Field label="School / College" value={form.institution_name ?? ''} onChange={(v) => setField('institution_name', v)} />
+                <Field label="Year of Passing" value={form.year_of_passing ?? ''} onChange={(v) => setField('year_of_passing', v)} />
+                <Field label="Percentage / Grade" value={form.percentage_or_grade ?? ''} onChange={(v) => setField('percentage_or_grade', v)} />
+                <div>
+                  <Label className="mb-1 text-xs">Current Employment Status</Label>
+                  <select
+                    className={editSelectClass}
+                    value={form.employment_status ?? ''}
+                    onChange={(e) => setField('employment_status', e.target.value)}
+                  >
+                    <option value="">Select</option>
+                    <option value="Employed">Employed</option>
+                    <option value="Self-Employed">Self-Employed</option>
+                    <option value="Unemployed">Unemployed</option>
+                    <option value="Student">Student</option>
+                    <option value="Homemaker">Homemaker</option>
+                    <option value="Retired">Retired</option>
+                  </select>
+                </div>
+                <Field label="Current Occupation" value={form.current_occupation ?? ''} onChange={(v) => setField('current_occupation', v)} />
+                <div>
+                  <Label className="mb-1 text-xs">Experience</Label>
+                  <select
+                    className={editSelectClass}
+                    value={form.experience_years ?? ''}
+                    onChange={(e) => setField('experience_years', e.target.value)}
+                  >
+                    <option value="">Select</option>
+                    {['Fresher', '0-1 Years', '1-3 Years', '3-5 Years', '5-10 Years', '10+ Years'].map((w) => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

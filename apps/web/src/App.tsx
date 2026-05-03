@@ -515,12 +515,46 @@ const SUBDOMAIN_DEFAULT_ROLE_ID: Record<string, string> = {
   centre: '4',      // Centre
 };
 
+// Roles a given subdomain is allowed to log in as. Drives the Login As
+// dropdown — when only one option matches, the dropdown is hidden because
+// the subdomain already determines the role.
+const SUBDOMAIN_ROLE_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  admin: [
+    { value: '1', label: 'Super Admin' },
+    { value: '8', label: 'Sub Admin' },
+    { value: '9', label: 'Counsellor' },
+  ],
+  student: [{ value: '2', label: 'Student' }],
+  centre: [
+    { value: '4', label: 'Centre' },
+    { value: '10', label: 'Associate' },
+  ],
+};
+
+const ALL_ROLE_OPTIONS = [
+  { value: '1', label: 'Super Admin' },
+  { value: '2', label: 'Student' },
+  { value: '3', label: 'Instructor' },
+  { value: '4', label: 'Team Lead' },
+  { value: '7', label: 'Centre' },
+  { value: '8', label: 'Sub Admin' },
+  { value: '9', label: 'Counsellor' },
+  { value: '10', label: 'Associate' },
+];
+
 function LoginHome() {
   const { error, clearError, login, logout, session } = useAuthState();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const portal = useMemo(() => detectPortalFromSubdomain(), []);
+  const roleOptions = useMemo(() => {
+    if (portal && SUBDOMAIN_ROLE_OPTIONS[portal]) return SUBDOMAIN_ROLE_OPTIONS[portal];
+    return ALL_ROLE_OPTIONS;
+  }, [portal]);
   const [roleId, setRoleId] = useState(() => {
-    const portal = detectPortalFromSubdomain();
+    if (portal && SUBDOMAIN_ROLE_OPTIONS[portal]?.[0]) {
+      return SUBDOMAIN_ROLE_OPTIONS[portal][0].value;
+    }
     return portal ? (SUBDOMAIN_DEFAULT_ROLE_ID[portal] ?? '2') : '2';
   });
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -700,29 +734,29 @@ function LoginHome() {
               </div>
             </div>
 
-            {/* Role Selector */}
-            <div className="space-y-1.5">
-              <label htmlFor="login-role" className="text-sm font-semibold text-slate-800">Login As</label>
-              <div className="relative">
-                <User aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                <select
-                  id="login-role"
-                  value={roleId}
-                  onChange={(event) => setRoleId(event.target.value)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="1">Super Admin</option>
-                  <option value="2">Student</option>
-                  <option value="3">Instructor</option>
-                  <option value="4">Team Lead</option>
-                  <option value="7">Centre</option>
-                  <option value="8">Sub Admin</option>
-                  <option value="9">Counsellor</option>
-                  <option value="10">Associate</option>
-                </select>
-                <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            {/* Role Selector — only shown when the subdomain allows multiple
+                roles (admin: Super/Sub/Counsellor, admissions: Centre/Associate).
+                On learn.* the dropdown is hidden because Student is the only
+                option. With no subdomain match we fall back to the full list. */}
+            {roleOptions.length > 1 && (
+              <div className="space-y-1.5">
+                <label htmlFor="login-role" className="text-sm font-semibold text-slate-800">Login As</label>
+                <div className="relative">
+                  <User aria-hidden="true" className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                  <select
+                    id="login-role"
+                    value={roleId}
+                    onChange={(event) => setRoleId(event.target.value)}
+                    className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 transition-colors focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  >
+                    {roleOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Remember Me + Forgot Password */}
             <div className="flex items-center justify-between">

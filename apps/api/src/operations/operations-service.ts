@@ -5117,6 +5117,15 @@ export class OperationsService {
       countryCode?: string;
       alternatePhone?: string;
       status?: string;
+      // Qualification + employment fields (live on applications table).
+      highestQualification?: string;
+      specialization?: string;
+      institutionName?: string;
+      yearOfPassing?: string;
+      percentageOrGrade?: string;
+      employmentStatus?: string;
+      currentOccupation?: string;
+      experienceYears?: string;
     } | string,
     legacyPhone?: string,
   ): Promise<Record<string, unknown>> {
@@ -5162,6 +5171,17 @@ export class OperationsService {
       if (input.city !== undefined) appFields.district = input.city || null;
       if (input.address !== undefined) appFields.address = input.address || null;
       if (input.nativeAddress !== undefined) appFields.native_address = input.nativeAddress || null;
+      // Qualification + employment fields (the application form captured them).
+      if (input.highestQualification !== undefined) appFields.highest_qualification = input.highestQualification || null;
+      if (input.institutionName !== undefined) appFields.previous_school = input.institutionName || null;
+      if (input.yearOfPassing !== undefined) appFields.year_of_passing = input.yearOfPassing || null;
+      if (input.percentageOrGrade !== undefined) appFields.percentage_or_grade = input.percentageOrGrade || null;
+      if (input.employmentStatus !== undefined) appFields.employment_status = input.employmentStatus || null;
+      if (input.currentOccupation !== undefined) appFields.current_occupation = input.currentOccupation || null;
+      if (input.experienceYears !== undefined) appFields.experience_years = input.experienceYears || null;
+      // Mirror Highest Qualification onto users.highest_qualification too —
+      // legacy code reads it from the user record in places (e.g. analytics).
+      if (input.highestQualification !== undefined) userFields.highest_qualification = input.highestQualification || null;
     }
 
     if (Object.keys(userFields).length === 0 && Object.keys(appFields).length === 0) {

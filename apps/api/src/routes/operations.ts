@@ -2392,6 +2392,13 @@ export function registerOperationsRoutes(
         countryCode: toStringValue(payload.country_code),
         alternatePhone: toStringValue(payload.alternate_phone),
         status: toStringValue(payload.status),
+        highestQualification: toStringValue(payload.highest_qualification),
+        institutionName: toStringValue(payload.institution_name) || toStringValue(payload.previous_school),
+        yearOfPassing: toStringValue(payload.year_of_passing),
+        percentageOrGrade: toStringValue(payload.percentage_or_grade),
+        employmentStatus: toStringValue(payload.employment_status),
+        currentOccupation: toStringValue(payload.current_occupation),
+        experienceYears: toStringValue(payload.experience_years),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
