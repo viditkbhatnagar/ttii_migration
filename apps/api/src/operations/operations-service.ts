@@ -3687,7 +3687,10 @@ export class OperationsService {
     const courseMap = new Map(courses.map(c => [c.id, c]));
 
     let items = paymentSums.map(p => {
-      const uid = p.user_id as number;
+      const uid = p.user_id;
+      if (uid === null || uid === undefined) {
+        return null;
+      }
       const user = userMap.get(uid);
       const userEnrolments = enrolments.filter(e => e.user_id === uid);
 
@@ -3722,7 +3725,7 @@ export class OperationsService {
         installments_added: addedAmount,
         fee_plan_status,
       };
-    });
+    }).filter((i): i is NonNullable<typeof i> => i !== null);
 
     if (filters.status && filters.status !== 'all') {
       items = items.filter(i => i.fee_plan_status === filters.status);
