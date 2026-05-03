@@ -39,7 +39,6 @@ const PIPELINE_ROLE_MAP: Record<string, number> = {
   Associate: 10,
 };
 
-const COUNSELLOR_ROLE_ID = 9;
 
 // Year-of-passing options: current+1 down to 1960. Generated once.
 const YEAR_OPTIONS = (() => {
@@ -158,7 +157,12 @@ const emptyForm: FormState = {
   installmentCount: '', installmentStartDate: '', preferredPaymentDay: '5',
 };
 
-const TAB_LABELS = ['Basic Info', 'Qualification', 'Enrolment', 'Fee Information'];
+const TAB_LABELS = ['Basic Info', 'Qualification', 'Enrolment', 'Documents', 'Fee Information'];
+const TAB_BASIC = 0;
+const TAB_QUAL = 1;
+const TAB_ENROL = 2;
+const TAB_DOCS = 3;
+const TAB_FEE = 4;
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
@@ -258,7 +262,6 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     })).filter((r) => r.document_type_id);
   }, [requiredDocsData]);
 
-  const isCounsellor = session.roleId === COUNSELLOR_ROLE_ID;
 
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((f) => {
@@ -483,14 +486,35 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
       { value: form.workExperience, label: 'Experience' },
     ];
     const missingTab2 = tab2Required.find((r) => !r.value);
-    if (missingTab2) { toast.error(`${missingTab2.label} is required.`); setActiveTab(1); return; }
+    if (missingTab2) { toast.error(`${missingTab2.label} is required.`); setActiveTab(TAB_QUAL); return; }
+
+    // Tab 3 — Enrolment. Naji's spec: every field on this tab is mandatory.
+    // (Date of Enrolment was removed; it gets auto-set when admin accepts.)
+    const tab3Required: { value: string; label: string }[] = [
+      { value: form.courseId, label: 'Course' },
+      { value: form.offeringId, label: 'Course Offering' },
+      { value: form.certificateCombination, label: 'Certificate Combination' },
+      { value: form.applicationDate, label: 'Date of Application' },
+      { value: form.modeOfStudy, label: 'Mode of Study' },
+      { value: form.language, label: 'Language' },
+      { value: form.pipeline, label: 'Pipeline' },
+      { value: form.pipelineUser, label: 'Pipeline User' },
+      { value: form.leadSource, label: 'Lead Source' },
+    ];
+    const missingTab3 = tab3Required.find((r) => !r.value);
+    if (missingTab3) { toast.error(`${missingTab3.label} is required.`); setActiveTab(TAB_ENROL); return; }
+    if (form.leadSource === 'Reference' && !form.referenceStudentId) {
+      toast.error('Pick the student that referred this applicant.');
+      setActiveTab(TAB_ENROL);
+      return;
+    }
 
     // Tab 4 — every required document slot for the chosen course must be
     // uploaded. Mandatory-only check: optional slots can stay empty.
     const missingDoc = requiredDocSlots.find(
       (slot) => slot.is_mandatory && !documents.some((d) => d.document_type_id === slot.document_type_id),
     );
-    if (missingDoc) { toast.error(`${missingDoc.label} document is required.`); setActiveTab(3); return; }
+    if (missingDoc) { toast.error(`${missingDoc.label} document is required.`); setActiveTab(TAB_DOCS); return; }
 
     // Split full name into first/last for the legacy schema. Last name = the
     // last whitespace-separated token; first name = everything before. If
@@ -569,8 +593,8 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     }
   }, [form, api, session.token, onNavigate]);
 
-  const goNext = () => setActiveTab((t) => Math.min(t + 1, 3));
-  const goPrev = () => setActiveTab((t) => Math.max(t - 1, 0));
+  const goNext = () => setActiveTab((t) => Math.min(t + 1, TAB_FEE));
+  const goPrev = () => setActiveTab((t) => Math.max(t - 1, TAB_BASIC));
 
   if (refLoading) {
     return (
@@ -972,10 +996,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               <div className="grid gap-2">
                 <Label>Date of Application</Label>
                 <Input type="date" value={form.applicationDate} onChange={(e) => set('applicationDate', e.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Date of Enrolment</Label>
-                <Input type="date" value={form.enrollmentDate} onChange={(e) => set('enrollmentDate', e.target.value)} />
+                <p className="text-xs text-gray-400">Date of Enrolment is auto-set when the admin accepts the application.</p>
               </div>
               <div className="grid gap-2">
                 <Label>Mode of Study</Label>
@@ -1021,40 +1042,139 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   })}
                 </select>
               </div>
-              {isCounsellor && (
-                <>
-                  <div className="grid gap-2">
-                    <Label>Lead Source</Label>
-                    <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
-                      <option value="">Select Lead Source</option>
-                      {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  {form.leadSource === 'Reference' && (
-                    <div className="grid gap-2">
-                      <Label>Referred By</Label>
-                      <select
-                        className={selectClass}
-                        value={form.referenceStudentId}
-                        onChange={(e) => set('referenceStudentId', e.target.value)}
-                      >
-                        <option value="">Select Student</option>
-                        {students.map((s) => {
-                          const id = asString(s.id);
-                          const name = asString(s.name);
-                          const sid = asString(s.student_id);
-                          return <option key={id} value={id}>{name}{sid ? ` (${sid})` : ''}</option>;
-                        })}
-                      </select>
-                    </div>
-                  )}
-                </>
+              <div className="grid gap-2">
+                <Label>Lead Source</Label>
+                <select className={selectClass} value={form.leadSource} onChange={(e) => set('leadSource', e.target.value)}>
+                  <option value="">Select Lead Source</option>
+                  {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              {form.leadSource === 'Reference' && (
+                <div className="grid gap-2">
+                  <Label>Referred By</Label>
+                  <select
+                    className={selectClass}
+                    value={form.referenceStudentId}
+                    onChange={(e) => set('referenceStudentId', e.target.value)}
+                  >
+                    <option value="">Select Student</option>
+                    {students.map((s) => {
+                      const id = asString(s.id);
+                      const name = asString(s.name);
+                      const sid = asString(s.student_id);
+                      return <option key={id} value={id}>{name}{sid ? ` (${sid})` : ''}</option>;
+                    })}
+                  </select>
+                </div>
               )}
             </div>
           )}
 
-          {/* Tab 4: Fee Information */}
-          {activeTab === 3 && (
+          {/* Tab 4: Documents — labelled per-course slots + ad-hoc extras */}
+          {activeTab === TAB_DOCS && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Documents</h3>
+                {!form.courseId ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
+                    Pick a Course on the Enrolment tab to see which documents are required.
+                  </p>
+                ) : requiredDocSlots.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
+                    This course has no required documents configured. (Configure under Courses → Edit Course → Required Documents.)
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {requiredDocSlots.map((slot) => {
+                      const existing = documents.find((d) => d.document_type_id === slot.document_type_id);
+                      return (
+                        <div key={slot.document_type_id} className="rounded-md border p-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">
+                              {slot.label}
+                              {slot.is_mandatory ? <span className="ml-1 text-red-500">*</span> : null}
+                            </Label>
+                            {existing ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-500 hover:text-red-700"
+                                onClick={() => setDocuments((prev) => prev.filter((d) => d.document_type_id !== slot.document_type_id))}
+                              >
+                                <Trash2 className="size-3.5" aria-hidden="true" /> Remove
+                              </Button>
+                            ) : null}
+                          </div>
+                          {existing ? (
+                            <a href={existing.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-xs text-blue-600 hover:underline">
+                              {existing.name}
+                            </a>
+                          ) : (
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                              className="mt-2 block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) {
+                                  void handleDocumentUpload(f, slot.document_type_id);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-md border-t pt-3">
+                  <p className="mb-2 text-xs text-gray-500">Other documents (optional)</p>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        void handleDocumentUpload(f);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  {documents.filter((d) => !d.document_type_id).length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {documents.map((d, idx) => {
+                        if (d.document_type_id) return null;
+                        return (
+                          <li key={idx} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
+                              {d.name}
+                            </a>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="size-7 p-0 text-red-500 hover:text-red-700"
+                              onClick={() => removeDocument(idx)}
+                              aria-label="Remove document"
+                            >
+                              <Trash2 className="size-3.5" aria-hidden="true" />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 5: Fee Information */}
+          {activeTab === TAB_FEE && (
             <div className="space-y-6">
               <div>
                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Pricing</h3>
@@ -1241,106 +1361,6 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   </p>
                 )}
               </div>
-
-              <div>
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-700">Documents</h3>
-                {!form.courseId ? (
-                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
-                    Pick a Course on the Enrolment tab to see which documents are required.
-                  </p>
-                ) : requiredDocSlots.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
-                    This course has no required documents configured. (Configure under Courses → Edit Course → Required Documents.)
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {requiredDocSlots.map((slot) => {
-                      const existing = documents.find((d) => d.document_type_id === slot.document_type_id);
-                      return (
-                        <div key={slot.document_type_id} className="rounded-md border p-3">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-sm">
-                              {slot.label}
-                              {slot.is_mandatory ? <span className="ml-1 text-red-500">*</span> : null}
-                            </Label>
-                            {existing ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:text-red-700"
-                                onClick={() => setDocuments((prev) => prev.filter((d) => d.document_type_id !== slot.document_type_id))}
-                              >
-                                <Trash2 className="size-3.5" aria-hidden="true" /> Remove
-                              </Button>
-                            ) : null}
-                          </div>
-                          {existing ? (
-                            <a href={existing.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-xs text-blue-600 hover:underline">
-                              {existing.name}
-                            </a>
-                          ) : (
-                            <input
-                              type="file"
-                              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                              className="mt-2 block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) {
-                                  void handleDocumentUpload(f, slot.document_type_id);
-                                  e.target.value = '';
-                                }
-                              }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Optional ad-hoc extras the admin wants to attach beyond the
-                    course's defined slots. */}
-                <div className="mt-4 rounded-md border-t pt-3">
-                  <p className="mb-2 text-xs text-gray-500">Other documents (optional)</p>
-                  <input
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                    className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) {
-                        void handleDocumentUpload(f);
-                        e.target.value = '';
-                      }
-                    }}
-                  />
-                  {documents.filter((d) => !d.document_type_id).length > 0 && (
-                    <ul className="mt-3 space-y-1.5">
-                      {documents.map((d, idx) => {
-                        if (d.document_type_id) return null;
-                        return (
-                          <li key={idx} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
-                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 hover:underline">
-                              {d.name}
-                            </a>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="size-7 p-0 text-red-500 hover:text-red-700"
-                              onClick={() => removeDocument(idx)}
-                              aria-label="Remove document"
-                            >
-                              <Trash2 className="size-3.5" aria-hidden="true" />
-                            </Button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
             </div>
           )}
         </CardContent>
@@ -1359,7 +1379,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
           <Button variant="outline" onClick={() => onNavigate('/admin/applications')}>
             Cancel
           </Button>
-          {activeTab < 3 ? (
+          {activeTab < TAB_FEE ? (
             <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={goNext}>
               Save and Next
             </Button>
