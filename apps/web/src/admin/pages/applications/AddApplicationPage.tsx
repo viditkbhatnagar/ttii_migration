@@ -473,6 +473,18 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     if (missingTab1) { toast.error(`${missingTab1.label} is required.`); setActiveTab(0); return; }
     if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is not a valid format.'); setActiveTab(0); return; }
 
+    // Tab 2 — Qualification. Naji's spec: every field mandatory except
+    // Specialization and Current Occupation.
+    const tab2Required: { value: string; label: string }[] = [
+      { value: form.highestQualification, label: 'Highest Qualification' },
+      { value: form.institutionName.trim(), label: 'School / College' },
+      { value: form.yearOfPassing, label: 'Year of Passing' },
+      { value: form.employmentStatus, label: 'Current Employment Status' },
+      { value: form.workExperience, label: 'Experience' },
+    ];
+    const missingTab2 = tab2Required.find((r) => !r.value);
+    if (missingTab2) { toast.error(`${missingTab2.label} is required.`); setActiveTab(1); return; }
+
     // Tab 4 — every required document slot for the chosen course must be
     // uploaded. Mandatory-only check: optional slots can stay empty.
     const missingDoc = requiredDocSlots.find(
