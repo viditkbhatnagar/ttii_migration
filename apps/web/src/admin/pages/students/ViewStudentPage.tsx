@@ -1,15 +1,21 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import { MetricCard } from '@ttii/ui';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
+import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 
 const MAIN_TABS = [
   'Student Profile',
@@ -36,13 +42,14 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [activeTab, setActiveTab] = useState(0);
   const [selectedEnrollmentIdx, setSelectedEnrollmentIdx] = useState<number | null>(null);
   const [enrollmentSubTab, setEnrollmentSubTab] = useState(0);
+  const [editOpen, setEditOpen] = useState(false);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
     return parts[parts.length - 1] || '';
   }, []);
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.getStudentDetail(session.token, studentId),
     [studentId],
   );
@@ -176,7 +183,20 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         <Button variant="outline" onClick={() => onNavigate('/admin/students')}>
           ← Back to Students
         </Button>
+        <Button onClick={() => setEditOpen(true)} className="bg-ttii-primary hover:bg-ttii-primary/90">
+          Edit Student
+        </Button>
       </AdminPageHeader>
+
+      <EditStudentDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        student={student}
+        api={api}
+        token={session.token}
+        studentId={studentId}
+        onSaved={() => { setEditOpen(false); reload(); }}
+      />
 
       {/* Main tab navigation */}
       <div className="flex gap-1 border-b border-gray-200">
@@ -673,6 +693,176 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+const editSelectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+
+function EditStudentDialog({
+  open, onClose, student, api, token, studentId, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  student: Record<string, unknown> | null;
+  api: AdminPortalApi;
+  token: string;
+  studentId: string;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [photo, setPhoto] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open || !student) return;
+    const dob = student.date_of_birth;
+    setForm({
+      name: asString(student.name),
+      user_email: asString(student.user_email),
+      phone: asString(student.phone),
+      country_code: asString(student.country_code),
+      alternate_phone: asString(student.second_phone) || asString(student.alternate_phone),
+      whatsapp_no: asString(student.whatsapp_no),
+      date_of_birth: dob ? new Date(dob as string).toISOString().split('T')[0] ?? '' : '',
+      gender: asString(student.gender),
+      nationality: asString(student.nationality),
+      marital_status: asString(student.marital_status),
+      father_name: asString(student.father_name),
+      mother_name: asString(student.mother_name),
+      guardian_name: asString(student.guardian_name),
+      aadhar_no: asString(student.aadhar_no),
+      passport_no: asString(student.passport_no),
+      country: asString(student.country),
+      state: asString(student.state),
+      city: asString(student.city),
+      address: asString(student.address),
+      native_address: asString(student.native_address),
+      status: asString(student.status) || '1',
+    });
+    setPhoto(asString(student.profile_picture) || asString(student.image));
+  }, [open, student]);
+
+  const setField = useCallback((key: string, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.updateStudentFull(token, studentId, { ...form, profile_picture: photo });
+      toast.success('Student updated.');
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update student');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="w-full min-w-0">
+          <DialogHeader>
+            <DialogTitle>Edit Student</DialogTitle>
+          </DialogHeader>
+          <div className="w-full min-w-0 max-h-[70vh] overflow-y-auto space-y-4 py-2">
+            <div>
+              <Label className="mb-1 text-xs">Profile Photo</Label>
+              <PhotoUpload
+                value={photo}
+                onChange={setPhoto}
+                onUpload={async (file) => {
+                  const r = await api.uploadFile(token, file);
+                  return r.url;
+                }}
+                fallbackInitials={(form.name || '?').slice(0, 2).toUpperCase()}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Name" value={form.name ?? ''} onChange={(v) => setField('name', v)} />
+              <Field label="Email" value={form.user_email ?? ''} onChange={(v) => setField('user_email', v)} />
+              <Field label="Phone" value={form.phone ?? ''} onChange={(v) => setField('phone', v)} />
+              <Field label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => setField('alternate_phone', v)} />
+              <Field label="WhatsApp" value={form.whatsapp_no ?? ''} onChange={(v) => setField('whatsapp_no', v)} />
+              <Field label="Date of Birth" type="date" value={form.date_of_birth ?? ''} onChange={(v) => setField('date_of_birth', v)} />
+              <div>
+                <Label className="mb-1 text-xs">Gender</Label>
+                <select className={editSelectClass} value={form.gender ?? ''} onChange={(e) => setField('gender', e.target.value)}>
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <Label className="mb-1 text-xs">Marital Status</Label>
+                <select className={editSelectClass} value={form.marital_status ?? ''} onChange={(e) => setField('marital_status', e.target.value)}>
+                  <option value="">Select</option>
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Divorced">Divorced</option>
+                  <option value="Widowed">Widowed</option>
+                </select>
+              </div>
+              <Field label="Nationality" value={form.nationality ?? ''} onChange={(v) => setField('nationality', v)} />
+              <Field label="Aadhar No" value={form.aadhar_no ?? ''} onChange={(v) => setField('aadhar_no', v)} />
+              <Field label="Passport No" value={form.passport_no ?? ''} onChange={(v) => setField('passport_no', v)} />
+              <Field label="Father Name" value={form.father_name ?? ''} onChange={(v) => setField('father_name', v)} />
+              <Field label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => setField('mother_name', v)} />
+              <Field label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => setField('guardian_name', v)} />
+              <Field label="Country" value={form.country ?? ''} onChange={(v) => setField('country', v)} />
+              <Field label="State" value={form.state ?? ''} onChange={(v) => setField('state', v)} />
+              <Field label="City / District" value={form.city ?? ''} onChange={(v) => setField('city', v)} />
+              <div>
+                <Label className="mb-1 text-xs">Status</Label>
+                <select className={editSelectClass} value={form.status ?? '1'} onChange={(e) => setField('status', e.target.value)}>
+                  <option value="1">Active</option>
+                  <option value="0">Inactive</option>
+                  <option value="2">Graduated</option>
+                  <option value="3">Dropped</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <Label className="mb-1 text-xs">Permanent Address</Label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                rows={2}
+                value={form.address ?? ''}
+                onChange={(e) => setField('address', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">Correspondence Address</Label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                rows={2}
+                value={form.native_address ?? ''}
+                onChange={(e) => setField('native_address', e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={saving} className="bg-ttii-primary hover:bg-ttii-primary/90">
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({ label, value, onChange, type }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+  return (
+    <div>
+      <Label className="mb-1 text-xs">{label}</Label>
+      <Input type={type ?? 'text'} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }

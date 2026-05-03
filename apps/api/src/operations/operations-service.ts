@@ -4958,13 +4958,83 @@ export class OperationsService {
     return { status: 1, message: 'Enrollment ID updated successfully.' };
   }
 
-  async editStudentInfo(actorUserId: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
+  async editStudentInfo(
+    actorUserId: string,
+    studentId: string,
+    input: {
+      name?: string;
+      phone?: string;
+      userEmail?: string;
+      dateOfBirth?: string;
+      gender?: string;
+      nationality?: string;
+      maritalStatus?: string;
+      fatherName?: string;
+      motherName?: string;
+      guardianName?: string;
+      aadharNo?: string;
+      passportNo?: string;
+      whatsappNo?: string;
+      country?: string;
+      state?: string;
+      city?: string;
+      address?: string;
+      nativeAddress?: string;
+      profilePicture?: string;
+      image?: string;
+      countryCode?: string;
+      alternatePhone?: string;
+      status?: string;
+    } | string,
+    legacyPhone?: string,
+  ): Promise<Record<string, unknown>> {
     if (!studentId) return { status: 0, message: 'Student ID is required.' };
 
+    // Backward-compat: old call sites pass (name, phone) as positional args.
+    const fields: Record<string, unknown> = {};
+    if (typeof input === 'string') {
+      if (input.trim()) fields.name = input.trim();
+      if (legacyPhone && legacyPhone.trim()) fields.phone = legacyPhone.trim();
+    } else {
+      if (input.name !== undefined) fields.name = input.name.trim();
+      if (input.phone !== undefined) fields.phone = input.phone.trim();
+      if (input.userEmail !== undefined) fields.user_email = input.userEmail.trim();
+      if (input.dateOfBirth !== undefined) fields.date_of_birth = input.dateOfBirth || null;
+      if (input.gender !== undefined) fields.gender = input.gender || null;
+      if (input.nationality !== undefined) fields.nationality = input.nationality || null;
+      if (input.maritalStatus !== undefined) fields.marital_status = input.maritalStatus || null;
+      if (input.fatherName !== undefined) fields.father_name = input.fatherName || null;
+      if (input.motherName !== undefined) fields.mother_name = input.motherName || null;
+      if (input.guardianName !== undefined) fields.guardian_name = input.guardianName || null;
+      if (input.aadharNo !== undefined) fields.aadhar_no = input.aadharNo || null;
+      if (input.passportNo !== undefined) fields.passport_no = input.passportNo || null;
+      if (input.whatsappNo !== undefined) fields.whatsapp_no = input.whatsappNo || null;
+      if (input.country !== undefined) fields.country = input.country || null;
+      if (input.state !== undefined) fields.state = input.state || null;
+      if (input.city !== undefined) fields.city = input.city || null;
+      if (input.address !== undefined) fields.address = input.address || null;
+      if (input.nativeAddress !== undefined) fields.native_address = input.nativeAddress || null;
+      if (input.profilePicture !== undefined) fields.profile_picture = input.profilePicture || null;
+      if (input.image !== undefined) fields.image = input.image || null;
+      if (input.countryCode !== undefined) fields.country_code = input.countryCode || null;
+      if (input.alternatePhone !== undefined) fields.second_phone = input.alternatePhone || null;
+      if (input.status !== undefined) {
+        const s = Number(input.status);
+        if (Number.isFinite(s)) fields.status = s;
+      }
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return { status: 0, message: 'No fields to update.' };
+    }
+
     const now = new Date();
+    fields.updated_by = toIntId(actorUserId);
+    fields.updated_at = now;
+
     await this.prisma.users.updateMany({
       where: { id: toIntId(studentId), deleted_at: null },
-      data: { name: name.trim(), phone: phone.trim(), updated_by: toIntId(actorUserId), updated_at: now },
+      data: fields,
     });
 
     return { status: 1, message: 'Student info updated successfully.' };
@@ -5175,6 +5245,26 @@ export class OperationsService {
       select: { recording_storage_key: true },
     });
     return row?.recording_storage_key ?? null;
+  }
+
+  // Returns either a storage key (we sign it) or an absolute URL (we hand
+  // back as-is). Legacy sessions stored Vimeo / Graph URLs directly in
+  // recording_url; the new pipeline uploads to Spaces and writes
+  // recording_storage_key. Both should play from the same admin button.
+  async getLiveSessionRecordingTarget(
+    liveClassId: string,
+  ): Promise<{ kind: 'key'; key: string } | { kind: 'url'; url: string } | null> {
+    const liveClassIdInt = toIntId(liveClassId);
+    if (!liveClassIdInt) return null;
+    const row = await this.prisma.live_class.findFirst({
+      where: { id: liveClassIdInt, deleted_at: null },
+      select: { recording_storage_key: true, recording_url: true, video_url: true },
+    });
+    if (!row) return null;
+    if (row.recording_storage_key) return { kind: 'key', key: row.recording_storage_key };
+    const fallback = row.recording_url || row.video_url;
+    if (fallback && /^https?:\/\//i.test(fallback)) return { kind: 'url', url: fallback };
+    return null;
   }
 
   async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {

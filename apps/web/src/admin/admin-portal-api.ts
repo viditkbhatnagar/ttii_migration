@@ -1958,6 +1958,39 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
   }
 
+  // Full edit (used by ViewStudentPage). Backend accepts each field
+  // optionally and only updates the keys that are present.
+  async updateStudentFull(
+    authToken: string,
+    studentId: string,
+    fields: Partial<{
+      name: string;
+      phone: string;
+      user_email: string;
+      date_of_birth: string;
+      gender: string;
+      nationality: string;
+      marital_status: string;
+      father_name: string;
+      mother_name: string;
+      guardian_name: string;
+      aadhar_no: string;
+      passport_no: string;
+      whatsapp_no: string;
+      country: string;
+      state: string;
+      city: string;
+      address: string;
+      native_address: string;
+      profile_picture: string;
+      country_code: string;
+      alternate_phone: string;
+      status: string;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, ...fields });
+  }
+
   async deleteStudent(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/delete', authToken, { id });
   }

@@ -2362,7 +2362,31 @@ export function registerOperationsRoutes(
   app.post('/admin/students/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.editStudentInfo(requestUserId(request), toStringValue(payload.id), toStringValue(payload.name), toStringValue(payload.phone));
+      const result = await operationsService.editStudentInfo(requestUserId(request), toStringValue(payload.id), {
+        name: toStringValue(payload.name),
+        phone: toStringValue(payload.phone),
+        userEmail: toStringValue(payload.user_email) || toStringValue(payload.email),
+        dateOfBirth: toStringValue(payload.date_of_birth),
+        gender: toStringValue(payload.gender),
+        nationality: toStringValue(payload.nationality),
+        maritalStatus: toStringValue(payload.marital_status),
+        fatherName: toStringValue(payload.father_name),
+        motherName: toStringValue(payload.mother_name),
+        guardianName: toStringValue(payload.guardian_name),
+        aadharNo: toStringValue(payload.aadhar_no),
+        passportNo: toStringValue(payload.passport_no),
+        whatsappNo: toStringValue(payload.whatsapp_no),
+        country: toStringValue(payload.country),
+        state: toStringValue(payload.state),
+        city: toStringValue(payload.city),
+        address: toStringValue(payload.address),
+        nativeAddress: toStringValue(payload.native_address),
+        profilePicture: toStringValue(payload.profile_picture) || toStringValue(payload.photo_url),
+        image: toStringValue(payload.image),
+        countryCode: toStringValue(payload.country_code),
+        alternatePhone: toStringValue(payload.alternate_phone),
+        status: toStringValue(payload.status),
+      });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
@@ -2458,9 +2482,14 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const liveClassId = toStringValue(payload.id);
-      const key = await operationsService.getLiveSessionRecordingStorageKey(liveClassId);
-      if (!key) {
+      const target = await operationsService.getLiveSessionRecordingTarget(liveClassId);
+      if (!target) {
         reply.code(404).send({ status: 0, message: 'Recording not available yet for this session.' });
+        return;
+      }
+      if (target.kind === 'url') {
+        // Legacy: external URL (Vimeo / direct Graph link) — hand back unchanged.
+        reply.code(200).send({ status: 1, data: { url: target.url, expiresInSeconds: 0 } });
         return;
       }
       const storage = options.storage;
@@ -2468,8 +2497,8 @@ export function registerOperationsRoutes(
         reply.code(503).send({ status: 0, message: 'Storage provider not configured.' });
         return;
       }
-      const expiresInSeconds = 3600; // 1 hour — generous so students can keep the tab open
-      const url = await storage.createSignedDownloadUrl({ key, expiresInSeconds });
+      const expiresInSeconds = 3600;
+      const url = await storage.createSignedDownloadUrl({ key: target.key, expiresInSeconds });
       reply.code(200).send({ status: 1, data: { url, expiresInSeconds } });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
