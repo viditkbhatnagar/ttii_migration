@@ -19,7 +19,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
-const TAB_LABELS = ['Learners', 'Live Sessions', 'Activities/Assignments', 'Announcements'];
+const TAB_LABELS = ['Learners', 'Live Sessions', 'Assignments', 'Announcements'];
 const ASSIGNMENT_SUB_TABS = ['Details', 'Submissions', 'Unsubmitted Students'];
 
 // MariaDB TIME columns come back as "1970-01-01T19:00:00.000Z" (Prisma prefixes
@@ -29,6 +29,28 @@ function formatTimeValue(t: string): string {
   const iso = t.match(/T(\d{2}:\d{2})/);
   if (iso && iso[1]) return iso[1];
   return t.length >= 5 ? t.slice(0, 5) : t;
+}
+
+// "2026-03-14T00:00:00.000Z" → "14 Mar 2026". Falls back to original string
+// if it isn't an ISO date.
+function formatSessionDate(d: string): string {
+  if (!d) return '';
+  const parsed = new Date(d);
+  if (isNaN(parsed.getTime())) return d;
+  const day = String(parsed.getUTCDate()).padStart(2, '0');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[parsed.getUTCMonth()] ?? '';
+  return `${day} ${month} ${parsed.getUTCFullYear()}`;
+}
+
+function format12hTime(hhmm: string): string {
+  if (!hhmm || hhmm.length < 4) return hhmm;
+  const [h, m] = hhmm.split(':');
+  const hour = Number(h);
+  if (!Number.isFinite(hour)) return hhmm;
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const display = ((hour + 11) % 12) + 1;
+  return `${display}:${m} ${period}`;
 }
 
 type ModalType =
@@ -101,22 +123,32 @@ export default function ViewCohortPage({ api, session, onNavigate }: AdminPagePr
   const cohortIdLabel = asString(cohort.cohort_id) || cohortId;
   const startDate = formatDate(cohort.start_date) || '-';
   const endDate = formatDate(cohort.end_date) || '-';
+  const durationLabel = (() => {
+    const sd = cohort.start_date ? new Date(cohort.start_date as string) : null;
+    const ed = cohort.end_date ? new Date(cohort.end_date as string) : null;
+    if (!sd || !ed || isNaN(sd.getTime()) || isNaN(ed.getTime())) return '';
+    const days = Math.round((ed.getTime() - sd.getTime()) / 86400000);
+    if (days <= 0) return '';
+    return `${days} day${days === 1 ? '' : 's'}`;
+  })();
   const status = asString(cohort.status) || 'active';
 
   return (
     <div className="space-y-4">
-      {/* Sub-header banner */}
+      {/* Sub-header banner — surfaces both cohort name + code so they're always visible. */}
       <div className="rounded-lg border-l-4 border-ttii-primary bg-white px-4 py-3 shadow-sm">
-        <p className="text-base font-bold text-ttii-primary">{asString(cohort.title)}</p>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <p className="text-base font-bold text-ttii-primary">{asString(cohort.title)}</p>
+          <span className="rounded-full bg-ttii-primary/10 px-2 py-0.5 text-xs font-semibold text-ttii-primary">
+            {cohortIdLabel}
+          </span>
+        </div>
         <p className="text-xs text-gray-500">Cohorts / {asString(cohort.title)}</p>
       </div>
 
       <AdminPageHeader title="Cohort Edit">
         <Button variant="outline" onClick={() => onNavigate('/admin/cohorts/index')}>
           &larr; Back to Cohorts
-        </Button>
-        <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => onNavigate('/admin/cohorts/add')}>
-          + Add Cohort
         </Button>
       </AdminPageHeader>
 
@@ -164,15 +196,15 @@ export default function ViewCohortPage({ api, session, onNavigate }: AdminPagePr
             <div className="flex items-start gap-2">
               <BookOpen className="mt-0.5 size-4 shrink-0 text-blue-600" />
               <div className="min-w-0">
-                <p className="text-xs text-gray-500">Course</p>
-                <p className="truncate text-sm font-medium text-blue-700 hover:underline cursor-pointer">{courseTitle}</p>
+                <p className="text-xs text-gray-500">Subject</p>
+                <p className="truncate text-sm font-medium text-blue-700 hover:underline cursor-pointer">{subjectWithLang}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
               <BookOpen className="mt-0.5 size-4 shrink-0 text-blue-600" />
               <div className="min-w-0">
-                <p className="text-xs text-gray-500">Subject</p>
-                <p className="truncate text-sm font-medium text-blue-700 hover:underline cursor-pointer">{subjectWithLang}</p>
+                <p className="text-xs text-gray-500">Course</p>
+                <p className="truncate text-sm font-medium text-blue-700 hover:underline cursor-pointer">{courseTitle}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
@@ -187,6 +219,9 @@ export default function ViewCohortPage({ api, session, onNavigate }: AdminPagePr
               <div>
                 <p className="text-xs text-gray-500">End Date</p>
                 <p className="text-sm font-medium text-gray-900">{endDate}</p>
+                {durationLabel ? (
+                  <p className="text-[10px] text-gray-500">{durationLabel}</p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -444,6 +479,14 @@ function LearnersTab({
               const id = asString(learner.id) || asString(learner._id);
               const name = asString(learner.name).toUpperCase() || '-';
               const image = asString(learner.image);
+              const enrollmentId = asString(learner.enrollment_id);
+              const courseTitle = asString(learner.course_title);
+              const offeringTitle = asString(learner.offering_title);
+              const infoLines = [
+                enrollmentId ? `Enrollment: ${enrollmentId}` : '',
+                courseTitle ? `Course: ${courseTitle}` : '',
+                offeringTitle ? `Offering: ${offeringTitle}` : '',
+              ].filter(Boolean).join('\n');
               return (
                 <div key={id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
                   <span className="text-xs font-medium text-gray-400 w-5">{idx + 1}</span>
@@ -454,6 +497,17 @@ function LearnersTab({
                     </AvatarFallback>
                   </Avatar>
                   <span className="flex-1 truncate text-sm font-medium text-gray-800">{name}</span>
+                  {infoLines ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                      title={infoLines}
+                      aria-label={`Learner info: ${infoLines.replace(/\n/g, ', ')}`}
+                    >
+                      <FileText className="size-4" aria-hidden="true" />
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -544,9 +598,9 @@ function LiveSessionsTab({
                 const password = asString(s.password);
                 const joinUrl = asString(s.join_url);
                 const hostEmail = asString(s.host_email);
-                const date = asString(s.date);
-                const fromTime = formatTimeValue(asString(s.from_time) || asString(s.fromTime));
-                const toTime = formatTimeValue(asString(s.to_time) || asString(s.toTime));
+                const date = formatSessionDate(asString(s.date));
+                const fromTime = format12hTime(formatTimeValue(asString(s.from_time) || asString(s.fromTime)));
+                const toTime = format12hTime(formatTimeValue(asString(s.to_time) || asString(s.toTime)));
                 const platformLabel =
                   platform === 'teams' ? 'Microsoft Teams'
                   : platform === 'zoom' ? 'Zoom'
@@ -626,9 +680,9 @@ function LiveSessionsTab({
               {completedSessions.map((s) => {
                 const id = asString(s.id) || asString(s._id);
                 const title = asString(s.title);
-                const date = asString(s.date);
-                const fromTime = formatTimeValue(asString(s.from_time) || asString(s.fromTime));
-                const toTime = formatTimeValue(asString(s.to_time) || asString(s.toTime));
+                const date = formatSessionDate(asString(s.date));
+                const fromTime = format12hTime(formatTimeValue(asString(s.from_time) || asString(s.fromTime)));
+                const toTime = format12hTime(formatTimeValue(asString(s.to_time) || asString(s.toTime)));
                 const recording = asString(s.video_url) || asString(s.recording_url);
 
                 return (

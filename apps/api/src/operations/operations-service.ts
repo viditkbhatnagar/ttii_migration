@@ -5254,30 +5254,61 @@ export class OperationsService {
     }
 
     // Fetch related names
-    const [course, subject, centre, instructor] = await Promise.all([
+    const [course, subject, centre, instructor, language] = await Promise.all([
       cohort.course_id ? this.prisma.course.findFirst({ where: { id: cohort.course_id }, select: { id: true, title: true } }) : null,
-      cohort.subject_id ? this.prisma.subject.findFirst({ where: { id: cohort.subject_id }, select: { id: true, title: true } }) : null,
+      cohort.subject_id ? this.prisma.subject.findFirst({ where: { id: cohort.subject_id }, select: { id: true, title: true, short_name: true } }) : null,
       cohort.centre_id ? this.prisma.centres.findFirst({ where: { id: cohort.centre_id }, select: { id: true, centre_name: true } }) : null,
-      cohort.instructor_id ? this.prisma.users.findFirst({ where: { id: cohort.instructor_id }, select: { id: true, name: true } }) : null,
+      cohort.instructor_id
+        ? this.prisma.users.findFirst({ where: { id: cohort.instructor_id }, select: { id: true, name: true, image: true, profile_picture: true } })
+        : null,
+      cohort.language_id ? this.prisma.languages.findFirst({ where: { id: cohort.language_id }, select: { id: true, title: true } }) : null,
     ]);
 
-    // Learners
+    // Learners — students linked to this cohort. Surface profile photos via
+    // the legacy-asset-url shim so the View page renders them.
     const cohortStudents = await this.prisma.cohort_students.findMany({
       where: { cohort_id: cohortId, deleted_at: null },
     });
     const studentUserIds = cohortStudents.map(cs => cs.user_id).filter((x): x is number => x !== null && x !== undefined);
-    const studentUsers = studentUserIds.length > 0
-      ? await this.prisma.users.findMany({
-          where: { id: { in: studentUserIds }, deleted_at: null },
-          select: { id: true, name: true, student_id: true, status: true },
-        })
+    const [studentUsers, studentEnrolments] = await Promise.all([
+      studentUserIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: studentUserIds }, deleted_at: null },
+            select: { id: true, name: true, student_id: true, status: true, image: true, profile_picture: true, course_id: true },
+          })
+        : Promise.resolve([]),
+      studentUserIds.length > 0
+        ? this.prisma.enrol.findMany({
+            where: { user_id: { in: studentUserIds }, deleted_at: null },
+            select: { user_id: true, course_id: true, enrollment_id: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const learnerCourseIds = [...new Set(studentEnrolments.map(e => e.course_id).filter((x): x is number => x !== null))];
+    const learnerCourses = learnerCourseIds.length > 0
+      ? await this.prisma.course.findMany({ where: { id: { in: learnerCourseIds } }, select: { id: true, title: true } })
       : [];
+    const learnerCourseMap = new Map(learnerCourses.map(c => [c.id, c.title]));
+    const enrolByUser = new Map<number, { course_id: number | null; enrollment_id: string | null }>();
+    for (const e of studentEnrolments) {
+      if (e.user_id != null && !enrolByUser.has(e.user_id)) {
+        enrolByUser.set(e.user_id, { course_id: e.course_id, enrollment_id: e.enrollment_id });
+      }
+    }
+
     const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
-    const learners = studentUsers.map(u => ({
-      ...u,
-      enrollment_id: u.student_id,
-      status_label: (u.status !== null && u.status !== undefined ? statusLabels[u.status] : undefined) ?? 'Unknown',
-    }));
+    const learners = studentUsers.map(u => {
+      const photo = toLegacyFileUrl(u.profile_picture) || toLegacyFileUrl(u.image);
+      const enrol = enrolByUser.get(u.id);
+      return {
+        ...u,
+        image: photo,
+        profile_picture: photo,
+        enrollment_id: enrol?.enrollment_id ?? u.student_id,
+        course_title: enrol?.course_id ? learnerCourseMap.get(enrol.course_id) ?? null : null,
+        status_label: (u.status !== null && u.status !== undefined ? statusLabels[u.status] : undefined) ?? 'Unknown',
+      };
+    });
 
     // Live sessions
     const liveSessions = await this.prisma.live_class.findMany({
@@ -5285,7 +5316,7 @@ export class OperationsService {
       orderBy: { date: 'desc' },
     });
 
-    // Assignments
+    // Assignments — surface absolute file URL so the View page link works.
     const assignments = await this.prisma.assignment.findMany({
       where: { cohort_id: cohortIdInt, deleted_at: null },
       orderBy: { due_date: 'desc' },
@@ -5302,8 +5333,13 @@ export class OperationsService {
 
     const assignmentsWithCounts = assignments.map(a => ({
       ...a,
+      file: toLegacyFileUrl(a.file),
       submissions_count: subCountMap.get(a.id) ?? 0,
     }));
+
+    const instructorPhoto = instructor
+      ? toLegacyFileUrl(instructor.profile_picture) || toLegacyFileUrl(instructor.image)
+      : '';
 
     return {
       status: 1,
@@ -5312,8 +5348,12 @@ export class OperationsService {
         ...cohort,
         course_title: course?.title ?? null,
         subject_title: subject?.title ?? null,
+        subject_short_name: subject?.short_name ?? null,
         centre_name: centre?.centre_name ?? null,
         instructor_name: instructor?.name ?? null,
+        instructor_image: instructorPhoto,
+        language: language?.title ?? null,
+        language_title: language?.title ?? null,
       },
       learners,
       live_sessions: liveSessions,

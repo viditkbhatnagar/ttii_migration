@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
-import { asString } from '../../shared/utils/admin-data-utils.js';
+import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 function formatMonthLabel(dateStr: string): string {
   if (!dateStr) return '';
@@ -18,12 +19,20 @@ function formatMonthLabel(dateStr: string): string {
   return `${m} ${d.getFullYear()}`;
 }
 
+function buildCohortCode(subjectShort: string, dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const mmm = MONTH_ABBR[d.getMonth()] ?? '';
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${subjectShort.toUpperCase()}${mmm}${yy}`;
+}
+
 export default function AddCohortPage({ api, session, onNavigate }: AdminPageProps) {
   const [title, setTitle] = useState('');
   const [cohortCode, setCohortCode] = useState('');
-  const [courseId, setCourseId] = useState('');
   const [subjectId, setSubjectId] = useState('');
-  const [centreId, setCentreId] = useState('');
+  const [courseId, setCourseId] = useState('');
   const [instructorId, setInstructorId] = useState('');
   const [languageId, setLanguageId] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -31,61 +40,63 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   const [offeringIds, setOfferingIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
-  const [centres, setCentres] = useState<Record<string, unknown>[]>([]);
   const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
   const [languages, setLanguages] = useState<Record<string, unknown>[]>([]);
   const [offerings, setOfferings] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
     Promise.all([
-      api.loadCourses(session.token),
-      api.loadCentres(session.token),
+      api.listAllSubjects(session.token),
       api.loadInstructors(session.token),
       api.loadLanguages(session.token),
-    ]).then(([c, ce, ins, langs]) => {
-      setCourses(c);
-      setCentres(ce);
+    ]).then(([s, ins, langs]) => {
+      setSubjects(s);
       setInstructors(ins);
       setLanguages(langs);
     }).catch(() => {});
   }, [api, session.token]);
 
+  // Subject-scoped courses come from the subject record itself (see
+  // /admin/course/subjects/all which embeds the linked `courses` array).
+  const selectedSubject = useMemo(
+    () => subjects.find((s) => asString(s.id) === subjectId) ?? null,
+    [subjects, subjectId],
+  );
+  const subjectCourses = useMemo(() => {
+    if (!selectedSubject) return [] as Record<string, unknown>[];
+    return toRecords(selectedSubject.courses);
+  }, [selectedSubject]);
+
+  // Subject change → clear course/offerings; course change → clear offerings.
+  useEffect(() => {
+    setCourseId('');
+    setOfferingIds(new Set());
+  }, [subjectId]);
+
   useEffect(() => {
     if (courseId) {
-      api.loadSubjects(session.token, courseId).then(setSubjects).catch(() => {});
       api.listOfferings(session.token, { course_id: courseId })
         .then((os) => setOfferings(os))
         .catch(() => setOfferings([]));
     } else {
-      setSubjects([]);
       setOfferings([]);
     }
-    setSubjectId('');
     setOfferingIds(new Set());
   }, [api, session.token, courseId]);
 
-  const courseMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of courses) m.set(asString(c.id), asString(c.title));
-    return m;
-  }, [courses]);
-  const subjectMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of subjects) m.set(asString(s.id), asString(s.title));
-    return m;
-  }, [subjects]);
-
-  const canGenerateName = courseId && subjectId && startDate;
-
-  const handleGenerateName = useCallback(() => {
-    const c = courseMap.get(courseId) ?? '';
-    const s = subjectMap.get(subjectId) ?? '';
-    const m = formatMonthLabel(startDate);
-    const parts = [c, s, m].filter(Boolean);
-    if (parts.length > 0) setTitle(parts.join(' - '));
-  }, [courseMap, subjectMap, courseId, subjectId, startDate]);
+  // Auto-generate Name + Code as soon as Subject + Start Date are both set.
+  useEffect(() => {
+    if (!subjectId || !startDate) return;
+    const subject = subjects.find((s) => asString(s.id) === subjectId);
+    if (!subject) return;
+    const subjectTitle = asString(subject.title);
+    const subjectShort = asString(subject.short_name) || subjectTitle.replace(/[^A-Za-z]/g, '').slice(0, 2);
+    const monthLabel = formatMonthLabel(startDate);
+    if (subjectTitle && monthLabel) setTitle(`${subjectTitle} - ${monthLabel}`);
+    setCohortCode(buildCohortCode(subjectShort, startDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId, startDate]);
 
   const handleToggleOffering = useCallback((id: string) => {
     setOfferingIds((prev) => {
@@ -105,7 +116,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
         cohortCode,
         courseId,
         subjectId,
-        centreId,
+        centreId: '',
         instructorId,
         languageId,
         startDate,
@@ -126,49 +137,31 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
         <CardContent className="space-y-4 p-6">
           <div className="space-y-2">
             <Label htmlFor="title">Cohort Name *</Label>
-            <div className="flex gap-2">
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Auto-generate or enter manually"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleGenerateName}
-                disabled={!canGenerateName}
-                title="Compose from Course - Subject - Start Month"
-              >
-                Generate
-              </Button>
-            </div>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Auto-generated from Subject + Start Month"
+            />
             <p className="text-xs text-muted-foreground">
-              Click Generate to compose the name from Course, Subject and Start Month.
+              Auto-fills as Subject + Start Date once both are set.
             </p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="cohortCode">Cohort Code</Label>
-            <Input id="cohortCode" value={cohortCode} onChange={(e) => setCohortCode(e.target.value)} placeholder="Auto-generated if empty" />
+            <Input
+              id="cohortCode"
+              value={cohortCode}
+              onChange={(e) => setCohortCode(e.target.value)}
+              placeholder="Auto-generated from Subject short name + start month"
+            />
+            <p className="text-xs text-muted-foreground">
+              Format: <code>SHORT</code> + <code>MMM</code> + <code>YY</code> (e.g. <code>MMJAN26</code>).
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="course">Course</Label>
-              <select
-                id="course"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
-              >
-                <option value="">Select Course</option>
-                {courses.map((c) => (
-                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                ))}
-              </select>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="subject">Subject</Label>
               <select
@@ -180,6 +173,22 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
                 <option value="">Select Subject</option>
                 {subjects.map((s) => (
                   <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="course">Course</Label>
+              <select
+                id="course"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={courseId}
+                onChange={(e) => setCourseId(e.target.value)}
+                disabled={!subjectId}
+              >
+                <option value="">{subjectId ? 'Select Course' : 'Select a subject first'}</option>
+                {subjectCourses.map((c) => (
+                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
                 ))}
               </select>
             </div>
@@ -229,21 +238,6 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="centre">Centre</Label>
-              <select
-                id="centre"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={centreId}
-                onChange={(e) => setCentreId(e.target.value)}
-              >
-                <option value="">Select Centre</option>
-                {centres.map((c) => (
-                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="instructor">Instructor</Label>
               <select
                 id="instructor"
@@ -257,9 +251,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
                 ))}
               </select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="language">Language</Label>
               <select
@@ -274,7 +266,6 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
                 ))}
               </select>
             </div>
-            <div />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

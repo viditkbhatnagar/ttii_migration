@@ -202,16 +202,9 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
           return <AdminStatusBadge status={status} />;
         },
       },
-      { key: 'cohort_id', label: 'Cohort ID', sortable: true, render: (v) => asString(v) || '-' },
       {
-        key: 'cohort_date',
-        label: 'Cohort Date',
-        sortable: true,
-        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
-      },
-      {
-        key: 'title',
-        label: 'Cohort Name',
+        key: 'cohort_id',
+        label: 'Cohort Code',
         sortable: true,
         render: (value, row) => (
           <button
@@ -226,18 +219,14 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
           </button>
         ),
       },
-      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
       {
-        key: 'offering_titles',
-        label: 'Offerings',
-        render: (_v, row) => {
-          const titles = Array.isArray(row.offering_titles) ? (row.offering_titles as string[]) : [];
-          if (titles.length === 0) return '-';
-          const joined = titles.join(', ');
-          return joined.length > 50 ? `${joined.slice(0, 50)}…` : joined;
-        },
+        key: 'cohort_date',
+        label: 'Cohort Date',
+        sortable: true,
+        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
       },
+      { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'language',
         label: 'Language',
@@ -268,19 +257,6 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
           const count = asNumber(row.live_class_count) || asNumber(row.live_sessions_count) || 0;
           return (
             <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
-              {count}
-            </span>
-          );
-        },
-      },
-      {
-        key: 'assignment_count',
-        label: 'Assignments',
-        sortable: true,
-        render: (_v, row) => {
-          const count = asNumber(row.assignment_count) || asNumber(row.assignments_count) || 0;
-          return (
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
               {count}
             </span>
           );
