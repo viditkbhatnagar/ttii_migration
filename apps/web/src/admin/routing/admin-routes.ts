@@ -68,6 +68,7 @@ const SystemSettingsPage = lazy(() => import('../pages/settings/SystemSettingsPa
 const ContactSettingsPage = lazy(() => import('../pages/settings/ContactSettingsPage.js'));
 const WebsiteSettingsPage = lazy(() => import('../pages/settings/WebsiteSettingsPage.js'));
 const DocumentTypesPage = lazy(() => import('../pages/settings/DocumentTypesPage.js'));
+const EditStudentPage = lazy(() => import('../pages/students/EditStudentPage.js'));
 const NotificationsPage = lazy(() => import('../pages/notification/NotificationsPage.js'));
 const BannersPage = lazy(() => import('../pages/banners/BannersPage.js'));
 const FaqPage = lazy(() => import('../pages/faq/FaqPage.js'));
@@ -132,6 +133,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/applications/view/:id', pageComponent: ViewApplicationPage, title: 'View Application' },
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },
   { path: '/admin/students/view/:id', pageComponent: ViewStudentPage, title: 'View Student' },
+  { path: '/admin/students/edit/:id', pageComponent: EditStudentPage, title: 'Edit Student' },
   { path: '/admin/assignment/index', aliases: ['/admin/assignment'], pageComponent: AssignmentsPage, title: 'Assignments' },
   { path: '/admin/assignment/submissions/:id', pageComponent: ViewSubmissionsPage, title: 'Assignment Submissions' },
   { path: '/admin/batch/index', aliases: ['/admin/batch'], pageComponent: IntakePage, title: 'Intake' },

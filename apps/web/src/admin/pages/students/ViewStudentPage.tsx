@@ -1,21 +1,15 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import { MetricCard } from '@ttii/ui';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
-import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 
 const MAIN_TABS = [
   'Student Profile',
@@ -42,14 +36,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [activeTab, setActiveTab] = useState(0);
   const [selectedEnrollmentIdx, setSelectedEnrollmentIdx] = useState<number | null>(null);
   const [enrollmentSubTab, setEnrollmentSubTab] = useState(0);
-  const [editOpen, setEditOpen] = useState(false);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
     return parts[parts.length - 1] || '';
   }, []);
 
-  const { data, loading, error, reload } = useAdminPageData(
+  const { data, loading, error } = useAdminPageData(
     () => api.getStudentDetail(session.token, studentId),
     [studentId],
   );
@@ -84,6 +77,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const materialProgress = useMemo(() => toRecords(data?.materialProgress), [data]);
   const assignmentSubmissions = useMemo(() => toRecords(data?.assignmentSubmissions), [data]);
   const profileCompletion = useMemo(() => asNumber(data?.profileCompletion), [data]);
+  const educationPathway = useMemo(() => toRecords(data?.educationPathway), [data]);
+  const applicationFee = useMemo(() => {
+    const f = data?.applicationFee;
+    return typeof f === 'object' && f !== null ? (f as Record<string, unknown>) : null;
+  }, [data]);
+  const applicationInstallments = useMemo(() => toRecords(data?.applicationInstallments), [data]);
+  const applicationDocuments = useMemo(() => toRecords(data?.applicationDocuments), [data]);
 
   // Selected enrollment for drill-down
   const selectedEnrollment = selectedEnrollmentIdx !== null ? enrolments[selectedEnrollmentIdx] : null;
@@ -183,20 +183,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         <Button variant="outline" onClick={() => onNavigate('/admin/students')}>
           ← Back to Students
         </Button>
-        <Button onClick={() => setEditOpen(true)} className="bg-ttii-primary hover:bg-ttii-primary/90">
+        <Button onClick={() => onNavigate(`/admin/students/edit/${studentId}`)} className="bg-ttii-primary hover:bg-ttii-primary/90">
           Edit Student
         </Button>
       </AdminPageHeader>
-
-      <EditStudentDialog
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        student={student}
-        api={api}
-        token={session.token}
-        studentId={studentId}
-        onSaved={() => { setEditOpen(false); reload(); }}
-      />
 
       {/* Main tab navigation */}
       <div className="flex gap-1 border-b border-gray-200">
@@ -282,7 +272,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* Qualification section */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Qualification</CardTitle>
+              <CardTitle className="text-base">Qualification & Employment</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid gap-x-8 md:grid-cols-2">
@@ -290,16 +280,70 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <InfoRow label="Highest Qualification" value={asString(student.highest_qualification)} />
                   <InfoRow label="Specialization" value={asString(student.specialization)} />
                   <InfoRow label="School / College" value={asString(student.institution_name)} />
+                  <InfoRow label="Year of Passing" value={asString(student.year_of_passing)} />
                 </div>
                 <div>
-                  <InfoRow label="Year of Passing" value={asString(student.year_of_passing)} />
+                  <InfoRow label="Percentage / Grade" value={asString(student.percentage_or_grade)} />
+                  <InfoRow label="Employment Status" value={asString(student.employment_status)} />
                   <InfoRow label="Current Occupation" value={asString(student.current_occupation)} />
                   <InfoRow label="Experience" value={asString(student.work_experience)} />
                 </div>
               </div>
+
+              {educationPathway.length > 0 && (
+                <div className="mt-6">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Education Pathway</p>
+                  <div className="overflow-hidden rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Qualification</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Institution</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Year</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Marks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {educationPathway.map((row, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-3 py-1.5">{asString(row.qualification) || '-'}</td>
+                            <td className="px-3 py-1.5">{asString(row.institution) || '-'}</td>
+                            <td className="px-3 py-1.5">{asString(row.year_passed) || '-'}</td>
+                            <td className="px-3 py-1.5">{asString(row.marks) || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
+          {/* Application metadata — what was captured on the application form. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Application Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Application ID" value={asString(student.application_id)} />
+                  <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
+                  <InfoRow label="Application Status" value={asString(student.application_status)} />
+                  <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
+                  <InfoRow label="Preferred Language" value={asString(student.preferred_language)} />
+                </div>
+                <div>
+                  <InfoRow label="Pipeline" value={asString(student.pipeline)} />
+                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user)} />
+                  <InfoRow label="Lead Source" value={asString(student.lead_source)} />
+                  <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
+                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_id)} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -346,45 +390,118 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
             </CardContent>
           </Card>
+
+          {applicationFee && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Application Fee Breakdown</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow label="Registration Fee" value={asString(applicationFee.registration_fee) ? `₹${asString(applicationFee.registration_fee)}` : '-'} />
+                    <InfoRow label="Discount" value={asString(applicationFee.discount) ? `${asString(applicationFee.discount)}${applicationFee.discount_type === 'flat' ? ' (flat)' : ' %'}` : '-'} />
+                  </div>
+                  <div>
+                    <InfoRow label="GST %" value={asString(applicationFee.gst_percent) || '-'} />
+                    <InfoRow label="Final Course Fee" value={asString(applicationFee.final_fee) ? `₹${asNumber(applicationFee.final_fee).toLocaleString('en-IN')}` : '-'} />
+                  </div>
+                </div>
+                {applicationInstallments.length > 0 && (
+                  <div className="mt-6">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Instalment Plan (captured at application)</p>
+                    <div className="overflow-hidden rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Description</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Due Date</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Amount</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">GST</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {applicationInstallments.map((row, idx) => (
+                            <tr key={idx} className="border-t">
+                              <td className="px-3 py-1.5">{idx + 1}</td>
+                              <td className="px-3 py-1.5">{asString(row.description) || '-'}</td>
+                              <td className="px-3 py-1.5">{asString(row.due_date) || '-'}</td>
+                              <td className="px-3 py-1.5">{asString(row.amount) || '-'}</td>
+                              <td className="px-3 py-1.5">{asString(row.gst) || '-'}</td>
+                              <td className="px-3 py-1.5 font-medium">{asString(row.total) || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
       {/* Tab 4: Documents */}
       {activeTab === 3 && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Documents</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            {documents.length === 0 ? (
-              <p className="p-6 text-sm text-gray-500">No documents uploaded.</p>
-            ) : (
-              <AdminDataTable
-                columns={[
-                  { key: 'label', label: 'Label', render: (v) => asString(v) || '-' },
-                  {
-                    key: 'file',
-                    label: 'File',
-                    render: (v) => {
-                      const url = asString(v);
-                      if (!url) return '-';
-                      return (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-blue-600 hover:underline"
-                        >
-                          View
-                        </a>
-                      );
+        <div className="space-y-4">
+          {applicationDocuments.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Application Documents</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <AdminDataTable
+                  columns={[
+                    { key: 'name', label: 'Name', render: (v) => asString(v) || '-' },
+                    {
+                      key: 'url', label: 'File',
+                      render: (v) => {
+                        const url = asString(v);
+                        if (!url) return '-';
+                        return <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">View</a>;
+                      },
                     },
-                  },
-                  { key: 'uploaded_at', label: 'Uploaded', render: (v) => formatDate(v) },
-                ]}
-                rows={documents}
-              />
-            )}
-          </CardContent>
-        </Card>
+                    { key: 'document_type_id', label: 'Slot', render: (v) => asString(v) || '-' },
+                  ]}
+                  rows={applicationDocuments}
+                />
+              </CardContent>
+            </Card>
+          )}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Student Documents</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              {documents.length === 0 ? (
+                <p className="p-6 text-sm text-gray-500">No documents uploaded.</p>
+              ) : (
+                <AdminDataTable
+                  columns={[
+                    { key: 'label', label: 'Label', render: (v) => asString(v) || '-' },
+                    {
+                      key: 'file',
+                      label: 'File',
+                      render: (v) => {
+                        const url = asString(v);
+                        if (!url) return '-';
+                        return (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline"
+                          >
+                            View
+                          </a>
+                        );
+                      },
+                    },
+                    { key: 'uploaded_at', label: 'Uploaded', render: (v) => formatDate(v) },
+                  ]}
+                  rows={documents}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Tab 5: Performance Analytics */}
@@ -693,237 +810,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-const editSelectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
-
-function EditStudentDialog({
-  open, onClose, student, api, token, studentId, onSaved,
-}: {
-  open: boolean;
-  onClose: () => void;
-  student: Record<string, unknown> | null;
-  api: AdminPortalApi;
-  token: string;
-  studentId: string;
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [photo, setPhoto] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open || !student) return;
-    const dob = student.date_of_birth;
-    setForm({
-      name: asString(student.name),
-      user_email: asString(student.user_email),
-      phone: asString(student.phone),
-      country_code: asString(student.country_code),
-      alternate_phone: asString(student.second_phone) || asString(student.alternate_phone),
-      whatsapp_no: asString(student.whatsapp_no),
-      date_of_birth: dob ? new Date(dob as string).toISOString().split('T')[0] ?? '' : '',
-      gender: asString(student.gender),
-      nationality: asString(student.nationality),
-      marital_status: asString(student.marital_status),
-      father_name: asString(student.father_name),
-      mother_name: asString(student.mother_name),
-      guardian_name: asString(student.guardian_name),
-      aadhar_no: asString(student.aadhar_no),
-      passport_no: asString(student.passport_no),
-      country: asString(student.country),
-      state: asString(student.state),
-      city: asString(student.city),
-      address: asString(student.address),
-      native_address: asString(student.native_address),
-      status: asString(student.status) || '1',
-      highest_qualification: asString(student.highest_qualification),
-      institution_name: asString(student.institution_name) || asString(student.previous_school),
-      year_of_passing: asString(student.year_of_passing),
-      percentage_or_grade: asString(student.percentage_or_grade),
-      employment_status: asString(student.employment_status),
-      current_occupation: asString(student.current_occupation),
-      experience_years: asString(student.work_experience) || asString(student.experience_years),
-    });
-    setPhoto(asString(student.profile_picture) || asString(student.image));
-  }, [open, student]);
-
-  const setField = useCallback((key: string, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await api.updateStudentFull(token, studentId, { ...form, profile_picture: photo });
-      toast.success('Student updated.');
-      onSaved();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update student');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
-        <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="w-full min-w-0">
-          <DialogHeader>
-            <DialogTitle>Edit Student</DialogTitle>
-          </DialogHeader>
-          <div className="w-full min-w-0 max-h-[70vh] overflow-y-auto space-y-4 py-2">
-            <div>
-              <Label className="mb-1 text-xs">Profile Photo</Label>
-              <PhotoUpload
-                value={photo}
-                onChange={setPhoto}
-                onUpload={async (file) => {
-                  const r = await api.uploadFile(token, file);
-                  return r.url;
-                }}
-                fallbackInitials={(form.name || '?').slice(0, 2).toUpperCase()}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Name" value={form.name ?? ''} onChange={(v) => setField('name', v)} />
-              <Field label="Email" value={form.user_email ?? ''} onChange={(v) => setField('user_email', v)} />
-              <Field label="Phone" value={form.phone ?? ''} onChange={(v) => setField('phone', v)} />
-              <Field label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => setField('alternate_phone', v)} />
-              <Field label="WhatsApp" value={form.whatsapp_no ?? ''} onChange={(v) => setField('whatsapp_no', v)} />
-              <Field label="Date of Birth" type="date" value={form.date_of_birth ?? ''} onChange={(v) => setField('date_of_birth', v)} />
-              <div>
-                <Label className="mb-1 text-xs">Gender</Label>
-                <select className={editSelectClass} value={form.gender ?? ''} onChange={(e) => setField('gender', e.target.value)}>
-                  <option value="">Select</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <Label className="mb-1 text-xs">Marital Status</Label>
-                <select className={editSelectClass} value={form.marital_status ?? ''} onChange={(e) => setField('marital_status', e.target.value)}>
-                  <option value="">Select</option>
-                  <option value="Single">Single</option>
-                  <option value="Married">Married</option>
-                  <option value="Divorced">Divorced</option>
-                  <option value="Widowed">Widowed</option>
-                </select>
-              </div>
-              <Field label="Nationality" value={form.nationality ?? ''} onChange={(v) => setField('nationality', v)} />
-              <Field label="Aadhar No" value={form.aadhar_no ?? ''} onChange={(v) => setField('aadhar_no', v)} />
-              <Field label="Passport No" value={form.passport_no ?? ''} onChange={(v) => setField('passport_no', v)} />
-              <Field label="Father Name" value={form.father_name ?? ''} onChange={(v) => setField('father_name', v)} />
-              <Field label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => setField('mother_name', v)} />
-              <Field label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => setField('guardian_name', v)} />
-              <Field label="Country" value={form.country ?? ''} onChange={(v) => setField('country', v)} />
-              <Field label="State" value={form.state ?? ''} onChange={(v) => setField('state', v)} />
-              <Field label="City / District" value={form.city ?? ''} onChange={(v) => setField('city', v)} />
-              <div>
-                <Label className="mb-1 text-xs">Status</Label>
-                <select className={editSelectClass} value={form.status ?? '1'} onChange={(e) => setField('status', e.target.value)}>
-                  <option value="1">Active</option>
-                  <option value="0">Inactive</option>
-                  <option value="2">Graduated</option>
-                  <option value="3">Dropped</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <Label className="mb-1 text-xs">Permanent Address</Label>
-              <textarea
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                rows={2}
-                value={form.address ?? ''}
-                onChange={(e) => setField('address', e.target.value)}
-              />
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">Correspondence Address</Label>
-              <textarea
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                rows={2}
-                value={form.native_address ?? ''}
-                onChange={(e) => setField('native_address', e.target.value)}
-              />
-            </div>
-
-            <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-700">Qualification & Employment</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="mb-1 text-xs">Highest Qualification</Label>
-                  <select
-                    className={editSelectClass}
-                    value={form.highest_qualification ?? ''}
-                    onChange={(e) => setField('highest_qualification', e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    {[
-                      'Secondary School', 'Higher Secondary', 'Diploma', "Bachelor's Degree",
-                      'Postgraduate Diploma', "Master's Degree", 'M.Phil.', 'Ph.D.',
-                      'Professional Certification', 'Other',
-                    ].map((q) => <option key={q} value={q}>{q}</option>)}
-                  </select>
-                </div>
-                <Field label="School / College" value={form.institution_name ?? ''} onChange={(v) => setField('institution_name', v)} />
-                <Field label="Year of Passing" value={form.year_of_passing ?? ''} onChange={(v) => setField('year_of_passing', v)} />
-                <Field label="Percentage / Grade" value={form.percentage_or_grade ?? ''} onChange={(v) => setField('percentage_or_grade', v)} />
-                <div>
-                  <Label className="mb-1 text-xs">Current Employment Status</Label>
-                  <select
-                    className={editSelectClass}
-                    value={form.employment_status ?? ''}
-                    onChange={(e) => setField('employment_status', e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    <option value="Employed">Employed</option>
-                    <option value="Self-Employed">Self-Employed</option>
-                    <option value="Unemployed">Unemployed</option>
-                    <option value="Student">Student</option>
-                    <option value="Homemaker">Homemaker</option>
-                    <option value="Retired">Retired</option>
-                  </select>
-                </div>
-                <Field label="Current Occupation" value={form.current_occupation ?? ''} onChange={(v) => setField('current_occupation', v)} />
-                <div>
-                  <Label className="mb-1 text-xs">Experience</Label>
-                  <select
-                    className={editSelectClass}
-                    value={form.experience_years ?? ''}
-                    onChange={(e) => setField('experience_years', e.target.value)}
-                  >
-                    <option value="">Select</option>
-                    {['Fresher', '0-1 Years', '1-3 Years', '3-5 Years', '5-10 Years', '10+ Years'].map((w) => (
-                      <option key={w} value={w}>{w}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saving} className="bg-ttii-primary hover:bg-ttii-primary/90">
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Field({ label, value, onChange, type }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
-  return (
-    <div>
-      <Label className="mb-1 text-xs">{label}</Label>
-      <Input type={type ?? 'text'} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }

@@ -2399,6 +2399,23 @@ export function registerOperationsRoutes(
         employmentStatus: toStringValue(payload.employment_status),
         currentOccupation: toStringValue(payload.current_occupation),
         experienceYears: toStringValue(payload.experience_years),
+        courseId: toStringValue(payload.course_id),
+        offeringId: toStringValue(payload.offering_id),
+        certificateCombinationId: toStringValue(payload.certificate_combination_id),
+        modeOfStudy: toStringValue(payload.mode_of_study),
+        preferredLanguage: toStringValue(payload.preferred_language),
+        pipeline: toStringValue(payload.pipeline),
+        pipelineUser: toStringValue(payload.pipeline_user),
+        leadSource: toStringValue(payload.lead_source),
+        referenceStudentId: toStringValue(payload.reference_student_id),
+        registrationFee: toStringValue(payload.registration_fee),
+        gstPercent: toStringValue(payload.gst_percent),
+        gstApplicability: toStringValue(payload.gst_applicability),
+        finalCourseFee: toStringValue(payload.final_course_fee),
+        discount: toStringValue(payload.discount),
+        discountType: toStringValue(payload.discount_type),
+        installmentPlan: toStringValue(payload.installment_plan),
+        documents: toStringValue(payload.documents),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

@@ -4880,11 +4880,54 @@ export class OperationsService {
 
     // Photo: legacy rows populate `profile_picture`; new rows use `image`.
     const photo = toLegacyFileUrl(user.profile_picture) || toLegacyFileUrl(user.image);
+
+    // Tab 1 needs an "Application Details" card; Tab 5 needs the fee
+    // breakdown the application captured. Biography stashes the
+    // installment plan + documents JSON until dedicated columns exist.
+    const biographyParsed = (() => {
+      if (!application?.biography) return null;
+      try { return JSON.parse(application.biography) as Record<string, unknown>; }
+      catch { return null; }
+    })();
+    const installmentPlan = biographyParsed?.installment_plan ?? [];
+    const applicationDocuments = (biographyParsed?.documents ?? []) as Array<{ name?: string; url?: string; document_type_id?: string }>;
+    const applicationFee = application
+      ? {
+          discount: application.application_discount != null ? Number(application.application_discount) : null,
+          discount_type: (biographyParsed?.discount_type as string | undefined) ?? null,
+          registration_fee: (biographyParsed?.registration_fee as string | undefined) ?? null,
+          gst_percent: application.application_gst_percent != null ? Number(application.application_gst_percent) : null,
+          final_fee: application.application_final_fee != null ? Number(application.application_final_fee) : null,
+        }
+      : null;
+
+    // Pipeline user / lead source: surface as ids; the View page can call
+    // back for full names if it needs them. Lead source uses the
+    // "Reference#<student_id>" prefix when leadSource was Reference.
+    const marketing = application?.marketing_source ?? null;
+    let leadSource: string | null = null;
+    let referenceStudentId: string | null = null;
+    if (marketing) {
+      if (marketing.startsWith('Reference#')) {
+        leadSource = 'Reference';
+        referenceStudentId = marketing.slice('Reference#'.length);
+      } else {
+        leadSource = marketing;
+      }
+    }
+
+    // Education pathway entries live on a separate table.
+    const educationPathway = application
+      ? await this.prisma.application_education_pathway.findMany({
+          where: { application_id: application.id },
+          orderBy: [{ position: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+
     const studentWithPhoto = {
       ...user,
       image: photo,
       profile_picture: photo,
-      // Application-derived personal fields the View page renders.
       date_of_birth: user.dob ?? application?.date_of_birth ?? null,
       address: application?.address ?? null,
       father_name: application?.father_name ?? null,
@@ -4896,8 +4939,9 @@ export class OperationsService {
       state: application?.state ?? null,
       city: application?.district ?? null,
       whatsapp_no: application?.whatsapp_no != null ? String(application.whatsapp_no) : null,
-      // Qualification fields live on applications — pull them so Tab 1's
-      // Qualification card renders.
+      nationality: application?.nationality ?? null,
+      marital_status: application?.marital_status ?? null,
+      // Qualification fields live on applications.
       highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? null,
       institution_name: application?.previous_school ?? null,
       year_of_passing: application?.year_of_passing ?? null,
@@ -4906,6 +4950,18 @@ export class OperationsService {
       current_occupation: application?.current_occupation ?? null,
       work_experience: application?.experience_years ?? application?.teaching_experience ?? null,
       specialization: null as string | null,
+      // Application metadata for the new "Application Details" card.
+      application_id: application?.id ?? null,
+      application_date: application?.created_at ?? null,
+      application_status: application?.status ?? null,
+      certificate_combination_id: application?.certificate_combination_id ?? null,
+      offering_id: application?.offering_id ?? null,
+      mode_of_study: application?.mode_of_study ?? null,
+      preferred_language: application?.preferred_language ?? null,
+      pipeline: application?.pipeline ?? null,
+      pipeline_user: application?.pipeline_user ?? null,
+      lead_source: leadSource,
+      reference_student_id: referenceStudentId,
     };
 
     return {
@@ -4919,6 +4975,10 @@ export class OperationsService {
       materialProgress: [],
       assignmentSubmissions: assignmentSubs,
       profileCompletion,
+      educationPathway,
+      applicationFee,
+      applicationInstallments: installmentPlan,
+      applicationDocuments,
     };
   }
 
@@ -5126,6 +5186,24 @@ export class OperationsService {
       employmentStatus?: string;
       currentOccupation?: string;
       experienceYears?: string;
+      // Enrolment / pipeline / fee fields (mirror Add Application Tab 3-5).
+      courseId?: string;
+      offeringId?: string;
+      certificateCombinationId?: string;
+      modeOfStudy?: string;
+      preferredLanguage?: string;
+      pipeline?: string;
+      pipelineUser?: string;
+      leadSource?: string;
+      referenceStudentId?: string;
+      registrationFee?: string;
+      gstPercent?: string;
+      gstApplicability?: string;
+      finalCourseFee?: string;
+      discount?: string;
+      discountType?: string;
+      installmentPlan?: string; // JSON
+      documents?: string;       // JSON
     } | string,
     legacyPhone?: string,
   ): Promise<Record<string, unknown>> {
@@ -5182,6 +5260,39 @@ export class OperationsService {
       // Mirror Highest Qualification onto users.highest_qualification too —
       // legacy code reads it from the user record in places (e.g. analytics).
       if (input.highestQualification !== undefined) userFields.highest_qualification = input.highestQualification || null;
+
+      // Enrolment / pipeline fields (live on applications).
+      if (input.courseId !== undefined) appFields.course_id = input.courseId ? Number(input.courseId) : null;
+      if (input.offeringId !== undefined) appFields.offering_id = input.offeringId ? Number(input.offeringId) : null;
+      if (input.certificateCombinationId !== undefined) appFields.certificate_combination_id = input.certificateCombinationId ? Number(input.certificateCombinationId) : null;
+      if (input.modeOfStudy !== undefined) appFields.mode_of_study = input.modeOfStudy || null;
+      if (input.preferredLanguage !== undefined) appFields.preferred_language = input.preferredLanguage || null;
+      if (input.pipeline !== undefined) appFields.pipeline = input.pipeline || null;
+      if (input.pipelineUser !== undefined) appFields.pipeline_user = input.pipelineUser ? Number(input.pipelineUser) : null;
+      if (input.leadSource !== undefined) {
+        // Reference#<id> encoding mirrors createApplication.
+        appFields.marketing_source = input.leadSource === 'Reference' && input.referenceStudentId
+          ? `Reference#${input.referenceStudentId}`
+          : (input.leadSource || null);
+      }
+      // Fee fields: discount %, GST %, final fee. Discount type, registration
+      // fee, instalment plan and document list are stashed in `biography`
+      // until dedicated columns land — preserve any other JSON keys already
+      // there (writing keys merge with existing).
+      if (input.discount !== undefined) appFields.application_discount = input.discount ? Number(input.discount) : null;
+      if (input.gstPercent !== undefined) appFields.application_gst_percent = input.gstPercent ? Number(input.gstPercent) : null;
+      if (input.finalCourseFee !== undefined) appFields.application_final_fee = input.finalCourseFee ? Number(input.finalCourseFee) : null;
+
+      const biographyKeys: Record<string, unknown> = {};
+      if (input.registrationFee !== undefined) biographyKeys.registration_fee = input.registrationFee || null;
+      if (input.discountType !== undefined) biographyKeys.discount_type = input.discountType || null;
+      if (input.installmentPlan !== undefined) biographyKeys.installment_plan = safeParseJson(input.installmentPlan);
+      if (input.documents !== undefined) biographyKeys.documents = safeParseJson(input.documents);
+      if (Object.keys(biographyKeys).length > 0) {
+        // Merge into existing biography JSON if present, else create a new
+        // object. Stored as a string regardless.
+        appFields._biographyMerge = biographyKeys;
+      }
     }
 
     if (Object.keys(userFields).length === 0 && Object.keys(appFields).length === 0) {
@@ -5206,6 +5317,23 @@ export class OperationsService {
         select: { application_id: true, user_email: true },
       });
       const applicationId = user?.application_id;
+
+      // Merge biography JSON if requested.
+      const biographyMerge = appFields._biographyMerge as Record<string, unknown> | undefined;
+      delete appFields._biographyMerge;
+      if (biographyMerge && applicationId) {
+        const current = await this.prisma.applications.findFirst({
+          where: { id: applicationId, deleted_at: null },
+          select: { biography: true },
+        });
+        let parsed: Record<string, unknown> = {};
+        if (current?.biography) {
+          try { parsed = JSON.parse(current.biography) as Record<string, unknown>; }
+          catch { parsed = {}; }
+        }
+        appFields.biography = JSON.stringify({ ...parsed, ...biographyMerge });
+      }
+
       if (applicationId) {
         appFields.updated_by = actor;
         appFields.updated_at = now;
