@@ -277,10 +277,21 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       };
       if (editId) {
         await api.updateOffering(session.token, editId, payload);
+        onNavigate('/admin/offerings/index');
       } else {
-        await api.createOffering(session.token, payload);
+        // First save: stay on the form so the Certificate Package card
+        // unlocks. Land on /edit/{newId} which re-mounts the page in
+        // edit mode. The legacy client returns the full envelope, so the
+        // id lives at result.data.id.
+        const result = await api.createOffering(session.token, payload);
+        const data = (result.data ?? {}) as Record<string, unknown>;
+        const newId = asString(data.id) || asString(result.id);
+        if (newId) {
+          onNavigate(`/admin/offerings/edit/${newId}`);
+        } else {
+          onNavigate('/admin/offerings/index');
+        }
       }
-      onNavigate('/admin/offerings/index');
     } catch { /* ignore */ } finally { setSaving(false); }
   }, [api, session.token, editId, form, onNavigate]);
 

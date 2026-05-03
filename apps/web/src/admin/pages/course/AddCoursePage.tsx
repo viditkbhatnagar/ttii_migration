@@ -235,7 +235,9 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         if (asString(result.status) === '0' || result.status === 0) {
           toast.error(asString(result.message) || 'Failed to create course');
         } else {
-          const newId = asString(result.id) || asString(result.course_id);
+          // Legacy client returns the full envelope; new id sits on data.
+          const data = (result.data ?? {}) as Record<string, unknown>;
+          const newId = asString(data.id) || asString(data.course_id) || asString(result.id);
           await saveRequiredDocs(newId);
           onNavigate('/admin/course/index');
         }
