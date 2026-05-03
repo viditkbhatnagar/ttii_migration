@@ -1734,6 +1734,8 @@ export function registerOperationsRoutes(
         status: toStringValue(payload.status),
         search: toStringValue(payload.search),
         centreId: toStringValue(payload.centre_id),
+        studentId: toStringValue(payload.student_id),
+        paymentStatus: toStringValue(payload.payment_status),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -1760,6 +1762,9 @@ export function registerOperationsRoutes(
         courseId: toStringValue(payload.course_id),
         centreId: toStringValue(payload.centre_id),
         search: toStringValue(payload.search),
+        paymentStatus: toStringValue(payload.payment_status),
+        dueDateFrom: toStringValue(payload.due_date_from),
+        dueDateTo: toStringValue(payload.due_date_to),
       });
 
       reply.code(200).send({ status: 1, message: 'success', data });

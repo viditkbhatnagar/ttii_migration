@@ -3610,52 +3610,107 @@ export class OperationsService {
       .sort((a, b) => b.pending_amount - a.pending_amount);
   }
 
-  async listFeeInstallments(filters: FeeInstallmentFilters & { search?: string; centreId?: string }): Promise<Record<string, unknown>> {
-    // NOTE: students.user_id does not exist in MySQL schema; students.student_id IS the user FK.
-    // TODO: student_fee model does not exist; fee-plan aggregates unavailable.
-    const studentWhere: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) studentWhere.course_id = toIntId(filters.courseId);
+  async listFeeInstallments(filters: FeeInstallmentFilters & { search?: string; centreId?: string; studentId?: string; paymentStatus?: string }): Promise<Record<string, unknown>> {
+    // Mirrors the legacy PHP `installments()` controller: source rows are
+    // distinct users that have at least one `student_payments` row. For each
+    // user we sum the recorded payment amounts and compare against the
+    // discounted total of their enrolled courses (course.total_amount minus
+    // enrol.discount_perc).
+    const courseIdFilter = filters.courseId ? toIntId(filters.courseId) : null;
+    const userIdFilter = filters.studentId ? toIntId(filters.studentId) : null;
 
-    const allStudents = await this.prisma.students.findMany({
-      where: studentWhere as Prisma.studentsWhereInput,
-      select: { id: true, student_id: true, course_id: true, enrollment_id: true },
+    const paymentSums = await this.prisma.student_payments.groupBy({
+      by: ['user_id'],
+      where: {
+        deleted_at: null,
+        ...(courseIdFilter ? { course_id: courseIdFilter } : {}),
+        ...(userIdFilter ? { user_id: userIdFilter } : {}),
+      },
+      _sum: { amount: true },
     });
 
-    const userIds = [...new Set(allStudents.map(s => s.student_id).filter((x): x is number => x !== null && x !== undefined))];
-    const courseIds = [...new Set(allStudents.map(s => s.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    const userIds = paymentSums.map(p => p.user_id).filter((x): x is number => x !== null && x !== undefined);
+    if (userIds.length === 0) {
+      return { counts: { fully_added: 0, partially_added: 0, not_added: 0 }, items: [] };
+    }
 
-    const [users, courses] = await Promise.all([
-      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, student_id: true, phone: true } }) : [],
-      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+    // Pull each user's first installment_details (lowest id, which legacy
+    // typically renders — usually the registration fee row).
+    const firstPayments = await this.prisma.student_payments.findMany({
+      where: { deleted_at: null, user_id: { in: userIds } },
+      select: { id: true, user_id: true, installment_details: true },
+      orderBy: { id: 'asc' },
+    });
+    const firstDetailsByUser = new Map<number, string | null>();
+    for (const p of firstPayments) {
+      if (p.user_id == null) continue;
+      if (!firstDetailsByUser.has(p.user_id)) firstDetailsByUser.set(p.user_id, p.installment_details);
+    }
+
+    const [users, enrolments] = await Promise.all([
+      this.prisma.users.findMany({
+        where: { id: { in: userIds }, deleted_at: null },
+        select: { id: true, name: true, student_id: true, phone: true },
+      }),
+      this.prisma.enrol.findMany({
+        where: { user_id: { in: userIds }, deleted_at: null },
+        select: { user_id: true, course_id: true, discount_perc: true },
+      }),
     ]);
 
-    const userMap = new Map(users.map(u => [u.id, u]));
-    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+    const courseIds = [...new Set(enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    const courses = courseIds.length > 0
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds } },
+          select: { id: true, title: true, total_amount: true },
+        })
+      : [];
 
-    let items = allStudents.map(s => {
-      const uid = s.student_id;
-      const user = uid !== null && uid !== undefined ? userMap.get(uid) : null;
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const courseMap = new Map(courses.map(c => [c.id, c]));
+
+    let items = paymentSums.map(p => {
+      const uid = p.user_id as number;
+      const user = userMap.get(uid);
+      const userEnrolments = enrolments.filter(e => e.user_id === uid);
+
+      let totalFee = 0;
+      const courseTitles: string[] = [];
+      for (const e of userEnrolments) {
+        if (e.course_id == null) continue;
+        const course = courseMap.get(e.course_id);
+        if (!course) continue;
+        const base = Number(course.total_amount ?? 0);
+        const discountPerc = e.discount_perc ? Number(e.discount_perc) : 0;
+        const discounted = base - (base * (Number.isFinite(discountPerc) ? discountPerc : 0) / 100);
+        totalFee += Number.isFinite(discounted) ? discounted : 0;
+        if (course.title) courseTitles.push(course.title);
+      }
+
+      const addedAmount = Number(p._sum.amount ?? 0);
+      let fee_plan_status: 'fully_added' | 'partially_added' | 'not_added';
+      if (addedAmount === 0) fee_plan_status = 'not_added';
+      else if (addedAmount >= totalFee) fee_plan_status = 'fully_added';
+      else fee_plan_status = 'partially_added';
+
       return {
-        student_record_id: s.id,
+        id: uid,
         user_id: uid,
-        course_id: s.course_id,
-        enrollment_id: s.enrollment_id,
-        student_name: user?.name ?? null,
         student_id: user?.student_id ?? null,
+        student_name: user?.name ?? null,
         phone: user?.phone ?? null,
-        course_title: s.course_id ? courseMap.get(s.course_id) ?? null : null,
-        total_fee: 0,
-        installments_added: 0,
-        fee_plan_status: 'not_added' as const,
+        installment_details: firstDetailsByUser.get(uid) ?? null,
+        course_title: courseTitles.join(', '),
+        total_fee: totalFee,
+        installments_added: addedAmount,
+        fee_plan_status,
       };
     });
 
-    // Filter by status tab
     if (filters.status && filters.status !== 'all') {
       items = items.filter(i => i.fee_plan_status === filters.status);
     }
 
-    // Filter by search
     if (filters.search) {
       const sl = filters.search.toLowerCase();
       items = items.filter(i => {
@@ -3667,77 +3722,117 @@ export class OperationsService {
 
     const counts = { fully_added: 0, partially_added: 0, not_added: 0 };
     for (const i of items) {
-      const s = i.fee_plan_status as keyof typeof counts;
-      if (s in counts) counts[s]++;
+      counts[i.fee_plan_status]++;
     }
 
     return { counts, items };
   }
 
-  async listPaymentStatus(filters: AdminPaymentFilters & { centreId?: string; search?: string }): Promise<Record<string, unknown>> {
-    const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = toIntId(filters.courseId);
-
-    const installments = await this.prisma.student_payments.findMany({
-      where: where as Prisma.student_paymentsWhereInput,
-      orderBy: [{ due_date: 'asc' }, { id: 'desc' }],
-    });
+  async listPaymentStatus(filters: AdminPaymentFilters & { centreId?: string; search?: string; paymentStatus?: string; dueDateFrom?: string; dueDateTo?: string }): Promise<Record<string, unknown>> {
+    // student_payments rows in the legacy DB carry '0000-00-00' literals in
+    // due_date / paid_date which Prisma's MySQL driver refuses to hydrate
+    // into DateTime. Read via $queryRaw with NULLIF to convert the legacy
+    // sentinel into NULL before Prisma sees it.
+    const courseIdFilter = filters.courseId ? toIntId(filters.courseId) : null;
+    type RawPayment = {
+      id: number;
+      user_id: number;
+      course_id: number;
+      installment_details: string | null;
+      amount: number | null;
+      payment_mode: string | null;
+      payment_to: string | null;
+      status: string | null;
+      due_date: Date | null;
+      paid_date: Date | null;
+    };
+    const installments = courseIdFilter
+      ? await this.prisma.$queryRaw<RawPayment[]>`
+          SELECT id, user_id, course_id, installment_details, amount, payment_mode, payment_to, status,
+                 NULLIF(due_date, '0000-00-00') AS due_date,
+                 NULLIF(paid_date, '0000-00-00') AS paid_date
+          FROM student_payments
+          WHERE deleted_at IS NULL AND course_id = ${courseIdFilter}
+          ORDER BY NULLIF(due_date, '0000-00-00') ASC, id DESC`
+      : await this.prisma.$queryRaw<RawPayment[]>`
+          SELECT id, user_id, course_id, installment_details, amount, payment_mode, payment_to, status,
+                 NULLIF(due_date, '0000-00-00') AS due_date,
+                 NULLIF(paid_date, '0000-00-00') AS paid_date
+          FROM student_payments
+          WHERE deleted_at IS NULL
+          ORDER BY NULLIF(due_date, '0000-00-00') ASC, id DESC`;
 
     const userIds = [...new Set(installments.map(i => i.user_id).filter((x): x is number => x !== null && x !== undefined))];
     const courseIds = [...new Set(installments.map(i => i.course_id).filter((x): x is number => x !== null && x !== undefined))];
 
     const [users, courses] = await Promise.all([
-      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, student_id: true } }) : [],
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
     ]);
     const userMap = new Map(users.map(u => [u.id, u]));
     const courseMap = new Map(courses.map(c => [c.id, c.title]));
 
-    // Compute status for each installment
+    // Match legacy PHP month-year bucketing: previous months → overdue,
+    // current month → due, future months → upcoming, status='Paid' → paid.
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const sevenDaysLater = new Date(today);
-    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
+    const dueFrom = filters.dueDateFrom ? new Date(filters.dueDateFrom) : null;
+    const dueTo = filters.dueDateTo ? new Date(filters.dueDateTo) : null;
+    if (dueTo) dueTo.setHours(23, 59, 59, 999);
 
     let enriched = installments.map(inst => {
-      const isPaid = inst.status === 'Paid' || inst.paid_date != null;
-      let computed_status = 'upcoming';
+      const isPaid = (inst.status ?? '').toLowerCase() === 'paid';
+      let computed_status: 'overdue' | 'due' | 'upcoming' | 'paid' = 'upcoming';
       if (isPaid) {
         computed_status = 'paid';
       } else if (inst.due_date) {
-        const dueDate = new Date(inst.due_date);
-        dueDate.setHours(0, 0, 0, 0);
-        if (dueDate < today) {
+        const due = inst.due_date instanceof Date ? inst.due_date : new Date(inst.due_date);
+        const dueMonth = due.getMonth();
+        const dueYear = due.getFullYear();
+        if (dueYear < currentYear || (dueYear === currentYear && dueMonth < currentMonth)) {
           computed_status = 'overdue';
-        } else if (dueDate <= sevenDaysLater) {
+        } else if (dueYear === currentYear && dueMonth === currentMonth) {
           computed_status = 'due';
+        } else {
+          computed_status = 'upcoming';
         }
       }
+      const user = userMap.get(inst.user_id);
       return {
         ...inst,
-        user_name: userMap.get(inst.user_id)?.name ?? null,
+        amount: inst.amount == null ? 0 : Number(inst.amount),
+        user_name: user?.name ?? null,
+        student_id: user?.student_id ?? null,
         course_title: inst.course_id ? courseMap.get(inst.course_id) ?? null : null,
         computed_status,
       };
     });
 
-    // Filter by search text (user name)
+    if (dueFrom) enriched = enriched.filter(r => r.due_date && new Date(r.due_date) >= dueFrom);
+    if (dueTo) enriched = enriched.filter(r => r.due_date && new Date(r.due_date) <= dueTo);
+
+    if (filters.paymentStatus) {
+      enriched = enriched.filter(r => r.computed_status === filters.paymentStatus);
+    }
+
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       enriched = enriched.filter(r => {
         const name = toStringValue(r.user_name).toLowerCase();
-        return name.includes(searchLower);
+        const sid = toStringValue(r.student_id).toLowerCase();
+        return name.includes(searchLower) || sid.includes(searchLower);
       });
     }
 
-    // Count by status
     const counts = { overdue: 0, due: 0, upcoming: 0, paid: 0 };
+    const amounts = { overdue: 0, due: 0, upcoming: 0, paid: 0 };
     for (const r of enriched) {
-      const s = r.computed_status as keyof typeof counts;
-      if (s in counts) counts[s]++;
+      counts[r.computed_status]++;
+      amounts[r.computed_status] += Number(r.amount ?? 0);
     }
 
-    return { counts, installments: enriched };
+    return { counts, amounts, installments: enriched };
   }
 
   async listCohortAttendance(filters: CohortAttendanceFilters): Promise<SqlRow[]> {
@@ -4660,10 +4755,20 @@ export class OperationsService {
       batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
     }));
 
+    // Mirror listStudents(): legacy rows populate `profile_picture`; rows
+    // created in the new LMS use `image`. Surface either as `profile_picture`
+    // so the View page's existing render path picks it up.
+    const photo = toLegacyFileUrl(user.profile_picture) || toLegacyFileUrl(user.image);
+    const studentWithPhoto = {
+      ...user,
+      image: photo,
+      profile_picture: photo,
+    };
+
     return {
       status: 1,
       message: 'success',
-      student: user,
+      student: studentWithPhoto,
       enrolments: enrichedEnrolments,
       payments,
       studentFees,
