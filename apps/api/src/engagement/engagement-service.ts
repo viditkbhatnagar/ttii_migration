@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
@@ -1029,7 +1029,10 @@ export class EngagementService {
     const dateStart = dateStringToStartOfDay(date);
     const dateEnd = dateStringToEndOfDay(date);
 
-    // Find the user's cohort via cohort_students + cohorts
+    // Find the user's cohort via cohort_students + cohorts. The
+    // cohort_students.cohort_id column carries the stringified cohorts.id
+    // (numeric) for new rows, or the legacy cohorts.cohort_id text code
+    // for old rows — match both so My Task picks the right cohort.
     const cohortStudent = await this.prisma.cohort_students.findFirst({
       where: {
         user_id: toNullableIntId(userId),
@@ -1051,11 +1054,13 @@ export class EngagementService {
     } | null = null;
 
     if (cohortStudent && cohortStudent.cohort_id) {
+      const ref = String(cohortStudent.cohort_id).trim();
+      const refNum = Number(ref);
+      const cohortWhere = Number.isFinite(refNum) && refNum > 0 && /^\d+$/.test(ref)
+        ? { id: refNum, deleted_at: null }
+        : { cohort_id: ref, deleted_at: null };
       cohort = await this.prisma.cohorts.findFirst({
-        where: {
-          cohort_id: cohortStudent.cohort_id,
-          deleted_at: null,
-        },
+        where: cohortWhere,
         select: {
           id: true,
           title: true,
@@ -1190,6 +1195,127 @@ export class EngagementService {
         assignments: overdueAssignments,
       },
     };
+  }
+
+  // Naji 2026-05-04: student detail view needs a Live Classes tab.
+  // Returns every live_class scheduled for any cohort the student is
+  // enrolled in, optionally filtered to a specific course. Each row is
+  // tagged with `status` (upcoming / today / past) so the UI can group
+  // them without re-doing the date math client-side.
+  async listStudentLiveClasses(
+    userId: string,
+    options?: { courseId?: string },
+  ): Promise<Record<string, unknown>[]> {
+    const userIdInt = toNullableIntId(userId);
+    if (userIdInt === null) return [];
+
+    const cohortStudents = await this.prisma.cohort_students.findMany({
+      where: { user_id: userIdInt, deleted_at: null },
+      select: { cohort_id: true },
+    });
+
+    const rawRefs = cohortStudents
+      .map((cs) => (cs.cohort_id == null ? '' : String(cs.cohort_id).trim()))
+      .filter((s) => s.length > 0);
+    const numericRefs: number[] = [];
+    const textRefs: string[] = [];
+    for (const ref of rawRefs) {
+      const n = Number(ref);
+      if (Number.isFinite(n) && n > 0 && /^\d+$/.test(ref)) numericRefs.push(n);
+      else textRefs.push(ref);
+    }
+
+    const cohortWhereOr: Prisma.cohortsWhereInput[] = [];
+    if (numericRefs.length > 0) cohortWhereOr.push({ id: { in: numericRefs } });
+    if (textRefs.length > 0) cohortWhereOr.push({ cohort_id: { in: textRefs } });
+    if (cohortWhereOr.length === 0) return [];
+
+    const courseIdInt = options?.courseId ? toNullableIntId(options.courseId) : null;
+
+    const cohorts = await this.prisma.cohorts.findMany({
+      where: {
+        OR: cohortWhereOr,
+        deleted_at: null,
+        ...(courseIdInt !== null ? { course_id: courseIdInt } : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        cohort_id: true,
+        course_id: true,
+        subject_id: true,
+        instructor_id: true,
+      },
+    });
+    if (cohorts.length === 0) return [];
+
+    const cohortIds = cohorts.map((c) => c.id);
+    const cohortById = new Map(cohorts.map((c) => [c.id, c]));
+
+    const liveClasses = await this.prisma.live_class.findMany({
+      where: { cohort_id: { in: cohortIds }, deleted_at: null },
+      orderBy: [{ date: 'asc' }, { fromTime: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        cohort_id: true,
+        title: true,
+        session_id: true,
+        zoom_id: true,
+        password: true,
+        join_url: true,
+        platform: true,
+        date: true,
+        fromTime: true,
+        toTime: true,
+        recording_url: true,
+        recording_storage_key: true,
+        video_url: true,
+      },
+    });
+
+    const subjectIds = [...new Set(cohorts.map((c) => c.subject_id).filter((v): v is number => v !== null))];
+    const subjects = subjectIds.length > 0
+      ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
+      : [];
+    const subjectMap = new Map(subjects.map((s) => [s.id, s.title]));
+
+    const instructorIds = [...new Set(cohorts.map((c) => c.instructor_id).filter((v): v is number => v !== null))];
+    const instructors = instructorIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: instructorIds } }, select: { id: true, name: true } })
+      : [];
+    const instructorMap = new Map(instructors.map((u) => [u.id, u.name]));
+
+    const todayMs = new Date().setHours(0, 0, 0, 0);
+    return liveClasses.map((lc) => {
+      const cohort = lc.cohort_id !== null ? cohortById.get(lc.cohort_id) ?? null : null;
+      const dateMs = lc.date ? new Date(lc.date).setHours(0, 0, 0, 0) : null;
+      let status: 'upcoming' | 'today' | 'past' = 'upcoming';
+      if (dateMs === null) status = 'upcoming';
+      else if (dateMs < todayMs) status = 'past';
+      else if (dateMs === todayMs) status = 'today';
+      const hasRecording = Boolean(lc.recording_url || lc.recording_storage_key || lc.video_url);
+      return {
+        id: lc.id,
+        title: lc.title,
+        date: toDateOnly(lc.date),
+        from_time: toStringValue(lc.fromTime),
+        to_time: toStringValue(lc.toTime),
+        platform: toStringValue(lc.platform),
+        join_url: toStringValue(lc.join_url),
+        zoom_id: toStringValue(lc.zoom_id),
+        password: toStringValue(lc.password),
+        cohort_id: cohort?.id ?? null,
+        cohort_title: cohort?.title ?? null,
+        cohort_code: cohort?.cohort_id ?? null,
+        course_id: cohort?.course_id ?? null,
+        subject_id: cohort?.subject_id ?? null,
+        subject_title: cohort?.subject_id ? subjectMap.get(cohort.subject_id) ?? null : null,
+        instructor_name: cohort?.instructor_id ? instructorMap.get(cohort.instructor_id) ?? null : null,
+        has_recording: hasRecording,
+        recording_url: toStringValue(lc.recording_url || lc.video_url),
+        status,
+      };
+    });
   }
 
   async getSupportMessages(userId: string): Promise<Record<string, unknown>[]> {

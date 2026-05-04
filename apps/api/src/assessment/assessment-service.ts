@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
@@ -1410,7 +1410,11 @@ export class AssessmentService {
       };
     }
 
-    // Fetch cohort_students joined with cohorts (separate queries for MongoDB)
+    // cohort_students.cohort_id is the stringified cohorts.id (auto-int)
+    // for cohort assignments created by the new flows, but legacy rows
+    // imported from the PHP LMS used the cohorts.cohort_id text code.
+    // Match both shapes so assignments still surface for both populations.
+    // Same pattern as content-service.ts:getCohortIdForSubject.
     const cohortStudents = await this.prisma.cohort_students.findMany({
       where: {
         user_id: toNullableIntId(userId),
@@ -1421,14 +1425,29 @@ export class AssessmentService {
       },
     });
 
-    const cohortCodes = cohortStudents
+    const rawCohortRefs = cohortStudents
       .map((cs) => toStringValue(cs.cohort_id).trim())
       .filter((v) => v !== '');
 
-    let cohortRows = cohortCodes.length > 0
+    const cohortRowIds: number[] = [];
+    const cohortTextCodes: string[] = [];
+    for (const ref of rawCohortRefs) {
+      const n = Number(ref);
+      if (Number.isFinite(n) && n > 0 && /^\d+$/.test(ref)) {
+        cohortRowIds.push(n);
+      } else {
+        cohortTextCodes.push(ref);
+      }
+    }
+
+    const cohortWhereOr: Prisma.cohortsWhereInput[] = [];
+    if (cohortRowIds.length > 0) cohortWhereOr.push({ id: { in: cohortRowIds } });
+    if (cohortTextCodes.length > 0) cohortWhereOr.push({ cohort_id: { in: cohortTextCodes } });
+
+    let cohortRows = cohortWhereOr.length > 0
       ? await this.prisma.cohorts.findMany({
           where: {
-            cohort_id: { in: cohortCodes },
+            OR: cohortWhereOr,
             deleted_at: null,
           },
           select: {

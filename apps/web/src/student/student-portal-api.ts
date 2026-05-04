@@ -378,6 +378,20 @@ export class StudentPortalApi {
     });
   }
 
+  async loadStudentLiveClasses(
+    authToken: string,
+    courseId: string,
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      '/student/live_classes',
+      authToken,
+      courseId ? { course_id: courseId } : {},
+    );
+    return asArray(payload.data)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+  }
+
   async loadLearning(authToken: string): Promise<StudentLearningSnapshot> {
     const [coursesPayload, catalogPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),

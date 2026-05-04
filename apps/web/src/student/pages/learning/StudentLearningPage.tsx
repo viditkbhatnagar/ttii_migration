@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -17,6 +17,9 @@ import {
   X,
   ExternalLink,
   PlayCircle,
+  Radio,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
@@ -117,6 +120,30 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   // Naji 2026-05-04: only one subject can be expanded at a time. Tracks
   // the open subject id; null means everything collapsed.
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
+  // LEFT-pane tab in detail view: timeline tree vs live classes list.
+  const [leftTab, setLeftTab] = useState<'timeline' | 'live'>('timeline');
+  const [liveClasses, setLiveClasses] = useState<Record<string, unknown>[]>([]);
+  const [liveClassesLoading, setLiveClassesLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeCourseId === null || leftTab !== 'live') return;
+    let cancelled = false;
+    setLiveClassesLoading(true);
+    api
+      .loadStudentLiveClasses(session.token, activeCourseId)
+      .then((rows) => {
+        if (!cancelled) setLiveClasses(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLiveClasses([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLiveClassesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session.token, activeCourseId, leftTab]);
 
   const enrolledCourses = useMemo(() => data?.courses ?? [], [data]);
   const catalogCourses = useMemo(() => data?.catalogCourses ?? [], [data]);
@@ -147,12 +174,14 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const handleOpenCourse = (courseId: string) => {
     setActiveCourseId(courseId);
     setSelectedContent(null);
+    setLeftTab('timeline');
     window.scrollTo({ top: 0 });
   };
 
   const handleBackToList = () => {
     setActiveCourseId(null);
     setSelectedContent(null);
+    setLeftTab('timeline');
   };
 
   if (loading) return <PageLoader label="Loading courses..." />;
@@ -234,36 +263,62 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
 
         {/* Two-column layout: timeline left, content view right */}
         <div className="grid gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
-          {/* LEFT — Course Timeline */}
-          <aside className="rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-100 px-4 py-3">
-              <h2 className="text-sm font-semibold text-student-text">Course Timeline</h2>
-              <p className="mt-0.5 text-xs text-student-muted">Subject &rsaquo; Lesson &rsaquo; Content</p>
+          {/* LEFT — Course Timeline + Live Classes tabs */}
+          <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="flex border-b border-slate-100">
+              <button
+                type="button"
+                onClick={() => setLeftTab('timeline')}
+                className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-xs font-semibold transition-colors ${
+                  leftTab === 'timeline'
+                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                    : 'text-student-muted hover:text-student-text'
+                }`}
+              >
+                <BookOpen className="size-3.5" aria-hidden="true" />
+                Timeline
+              </button>
+              <button
+                type="button"
+                onClick={() => setLeftTab('live')}
+                className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-xs font-semibold transition-colors ${
+                  leftTab === 'live'
+                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                    : 'text-student-muted hover:text-student-text'
+                }`}
+              >
+                <Radio className="size-3.5" aria-hidden="true" />
+                Live Classes
+              </button>
             </div>
             <div className="max-h-[70vh] overflow-y-auto p-2">
-              {courseSubjects.length === 0 ? (
-                <p className="px-2 py-6 text-center text-sm text-student-muted">
-                  No subjects in this course yet.
-                </p>
+              {leftTab === 'timeline' ? (
+                courseSubjects.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-sm text-student-muted">
+                    No subjects in this course yet.
+                  </p>
+                ) : (
+                  courseSubjects.map((subject) => {
+                    const subjectId = asString(subject.id);
+                    const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
+                    return (
+                      <SubjectNode
+                        key={subjectId}
+                        subject={subject}
+                        lessons={subjectLessons}
+                        lessonFiles={lessonFiles}
+                        activeFileId={selectedContent?.id ?? null}
+                        onSelectFile={handleSelectFile}
+                        expanded={expandedSubjectId === subjectId}
+                        onToggle={() =>
+                          setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
+                        }
+                      />
+                    );
+                  })
+                )
               ) : (
-                courseSubjects.map((subject) => {
-                  const subjectId = asString(subject.id);
-                  const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
-                  return (
-                    <SubjectNode
-                      key={subjectId}
-                      subject={subject}
-                      lessons={subjectLessons}
-                      lessonFiles={lessonFiles}
-                      activeFileId={selectedContent?.id ?? null}
-                      onSelectFile={handleSelectFile}
-                      expanded={expandedSubjectId === subjectId}
-                      onToggle={() =>
-                        setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
-                      }
-                    />
-                  );
-                })
+                <LiveClassesPanel rows={liveClasses} loading={liveClassesLoading} />
               )}
             </div>
           </aside>
@@ -706,6 +761,124 @@ function FileNode({
         {badge.label}
       </span>
     </button>
+  );
+}
+
+function LiveClassesPanel({
+  rows,
+  loading,
+}: {
+  rows: Record<string, unknown>[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return <p className="px-2 py-6 text-center text-sm text-student-muted">Loading live classes...</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="px-2 py-6 text-center text-sm text-student-muted">
+        No live classes scheduled for your cohorts in this course yet.
+      </p>
+    );
+  }
+  // Group by status — upcoming/today first, past at the bottom.
+  const upcoming = rows.filter((r) => asString(r.status) === 'upcoming');
+  const today = rows.filter((r) => asString(r.status) === 'today');
+  const past = rows.filter((r) => asString(r.status) === 'past');
+  const groups: Array<{ label: string; items: Record<string, unknown>[] }> = [
+    ...(today.length > 0 ? [{ label: 'Today', items: today }] : []),
+    ...(upcoming.length > 0 ? [{ label: 'Upcoming', items: upcoming }] : []),
+    ...(past.length > 0 ? [{ label: 'Past', items: past }] : []),
+  ];
+  return (
+    <div className="space-y-3">
+      {groups.map((g) => (
+        <div key={g.label} className="space-y-1.5">
+          <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-student-muted">
+            {g.label}
+          </p>
+          {g.items.map((row) => (
+            <LiveClassRow key={asString(row.id)} row={row} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveClassRow({ row }: { row: Record<string, unknown> }) {
+  const title = asString(row.title) || 'Live Class';
+  const date = asString(row.date);
+  const fromTime = asString(row.from_time);
+  const toTime = asString(row.to_time);
+  const subject = asString(row.subject_title);
+  const cohortCode = asString(row.cohort_code);
+  const instructor = asString(row.instructor_name);
+  const joinUrl = asString(row.join_url);
+  const recordingUrl = asString(row.recording_url);
+  const status = asString(row.status);
+  const hasRecording = row.has_recording === true;
+  const isPast = status === 'past';
+  const isToday = status === 'today';
+
+  return (
+    <div className="rounded-lg border border-slate-100 p-3 hover:border-student-primary/40 hover:bg-student-primary/5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="line-clamp-2 text-sm font-semibold text-student-text">{title}</p>
+        {isToday ? (
+          <Badge className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
+            Today
+          </Badge>
+        ) : null}
+      </div>
+      {subject ? (
+        <p className="mt-0.5 text-xs text-student-muted">
+          {subject}
+          {cohortCode ? <span className="ml-1 opacity-60">({cohortCode})</span> : null}
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-student-muted">
+        {date ? (
+          <span className="inline-flex items-center gap-1">
+            <Calendar aria-hidden="true" className="size-3" />
+            {date}
+          </span>
+        ) : null}
+        {fromTime || toTime ? (
+          <span className="inline-flex items-center gap-1">
+            <Clock aria-hidden="true" className="size-3" />
+            {fromTime}{toTime ? ` – ${toTime}` : ''}
+          </span>
+        ) : null}
+        {instructor ? <span className="opacity-80">{instructor}</span> : null}
+      </div>
+      {(joinUrl && !isPast) || (hasRecording && recordingUrl) ? (
+        <div className="mt-2 flex items-center gap-2">
+          {joinUrl && !isPast ? (
+            <a
+              href={joinUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md bg-student-primary px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-student-primary/90"
+            >
+              <Radio aria-hidden="true" className="size-3" />
+              Join
+            </a>
+          ) : null}
+          {hasRecording && recordingUrl ? (
+            <a
+              href={recordingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-student-text hover:bg-slate-50"
+            >
+              <PlayCircle aria-hidden="true" className="size-3" />
+              Recording
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

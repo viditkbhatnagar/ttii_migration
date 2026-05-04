@@ -360,6 +360,22 @@ export function registerEngagementRoutes(
     }
   });
 
+  // Live classes for the current student, optionally scoped to a course.
+  // Used by the "Live Classes" tab in the student course detail view.
+  app.get('/student/live_classes', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id);
+      const data = await engagementService.listStudentLiveClasses(
+        requestUserId(request),
+        courseId ? { courseId } : {},
+      );
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
   app.get('/support/get_messages', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const messages = await engagementService.getSupportMessages(requestUserId(request));
