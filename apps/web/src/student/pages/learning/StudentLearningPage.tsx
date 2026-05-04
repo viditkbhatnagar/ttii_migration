@@ -59,6 +59,23 @@ function pickFileType(file: Record<string, unknown>): string {
   return attachmentType || lessonType;
 }
 
+// Strip HTML tags + decode common entities for inline preview text.
+// The PHP LMS stored summaries with <p>...</p> wrapping; we surface the
+// raw text on non-article rows so users don't see "<p>foo</p>" verbatim.
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Vimeo: https://vimeo.com/{id}  →  https://player.vimeo.com/video/{id}
 // YouTube: https://(www\.)?youtube\.com/watch\?v={id}  →  https://www.youtube.com/embed/{id}
 // YouTube short: https://youtu.be/{id}  →  https://www.youtube.com/embed/{id}
@@ -997,9 +1014,14 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
         </div>
         {content.type === 'article' ? (
           content.description ? (
-            <article className="prose prose-sm max-w-none whitespace-pre-line text-sm leading-relaxed text-student-text">
-              {content.description}
-            </article>
+            // Articles authored in the admin panel ship as HTML
+            // (<p>, <strong>, <ul>...). Render with dangerouslySetInnerHTML
+            // so paragraphs and emphasis show through instead of leaking
+            // raw "<p>" tags into the page.
+            <article
+              className="prose prose-sm max-w-none text-sm leading-relaxed text-student-text"
+              dangerouslySetInnerHTML={{ __html: content.description }}
+            />
           ) : (
             <p className="text-xs italic text-slate-400">This article has no body yet.</p>
           )
@@ -1007,7 +1029,7 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
           <div className="space-y-3">
             {content.description ? (
               <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
-                {content.description}
+                {stripHtml(content.description)}
               </p>
             ) : null}
             {content.url ? (
@@ -1025,8 +1047,10 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
             )}
           </div>
         ) : content.description ? (
+          // Strip HTML tags for non-article descriptions so the right pane
+          // doesn't show "<p>...</p>" verbatim — Naji 2026-05-04.
           <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
-            {content.description}
+            {stripHtml(content.description)}
           </p>
         ) : (
           <p className="text-xs italic text-slate-400">No description provided for this content.</p>
