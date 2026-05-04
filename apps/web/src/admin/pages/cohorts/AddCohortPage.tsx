@@ -81,7 +81,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       return;
     }
     let cancelled = false;
-    Promise.all(
+    void Promise.all(
       Array.from(courseIds).map((cid) =>
         api.listOfferings(session.token, { course_id: cid }).catch(() => [] as Record<string, unknown>[]),
       ),
