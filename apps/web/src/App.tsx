@@ -518,9 +518,15 @@ const SUBDOMAIN_DEFAULT_ROLE_ID: Record<string, string> = {
 // Roles a given subdomain is allowed to log in as. Drives the Login As
 // dropdown — when only one option matches, the dropdown is hidden because
 // the subdomain already determines the role.
+//
+// Instructor (role 3) logs in via admin.teachersindia.in but lands on
+// /instructor (see resolveShellPathForRole). Including them here lifts
+// the "This account is not allowed on this portal" gate that previously
+// blocked faculty logins. Naji 2026-05-04.
 const SUBDOMAIN_ROLE_OPTIONS: Record<string, { value: string; label: string }[]> = {
   admin: [
     { value: '1', label: 'Super Admin' },
+    { value: '3', label: 'Instructor' },
     { value: '8', label: 'Sub Admin' },
     { value: '9', label: 'Counsellor' },
   ],

@@ -20,6 +20,8 @@ import {
   Radio,
   Calendar,
   Clock,
+  Circle,
+  CircleDot,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
@@ -36,9 +38,25 @@ function getFileTypeIcon(type: string) {
   if (lower === 'audio') return Headphones;
   if (lower === 'pdf') return FileText;
   if (lower === 'quiz') return FileQuestion;
+  if (lower === 'article') return FileText;
   if (lower === 'url') return Globe;
   if (lower === 'practice') return BookOpen;
   return File;
+}
+
+// Pick the most specific type signal from a lesson file row. lesson_type
+// is the semantic content kind (video / audio / article / quiz / pdf);
+// attachment_type describes the wire format (often "url" for vimeo /
+// youtube). Naji 2026-05-04: Vimeo URLs were showing as "Link" because
+// attachment_type was winning — flipped the precedence so semantic
+// types are picked first and "url" only used as a last resort.
+function pickFileType(file: Record<string, unknown>): string {
+  const lessonType = asString(file.lesson_type).toLowerCase();
+  const attachmentType = asString(file.attachment_type).toLowerCase();
+  const semantic = new Set(['video', 'audio', 'pdf', 'quiz', 'article', 'practice']);
+  if (semantic.has(lessonType)) return lessonType;
+  if (semantic.has(attachmentType)) return attachmentType;
+  return attachmentType || lessonType;
 }
 
 // Vimeo: https://vimeo.com/{id}  →  https://player.vimeo.com/video/{id}
@@ -71,7 +89,7 @@ function resolveSelectedContent(file: Record<string, unknown>): SelectedContent 
   const id = asString(file.id);
   const title = asString(file.title) || `File ${id}`;
   const description = asString(file.description) || asString(file.summary) || asString(file.note) || '';
-  const lower = (asString(file.attachment_type) || asString(file.lesson_type)).toLowerCase();
+  const lower = pickFileType(file);
 
   if (lower === 'video' || lower === 'url' || lower === 'youtube_video' || lower === 'vimeo_video') {
     const url = asString(file.video_url);
@@ -591,6 +609,9 @@ function SubjectNode({
     : Math.round(
         lessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) / lessons.length,
       );
+  // Naji 2026-05-04: lessons too should expand one at a time within
+  // a subject (mirroring the subject single-open rule).
+  const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
 
   return (
     <div className="mb-1 rounded-lg">
@@ -634,6 +655,10 @@ function SubjectNode({
                   files={filesForLesson}
                   activeFileId={activeFileId}
                   onSelectFile={onSelectFile}
+                  expanded={expandedLessonId === lessonId}
+                  onToggle={() =>
+                    setExpandedLessonId((cur) => (cur === lessonId ? null : lessonId))
+                  }
                 />
               );
             })
@@ -649,24 +674,27 @@ function LessonNode({
   files,
   activeFileId,
   onSelectFile,
+  expanded,
+  onToggle,
 }: {
   lesson: Record<string, unknown>;
   files: Record<string, unknown>[];
   activeFileId: string | null;
   onSelectFile: (file: Record<string, unknown>) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const id = asString(lesson.id);
   const title = asString(lesson.title) || `Lesson ${id}`;
   const completion = asNumber(lesson.completed_percentage);
   const locked = isLocked(lesson);
   const hasFiles = files.length > 0;
-  const [open, setOpen] = useState(false);
 
   return (
     <div className="text-sm">
       <button
         type="button"
-        onClick={() => hasFiles && !locked && setOpen((v) => !v)}
+        onClick={() => { if (hasFiles && !locked) onToggle(); }}
         disabled={locked || !hasFiles}
         className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
           locked
@@ -691,11 +719,11 @@ function LessonNode({
         {hasFiles && !locked ? (
           <ChevronDown
             aria-hidden="true"
-            className={`size-3.5 shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+            className={`size-3.5 shrink-0 text-slate-400 transition-transform ${expanded ? '' : '-rotate-90'}`}
           />
         ) : null}
       </button>
-      {open && !locked ? (
+      {expanded && !locked ? (
         <div className="ml-4 space-y-0.5 border-l border-slate-100 pl-2 py-1">
           {files.map((file) => (
             <FileNode
@@ -722,11 +750,30 @@ function FileNode({
 }) {
   const id = asString(file.id);
   const title = asString(file.title) || `File ${id}`;
-  const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
-  const badge = getFileTypeBadgeStyle(attachmentType);
-  const Icon = getFileTypeIcon(attachmentType);
+  const fileType = pickFileType(file);
+  const Icon = getFileTypeIcon(fileType);
   const locked = isLocked(file);
   const playable = !locked && resolveSelectedContent(file) !== null;
+  // Naji 2026-05-04: replace the right-side type badge with a
+  // completion status indicator (tick when done, dot when in progress,
+  // empty circle when not started).
+  const progress = asNumber(file.progress);
+  const completed = progress >= 100;
+  const inProgress = progress > 0 && progress < 100;
+  const StatusIcon = locked
+    ? Lock
+    : completed
+      ? CheckCircle
+      : inProgress
+        ? CircleDot
+        : Circle;
+  const statusTint = locked
+    ? 'text-slate-400'
+    : completed
+      ? 'text-emerald-500'
+      : inProgress
+        ? 'text-blue-500'
+        : 'text-slate-300';
 
   if (!playable) {
     return (
@@ -738,9 +785,7 @@ function FileNode({
       >
         <Icon aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
         <span className="flex-1 truncate text-student-muted">{title}</span>
-        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${badge.className}`}>
-          {badge.label}
-        </span>
+        <StatusIcon aria-hidden="true" className={`size-3.5 shrink-0 ${statusTint}`} />
       </div>
     );
   }
@@ -757,9 +802,7 @@ function FileNode({
     >
       <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${isActive ? 'text-student-primary' : 'text-slate-500'}`} />
       <span className="flex-1 truncate font-medium text-student-text">{title}</span>
-      <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${badge.className}`}>
-        {badge.label}
-      </span>
+      <StatusIcon aria-hidden="true" className={`size-3.5 shrink-0 ${statusTint}`} />
     </button>
   );
 }

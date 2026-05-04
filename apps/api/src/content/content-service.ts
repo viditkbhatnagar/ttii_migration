@@ -1667,33 +1667,45 @@ export class ContentService {
 
     const courseId = idString(lesson.course_id);
     const lessonFiles = await this.getLessonFilesForLesson(lessonId);
+    // Student timeline (Naji 2026-05-04): articles, quizzes, audio etc.
+    // are first-class lesson items — they should appear as siblings to
+    // videos, not be hidden behind a video parent. Files WITH a
+    // parent_file_id still nest under the parent video; files WITHOUT
+    // one (orphan article / quiz / standalone audio) surface at the
+    // top level.
     const videosById = new Map<string, Record<string, unknown>>();
+    const topLevelNonVideos: Record<string, unknown>[] = [];
     const pendingRelatedFiles: Record<string, unknown>[] = [];
+    const fileOrder: string[] = [];
 
     for (const lessonFile of lessonFiles) {
       const fileId = String(lessonFile.id);
       const attachmentType = normalizeAttachmentType((lessonFile.attachment_type ?? '').toLowerCase());
+      const lessonType = toStringValue(lessonFile.lesson_type).toLowerCase();
+      const isVideo = attachmentType === 'video' || lessonType === 'video';
+      const parentFileId = toNullableString(lessonFile.parent_file_id);
 
-      if (attachmentType === 'video') {
+      if (isVideo) {
         const fileData = await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId);
         fileData.sub_title = 'Video';
         fileData.related_files = [];
         videosById.set(fileId, fileData);
-      } else {
+        fileOrder.push(`v:${fileId}`);
+      } else if (parentFileId) {
         pendingRelatedFiles.push(lessonFile as unknown as Record<string, unknown>);
+      } else {
+        const fileData = await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId);
+        fileData.sub_title = capitalize(attachmentType || lessonType || 'file');
+        topLevelNonVideos.push(fileData);
+        fileOrder.push(`n:${fileId}`);
       }
     }
 
     for (const relatedFile of pendingRelatedFiles) {
       const parentFileId = toNullableString(relatedFile.parent_file_id);
-      if (!parentFileId) {
-        continue;
-      }
-
+      if (!parentFileId) continue;
       const parentVideo = videosById.get(parentFileId);
-      if (!parentVideo) {
-        continue;
-      }
+      if (!parentVideo) continue;
 
       const relatedFileData = await this.buildLessonFileData(relatedFile, lessonId, userId, courseId);
       const attachmentType = toStringValue(relatedFile.attachment_type).toLowerCase();
@@ -1706,7 +1718,18 @@ export class ContentService {
       parentVideo.related_files = currentRelated;
     }
 
-    return [...videosById.values()];
+    // Preserve original DB order across both buckets so the timeline
+    // shows lesson items in the same sequence the admin authored them.
+    const topLevelById = new Map(
+      topLevelNonVideos.map((f) => [String(f.id), f]),
+    );
+    const ordered: Record<string, unknown>[] = [];
+    for (const key of fileOrder) {
+      const [kind, id] = key.split(':') as ['v' | 'n', string];
+      const row = kind === 'v' ? videosById.get(id) : topLevelById.get(id);
+      if (row) ordered.push(row);
+    }
+    return ordered;
   }
 
   private async buildLessonVideoData(video: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
