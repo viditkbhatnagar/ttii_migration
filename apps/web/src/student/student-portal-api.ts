@@ -380,6 +380,7 @@ export class StudentPortalApi {
 
     const selectedCourseId = asString(firstRecord(courses)?.id);
 
+    // Pull subjects for the (first) course the student is on.
     const subjectsPayload = selectedCourseId
       ? await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, {
           course_id: selectedCourseId,
@@ -392,27 +393,40 @@ export class StudentPortalApi {
 
     const selectedSubjectId = asString(firstRecord(subjects)?.id);
 
-    const lessonsPayload = selectedSubjectId
-      ? await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons', authToken, {
-          subject_id: selectedSubjectId,
-        })
-      : { data: [] };
+    // Earlier this only fetched lessons for the first subject (and files
+    // for the first lesson), which left every other subject rendering
+    // "No lessons in this subject yet" even when content existed.
+    // Fetch lessons for EVERY subject in parallel, then files for EVERY
+    // lesson in parallel, and flatten.
+    const subjectIds = subjects
+      .map((s) => asString(s.id))
+      .filter((id): id is string => id !== '');
 
-    const lessons = asArray(lessonsPayload.data)
-      .map((entry) => asRecord(entry))
-      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    const lessonsBySubject = await Promise.all(
+      subjectIds.map(async (subjectId) => {
+        const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons', authToken, { subject_id: subjectId });
+        return asArray(payload.data)
+          .map((entry) => asRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => entry !== null);
+      }),
+    );
+    const lessons = lessonsBySubject.flat();
 
     const selectedLessonId = asString(firstRecord(lessons)?.id);
 
-    const lessonFilesPayload = selectedLessonId
-      ? await this.get<LegacyEnvelope<unknown[]>>('/lesson_file/index', authToken, {
-          lesson_id: selectedLessonId,
-        })
-      : { data: [] };
+    const lessonIds = lessons
+      .map((l) => asString(l.id))
+      .filter((id): id is string => id !== '');
 
-    const lessonFiles = asArray(lessonFilesPayload.data)
-      .map((entry) => asRecord(entry))
-      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    const filesByLesson = await Promise.all(
+      lessonIds.map(async (lessonId) => {
+        const payload = await this.get<LegacyEnvelope<unknown[]>>('/lesson_file/index', authToken, { lesson_id: lessonId });
+        return asArray(payload.data)
+          .map((entry) => asRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => entry !== null);
+      }),
+    );
+    const lessonFiles = filesByLesson.flat();
 
     const streakPayload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/streak_data', authToken, {
       from_date: dayOffset(-30),
