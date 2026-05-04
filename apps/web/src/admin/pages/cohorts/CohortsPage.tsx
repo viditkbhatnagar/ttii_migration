@@ -215,14 +215,14 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
         sortable: true,
         render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
       },
-      // Naji 2026-05-04: drop the synthetic "C-{id}" Cohort ID column —
-      // not useful, just noise. Cohort Code is the meaningful identifier.
-      // Hyphen stripped from the legacy "C-75" → "C75" format on render.
+      // Naji 2026-05-05 clarification: keep BOTH columns.
+      //   Cohort ID  = "C{id}" (auto-derived from row.id, no hyphen)
+      //   Cohort Code = the editable cohort_id text field (e.g. "CPMAY26")
       {
-        key: 'cohort_id',
-        label: 'Cohort Code',
+        key: 'cohort_row_id',
+        label: 'Cohort ID',
         sortable: true,
-        render: (value, row) => (
+        render: (_v, row) => (
           <button
             type="button"
             className="text-left font-medium text-blue-600 hover:underline"
@@ -231,9 +231,15 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
               onNavigate('/admin/cohorts/view/' + asString(row._id || row.id));
             }}
           >
-            {formatCohortCode(value) || asString(row.title) || '-'}
+            {formatCohortCode(asString(row.cohort_row_id) || `C${asString(row.id)}`)}
           </button>
         ),
+      },
+      {
+        key: 'cohort_id',
+        label: 'Cohort Code',
+        sortable: true,
+        render: (value, row) => formatCohortCode(value) || asString(row.title) || '-',
       },
       {
         key: 'cohort_date',

@@ -200,25 +200,28 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
         render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
       },
       { key: 'centre_name', label: 'Centre', sortable: true, render: (v) => asString(v) || '-' },
-      // Naji 2026-05-04: legacy DB stored a code-like value in `title`
-      // (e.g. "CET - SEP25"); the new flow stores a proper code in
-      // `cohort_id`. Show whichever is present so legacy + new data
-      // both surface a usable "Cohort Code" column. Synthetic "C-{id}"
-      // column dropped per Naji's "this code not required" feedback.
-      // Hyphen also stripped from legacy "C-75" → "C75" on render.
+      // Naji 2026-05-05 clarification: keep BOTH columns.
+      //   Cohort ID  = "C{id}" derived from row.id (no hyphen)
+      //   Cohort Code = the editable cohort_id text field
       {
-        key: 'cohort_id',
-        label: 'Cohort Code',
+        key: 'cohort_row_id',
+        label: 'Cohort ID',
         sortable: true,
-        render: (v, row) => (
+        render: (_v, row) => (
           <button
             type="button"
             className="text-left font-medium text-blue-600 hover:underline"
             onClick={() => onNavigate('/admin/cohorts/view/' + asString(row._id || row.id))}
           >
-            {formatCohortCode(v) || asString(row.title) || '-'}
+            {formatCohortCode(asString(row.cohort_row_id) || `C${asString(row.id)}`)}
           </button>
         ),
+      },
+      {
+        key: 'cohort_id',
+        label: 'Cohort Code',
+        sortable: true,
+        render: (v, row) => formatCohortCode(v) || asString(row.title) || '-',
       },
       {
         key: 'cohort_date',

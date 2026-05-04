@@ -53,10 +53,18 @@ function getFileTypeIcon(type: string) {
 function pickFileType(file: Record<string, unknown>): string {
   const lessonType = asString(file.lesson_type).toLowerCase();
   const attachmentType = asString(file.attachment_type).toLowerCase();
+  // 'doc' / 'document' are legacy aliases the PHP LMS used for articles —
+  // normalise them so the timeline icon, badge and content player all
+  // treat them as articles (Naji 2026-05-05: "enabled doc is not opening
+  // in right side" was caused by these falling through as 'other' which
+  // resolveSelectedContent rejected for lack of a URL).
+  const normalize = (t: string) => (t === 'doc' || t === 'document' ? 'article' : t);
   const semantic = new Set(['video', 'audio', 'pdf', 'quiz', 'article', 'practice']);
-  if (semantic.has(lessonType)) return lessonType;
-  if (semantic.has(attachmentType)) return attachmentType;
-  return attachmentType || lessonType;
+  const ln = normalize(lessonType);
+  const an = normalize(attachmentType);
+  if (semantic.has(ln)) return ln;
+  if (semantic.has(an)) return an;
+  return an || ln;
 }
 
 // Strip HTML tags + decode common entities for inline preview text.
