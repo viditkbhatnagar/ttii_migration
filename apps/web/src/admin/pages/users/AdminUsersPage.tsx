@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -231,6 +231,24 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
     [],
   );
 
+  const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row._id || row.id);
+    if (!(await confirm({
+      title: `Resend login email to "${asString(row.name)}"?`,
+      description: 'A new temporary password will be generated and emailed. The user’s previous password will stop working.',
+      confirmText: 'Resend',
+      variant: 'default',
+    }))) return;
+    try {
+      const res = await api.resendLoginCredentials(session.token, id);
+      const message = typeof res.message === 'string' ? res.message : 'Login email sent.';
+      if (res.status === 1) toast.success(message);
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send login email');
+    }
+  }, [api, session.token, confirm]);
+
   const handleToggleStatus = async (row: Record<string, unknown>) => {
     const id = asString(row._id || row.id);
     if (!id) return;
@@ -256,9 +274,10 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
         label: 'Toggle Active',
         onClick: (row) => { void handleToggleStatus(row); },
       },
+      { label: 'Resend Login Email', onClick: (row) => { void handleResendCredentials(row); } },
       { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
     ],
-    [],
+    [handleResendCredentials],
   );
 
   if (loading) {

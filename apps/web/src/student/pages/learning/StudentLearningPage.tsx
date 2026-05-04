@@ -1,9 +1,23 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, ChevronDown, Flame, Lock, FileText, Video, FileQuestion, BarChart3, CheckCircle, ArrowRight, X, ExternalLink } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Flame,
+  Lock,
+  FileText,
+  Video,
+  FileQuestion,
+  BarChart3,
+  CheckCircle,
+  ArrowLeft,
+  X,
+  ExternalLink,
+  PlayCircle,
+} from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -72,98 +86,60 @@ function getFileTypeBadgeStyle(type: string): { label: string; className: string
   return { label: type || 'File', className: 'bg-slate-100 text-slate-700' };
 }
 
-interface SubjectProgress {
-  id: string;
-  courseId: string;
-  title: string;
-  totalLessons: number;
-  completedLessons: number;
-  averageCompletion: number;
+function isLocked(record: Record<string, unknown>): boolean {
+  const v = record.lock;
+  return v === true || v === 1 || v === '1';
 }
 
-function computeSubjectProgress(
-  subjects: Record<string, unknown>[],
-  lessons: Record<string, unknown>[],
-): SubjectProgress[] {
-  const subjectMap = new Map<string, { title: string; courseId: string; completions: number[]; total: number; completed: number }>();
-
-  for (const subject of subjects) {
-    const id = asString(subject.id);
-    subjectMap.set(id, {
-      title: asString(subject.title) || `Subject ${id}`,
-      courseId: asString(subject.course_id),
-      completions: [],
-      total: 0,
-      completed: 0,
-    });
-  }
-
-  for (const lesson of lessons) {
-    const subjectId = asString(lesson.subject_id);
-    const completion = asNumber(lesson.completed_percentage);
-    const entry = subjectMap.get(subjectId);
-    if (entry) {
-      entry.completions.push(completion);
-      entry.total += 1;
-      if (completion === 100) {
-        entry.completed += 1;
-      }
-    }
-  }
-
-  return Array.from(subjectMap.entries()).map(([id, entry]) => ({
-    id,
-    courseId: entry.courseId,
-    title: entry.title,
-    totalLessons: entry.total,
-    completedLessons: entry.completed,
-    averageCompletion: entry.completions.length > 0
-      ? Math.round(entry.completions.reduce((a, b) => a + b, 0) / entry.completions.length)
-      : 0,
-  }));
-}
-
-
-export default function StudentLearningPage({ api, session, onNavigate }: StudentPageProps) {
+export default function StudentLearningPage({ api, session, onNavigate: _onNavigate }: StudentPageProps) {
+  void _onNavigate;
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
     [api, session.token],
   );
 
-  // Inline player state — set when a file is clicked, cleared by the
-  // close button on the player banner.
+  // View state — list of courses vs detail view of a single course.
+  const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
   const [selectedContent, setSelectedContent] = useState<SelectedContent | null>(null);
-  const handleFileSelect = (file: Record<string, unknown>) => {
-    const resolved = resolveSelectedContent(file);
-    if (resolved) {
-      setSelectedContent(resolved);
-      // Scroll the player into view on small screens.
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
 
-  const courses = useMemo(() => data?.courses ?? [], [data]);
+  const enrolledCourses = useMemo(() => data?.courses ?? [], [data]);
+  const catalogCourses = useMemo(() => data?.catalogCourses ?? [], [data]);
   const subjects = useMemo(() => data?.subjects ?? [], [data]);
   const lessons = useMemo(() => data?.lessons ?? [], [data]);
   const lessonFiles = useMemo(() => data?.lessonFiles ?? [], [data]);
 
-  const subjectProgress = useMemo(() => computeSubjectProgress(subjects, lessons), [subjects, lessons]);
+  const enrolledIdSet = useMemo(
+    () => new Set(enrolledCourses.map((c) => asString(c.id))),
+    [enrolledCourses],
+  );
+  const otherCourses = useMemo(
+    () => catalogCourses.filter((c) => !enrolledIdSet.has(asString(c.id))),
+    [catalogCourses, enrolledIdSet],
+  );
 
   const overallCompletion = useMemo(() => {
     if (lessons.length === 0) return 0;
-    const totalCompletion = lessons.reduce((sum, lesson) => sum + asNumber(lesson.completed_percentage), 0);
-    return Math.round(totalCompletion / lessons.length);
+    const total = lessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0);
+    return Math.round(total / lessons.length);
   }, [lessons]);
 
-  // Lessons not assigned to any subject (orphans)
-  const orphanLessons = useMemo(() => {
-    const subjectIds = new Set(subjects.map((s) => asString(s.id)));
-    return lessons.filter((l) => !subjectIds.has(asString(l.subject_id)));
-  }, [subjects, lessons]);
+  const handleSelectFile = (file: Record<string, unknown>) => {
+    const resolved = resolveSelectedContent(file);
+    if (resolved) setSelectedContent(resolved);
+  };
 
-  if (loading) {
-    return <PageLoader label="Loading courses..." />;
-  }
+  const handleOpenCourse = (courseId: string) => {
+    setActiveCourseId(courseId);
+    setSelectedContent(null);
+    window.scrollTo({ top: 0 });
+  };
+
+  const handleBackToList = () => {
+    setActiveCourseId(null);
+    setSelectedContent(null);
+  };
+
+  if (loading) return <PageLoader label="Loading courses..." />;
 
   if (error) {
     return (
@@ -177,424 +153,548 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     );
   }
 
+  // ── Detail view ────────────────────────────────────────────────
+  if (activeCourseId !== null) {
+    const course = enrolledCourses.find((c) => asString(c.id) === activeCourseId);
+    if (!course) {
+      // If the active course is no longer in the list (e.g. unenrolled), fall back.
+      return (
+        <div className="space-y-6">
+          <Button variant="outline" size="sm" onClick={handleBackToList}>
+            <ArrowLeft aria-hidden="true" className="mr-1 size-4" />
+            Back to courses
+          </Button>
+          <p className="text-sm text-student-muted">Course no longer available.</p>
+        </div>
+      );
+    }
+    const courseSubjects = subjects.filter((s) => asString(s.course_id) === activeCourseId);
+    const courseLessons = lessons.filter((l) => {
+      const subjectId = asString(l.subject_id);
+      return courseSubjects.some((s) => asString(s.id) === subjectId);
+    });
+    const courseCompletion = courseLessons.length === 0
+      ? 0
+      : Math.round(
+          courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
+            courseLessons.length,
+        );
+
+    return (
+      <div className="space-y-4">
+        {/* Course summary strip */}
+        <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
+          <Button variant="outline" size="sm" onClick={handleBackToList} className="rounded-lg">
+            <ArrowLeft aria-hidden="true" className="mr-1 size-4" />
+            Back
+          </Button>
+          {course.thumbnail ? (
+            <img
+              src={asString(course.thumbnail)}
+              alt=""
+              className="size-14 shrink-0 rounded-lg object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-semibold text-student-text">
+              {asString(course.title) || 'Course'}
+            </h1>
+            <p className="text-xs text-student-muted">
+              {courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'} &middot;{' '}
+              {courseLessons.length} lesson{courseLessons.length === 1 ? '' : 's'} &middot;{' '}
+              {courseCompletion}% complete
+            </p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-student-primary transition-all duration-500"
+                style={{ width: `${Math.min(courseCompletion, 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Two-column layout: timeline left, content view right */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
+          {/* LEFT — Course Timeline */}
+          <aside className="rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <h2 className="text-sm font-semibold text-student-text">Course Timeline</h2>
+              <p className="mt-0.5 text-xs text-student-muted">Subject &rsaquo; Lesson &rsaquo; Content</p>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto p-2">
+              {courseSubjects.length === 0 ? (
+                <p className="px-2 py-6 text-center text-sm text-student-muted">
+                  No subjects in this course yet.
+                </p>
+              ) : (
+                courseSubjects.map((subject) => {
+                  const subjectId = asString(subject.id);
+                  const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
+                  return (
+                    <SubjectNode
+                      key={subjectId}
+                      subject={subject}
+                      lessons={subjectLessons}
+                      lessonFiles={lessonFiles}
+                      activeFileId={selectedContent?.id ?? null}
+                      onSelectFile={handleSelectFile}
+                    />
+                  );
+                })
+              )}
+            </div>
+          </aside>
+
+          {/* RIGHT — Content View */}
+          <section className="rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <h2 className="text-sm font-semibold text-student-text">Content View</h2>
+              <p className="mt-0.5 text-xs text-student-muted">
+                {selectedContent ? selectedContent.title : 'Select a lesson item from the timeline'}
+              </p>
+            </div>
+            {selectedContent ? (
+              <ContentPlayer content={selectedContent} onClose={() => setSelectedContent(null)} />
+            ) : (
+              <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+                <div className="rounded-full bg-slate-100 p-4">
+                  <PlayCircle aria-hidden="true" className="size-8 text-slate-400" />
+                </div>
+                <p className="text-sm font-medium text-student-text">Nothing playing yet</p>
+                <p className="max-w-xs text-xs text-student-muted">
+                  Pick any lesson, video, audio or PDF from the timeline on the left to start.
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // ── List view ──────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* Inline player banner — shown above the lessons when a file is
-          selected. Player type follows the file type. Close to return to
-          the lesson list. */}
-      {selectedContent ? (
-        <ContentPlayer content={selectedContent} onClose={() => setSelectedContent(null)} />
-      ) : null}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-student-text">My Courses</h1>
-          <p className="mt-1 text-sm text-student-muted">{courses.length} courses enrolled</p>
+          <p className="mt-1 text-sm text-student-muted">
+            {enrolledCourses.length} enrolled &middot; {otherCourses.length} more available
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-3 py-1.5">
+          <div className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5">
             <Flame className="size-4 text-amber-500" />
-            <span className="text-sm font-semibold text-amber-700">{data?.streakCurrent ?? 0} day streak</span>
+            <span className="text-sm font-semibold text-amber-700">
+              {data?.streakCurrent ?? 0} day streak
+            </span>
           </div>
           <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
         </div>
       </div>
 
-      {/* Overview Stats */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {[
-          { label: 'Courses', value: courses.length, icon: BookOpen, iconTint: 'bg-blue-50 text-blue-600' },
-          { label: 'Subjects', value: subjects.length, icon: FileText, iconTint: 'bg-violet-50 text-violet-600' },
-          { label: 'Lessons', value: lessons.length, icon: BookOpen, iconTint: 'bg-emerald-50 text-emerald-600' },
-          { label: 'Overall Progress', value: `${overallCompletion}%`, icon: BarChart3, iconTint: 'bg-student-primary/10 text-student-primary' },
-        ].map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between">
+      {/* Course Summary Card */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-student-text">Course Summary</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {[
+            { label: 'Courses', value: enrolledCourses.length, icon: BookOpen, tint: 'bg-blue-50 text-blue-600' },
+            { label: 'Subjects', value: subjects.length, icon: FileText, tint: 'bg-violet-50 text-violet-600' },
+            { label: 'Lessons', value: lessons.length, icon: BookOpen, tint: 'bg-emerald-50 text-emerald-600' },
+            { label: 'Overall', value: `${overallCompletion}%`, icon: BarChart3, tint: 'bg-student-primary/10 text-student-primary' },
+          ].map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <div key={stat.label} className="flex items-center justify-between rounded-lg border border-slate-100 p-3">
                 <div>
                   <p className="text-2xl font-semibold text-student-text">{stat.value}</p>
                   <p className="mt-0.5 text-xs font-medium text-student-muted">{stat.label}</p>
                 </div>
-                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.iconTint}`}>
+                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.tint}`}>
                   <Icon aria-hidden="true" className="size-5" />
                 </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Course Progress Bar */}
-      {courses.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-student-text">
-                {asString(courses[0]?.title) || 'Course Progress'}
-              </h3>
-              <p className="mt-0.5 text-xs text-student-muted">{overallCompletion}% complete</p>
-            </div>
-            <span className="text-2xl font-semibold text-student-primary">{overallCompletion}%</span>
-          </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
-              style={{ width: `${Math.min(overallCompletion, 100)}%` }}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {/* Subjects grouped per enrolled course. Earlier the page showed a
-          single "Subjects" list across all courses, which got confusing
-          when a student is enrolled in more than one. */}
-      {courses.length > 0 && subjectProgress.length > 0 ? (
-        <div className="space-y-6">
-          {courses.map((course) => {
-            const courseId = asString(course.id);
-            const courseTitle = asString(course.title) || `Course ${courseId}`;
-            const courseSubjects = subjectProgress.filter((sp) => sp.courseId === courseId);
-            if (courseSubjects.length === 0) return null;
-            return (
-              <div key={courseId} className="space-y-3">
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-lg font-semibold text-student-text">{courseTitle}</h2>
-                  <span className="text-xs text-student-muted">{courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'}</span>
-                </div>
-                <Accordion type="multiple" className="space-y-3">
-                  {courseSubjects.map((sp, index) => {
-              const subjectLessons = lessons.filter((l) => asString(l.subject_id) === sp.id);
-
-              return (
-                <AccordionItem
-                  key={sp.id}
-                  value={sp.id}
-                  className="rounded-xl border border-slate-200 bg-white overflow-hidden"
-                >
-                  <AccordionTrigger className="px-5 py-4 hover:no-underline">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div
-                        aria-hidden="true"
-                        className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-                          sp.averageCompletion === 100
-                            ? 'bg-emerald-50 text-emerald-600'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {sp.averageCompletion === 100 ? (
-                          <CheckCircle className="size-4" />
-                        ) : (
-                          index + 1
-                        )}
-                      </div>
-                      <div className="text-left">
-                        <p className="font-medium text-student-text">{sp.title}</p>
-                        <p className="text-xs text-student-muted">
-                          {sp.completedLessons}/{sp.totalLessons} lessons &middot; {sp.averageCompletion}% complete
-                        </p>
-                      </div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="border-t border-slate-100 bg-slate-50/50 px-5 pb-5 pt-4">
-                    {/* Progress bar */}
-                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-student-primary transition-all duration-500"
-                        style={{ width: `${Math.min(sp.averageCompletion, 100)}%` }}
-                      />
-                    </div>
-
-                    {/* Stats Row — flat inline labels */}
-                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-student-muted">
-                      <span><span className="font-semibold text-student-text">{sp.totalLessons}</span> total</span>
-                      <span><span className="font-semibold text-emerald-600">{sp.completedLessons}</span> done</span>
-                      <span><span className="font-semibold text-student-text">{sp.totalLessons - sp.completedLessons}</span> remaining</span>
-                      <span className="ml-auto"><span className="font-semibold text-student-primary">{sp.averageCompletion}%</span> progress</span>
-                    </div>
-
-                    {/* Lessons List — each lesson nests its own files. */}
-                    {subjectLessons.length > 0 ? (
-                      <div className="mt-4 space-y-2">
-                        {subjectLessons.map((lesson) => {
-                          const lessonId = asString(lesson.id);
-                          const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-                          return (
-                            <LessonRow
-                              key={lessonId}
-                              lesson={lesson}
-                              files={filesForLesson}
-                              onSelectFile={handleFileSelect}
-                              activeFileId={selectedContent?.id ?? null}
-                            />
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="mt-4 text-sm text-student-muted text-center py-4">No lessons in this subject yet.</p>
-                    )}
-
-                    {/* CTA */}
-                    {sp.averageCompletion < 100 ? (
-                      <Button
-                        className="mt-4 rounded-lg bg-student-primary hover:bg-student-primary/90"
-                        size="sm"
-                        onClick={() => onNavigate('/student/courses')}
-                      >
-                        Continue Learning
-                        <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        className="mt-4 rounded-lg"
-                        size="sm"
-                        onClick={() => onNavigate('/student/courses')}
-                      >
-                        Review Course
-                      </Button>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-                </Accordion>
               </div>
             );
           })}
         </div>
-      ) : null}
-
-      {/* Orphan Lessons (not assigned to any subject) — flat list with
-          nested materials per lesson, mirroring the subject view. */}
-      {orphanLessons.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-student-text">Lessons</h2>
-          <div className="space-y-2">
-            {orphanLessons.map((lesson) => {
-              const lessonId = asString(lesson.id);
-              const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-              return (
-                <LessonRow
-                  key={lessonId}
-                  lesson={lesson}
-                  files={filesForLesson}
-                  onSelectFile={handleFileSelect}
-                  activeFileId={selectedContent?.id ?? null}
-                />
-              );
-            })}
+        {enrolledCourses.length > 0 ? (
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-student-primary transition-all duration-500"
+              style={{ width: `${Math.min(overallCompletion, 100)}%` }}
+            />
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      {/* No subjects at all → fall back to a flat lesson list. Materials
-          stay nested under each lesson, not in a separate Materials block. */}
-      {subjectProgress.length === 0 && lessons.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-student-text">All Lessons</h2>
-          <div className="space-y-2">
-            {lessons.map((lesson) => {
-              const lessonId = asString(lesson.id);
-              const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-              return (
-                <LessonRow
-                  key={lessonId}
-                  lesson={lesson}
-                  files={filesForLesson}
-                  onSelectFile={handleFileSelect}
-                  activeFileId={selectedContent?.id ?? null}
-                />
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Enrolled Courses */}
-      {courses.length > 0 ? (
+      {/* Enrolled */}
+      {enrolledCourses.length > 0 ? (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">Enrolled Courses</h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {courses.map((course) => {
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {enrolledCourses.map((course) => {
               const id = asString(course.id);
-              const title = asString(course.title) || `Course ${id}`;
-              const description = asString(course.description);
+              const courseSubjects = subjects.filter((s) => asString(s.course_id) === id);
+              const courseLessons = lessons.filter((l) => {
+                const sId = asString(l.subject_id);
+                return courseSubjects.some((s) => asString(s.id) === sId);
+              });
+              const completion = courseLessons.length === 0
+                ? 0
+                : Math.round(
+                    courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
+                      courseLessons.length,
+                  );
               return (
-                <div key={id} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <h3 className="font-medium text-student-text">{title}</h3>
-                  {description ? <p className="mt-1 text-sm text-student-muted line-clamp-2">{description}</p> : null}
-                </div>
+                <CourseCard
+                  key={id}
+                  course={course}
+                  subjectCount={courseSubjects.length}
+                  lessonCount={courseLessons.length}
+                  completion={completion}
+                  enrolled
+                  onClick={() => handleOpenCourse(id)}
+                />
               );
             })}
           </div>
         </div>
       ) : null}
 
-      {/* Empty State */}
-      {courses.length === 0 && lessons.length === 0 ? (
-        <div role="status" className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-          <BookOpen aria-hidden="true" className="mx-auto size-12 text-slate-300 mb-4" />
-          <h3 className="text-base font-semibold text-student-text">No courses found</h3>
-          <p className="text-sm text-student-muted mt-1">You haven't been enrolled in any courses yet.</p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/* ─── Shared sub-components ────────────────────────────────── */
-
-function LessonRow({
-  lesson,
-  files = [],
-  onSelectFile,
-  activeFileId,
-}: {
-  lesson: Record<string, unknown>;
-  files?: Record<string, unknown>[];
-  onSelectFile?: (file: Record<string, unknown>) => void;
-  activeFileId?: string | null;
-}) {
-  const id = asString(lesson.id);
-  const title = asString(lesson.title) || `Lesson ${id}`;
-  const completion = asNumber(lesson.completed_percentage);
-  const isLocked = lesson.lock === true || lesson.lock === 1 || lesson.lock === '1';
-  const [open, setOpen] = useState(false);
-  const hasFiles = files.length > 0;
-
-  return (
-    <div
-      className={`rounded-xl border transition-colors ${
-        isLocked
-          ? 'border-slate-100 bg-slate-50 opacity-60'
-          : completion === 100
-            ? 'border-green-100 bg-green-50/50'
-            : 'border-slate-100 bg-white'
-      }`}
-    >
-      <button
-        type="button"
-        className="flex w-full items-center gap-3 p-3 text-left"
-        disabled={!hasFiles && !isLocked ? false : isLocked}
-        onClick={() => hasFiles && setOpen((v) => !v)}
-      >
-        {isLocked ? (
-          <Lock className="size-4 text-slate-400 shrink-0" />
-        ) : completion === 100 ? (
-          <CheckCircle className="size-4 text-green-500 shrink-0" />
-        ) : (
-          <BookOpen className="size-4 text-student-primary shrink-0" />
-        )}
-        <span className="text-sm font-medium text-slate-700 flex-1 truncate">{title}</span>
-        {hasFiles ? (
-          <span className="text-xs text-student-muted shrink-0">{files.length} item{files.length === 1 ? '' : 's'}</span>
-        ) : null}
-        {isLocked ? (
-          <Badge variant="outline" className="text-xs rounded-full">Locked</Badge>
-        ) : (
-          <Badge className={`text-xs rounded-full ${
-            completion === 100
-              ? 'bg-green-100 text-green-700 border-green-200'
-              : 'bg-blue-100 text-blue-700 border-blue-200'
-          }`}>
-            {completion}%
-          </Badge>
-        )}
-        {hasFiles ? (
-          <ChevronDown
-            aria-hidden="true"
-            className={`size-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-          />
-        ) : null}
-      </button>
-      {hasFiles && open ? (
-        <div className="border-t border-slate-100 bg-slate-50/40 px-3 py-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {files.map((file) => (
-              <FileRow
-                key={asString(file.id)}
-                file={file}
-                {...(onSelectFile ? { onSelect: onSelectFile } : {})}
-                isActive={activeFileId !== null && activeFileId === asString(file.id)}
-              />
-            ))}
+      {/* All other courses */}
+      {otherCourses.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-student-text">All Other Courses</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {otherCourses.map((course) => {
+              const id = asString(course.id);
+              return (
+                <CourseCard
+                  key={id}
+                  course={course}
+                  subjectCount={asNumber(course.subject_count)}
+                  lessonCount={asNumber(course.lessons_count)}
+                  completion={0}
+                  enrolled={false}
+                />
+              );
+            })}
           </div>
         </div>
       ) : null}
+
+      {/* Empty state */}
+      {enrolledCourses.length === 0 && otherCourses.length === 0 ? (
+        <div role="status" className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+          <BookOpen aria-hidden="true" className="mx-auto mb-4 size-12 text-slate-300" />
+          <h3 className="text-base font-semibold text-student-text">No courses found</h3>
+          <p className="mt-1 text-sm text-student-muted">
+            You haven't been enrolled in any courses yet.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function FileRow({
-  file,
-  onSelect,
-  isActive,
+/* ─── Sub-components ────────────────────────────────────────── */
+
+function CourseCard({
+  course,
+  subjectCount,
+  lessonCount,
+  completion,
+  enrolled,
+  onClick,
 }: {
-  file: Record<string, unknown>;
-  onSelect?: (file: Record<string, unknown>) => void;
-  isActive?: boolean;
+  course: Record<string, unknown>;
+  subjectCount: number;
+  lessonCount: number;
+  completion: number;
+  enrolled: boolean;
+  onClick?: () => void;
 }) {
-  const fId = asString(file.id);
-  const fTitle = asString(file.title) || `File ${fId}`;
-  const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
-  const badge = getFileTypeBadgeStyle(attachmentType);
-  const FileIcon = getFileTypeIcon(attachmentType);
-  const isLocked = file.lock === true || file.lock === 1 || file.lock === '1';
-  const resolved = !isLocked ? resolveSelectedContent(file) : null;
-  const isPlayable = resolved !== null;
+  const title = asString(course.title) || 'Untitled Course';
+  const thumbnail = asString(course.thumbnail);
+  const description = asString(course.short_description) || asString(course.description);
 
   const inner = (
     <>
-      <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
-        isActive ? 'bg-student-primary/15 text-student-primary' : 'bg-slate-100 text-slate-600'
-      }`}>
-        <FileIcon className="size-4" />
+      <div className="aspect-video w-full overflow-hidden bg-slate-100">
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={(e) => {
+              const img = e.currentTarget as HTMLImageElement;
+              img.style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center">
+            <BookOpen aria-hidden="true" className="size-10 text-slate-300" />
+          </div>
+        )}
       </div>
-      <p className="text-sm font-medium text-slate-700 truncate flex-1 text-left">{fTitle}</p>
-      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
-        {badge.label}
-      </span>
+      <div className="space-y-2 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="line-clamp-2 text-sm font-semibold text-student-text">{title}</h3>
+          {enrolled ? (
+            <Badge className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 border-emerald-200">
+              Enrolled
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="shrink-0 rounded-full">Available</Badge>
+          )}
+        </div>
+        {description ? (
+          <p className="line-clamp-2 text-xs text-student-muted">{description}</p>
+        ) : null}
+        <p className="text-xs text-student-muted">
+          {subjectCount} subject{subjectCount === 1 ? '' : 's'} &middot;{' '}
+          {lessonCount} lesson{lessonCount === 1 ? '' : 's'}
+        </p>
+        {enrolled ? (
+          <>
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-student-primary transition-all duration-500"
+                style={{ width: `${Math.min(completion, 100)}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-student-primary">{completion}% complete</span>
+              <span className="inline-flex items-center text-student-primary">
+                Continue <ChevronRight aria-hidden="true" className="ml-0.5 size-3.5" />
+              </span>
+            </div>
+          </>
+        ) : null}
+      </div>
     </>
   );
 
-  if (isPlayable && onSelect) {
+  const baseClass = 'group block overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-shadow';
+
+  if (enrolled && onClick) {
     return (
       <button
         type="button"
-        onClick={() => onSelect(file)}
-        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-          isActive
-            ? 'border-student-primary bg-student-primary/5'
-            : 'border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50'
-        }`}
+        onClick={onClick}
+        className={`${baseClass} hover:border-student-primary hover:shadow-md`}
       >
         {inner}
       </button>
     );
   }
 
+  return <div className={`${baseClass} opacity-90`}>{inner}</div>;
+}
+
+function SubjectNode({
+  subject,
+  lessons,
+  lessonFiles,
+  activeFileId,
+  onSelectFile,
+}: {
+  subject: Record<string, unknown>;
+  lessons: Record<string, unknown>[];
+  lessonFiles: Record<string, unknown>[];
+  activeFileId: string | null;
+  onSelectFile: (file: Record<string, unknown>) => void;
+}) {
+  const id = asString(subject.id);
+  const title = asString(subject.title) || `Subject ${id}`;
+  const [open, setOpen] = useState(true);
+  const completion = lessons.length === 0
+    ? 0
+    : Math.round(
+        lessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) / lessons.length,
+      );
+
   return (
-    <div
-      className={`flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 ${
-        isLocked ? 'opacity-60' : 'opacity-90'
-      }`}
-      title={isLocked ? 'Locked — complete the previous lesson first' : 'Content link not available yet'}
-    >
-      {inner}
+    <div className="mb-1 rounded-lg">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"
+      >
+        <ChevronDown
+          aria-hidden="true"
+          className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+        />
+        <span className="flex-1 truncate text-sm font-semibold text-student-text">{title}</span>
+        <span className="text-[10px] font-medium text-student-muted">
+          {lessons.length} lesson{lessons.length === 1 ? '' : 's'}
+        </span>
+        <Badge
+          className={`text-[10px] rounded-full ${
+            completion === 100
+              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+              : 'bg-blue-100 text-blue-700 border-blue-200'
+          }`}
+        >
+          {completion}%
+        </Badge>
+      </button>
+      {open ? (
+        <div className="ml-3 space-y-0.5 border-l border-slate-100 pl-3">
+          {lessons.length === 0 ? (
+            <p className="py-2 text-xs text-student-muted">No lessons yet.</p>
+          ) : (
+            lessons.map((lesson) => {
+              const lessonId = asString(lesson.id);
+              const filesForLesson = lessonFiles.filter(
+                (f) => asString(f.lesson_id) === lessonId,
+              );
+              return (
+                <LessonNode
+                  key={lessonId}
+                  lesson={lesson}
+                  files={filesForLesson}
+                  activeFileId={activeFileId}
+                  onSelectFile={onSelectFile}
+                />
+              );
+            })
+          )}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function LessonNode({
+  lesson,
+  files,
+  activeFileId,
+  onSelectFile,
+}: {
+  lesson: Record<string, unknown>;
+  files: Record<string, unknown>[];
+  activeFileId: string | null;
+  onSelectFile: (file: Record<string, unknown>) => void;
+}) {
+  const id = asString(lesson.id);
+  const title = asString(lesson.title) || `Lesson ${id}`;
+  const completion = asNumber(lesson.completed_percentage);
+  const locked = isLocked(lesson);
+  const hasFiles = files.length > 0;
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        onClick={() => hasFiles && !locked && setOpen((v) => !v)}
+        disabled={locked || !hasFiles}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+          locked
+            ? 'cursor-not-allowed opacity-60'
+            : hasFiles
+              ? 'hover:bg-slate-50'
+              : 'cursor-default'
+        }`}
+        title={locked ? 'Locked — complete the previous lesson first' : ''}
+      >
+        {locked ? (
+          <Lock aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
+        ) : completion === 100 ? (
+          <CheckCircle aria-hidden="true" className="size-3.5 shrink-0 text-emerald-500" />
+        ) : (
+          <BookOpen aria-hidden="true" className="size-3.5 shrink-0 text-student-primary" />
+        )}
+        <span className="flex-1 truncate text-xs font-medium text-student-text">{title}</span>
+        {hasFiles ? (
+          <span className="text-[10px] text-student-muted">{files.length}</span>
+        ) : null}
+        {hasFiles && !locked ? (
+          <ChevronDown
+            aria-hidden="true"
+            className={`size-3.5 shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+          />
+        ) : null}
+      </button>
+      {open && !locked ? (
+        <div className="ml-4 space-y-0.5 border-l border-slate-100 pl-2 py-1">
+          {files.map((file) => (
+            <FileNode
+              key={asString(file.id)}
+              file={file}
+              isActive={activeFileId === asString(file.id)}
+              onSelect={onSelectFile}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FileNode({
+  file,
+  isActive,
+  onSelect,
+}: {
+  file: Record<string, unknown>;
+  isActive: boolean;
+  onSelect: (file: Record<string, unknown>) => void;
+}) {
+  const id = asString(file.id);
+  const title = asString(file.title) || `File ${id}`;
+  const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
+  const badge = getFileTypeBadgeStyle(attachmentType);
+  const Icon = getFileTypeIcon(attachmentType);
+  const locked = isLocked(file);
+  const playable = !locked && resolveSelectedContent(file) !== null;
+
+  if (!playable) {
+    return (
+      <div
+        className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs ${
+          locked ? 'opacity-60' : 'opacity-90'
+        }`}
+        title={locked ? 'Locked — complete the previous lesson first' : 'Content link not available'}
+      >
+        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
+        <span className="flex-1 truncate text-student-muted">{title}</span>
+        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${badge.className}`}>
+          {badge.label}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(file)}
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+        isActive
+          ? 'bg-student-primary/10 text-student-primary'
+          : 'hover:bg-slate-50'
+      }`}
+    >
+      <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${isActive ? 'text-student-primary' : 'text-slate-500'}`} />
+      <span className="flex-1 truncate font-medium text-student-text">{title}</span>
+      <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${badge.className}`}>
+        {badge.label}
+      </span>
+    </button>
   );
 }
 
 function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose: () => void }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-student-text">{content.title}</p>
-          <p className="text-[11px] uppercase tracking-wider text-student-muted">{content.type}</p>
-        </div>
+    <div className="overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2">
+        <p className="text-[11px] uppercase tracking-wider text-student-muted">{content.type}</p>
         <div className="flex items-center gap-1">
           <a
             href={content.url}
@@ -634,13 +734,6 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
               Your browser does not support audio playback.
             </audio>
           </div>
-        ) : content.type === 'pdf' ? (
-          <iframe
-            key={content.id}
-            src={content.url}
-            title={content.title}
-            className="h-[70vh] w-full bg-white"
-          />
         ) : (
           <iframe
             key={content.id}

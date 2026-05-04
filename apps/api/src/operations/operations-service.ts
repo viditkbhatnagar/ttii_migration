@@ -2648,13 +2648,14 @@ export class OperationsService {
     const instructorIds = [...new Set(cohorts.map(c => c.instructor_id).filter((x): x is number => x !== null && x !== undefined))];
     const languageIds = [...new Set(cohorts.map(c => c.language_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, subjects, centres, instructors, studentCounts, assignmentCounts, pivotRows, languageRows] = await Promise.all([
+    const [courses, subjects, centres, instructors, studentCounts, assignmentCounts, liveClassCounts, pivotRows, languageRows] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       subjectIds.length > 0 ? this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } }) : [],
       centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
       instructorIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: instructorIds } }, select: { id: true, name: true } }) : [],
       cohortIdStrs.length > 0 ? this.prisma.cohort_students.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIdStrs }, deleted_at: null }, _count: { id: true } }) : [],
       cohortIds.length > 0 ? this.prisma.assignment.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIds }, deleted_at: null }, _count: { id: true } }) : [],
+      cohortIds.length > 0 ? this.prisma.live_class.groupBy({ by: ['cohort_id'], where: { cohort_id: { in: cohortIds }, deleted_at: null }, _count: { id: true } }) : [],
       cohortIds.length > 0 ? this.prisma.cohort_offerings.findMany({ where: { cohort_id: { in: cohortIds } }, select: { cohort_id: true, offering_id: true } }) : [],
       languageIds.length > 0 ? this.prisma.languages.findMany({ where: { id: { in: languageIds } }, select: { id: true, title: true } }) : [],
     ]);
@@ -2672,6 +2673,7 @@ export class OperationsService {
     const offeringTitleMap = new Map(offerings.map((o) => [o.id, o.title ?? '']));
     const studentCountMap = new Map(studentCounts.map((sc) => [sc.cohort_id, sc._count?.id ?? 0]));
     const assignmentCountMap = new Map(assignmentCounts.map((ac) => [ac.cohort_id, ac._count?.id ?? 0]));
+    const liveClassCountMap = new Map(liveClassCounts.map((lc) => [lc.cohort_id, lc._count?.id ?? 0]));
 
     const cohortPivotMap = new Map<number, { ids: number[]; titles: string[] }>();
     for (const p of pivotRows) {
@@ -2681,10 +2683,22 @@ export class OperationsService {
       cohortPivotMap.set(p.cohort_id, entry);
     }
 
+    // Derive status from start/end dates (Naji 2026-05-04): a cohort is
+    // Active when today falls within [start_date, end_date]; Completed once
+    // we are past end_date. Falls back to "active" when dates are missing.
+    const todayMs = new Date().setHours(0, 0, 0, 0);
+    const deriveStatus = (start: Date | null | undefined, end: Date | null | undefined): 'active' | 'completed' | 'upcoming' => {
+      if (end && end.getTime() < todayMs) return 'completed';
+      if (start && start.getTime() > todayMs) return 'upcoming';
+      return 'active';
+    };
+
     return cohorts.map(ch => {
       const pivot = cohortPivotMap.get(ch.id);
       return {
         ...ch,
+        // Display-friendly cohort row id (used as the "Cohort ID" column).
+        cohort_row_id: `C-${ch.id}`,
         course_title: ch.course_id ? courseMap.get(ch.course_id)?.title ?? null : null,
         subject_title: ch.subject_id ? subjectMap.get(ch.subject_id)?.title ?? null : null,
         centre_name: ch.centre_id ? centreMap.get(ch.centre_id)?.centre_name ?? null : null,
@@ -2694,6 +2708,8 @@ export class OperationsService {
         offering_titles: pivot?.titles ?? [],
         student_count: studentCountMap.get(String(ch.id)) ?? 0,
         assignment_count: assignmentCountMap.get(ch.id) ?? 0,
+        live_class_count: liveClassCountMap.get(ch.id) ?? 0,
+        derived_status: deriveStatus(ch.start_date, ch.end_date),
       };
     }) as unknown as SqlRow[];
   }
@@ -4372,6 +4388,61 @@ export class OperationsService {
     const now = new Date();
     await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data: { deleted_by: toIntId(actorUserId), deleted_at: now } });
     return { status: 1, message: 'Instructor deleted successfully.' };
+  }
+
+  // Resend login credentials to any user. Generates a fresh temp password,
+  // updates the stored hash, and emails the plain text. Works for every
+  // role — the role label is derived from users.role_id so the email
+  // greeting stays accurate.
+  async resendLoginCredentials(_actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    void _actorUserId;
+    const userIdInt = toIntId(id);
+    if (!userIdInt) {
+      return { status: 0, message: 'Invalid user id.' };
+    }
+
+    const user = await this.prisma.users.findFirst({
+      where: { id: userIdInt, deleted_at: null },
+      select: { id: true, name: true, user_email: true, email: true, role_id: true },
+    });
+    if (!user) {
+      return { status: 0, message: 'User not found.' };
+    }
+    const targetEmail = (user.user_email ?? user.email ?? '').trim();
+    if (!targetEmail) {
+      return { status: 0, message: 'User has no email on file.' };
+    }
+
+    const roleLabelMap: Record<number, string> = {
+      1: 'Super Admin',
+      2: 'Student',
+      3: 'Instructor',
+      4: 'Centre',
+      8: 'Admin',
+      9: 'Counsellor',
+      10: 'Associate',
+    };
+    const roleLabel = (user.role_id !== null && roleLabelMap[user.role_id]) || 'User';
+
+    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+    const creds = await issueAndEmailCredentials({
+      name: (user.name ?? '').trim() || targetEmail,
+      email: targetEmail,
+      roleLabel,
+    });
+
+    await this.prisma.users.update({
+      where: { id: userIdInt },
+      data: { password: creds.hashedPassword, updated_at: new Date() },
+    });
+
+    if (!creds.emailDelivered) {
+      return {
+        status: 0,
+        message: `Password reset, but the email failed to send (${creds.emailError ?? 'unknown error'}).`,
+      };
+    }
+    return { status: 1, message: `Login credentials emailed to ${targetEmail}.` };
   }
 
   async addUser(actorUserId: string, input: AddUserInput): Promise<Record<string, unknown>> {

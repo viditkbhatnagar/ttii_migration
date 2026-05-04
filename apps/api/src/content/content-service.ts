@@ -1294,8 +1294,12 @@ export class ContentService {
     const subjectIdInt = toNullableIntId(toStringValue(subject.id));
     if (subjectIdInt === null) return null;
 
-    // Find cohort_students for this user. cohort_students.cohort_id
-    // references cohorts.cohort_id (String identifier), not cohorts.id.
+    // cohort_students.cohort_id stores the stringified `cohorts.id`
+    // (auto-increment int) — NOT the `cohorts.cohort_id` text code.
+    // Verified by the centre add-students flow at
+    // operations-service.ts:1657 which writes `String(input.cohortId)`
+    // (the row id), and by the cohort listing at line 1534 which groups
+    // student counts by `String(c.id)`.
     const cohortStudents = await this.prisma.cohort_students.findMany({
       where: {
         user_id: toNullableIntId(userId),
@@ -1308,29 +1312,48 @@ export class ContentService {
       return null;
     }
 
-    const cohortIds = cohortStudents
-      .map((cs) => cs.cohort_id)
-      .filter((v): v is string => typeof v === 'string' && v !== '');
+    const cohortRowIds = cohortStudents
+      .map((cs) => (cs.cohort_id == null ? null : Number(cs.cohort_id)))
+      .filter((n): n is number => Number.isFinite(n) && (n as number) > 0);
 
-    if (cohortIds.length === 0) return null;
+    if (cohortRowIds.length === 0) return null;
+
+    // Match a cohort the student is enrolled in for this subject. We
+    // accept either a direct subject_id match or a course-level cohort
+    // whose course covers this subject (course_id match with subject_id
+    // null) — both forms count as "cohort assigned for that subject"
+    // per the release rule.
+    const subjectRow = await this.prisma.subject.findFirst({
+      where: { id: subjectIdInt, deleted_at: null },
+      select: { id: true, course_id: true, master_subject_id: true },
+    });
+    const subjectCourseId = subjectRow?.course_id ?? null;
 
     const cohorts = await this.prisma.cohorts.findMany({
       where: {
-        cohort_id: { in: cohortIds },
+        id: { in: cohortRowIds },
         deleted_at: null,
-        subject_id: { not: null },
       },
-      select: { id: true, cohort_id: true, subject_id: true },
+      select: { id: true, cohort_id: true, subject_id: true, course_id: true },
     });
 
     if (cohorts.length === 0) {
       return null;
     }
 
-    // Direct match first
+    // Direct subject match
     for (const cohort of cohorts) {
       if (cohort.subject_id === subjectIdInt) {
         return idString(cohort.cohort_id ?? cohort.id);
+      }
+    }
+
+    // Course-level cohort with no specific subject_id
+    if (subjectCourseId !== null) {
+      for (const cohort of cohorts) {
+        if (cohort.subject_id === null && cohort.course_id === subjectCourseId) {
+          return idString(cohort.cohort_id ?? cohort.id);
+        }
       }
     }
 
@@ -1482,8 +1505,6 @@ export class ContentService {
       return [];
     }
 
-    // course_subjects junction does not exist in MySQL — rely on
-    // subject.course_id directly.
     const courseId = idString(subject.course_id ?? '');
 
     const lessons = await this.prisma.lesson.findMany({
@@ -1505,6 +1526,24 @@ export class ContentService {
       const lessonCourseId = lesson.course_id !== null ? String(lesson.course_id) : courseId;
       const purchaseStatus = await this.getUserPurchaseStatus(userId, lessonCourseId);
       lessonsData.push(await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId));
+    }
+
+    // Naji's release rule: if the student is enrolled in a cohort that
+    // covers this subject, every lesson + every file in that subject is
+    // unlocked. Otherwise we fall back to the legacy sequential gating.
+    const cohortIdForSubject = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
+    const cohortUnlocks = cohortIdForSubject !== null;
+
+    if (cohortUnlocks) {
+      for (const lessonData of lessonsData) {
+        lessonData.lock = 0;
+        lessonData.lock_message = '';
+        const files = Array.isArray(lessonData.lesson_files)
+          ? (lessonData.lesson_files as Record<string, unknown>[])
+          : [];
+        for (const file of files) file.lock = 0;
+      }
+      return lessonsData;
     }
 
     let previousLessonCompleted = true;

@@ -35,7 +35,7 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
   const [languageFilter, setLanguageFilter] = useState('');
   const [instructorFilter, setInstructorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('active');
 
   /* ── Dropdown options ────────────────────────────────────────────── */
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
@@ -80,17 +80,23 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
   const allCohorts = useMemo(() => toRecords(data), [data]);
 
   /* ── Tab filtering (client-side) ─────────────────────────────────── */
+  // Status is derived from start_date/end_date on the server (`derived_status`).
+  // Fall back to legacy `status` when the field isn't present.
+  const cohortStatus = (c: Record<string, unknown>): string =>
+    (asString(c.derived_status) || asString(c.status) || 'active').toLowerCase();
+
   const filteredCohorts = useMemo(() => {
     if (activeTab === 'all') return allCohorts;
-    return allCohorts.filter((c) => asString(c.status).toLowerCase() === activeTab);
+    return allCohorts.filter((c) => cohortStatus(c) === activeTab);
   }, [allCohorts, activeTab]);
 
   /* ── Tabs ────────────────────────────────────────────────────────── */
+  // Order: Active, Completed, All (Naji 2026-05-04).
   const tabs: AdminTab[] = useMemo(
     () => [
+      { id: 'active', label: 'Active', count: allCohorts.filter((c) => cohortStatus(c) === 'active').length },
+      { id: 'completed', label: 'Completed', count: allCohorts.filter((c) => cohortStatus(c) === 'completed').length },
       { id: 'all', label: 'All', count: allCohorts.length },
-      { id: 'active', label: 'Active', count: allCohorts.filter((c) => asString(c.status).toLowerCase() === 'active').length },
-      { id: 'completed', label: 'Completed', count: allCohorts.filter((c) => asString(c.status).toLowerCase() === 'completed').length },
     ],
     [allCohorts],
   );
@@ -194,19 +200,16 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
   const columns: DataTableColumn[] = useMemo(
     () => [
       {
-        key: 'status',
+        key: 'derived_status',
         label: 'Status',
         sortable: true,
-        render: (value) => {
-          const status = asString(value) || 'active';
-          return <AdminStatusBadge status={status} />;
-        },
+        render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
       },
       {
-        key: 'cohort_id',
-        label: 'Cohort Code',
+        key: 'cohort_row_id',
+        label: 'Cohort ID',
         sortable: true,
-        render: (value, row) => (
+        render: (_v, row) => (
           <button
             type="button"
             className="text-left font-medium text-blue-600 hover:underline"
@@ -215,9 +218,15 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
               onNavigate('/admin/cohorts/view/' + asString(row._id || row.id));
             }}
           >
-            {asString(value) || '-'}
+            {asString(row.cohort_row_id) || `C-${asString(row.id)}`}
           </button>
         ),
+      },
+      {
+        key: 'cohort_id',
+        label: 'Cohort Code',
+        sortable: true,
+        render: (value) => asString(value) || '-',
       },
       {
         key: 'cohort_date',

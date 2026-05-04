@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +33,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   const [title, setTitle] = useState('');
   const [cohortCode, setCohortCode] = useState('');
   const [subjectId, setSubjectId] = useState('');
-  const [courseId, setCourseId] = useState('');
+  const [courseIds, setCourseIds] = useState<Set<string>>(new Set());
   const [instructorId, setInstructorId] = useState('');
   const [languageId, setLanguageId] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -57,8 +58,6 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     }).catch(() => {});
   }, [api, session.token]);
 
-  // Subject-scoped courses come from the subject record itself (see
-  // /admin/course/subjects/all which embeds the linked `courses` array).
   const selectedSubject = useMemo(
     () => subjects.find((s) => asString(s.id) === subjectId) ?? null,
     [subjects, subjectId],
@@ -68,22 +67,43 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     return toRecords(selectedSubject.courses);
   }, [selectedSubject]);
 
-  // Subject change → clear course/offerings; course change → clear offerings.
+  // Subject change → clear courses & offerings.
   useEffect(() => {
-    setCourseId('');
+    setCourseIds(new Set());
     setOfferingIds(new Set());
   }, [subjectId]);
 
+  // Load offerings for ALL selected courses (multi-course) and union them.
   useEffect(() => {
-    if (courseId) {
-      api.listOfferings(session.token, { course_id: courseId })
-        .then((os) => setOfferings(os))
-        .catch(() => setOfferings([]));
-    } else {
+    if (courseIds.size === 0) {
       setOfferings([]);
+      setOfferingIds(new Set());
+      return;
     }
+    let cancelled = false;
+    Promise.all(
+      Array.from(courseIds).map((cid) =>
+        api.listOfferings(session.token, { course_id: cid }).catch(() => [] as Record<string, unknown>[]),
+      ),
+    ).then((lists) => {
+      if (cancelled) return;
+      const seen = new Set<string>();
+      const merged: Record<string, unknown>[] = [];
+      for (const list of lists) {
+        for (const o of list) {
+          const id = asString(o.id);
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          merged.push(o);
+        }
+      }
+      setOfferings(merged);
+    });
     setOfferingIds(new Set());
-  }, [api, session.token, courseId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session.token, courseIds]);
 
   // Auto-generate Name + Code as soon as Subject + Start Date are both set.
   useEffect(() => {
@@ -98,6 +118,15 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId, startDate]);
 
+  const handleToggleCourse = useCallback((id: string) => {
+    setCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const handleToggleOffering = useCallback((id: string) => {
     setOfferingIds((prev) => {
       const next = new Set(prev);
@@ -108,25 +137,56 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   }, []);
 
   const handleSubmit = async () => {
-    if (!title.trim()) return;
-    setSubmitting(true);
-    try {
-      await api.addAdminCohort(session.token, {
-        title,
-        cohortCode,
-        courseId,
-        subjectId,
-        centreId: '',
-        instructorId,
-        languageId,
-        startDate,
-        endDate,
-        offeringIds: Array.from(offeringIds),
-      });
-      onNavigate('/admin/cohorts/index');
-    } catch {
-      setSubmitting(false);
+    if (!title.trim()) {
+      toast.error('Cohort name is required.');
+      return;
     }
+    if (courseIds.size === 0) {
+      toast.error('Pick at least one course.');
+      return;
+    }
+    setSubmitting(true);
+    // Multi-course = one cohort row per course. The cohorts schema stores a
+    // single course_id, so picking N courses creates N cohort rows that
+    // share metadata (subject, dates, code, offerings, instructor).
+    const courseIdList = Array.from(courseIds);
+    const offeringIdList = Array.from(offeringIds);
+    let createdCount = 0;
+    let firstError: string | null = null;
+    for (const cid of courseIdList) {
+      try {
+        const res = await api.addAdminCohort(session.token, {
+          title,
+          cohortCode,
+          courseId: cid,
+          subjectId,
+          centreId: '',
+          instructorId,
+          languageId,
+          startDate,
+          endDate,
+          offeringIds: offeringIdList,
+        });
+        if (res && (res as { status?: number }).status === 0) {
+          firstError = firstError ?? (asString((res as { message?: unknown }).message) || 'Failed to create cohort.');
+        } else {
+          createdCount += 1;
+        }
+      } catch (err) {
+        firstError = firstError ?? (err instanceof Error ? err.message : 'Failed to create cohort.');
+      }
+    }
+    setSubmitting(false);
+    if (createdCount === 0 && firstError) {
+      toast.error(firstError);
+      return;
+    }
+    if (createdCount < courseIdList.length && firstError) {
+      toast.error(`${createdCount}/${courseIdList.length} created. ${firstError}`);
+    } else {
+      toast.success(`${createdCount} cohort${createdCount === 1 ? '' : 's'} created.`);
+    }
+    onNavigate('/admin/cohorts/index');
   };
 
   return (
@@ -135,6 +195,107 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
 
       <Card className="mx-auto max-w-2xl">
         <CardContent className="space-y-4 p-6">
+          {/* Subject first — its short_name and linked courses drive the
+              auto-generated code and the course picker below. */}
+          <div className="space-y-2">
+            <Label htmlFor="subject">Subject</Label>
+            <select
+              id="subject"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={subjectId}
+              onChange={(e) => setSubjectId(e.target.value)}
+            >
+              <option value="">Select Subject</option>
+              {subjects.map((s) => (
+                <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Multi-course picker — replaces the single dropdown so a cohort
+              can run across more than one course. Naji 2026-05-04. */}
+          <div className="space-y-2">
+            <Label>Courses</Label>
+            {!subjectId ? (
+              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                Select a subject first.
+              </p>
+            ) : subjectCourses.length === 0 ? (
+              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                No courses linked to this subject.
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                {subjectCourses.map((c) => {
+                  const id = asString(c.id);
+                  const checked = courseIds.has(id);
+                  return (
+                    <label
+                      key={id}
+                      className="flex cursor-pointer items-center gap-3 rounded px-2 py-1.5 hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleToggleCourse(id)}
+                      />
+                      <span className="text-sm">{asString(c.title) || `Course #${id}`}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Pick one or more courses. A separate cohort is created per course.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Offerings</Label>
+            {courseIds.size === 0 ? (
+              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                Select at least one course to see available offerings.
+              </p>
+            ) : offerings.length === 0 ? (
+              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                No offerings available for the selected course(s) yet.
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                {offerings.map((o) => {
+                  const id = asString(o.id);
+                  const checked = offeringIds.has(id);
+                  const mode = asString(o.delivery_mode);
+                  return (
+                    <label
+                      key={id}
+                      className="flex cursor-pointer items-center gap-3 rounded px-2 py-1.5 hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleToggleOffering(id)}
+                      />
+                      <span className="text-sm">{asString(o.title) || `Offering #${id}`}</span>
+                      {mode ? (
+                        <Badge variant="secondary" className="text-xs">
+                          {mode === 'self_paced' ? 'Self-Paced' : mode === 'cohort' ? 'Cohort' : mode}
+                        </Badge>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Select one or more offerings this cohort runs under.
+            </p>
+          </div>
+
+          {/* Cohort Name / Code live BELOW the offering picker because they
+              auto-generate from Subject + Start Date. Admins rarely need to
+              touch them — moving them down keeps the form's natural top-down
+              flow and avoids confusion when fields auto-fill (Naji 2026-05-04). */}
           <div className="space-y-2">
             <Label htmlFor="title">Cohort Name *</Label>
             <Input
@@ -158,81 +319,6 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
             />
             <p className="text-xs text-muted-foreground">
               Format: <code>SHORT</code> + <code>MMM</code> + <code>YY</code> (e.g. <code>MMJAN26</code>).
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="subject">Subject</Label>
-              <select
-                id="subject"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={subjectId}
-                onChange={(e) => setSubjectId(e.target.value)}
-              >
-                <option value="">Select Subject</option>
-                {subjects.map((s) => (
-                  <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="course">Course</Label>
-              <select
-                id="course"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
-                disabled={!subjectId}
-              >
-                <option value="">{subjectId ? 'Select Course' : 'Select a subject first'}</option>
-                {subjectCourses.map((c) => (
-                  <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Offerings</Label>
-            {!courseId ? (
-              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                Select a course to see available offerings.
-              </p>
-            ) : offerings.length === 0 ? (
-              <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                No offerings available for this course yet.
-              </p>
-            ) : (
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-                {offerings.map((o) => {
-                  const id = asString(o.id);
-                  const checked = offeringIds.has(id);
-                  const mode = asString(o.delivery_mode);
-                  return (
-                    <label
-                      key={id}
-                      className="flex items-center gap-3 rounded px-2 py-1.5 hover:bg-muted cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => handleToggleOffering(id)}
-                      />
-                      <span className="text-sm">{asString(o.title) || `Offering #${id}`}</span>
-                      {mode ? (
-                        <Badge variant="secondary" className="text-xs">
-                          {mode === 'self_paced' ? 'Self-Paced' : mode === 'cohort' ? 'Cohort' : mode}
-                        </Badge>
-                      ) : null}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Select one or more offerings this cohort runs under.
             </p>
           </div>
 
@@ -285,10 +371,14 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
             </Button>
             <Button
               onClick={() => { void handleSubmit(); }}
-              disabled={submitting || !title.trim()}
+              disabled={submitting || !title.trim() || courseIds.size === 0}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              {submitting ? 'Creating...' : 'Create Cohort'}
+              {submitting
+                ? 'Creating...'
+                : courseIds.size > 1
+                  ? `Create ${courseIds.size} Cohorts`
+                  : 'Create Cohort'}
             </Button>
           </div>
         </CardContent>

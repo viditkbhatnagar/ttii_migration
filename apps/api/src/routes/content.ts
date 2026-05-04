@@ -218,6 +218,22 @@ export function registerContentRoutes(
     }
   });
 
+  // Catalog view for students: returns ALL active courses with the
+  // is_enrolled flag set, so the student "My Courses" page can split
+  // them into Enrolled and All Other sections.
+  app.get('/course/catalog', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const courses = await contentService.listCourses(requestUserId(request), { enrolledOnly: false });
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data: courses,
+      });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   app.get('/course/get_course_details', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

@@ -123,6 +123,7 @@ export interface StudentProfileSnapshot {
 
 export interface StudentLearningSnapshot {
   courses: Record<string, unknown>[];
+  catalogCourses: Record<string, unknown>[];
   subjects: Record<string, unknown>[];
   lessons: Record<string, unknown>[];
   lessonFiles: Record<string, unknown>[];
@@ -378,8 +379,14 @@ export class StudentPortalApi {
   }
 
   async loadLearning(authToken: string): Promise<StudentLearningSnapshot> {
-    const coursesPayload = await this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken);
+    const [coursesPayload, catalogPayload] = await Promise.all([
+      this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),
+      this.get<LegacyEnvelope<unknown[]>>('/course/catalog', authToken),
+    ]);
     const courses = asArray(coursesPayload.data)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    const catalogCourses = asArray(catalogPayload.data)
       .map((entry) => asRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry !== null);
 
@@ -446,6 +453,7 @@ export class StudentPortalApi {
 
     return {
       courses,
+      catalogCourses,
       subjects,
       lessons,
       lessonFiles,

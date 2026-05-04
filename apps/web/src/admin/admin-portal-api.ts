@@ -1756,6 +1756,13 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/instructor/delete', authToken, { id });
   }
 
+  // Resend the welcome email with a fresh temp password for any user
+  // (role-agnostic). The backend regenerates the password hash so the
+  // emailed credentials are usable immediately.
+  async resendLoginCredentials(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/user/resend_credentials', authToken, { id });
+  }
+
   async addUser(authToken: string, input: { name: string; email: string; phone?: string | undefined; role_id: number; image?: string | undefined }): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/user/add', authToken, input);
   }

@@ -2019,6 +2019,15 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Re-send login credentials for any user (role-agnostic). Body: { id }.
+  app.post('/admin/user/resend_credentials', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.resendLoginCredentials(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/user/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

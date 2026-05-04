@@ -182,10 +182,29 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
     [onNavigate],
   );
 
+  const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row._id || row.id);
+    if (!(await confirm({
+      title: `Resend login email to "${asString(row.name)}"?`,
+      description: 'A new temporary password will be generated and emailed. The user’s previous password will stop working.',
+      confirmText: 'Resend',
+      variant: 'default',
+    }))) return;
+    try {
+      const res = await api.resendLoginCredentials(session.token, id);
+      const message = typeof res.message === 'string' ? res.message : 'Login email sent.';
+      if (res.status === 1) toast.success(message);
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send login email');
+    }
+  }, [api, session.token, confirm]);
+
   const actions: DataTableAction[] = useMemo(
     () => [
       { label: 'View', onClick: (row) => openEdit(row) },
       { label: 'Edit', onClick: (row) => openEdit(row) },
+      { label: 'Resend Login Email', onClick: (row) => { void handleResendCredentials(row); } },
       { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
       {
         label: 'Change Device',
@@ -201,7 +220,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
         },
       },
     ],
-    [openEdit, handleDelete, confirm],
+    [openEdit, handleDelete, handleResendCredentials, confirm],
   );
 
   if (loading) {
