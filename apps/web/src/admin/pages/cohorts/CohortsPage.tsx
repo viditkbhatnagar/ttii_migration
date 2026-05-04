@@ -26,6 +26,16 @@ function formatCohortMonth(value: unknown): string {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+// Naji 2026-05-04: legacy cohort codes were stored as "C-75", "C-1014".
+// He wants the hyphen stripped in display ("C75", "C1014"). Codes that
+// don't match the legacy pattern (e.g. new "MMJUL26" format) pass
+// through untouched.
+function formatCohortCode(value: unknown): string {
+  const str = asString(value).trim();
+  if (!str) return '';
+  return str.replace(/^([A-Za-z]+)-(\d+)$/, '$1$2');
+}
+
 export default function CohortsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   /* ── Filter state ────────────────────────────────────────────────── */
@@ -205,11 +215,14 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
         sortable: true,
         render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
       },
+      // Naji 2026-05-04: drop the synthetic "C-{id}" Cohort ID column —
+      // not useful, just noise. Cohort Code is the meaningful identifier.
+      // Hyphen stripped from the legacy "C-75" → "C75" format on render.
       {
-        key: 'cohort_row_id',
-        label: 'Cohort ID',
+        key: 'cohort_id',
+        label: 'Cohort Code',
         sortable: true,
-        render: (_v, row) => (
+        render: (value, row) => (
           <button
             type="button"
             className="text-left font-medium text-blue-600 hover:underline"
@@ -218,15 +231,9 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
               onNavigate('/admin/cohorts/view/' + asString(row._id || row.id));
             }}
           >
-            {asString(row.cohort_row_id) || `C-${asString(row.id)}`}
+            {formatCohortCode(value) || asString(row.title) || '-'}
           </button>
         ),
-      },
-      {
-        key: 'cohort_id',
-        label: 'Cohort Code',
-        sortable: true,
-        render: (value) => asString(value) || '-',
       },
       {
         key: 'cohort_date',

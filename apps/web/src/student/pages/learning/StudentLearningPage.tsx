@@ -109,17 +109,6 @@ function resolveSelectedContent(file: Record<string, unknown>): SelectedContent 
   return { id, title, type: 'other', url, description };
 }
 
-function getFileTypeBadgeStyle(type: string): { label: string; className: string } {
-  const lower = type.toLowerCase();
-  if (lower === 'video' || lower === 'youtube_video' || lower === 'vimeo_video') return { label: 'Video', className: 'bg-blue-100 text-blue-700' };
-  if (lower === 'audio') return { label: 'Audio', className: 'bg-amber-100 text-amber-700' };
-  if (lower === 'quiz') return { label: 'Quiz', className: 'bg-purple-100 text-purple-700' };
-  if (lower === 'pdf') return { label: 'PDF', className: 'bg-red-100 text-red-700' };
-  if (lower === 'practice') return { label: 'Practice', className: 'bg-emerald-100 text-emerald-700' };
-  if (lower === 'url') return { label: 'Link', className: 'bg-cyan-100 text-cyan-700' };
-  return { label: type || 'File', className: 'bg-slate-100 text-slate-700' };
-}
-
 function isLocked(record: Record<string, unknown>): boolean {
   const v = record.lock;
   return v === true || v === 1 || v === '1';

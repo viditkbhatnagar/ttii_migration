@@ -25,6 +25,14 @@ function formatCohortMonth(value: unknown): string {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+// Naji 2026-05-04: strip the hyphen from legacy cohort codes
+// ("C-75" → "C75"). Modern codes like "MMJUL26" pass through.
+function formatCohortCode(value: unknown): string {
+  const str = asString(value).trim();
+  if (!str) return '';
+  return str.replace(/^([A-Za-z]+)-(\d+)$/, '$1$2');
+}
+
 export default function CentreCohortsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [cohortMonth, setCohortMonth] = useState('');
@@ -33,7 +41,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
   const [filterLanguage, setFilterLanguage] = useState('');
   const [filterInstructor, setFilterInstructor] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('active');
 
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
@@ -75,16 +83,23 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
 
   const allRows = useMemo(() => toRecords(data), [data]);
 
+  // Status is derived from start_date/end_date on the server
+  // (`derived_status`). Fall back to the legacy `status` field when the
+  // backend hasn't populated the derived value.
+  const cohortStatus = (r: Record<string, unknown>): string =>
+    (asString(r.derived_status) || asString(r.status) || 'active').toLowerCase();
+
   const filteredRows = useMemo(() => {
     if (activeTab === 'all') return allRows;
-    return allRows.filter((r) => asString(r.status).toLowerCase() === activeTab);
+    return allRows.filter((r) => cohortStatus(r) === activeTab);
   }, [allRows, activeTab]);
 
+  // Naji 2026-05-04: Active / Completed / All order, default Active.
   const tabs: AdminTab[] = useMemo(
     () => [
+      { id: 'active', label: 'Active', count: allRows.filter((r) => cohortStatus(r) === 'active').length },
+      { id: 'completed', label: 'Completed', count: allRows.filter((r) => cohortStatus(r) === 'completed').length },
       { id: 'all', label: 'All', count: allRows.length },
-      { id: 'active', label: 'Active', count: allRows.filter((r) => asString(r.status).toLowerCase() === 'active').length },
-      { id: 'completed', label: 'Completed', count: allRows.filter((r) => asString(r.status).toLowerCase() === 'completed').length },
     ],
     [allRows],
   );
@@ -179,22 +194,21 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
   const columns: DataTableColumn[] = useMemo(
     () => [
       {
-        key: 'status',
+        key: 'derived_status',
         label: 'Status',
         sortable: true,
-        render: (v) => <AdminStatusBadge status={asString(v) || 'active'} />,
+        render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
       },
       { key: 'centre_name', label: 'Centre', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'cohort_id', label: 'Cohort ID', sortable: true, render: (v) => asString(v) || '-' },
+      // Naji 2026-05-04: legacy DB stored a code-like value in `title`
+      // (e.g. "CET - SEP25"); the new flow stores a proper code in
+      // `cohort_id`. Show whichever is present so legacy + new data
+      // both surface a usable "Cohort Code" column. Synthetic "C-{id}"
+      // column dropped per Naji's "this code not required" feedback.
+      // Hyphen also stripped from legacy "C-75" → "C75" on render.
       {
-        key: 'cohort_date',
-        label: 'Cohort Date',
-        sortable: true,
-        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
-      },
-      {
-        key: 'title',
-        label: 'Cohort Name',
+        key: 'cohort_id',
+        label: 'Cohort Code',
         sortable: true,
         render: (v, row) => (
           <button
@@ -202,9 +216,15 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
             className="text-left font-medium text-blue-600 hover:underline"
             onClick={() => onNavigate('/admin/cohorts/view/' + asString(row._id || row.id))}
           >
-            {asString(v) || '-'}
+            {formatCohortCode(v) || asString(row.title) || '-'}
           </button>
         ),
+      },
+      {
+        key: 'cohort_date',
+        label: 'Cohort Date',
+        sortable: true,
+        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
       },
       { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
