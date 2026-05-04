@@ -1758,4 +1758,215 @@ export class AssessmentService {
       data: [],
     };
   }
+
+  // ─── Native quiz player (Naji 2026-05-05) ─────────────────────────
+  // Replaces the iframe-into-legacy-PHP practice player with a React
+  // component on the new LMS. Reads questions from the production
+  // `quiz` table where `lesson_file_id` links the question to a
+  // lesson_files row of attachment_type='quiz'.
+
+  async getStudentQuizForLessonFile(
+    userId: string,
+    lessonFileId: string,
+  ): Promise<{
+    status: number;
+    message?: string;
+    data?: Record<string, unknown>;
+  }> {
+    const lessonFileIdInt = toNullableIntId(lessonFileId);
+    if (!lessonFileIdInt) {
+      return { status: 0, message: 'Invalid lesson file id.' };
+    }
+    const lessonFile = await this.prisma.lesson_files.findFirst({
+      where: { id: lessonFileIdInt, deleted_at: null },
+      select: { id: true, lesson_id: true, title: true, attachment_type: true, summary: true },
+    });
+    if (!lessonFile) {
+      return { status: 0, message: 'Quiz not found.' };
+    }
+    // Pull the question rows. Question text + options (JSON array of
+    // strings). Correct answers are intentionally NOT returned to the
+    // client — they're only used in submit() to score.
+    const questions = await this.prisma.quiz.findMany({
+      where: { lesson_file_id: lessonFileIdInt, deleted_at: null },
+      orderBy: [{ id: 'asc' }],
+      select: {
+        id: true,
+        question: true,
+        question_type: true,
+        answers: true,
+      },
+    });
+    const sanitized = questions.map((q) => {
+      let options: string[] = [];
+      try {
+        const parsed = q.answers ? JSON.parse(q.answers) : [];
+        if (Array.isArray(parsed)) options = parsed.map((s) => String(s));
+      } catch {
+        options = [];
+      }
+      return {
+        id: q.id,
+        question: toStringValue(q.question),
+        question_type: q.question_type ?? 0,
+        options,
+      };
+    });
+    return {
+      status: 1,
+      data: {
+        lesson_file_id: lessonFile.id,
+        title: toStringValue(lessonFile.title) || 'Quiz',
+        description: toStringValue(lessonFile.summary),
+        total_questions: sanitized.length,
+        questions: sanitized,
+      },
+    };
+  }
+
+  async startStudentQuizAttempt(
+    userId: string,
+    lessonFileId: string,
+  ): Promise<{ status: number; message?: string; data?: Record<string, unknown> }> {
+    const userIdInt = toNullableIntId(userId);
+    const lessonFileIdInt = toNullableIntId(lessonFileId);
+    if (!userIdInt || !lessonFileIdInt) {
+      return { status: 0, message: 'Invalid input.' };
+    }
+    const lessonFile = await this.prisma.lesson_files.findFirst({
+      where: { id: lessonFileIdInt, deleted_at: null },
+      select: { id: true, lesson_id: true },
+    });
+    if (!lessonFile) {
+      return { status: 0, message: 'Quiz not found.' };
+    }
+    const total = await this.prisma.quiz.count({
+      where: { lesson_file_id: lessonFileIdInt, deleted_at: null },
+    });
+    const now = new Date();
+    const created = await this.prisma.practice_attempt.create({
+      data: {
+        user_id: userIdInt,
+        lesson_id: lessonFile.lesson_id !== null ? String(lessonFile.lesson_id) : null,
+        lesson_file_id: String(lessonFileIdInt),
+        question_no: total,
+        start_time: now,
+        submit_status: false,
+        created_by: userIdInt,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, data: { attempt_id: created.id, started_at: now.toISOString() } };
+  }
+
+  async submitStudentQuizAttempt(
+    userId: string,
+    input: { lessonFileId: string; attemptId: string; answers: Array<{ question_id: number; selected: number | null }> },
+  ): Promise<{ status: number; message?: string; data?: Record<string, unknown> }> {
+    const userIdInt = toNullableIntId(userId);
+    const lessonFileIdInt = toNullableIntId(input.lessonFileId);
+    const attemptIdInt = toNullableIntId(input.attemptId);
+    if (!userIdInt || !lessonFileIdInt || !attemptIdInt) {
+      return { status: 0, message: 'Invalid input.' };
+    }
+    const attempt = await this.prisma.practice_attempt.findFirst({
+      where: { id: attemptIdInt, user_id: userIdInt, deleted_at: null },
+      select: { id: true, submit_status: true },
+    });
+    if (!attempt) return { status: 0, message: 'Attempt not found.' };
+    if (attempt.submit_status === true) {
+      return { status: 0, message: 'Attempt already submitted.' };
+    }
+
+    const questions = await this.prisma.quiz.findMany({
+      where: { lesson_file_id: lessonFileIdInt, deleted_at: null },
+      select: { id: true, answer_id: true, answer_ids: true },
+    });
+    const correctByQuestionId = new Map<number, Set<number>>();
+    for (const q of questions) {
+      const set = new Set<number>();
+      // answer_id is 1-indexed; convert to 0-index for client-compat.
+      if (q.answer_id !== null && q.answer_id > 0) set.add(q.answer_id - 1);
+      if (q.answer_ids) {
+        try {
+          const parsed = JSON.parse(q.answer_ids);
+          if (Array.isArray(parsed)) {
+            for (const v of parsed) {
+              const n = Number(v);
+              if (Number.isFinite(n) && n >= 0) set.add(n);
+            }
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+      correctByQuestionId.set(q.id, set);
+    }
+
+    const answeredById = new Map<number, number | null>();
+    for (const a of input.answers) {
+      const qid = Number(a.question_id);
+      if (Number.isFinite(qid)) {
+        answeredById.set(qid, a.selected === null ? null : Number(a.selected));
+      }
+    }
+
+    let correct = 0;
+    let incorrect = 0;
+    let skip = 0;
+    const review: Array<{ question_id: number; selected: number | null; correct: number[]; isCorrect: boolean | null }> = [];
+    for (const q of questions) {
+      const selected = answeredById.has(q.id) ? answeredById.get(q.id)! : null;
+      const correctSet = correctByQuestionId.get(q.id) ?? new Set<number>();
+      let isCorrect: boolean | null = null;
+      if (selected === null) {
+        skip += 1;
+      } else if (correctSet.size === 0) {
+        // Question has no key in the DB → ungradable. Don't penalise.
+        isCorrect = null;
+      } else if (correctSet.has(selected)) {
+        correct += 1;
+        isCorrect = true;
+      } else {
+        incorrect += 1;
+        isCorrect = false;
+      }
+      review.push({ question_id: q.id, selected, correct: [...correctSet], isCorrect });
+    }
+    const total = questions.length;
+    const gradable = total - review.filter((r) => r.isCorrect === null && answeredById.get(r.question_id) !== null).length;
+    const score = gradable > 0 ? Math.round((correct / gradable) * 100) : 0;
+
+    const now = new Date();
+    await this.prisma.practice_attempt.update({
+      where: { id: attemptIdInt },
+      data: {
+        end_time: now,
+        correct,
+        incorrect,
+        skip,
+        score,
+        submit_status: true,
+        updated_at: now,
+        updated_by: userIdInt,
+        question_id: input.answers
+          .map((a) => String(a.question_id))
+          .join(','),
+      },
+    });
+
+    return {
+      status: 1,
+      data: {
+        attempt_id: attemptIdInt,
+        total_questions: total,
+        correct,
+        incorrect,
+        skip,
+        score,
+        review,
+      },
+    };
+  }
 }

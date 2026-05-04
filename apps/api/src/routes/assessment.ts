@@ -330,4 +330,56 @@ export function registerAssessmentRoutes(
       sendAssessmentError(reply, error);
     }
   });
+
+  // Native quiz player (Naji 2026-05-05): replaces the legacy PHP
+  // practice_web_view iframe with a React UI that fills the right pane
+  // properly. Three endpoints — index (questions only), start (creates
+  // practice_attempt), submit (scores + closes attempt).
+  app.get('/student/quiz/index', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await assessmentService.getStudentQuizForLessonFile(
+        requestUserId(request),
+        toStringId(payload.lesson_file_id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendAssessmentError(reply, error); }
+  });
+
+  app.post('/student/quiz/start', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await assessmentService.startStudentQuizAttempt(
+        requestUserId(request),
+        toStringId(payload.lesson_file_id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendAssessmentError(reply, error); }
+  });
+
+  app.post('/student/quiz/submit', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const rawAnswers = Array.isArray(payload.answers) ? payload.answers : [];
+      const answers = rawAnswers
+        .map((entry) => {
+          if (typeof entry !== 'object' || entry === null) return null;
+          const r = entry as Record<string, unknown>;
+          const qid = Number(r.question_id);
+          if (!Number.isFinite(qid)) return null;
+          const selRaw = r.selected;
+          const selected = selRaw === null || selRaw === undefined || selRaw === ''
+            ? null
+            : Number(selRaw);
+          return { question_id: qid, selected: selected === null || Number.isFinite(selected) ? selected : null };
+        })
+        .filter((v): v is { question_id: number; selected: number | null } => v !== null);
+      const result = await assessmentService.submitStudentQuizAttempt(requestUserId(request), {
+        lessonFileId: toStringId(payload.lesson_file_id),
+        attemptId: toStringId(payload.attempt_id),
+        answers,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendAssessmentError(reply, error); }
+  });
 }

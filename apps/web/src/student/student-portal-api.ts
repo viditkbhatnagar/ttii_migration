@@ -402,6 +402,84 @@ export class StudentPortalApi {
     return asString(data.url);
   }
 
+  // ─── Native quiz player (Naji 2026-05-05) ────────────────────────
+  async loadQuiz(authToken: string, lessonFileId: string): Promise<{
+    title: string;
+    description: string;
+    questions: Array<{ id: number; question: string; options: string[]; question_type: number }>;
+  }> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      '/student/quiz/index',
+      authToken,
+      { lesson_file_id: lessonFileId },
+    );
+    const data = asRecord(payload.data) ?? {};
+    const rawQuestions = asArray(data.questions);
+    return {
+      title: asString(data.title),
+      description: asString(data.description),
+      questions: rawQuestions
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => entry !== null)
+        .map((q) => ({
+          id: asNumber(q.id),
+          question: asString(q.question),
+          question_type: asNumber(q.question_type),
+          options: asArray(q.options).map((o) => asString(o)),
+        })),
+    };
+  }
+
+  async startStudentQuiz(authToken: string, lessonFileId: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+      '/student/quiz/start',
+      authToken,
+      { lesson_file_id: lessonFileId },
+    );
+    const data = asRecord(payload.data) ?? {};
+    return asString(data.attempt_id);
+  }
+
+  async submitStudentQuiz(
+    authToken: string,
+    input: { lessonFileId: string; attemptId: string; answers: Array<{ question_id: number; selected: number | null }> },
+  ): Promise<{
+    correct: number;
+    incorrect: number;
+    skip: number;
+    score: number;
+    total_questions: number;
+    review: Array<{ question_id: number; selected: number | null; correct: number[]; isCorrect: boolean | null }>;
+  }> {
+    const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+      '/student/quiz/submit',
+      authToken,
+      {
+        lesson_file_id: input.lessonFileId,
+        attempt_id: input.attemptId,
+        answers: input.answers,
+      },
+    );
+    const data = asRecord(payload.data) ?? {};
+    const review = asArray(data.review)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((r) => ({
+        question_id: asNumber(r.question_id),
+        selected: r.selected === null || r.selected === undefined ? null : asNumber(r.selected),
+        correct: asArray(r.correct).map((v) => asNumber(v)),
+        isCorrect: r.isCorrect === null || r.isCorrect === undefined ? null : Boolean(r.isCorrect),
+      }));
+    return {
+      correct: asNumber(data.correct),
+      incorrect: asNumber(data.incorrect),
+      skip: asNumber(data.skip),
+      score: asNumber(data.score),
+      total_questions: asNumber(data.total_questions),
+      review,
+    };
+  }
+
   async loadLearning(authToken: string): Promise<StudentLearningSnapshot> {
     const [coursesPayload, catalogPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),

@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import type { StudentPortalApi } from '../../student-portal-api.js';
 
 // Map file type → icon. Naji 2026-05-04 / 05-05: every content type
 // should look distinct. PDF and article were sharing FileText so they
@@ -117,6 +118,9 @@ interface SelectedContent {
   type: 'video' | 'mp4' | 'audio' | 'pdf' | 'article' | 'quiz' | 'other';
   url: string;
   description: string;
+  // Quiz needs the lesson_file id so the native QuizPlayer can fetch
+  // questions, start an attempt, and submit answers.
+  lessonFileId?: string;
 }
 
 function resolveSelectedContent(file: Record<string, unknown>): SelectedContent | null {
@@ -141,11 +145,13 @@ function resolveSelectedContent(file: Record<string, unknown>): SelectedContent 
   if (lower === 'article') {
     return { id, title, type: 'article', url: '', description };
   }
-  // Quizzes link out to the legacy practice player. quiz_link is built
-  // server-side in buildLessonFileData (content-service.ts).
+  // Quizzes are now rendered by the native React QuizPlayer (Naji
+  // 2026-05-05) which fetches questions, manages an attempt, and
+  // scores submissions. We carry the lesson_file id so the player can
+  // call /student/quiz/* endpoints. URL stays empty — there's no
+  // single resource to point at.
   if (lower === 'quiz') {
-    const url = asString(file.quiz_link);
-    return { id, title, type: 'quiz', url, description };
+    return { id, title, type: 'quiz', url: '', description, lessonFileId: id };
   }
   const url = asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
   if (!url) return null;
@@ -421,7 +427,12 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
               live BELOW the player. */}
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             {selectedContent ? (
-              <ContentPlayer content={selectedContent} onClose={() => setSelectedContent(null)} />
+              <ContentPlayer
+                content={selectedContent}
+                onClose={() => setSelectedContent(null)}
+                api={api}
+                authToken={session.token}
+              />
             ) : (
               <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 py-16 text-center">
                 <div className="rounded-full bg-slate-100 p-4">
@@ -1102,15 +1113,36 @@ function LiveClassRow({
   );
 }
 
-function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose: () => void }) {
+function ContentPlayer({
+  content,
+  onClose,
+  api,
+  authToken,
+}: {
+  content: SelectedContent;
+  onClose: () => void;
+  api: StudentPortalApi;
+  authToken: string;
+}) {
   // Naji 2026-05-04: player goes flush at the top (no banner strip above
   // it) and the title + description sit BELOW so the bottom space is
   // useful instead of empty. Open-in-new-tab and Close move into the
   // info row to keep the chrome out of the way.
   // Article doesn't use the dark video frame — it renders inline as
-  // an HTML article body. Quiz embeds the legacy practice player as
-  // an iframe in place of the video frame so the student takes the
-  // quiz inside the LMS rather than in a new tab (Naji 2026-05-05).
+  // an HTML article body. Quiz uses the native QuizPlayer (Naji
+  // 2026-05-05) — full-width React component that fills the right
+  // pane properly, replacing the legacy mobile-only PHP iframe.
+  if (content.type === 'quiz' && content.lessonFileId) {
+    return (
+      <QuizPlayer
+        api={api}
+        authToken={authToken}
+        lessonFileId={content.lessonFileId}
+        title={content.title}
+        onClose={onClose}
+      />
+    );
+  }
   const showTopFrame = content.type !== 'article';
   return (
     <div>
@@ -1144,16 +1176,6 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
                 Your browser does not support audio playback.
               </audio>
             </div>
-          ) : content.type === 'quiz' && content.url ? (
-            // Quiz iframes the legacy practice player so students take
-            // the quiz inside the LMS instead of being shoved to a new
-            // tab. Naji 2026-05-05.
-            <iframe
-              key={content.id}
-              src={content.url}
-              title={content.title}
-              className="h-[70vh] w-full bg-white"
-            />
           ) : (
             <iframe
               key={content.id}
@@ -1205,19 +1227,6 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
           ) : (
             <p className="text-xs italic text-slate-400">This article has no body yet.</p>
           )
-        ) : content.type === 'quiz' ? (
-          // Quiz body is the embedded iframe above. Footer just shows
-          // the description (if any) or a "open in new tab" fallback
-          // when the URL is missing.
-          content.url ? (
-            content.description ? (
-              <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
-                {stripHtml(content.description)}
-              </p>
-            ) : null
-          ) : (
-            <p className="text-xs italic text-slate-400">Quiz link is not configured for this lesson item.</p>
-          )
         ) : content.description ? (
           // Strip HTML tags for non-article descriptions so the right pane
           // doesn't show "<p>...</p>" verbatim — Naji 2026-05-04.
@@ -1227,6 +1236,377 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
         ) : (
           <p className="text-xs italic text-slate-400">No description provided for this content.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── QuizPlayer ───────────────────────────────────────────────
+   Native React quiz player. Replaces the legacy PHP
+   `practice_web_view_new` iframe — that page was a mobile-only
+   WebView and showed as a phone column on desktop browsers. This
+   component fills the right pane properly and handles the full
+   intro → questions → results flow.
+   ──────────────────────────────────────────────────────────── */
+
+interface QuizQuestion {
+  id: number;
+  question: string;
+  question_type: number;
+  options: string[];
+}
+
+type QuizPhase =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'intro'; title: string; description: string; questions: QuizQuestion[] }
+  | { kind: 'in_progress'; title: string; questions: QuizQuestion[]; attemptId: string; current: number; answers: Map<number, number | null> }
+  | {
+      kind: 'submitted';
+      title: string;
+      questions: QuizQuestion[];
+      result: {
+        correct: number;
+        incorrect: number;
+        skip: number;
+        score: number;
+        total_questions: number;
+        review: Array<{ question_id: number; selected: number | null; correct: number[]; isCorrect: boolean | null }>;
+      };
+    };
+
+function QuizPlayer({
+  api,
+  authToken,
+  lessonFileId,
+  title: initialTitle,
+  onClose,
+}: {
+  api: StudentPortalApi;
+  authToken: string;
+  lessonFileId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [phase, setPhase] = useState<QuizPhase>({ kind: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    setPhase({ kind: 'loading' });
+    api
+      .loadQuiz(authToken, lessonFileId)
+      .then((data) => {
+        if (cancelled) return;
+        if (data.questions.length === 0) {
+          setPhase({ kind: 'error', message: 'This quiz has no questions yet.' });
+          return;
+        }
+        setPhase({
+          kind: 'intro',
+          title: data.title || initialTitle,
+          description: data.description,
+          questions: data.questions,
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setPhase({ kind: 'error', message: err instanceof Error ? err.message : 'Failed to load quiz.' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, authToken, lessonFileId, initialTitle]);
+
+  const handleStart = async () => {
+    if (phase.kind !== 'intro') return;
+    try {
+      const attemptId = await api.startStudentQuiz(authToken, lessonFileId);
+      setPhase({
+        kind: 'in_progress',
+        title: phase.title,
+        questions: phase.questions,
+        attemptId,
+        current: 0,
+        answers: new Map(),
+      });
+    } catch (err) {
+      setPhase({ kind: 'error', message: err instanceof Error ? err.message : 'Could not start the quiz.' });
+    }
+  };
+
+  const handleSelect = (qid: number, optionIndex: number) => {
+    if (phase.kind !== 'in_progress') return;
+    const next = new Map(phase.answers);
+    next.set(qid, optionIndex);
+    setPhase({ ...phase, answers: next });
+  };
+
+  const handleNext = () => {
+    if (phase.kind !== 'in_progress') return;
+    const last = phase.current >= phase.questions.length - 1;
+    if (!last) {
+      setPhase({ ...phase, current: phase.current + 1 });
+    }
+  };
+
+  const handlePrev = () => {
+    if (phase.kind !== 'in_progress') return;
+    if (phase.current > 0) setPhase({ ...phase, current: phase.current - 1 });
+  };
+
+  const handleSubmit = async () => {
+    if (phase.kind !== 'in_progress') return;
+    const answers = phase.questions.map((q) => ({
+      question_id: q.id,
+      selected: phase.answers.has(q.id) ? phase.answers.get(q.id) ?? null : null,
+    }));
+    try {
+      const result = await api.submitStudentQuiz(authToken, {
+        lessonFileId,
+        attemptId: phase.attemptId,
+        answers,
+      });
+      setPhase({ kind: 'submitted', title: phase.title, questions: phase.questions, result });
+    } catch (err) {
+      setPhase({ kind: 'error', message: err instanceof Error ? err.message : 'Submission failed.' });
+    }
+  };
+
+  const handleRetry = () => {
+    if (phase.kind !== 'submitted') return;
+    setPhase({
+      kind: 'intro',
+      title: phase.title,
+      description: '',
+      questions: phase.questions,
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] uppercase tracking-wider text-student-muted">Quiz</p>
+          <h3 className="mt-0.5 truncate text-sm font-semibold text-student-text">
+            {phase.kind === 'in_progress' || phase.kind === 'intro' || phase.kind === 'submitted'
+              ? phase.title
+              : initialTitle}
+          </h3>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close"
+          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="p-6">
+        {phase.kind === 'loading' ? (
+          <p className="py-12 text-center text-sm text-student-muted">Loading quiz...</p>
+        ) : phase.kind === 'error' ? (
+          <p role="alert" className="py-12 text-center text-sm text-red-600">{phase.message}</p>
+        ) : phase.kind === 'intro' ? (
+          <QuizIntro phase={phase} onStart={() => { void handleStart(); }} />
+        ) : phase.kind === 'in_progress' ? (
+          <QuizInProgress
+            phase={phase}
+            onSelect={handleSelect}
+            onNext={handleNext}
+            onPrev={handlePrev}
+            onSubmit={() => { void handleSubmit(); }}
+          />
+        ) : (
+          <QuizResults phase={phase} onRetry={handleRetry} onClose={onClose} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuizIntro({
+  phase,
+  onStart,
+}: {
+  phase: Extract<QuizPhase, { kind: 'intro' }>;
+  onStart: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-md space-y-4 text-center">
+      <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-student-primary/10 text-student-primary">
+        <FileQuestion aria-hidden="true" className="size-7" />
+      </div>
+      <h2 className="text-lg font-semibold text-student-text">{phase.title}</h2>
+      {phase.description ? (
+        <p className="text-sm leading-relaxed text-student-muted">{stripHtml(phase.description)}</p>
+      ) : null}
+      <p className="text-sm text-student-muted">
+        {phase.questions.length} question{phase.questions.length === 1 ? '' : 's'}
+      </p>
+      <Button onClick={onStart} className="bg-student-primary hover:bg-student-primary/90">
+        Start Quiz
+      </Button>
+    </div>
+  );
+}
+
+function QuizInProgress({
+  phase,
+  onSelect,
+  onNext,
+  onPrev,
+  onSubmit,
+}: {
+  phase: Extract<QuizPhase, { kind: 'in_progress' }>;
+  onSelect: (qid: number, optionIndex: number) => void;
+  onNext: () => void;
+  onPrev: () => void;
+  onSubmit: () => void;
+}) {
+  const q = phase.questions[phase.current];
+  if (!q) return null;
+  const total = phase.questions.length;
+  const answered = phase.answers.has(q.id) ? phase.answers.get(q.id) : null;
+  const progress = Math.round(((phase.current + 1) / total) * 100);
+  const allAnswered = phase.questions.every((qq) => phase.answers.has(qq.id) && phase.answers.get(qq.id) !== null);
+  const isLast = phase.current === total - 1;
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-5">
+      <div>
+        <div className="flex items-center justify-between text-xs text-student-muted">
+          <span>Question {phase.current + 1} of {total}</span>
+          <span>{progress}% through</span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-student-primary transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+      <h3 className="text-base font-semibold leading-relaxed text-student-text">{q.question}</h3>
+      <div className="space-y-2">
+        {q.options.map((opt, idx) => {
+          const isActive = answered === idx;
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onSelect(q.id, idx)}
+              className={`flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                isActive
+                  ? 'border-student-primary bg-student-primary/5 text-student-text'
+                  : 'border-slate-200 hover:border-student-primary/40 hover:bg-slate-50'
+              }`}
+            >
+              <span
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${
+                  isActive ? 'border-student-primary bg-student-primary text-white' : 'border-slate-300 text-slate-500'
+                }`}
+              >
+                {String.fromCharCode(65 + idx)}
+              </span>
+              <span className="flex-1">{opt}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center justify-between pt-2">
+        <Button variant="outline" onClick={onPrev} disabled={phase.current === 0}>
+          Previous
+        </Button>
+        {isLast ? (
+          <Button
+            onClick={onSubmit}
+            disabled={!allAnswered}
+            className="bg-student-primary hover:bg-student-primary/90"
+          >
+            Submit Quiz
+          </Button>
+        ) : (
+          <Button onClick={onNext} className="bg-student-primary hover:bg-student-primary/90">
+            Next
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QuizResults({
+  phase,
+  onRetry,
+  onClose,
+}: {
+  phase: Extract<QuizPhase, { kind: 'submitted' }>;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const { result, questions } = phase;
+  const reviewById = new Map(result.review.map((r) => [r.question_id, r]));
+  const passed = result.score >= 60;
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div className="rounded-2xl border border-slate-200 p-6 text-center">
+        <div
+          className={`mx-auto flex size-16 items-center justify-center rounded-full ${
+            passed ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+          }`}
+        >
+          {passed ? <CheckCircle className="size-8" /> : <FileQuestion className="size-8" />}
+        </div>
+        <h2 className="mt-3 text-2xl font-bold text-student-text">{result.score}%</h2>
+        <p className="text-sm text-student-muted">
+          {result.correct} correct &middot; {result.incorrect} incorrect &middot; {result.skip} skipped
+          {result.total_questions ? ` · ${result.total_questions} total` : ''}
+        </p>
+      </div>
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-student-text">Answer review</h3>
+        {questions.map((q, i) => {
+          const r = reviewById.get(q.id);
+          const selected = r?.selected ?? null;
+          const correct = r?.correct ?? [];
+          return (
+            <div key={q.id} className="rounded-lg border border-slate-100 p-3">
+              <p className="text-xs font-semibold text-student-muted">Question {i + 1}</p>
+              <p className="mt-1 text-sm font-medium text-student-text">{q.question}</p>
+              <ul className="mt-2 space-y-1">
+                {q.options.map((opt, idx) => {
+                  const isSelected = selected === idx;
+                  const isCorrect = correct.includes(idx);
+                  return (
+                    <li
+                      key={idx}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1 text-xs ${
+                        isCorrect
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : isSelected
+                            ? 'bg-red-50 text-red-700'
+                            : 'text-student-muted'
+                      }`}
+                    >
+                      <span className="font-semibold">{String.fromCharCode(65 + idx)}.</span>
+                      <span className="flex-1">{opt}</span>
+                      {isCorrect ? <CheckCircle className="size-3.5 text-emerald-600" /> : null}
+                      {isSelected && !isCorrect ? <X className="size-3.5 text-red-600" /> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center justify-end gap-2 pt-2">
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+        <Button onClick={onRetry} className="bg-student-primary hover:bg-student-primary/90">
+          Retry Quiz
+        </Button>
       </div>
     </div>
   );
