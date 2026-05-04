@@ -380,24 +380,29 @@ export class StudentPortalApi {
 
     const selectedCourseId = asString(firstRecord(courses)?.id);
 
-    // Pull subjects for the (first) course the student is on.
-    const subjectsPayload = selectedCourseId
-      ? await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, {
-          course_id: selectedCourseId,
-        })
-      : { data: [] };
+    // Fan out across EVERY enrolled course. Earlier code only loaded the
+    // first course's subjects, so a student enrolled in two courses saw
+    // content for one and an empty section for the other. Tag each
+    // subject with its course_id so the page can group accordions per
+    // course.
+    const courseIds = courses
+      .map((c) => asString(c.id))
+      .filter((id): id is string => id !== '');
 
-    const subjects = asArray(subjectsPayload.data)
-      .map((entry) => asRecord(entry))
-      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    const subjectsByCourse = await Promise.all(
+      courseIds.map(async (courseId) => {
+        const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, { course_id: courseId });
+        return asArray(payload.data)
+          .map((entry) => asRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => entry !== null)
+          .map((entry): Record<string, unknown> => ({ ...entry, course_id: entry.course_id ?? courseId }));
+      }),
+    );
+    const subjects: Record<string, unknown>[] = subjectsByCourse.flat();
 
     const selectedSubjectId = asString(firstRecord(subjects)?.id);
 
-    // Earlier this only fetched lessons for the first subject (and files
-    // for the first lesson), which left every other subject rendering
-    // "No lessons in this subject yet" even when content existed.
-    // Fetch lessons for EVERY subject in parallel, then files for EVERY
-    // lesson in parallel, and flatten.
+    // For every subject across every course, fetch lessons in parallel.
     const subjectIds = subjects
       .map((s) => asString(s.id))
       .filter((id): id is string => id !== '');

@@ -60,6 +60,19 @@ export interface LoginInput {
   email: string;
   password: string;
   roleId?: number;
+  /**
+   * Explicit user row id used by the post-password picker when the email
+   * maps to multiple user rows (e.g., one email shared across separate
+   * student records for different courses on the legacy schema).
+   */
+  userId?: number;
+}
+
+export interface LoginCandidate {
+  user_id: number;
+  role_id: number;
+  name: string;
+  student_id: string;
 }
 
 export interface ForgotPasswordResult {
@@ -80,6 +93,7 @@ export interface ResetPasswordResult {
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
   resolveLoginRoles(input: { email: string; password: string }): Promise<number[]>;
+  resolveLoginCandidates(input: { email: string; password: string }): Promise<LoginCandidate[]>;
   getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }>;
   checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void>;
   logout(authToken: string): Promise<void>;
@@ -103,6 +117,7 @@ export class LegacyAuthApi implements AuthApi {
         email: input.email,
         password: input.password,
         role_id: input.roleId,
+        ...(typeof input.userId === 'number' ? { user_id: input.userId } : {}),
       },
     });
 
@@ -144,6 +159,29 @@ export class LegacyAuthApi implements AuthApi {
     return response.role_ids
       .map((v) => asNumber(v))
       .filter((n): n is number => typeof n === 'number');
+  }
+
+  async resolveLoginCandidates(input: { email: string; password: string }): Promise<LoginCandidate[]> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/login/resolve_roles',
+      body: { email: input.email, password: input.password },
+    });
+    if (!isRecord(response) || !Array.isArray(response.candidates)) return [];
+    return response.candidates
+      .map((entry): LoginCandidate | null => {
+        if (!isRecord(entry)) return null;
+        const userId = asNumber(entry.user_id);
+        const roleId = asNumber(entry.role_id);
+        if (userId === null || roleId === null) return null;
+        return {
+          user_id: userId,
+          role_id: roleId,
+          name: typeof entry.name === 'string' ? entry.name : '',
+          student_id: typeof entry.student_id === 'string' ? entry.student_id : '',
+        };
+      })
+      .filter((c): c is LoginCandidate => c !== null);
   }
 
   async getCurrentUser(authToken: string): Promise<{ userId: string; roleId: number }> {

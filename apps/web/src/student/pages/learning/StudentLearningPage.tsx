@@ -26,6 +26,7 @@ function getFileTypeBadgeStyle(type: string): { label: string; className: string
 
 interface SubjectProgress {
   id: string;
+  courseId: string;
   title: string;
   totalLessons: number;
   completedLessons: number;
@@ -36,12 +37,13 @@ function computeSubjectProgress(
   subjects: Record<string, unknown>[],
   lessons: Record<string, unknown>[],
 ): SubjectProgress[] {
-  const subjectMap = new Map<string, { title: string; completions: number[]; total: number; completed: number }>();
+  const subjectMap = new Map<string, { title: string; courseId: string; completions: number[]; total: number; completed: number }>();
 
   for (const subject of subjects) {
     const id = asString(subject.id);
     subjectMap.set(id, {
       title: asString(subject.title) || `Subject ${id}`,
+      courseId: asString(subject.course_id),
       completions: [],
       total: 0,
       completed: 0,
@@ -63,6 +65,7 @@ function computeSubjectProgress(
 
   return Array.from(subjectMap.entries()).map(([id, entry]) => ({
     id,
+    courseId: entry.courseId,
     title: entry.title,
     totalLessons: entry.total,
     completedLessons: entry.completed,
@@ -177,12 +180,24 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
         </div>
       ) : null}
 
-      {/* Subject Progress — Accordion */}
-      {subjectProgress.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-student-text">Subjects</h2>
-          <Accordion type="multiple" className="space-y-3">
-            {subjectProgress.map((sp, index) => {
+      {/* Subjects grouped per enrolled course. Earlier the page showed a
+          single "Subjects" list across all courses, which got confusing
+          when a student is enrolled in more than one. */}
+      {courses.length > 0 && subjectProgress.length > 0 ? (
+        <div className="space-y-6">
+          {courses.map((course) => {
+            const courseId = asString(course.id);
+            const courseTitle = asString(course.title) || `Course ${courseId}`;
+            const courseSubjects = subjectProgress.filter((sp) => sp.courseId === courseId);
+            if (courseSubjects.length === 0) return null;
+            return (
+              <div key={courseId} className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-lg font-semibold text-student-text">{courseTitle}</h2>
+                  <span className="text-xs text-student-muted">{courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'}</span>
+                </div>
+                <Accordion type="multiple" className="space-y-3">
+                  {courseSubjects.map((sp, index) => {
               const subjectLessons = lessons.filter((l) => asString(l.subject_id) === sp.id);
               const subjectFiles = lessonFiles.filter((f) => {
                 const lessonId = asString(f.lesson_id);
@@ -283,7 +298,10 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                 </AccordionItem>
               );
             })}
-          </Accordion>
+                </Accordion>
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

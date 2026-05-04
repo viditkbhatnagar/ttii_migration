@@ -72,6 +72,11 @@ export interface LoginInput extends RequestMeta {
   countryCode?: string | undefined;
   password: string;
   roleId?: number | undefined;
+  // Optional explicit user row id — the post-password picker uses this to
+  // disambiguate when an email maps to multiple user rows (legacy schema
+  // shares one email across separate student records for different
+  // courses). When set, findUserForLogin targets that exact row.
+  userId?: number | undefined;
   deviceId?: string | undefined;
 }
 
@@ -1133,11 +1138,13 @@ export class AuthService {
     });
   }
 
-  // Returns the role_ids whose user record matches the given email+password.
-  // Used by the post-password role picker — when an email maps to several
-  // roles on the same subdomain, the picker shows the candidates the user
-  // can sign in as. Audit-logged + rate-limited like a real login attempt.
-  async resolveLoginRoles(input: { email: string; password: string; ipAddress?: string; userAgent?: string }): Promise<number[]> {
+  // Returns the user records whose password matches, scoped to the given
+  // email. The post-password picker calls this when the email has more
+  // than one valid identity (different roles, or even multiple rows of
+  // the same role — common on the legacy schema where one email is
+  // shared across separate student rows for different courses). Audit
+  // logging + rate limiting mirror a real login attempt.
+  async resolveLoginCandidates(input: { email: string; password: string; ipAddress?: string; userAgent?: string }): Promise<Array<{ user_id: number; role_id: number; name: string; student_id: string }>> {
     const identifier = normalizeEmail(input.email ?? '');
     if (!identifier || !isTruthyString(input.password)) {
       throw new AuthErrorClass(400, 'Email and password are required.', 'VALIDATION_ERROR');
@@ -1155,23 +1162,42 @@ export class AuthService {
         deleted_at: null,
         OR: [{ email: identifier }, { user_email: identifier }],
       },
-      select: { id: true, role_id: true, password: true, status: true },
+      select: { id: true, role_id: true, password: true, status: true, name: true, student_id: true },
+      orderBy: [{ role_id: 'asc' }, { id: 'asc' }],
     });
 
-    const matched: number[] = [];
+    const matched: Array<{ user_id: number; role_id: number; name: string; student_id: string }> = [];
     for (const u of candidates) {
       if (!isTruthyString(u.password) || u.role_id === null) continue;
-      // Skip explicitly-deactivated non-student rows the same way login does.
       if (u.status === 0 && u.role_id !== 2) continue;
       // eslint-disable-next-line no-await-in-loop
       const ok = await verifyPassword(input.password, u.password);
-      if (ok) matched.push(u.role_id);
+      if (ok) {
+        matched.push({
+          user_id: u.id,
+          role_id: u.role_id,
+          name: u.name ?? '',
+          student_id: u.student_id ?? '',
+        });
+      }
     }
 
-    return Array.from(new Set(matched));
+    return matched;
   }
 
   private async findUserForLogin(input: LoginInput): Promise<users | null> {
+    // When the picker disambiguates a multi-row email, the client sends the
+    // exact user id alongside email + role.
+    if (typeof input.userId === 'number' && Number.isFinite(input.userId)) {
+      return this.prisma.users.findFirst({
+        where: {
+          id: input.userId,
+          deleted_at: null,
+          ...(typeof input.roleId === 'number' ? { role_id: input.roleId } : {}),
+        },
+      });
+    }
+
     if (isTruthyString(input.phone)) {
       const phoneCandidates = this.phoneCandidates(input.phone, input.countryCode);
       return this.prisma.users.findFirst({

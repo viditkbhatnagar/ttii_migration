@@ -560,16 +560,22 @@ function LoginHome() {
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [pendingRoles, setPendingRoles] = useState<{ value: string; label: string }[] | null>(null);
+  type PendingCandidate = { user_id: number; role_id: number; label: string; sublabel: string };
+  const [pendingCandidates, setPendingCandidates] = useState<PendingCandidate[] | null>(null);
 
   const allowedRoleValues = useMemo(() => new Set(roleOptions.map((o) => o.value)), [roleOptions]);
+  const roleLabelByValue = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const o of ALL_ROLE_OPTIONS) map.set(o.value, o.label);
+    return map;
+  }, []);
 
-  const finalizeLogin = useCallback(async (chosenRoleId: string) => {
-    const parsedRoleId = Number.parseInt(chosenRoleId, 10);
+  const finalizeLogin = useCallback(async (chosenRoleId: number, chosenUserId?: number) => {
     const loginInput = {
       email,
       password,
-      ...(Number.isFinite(parsedRoleId) ? { roleId: parsedRoleId } : {}),
+      ...(Number.isFinite(chosenRoleId) ? { roleId: chosenRoleId } : {}),
+      ...(typeof chosenUserId === 'number' ? { userId: chosenUserId } : {}),
     };
     const nextSession = await login(loginInput);
     navigateTo(resolveShellPathForRole(nextSession.roleId));
@@ -578,19 +584,19 @@ function LoginHome() {
   const onSubmit = async (): Promise<void> => {
     setSubmitting(true);
     setLoginError(null);
-    setPendingRoles(null);
+    setPendingCandidates(null);
 
     try {
-      // Resolve which roles the email + password are valid for, then scope
-      // to the subdomain's allowed roles. One match → log in; many → show
-      // a picker; zero → invalid credentials.
-      const matchingRoleIds = await authApi.resolveLoginRoles({ email, password });
-      const matchingForSubdomain = matchingRoleIds
-        .map(String)
-        .filter((rid) => allowedRoleValues.has(rid));
+      // Resolve all user records the email + password match. Scope to the
+      // subdomain's allowed roles. Then either log in directly (one
+      // candidate), or show a picker (multi-row email — one card per
+      // distinct user record so duplicate-email students can pick which
+      // identity to enter).
+      const allCandidates = await authApi.resolveLoginCandidates({ email, password });
+      const matching = allCandidates.filter((c) => allowedRoleValues.has(String(c.role_id)));
 
-      if (matchingForSubdomain.length === 0) {
-        if (matchingRoleIds.length > 0) {
+      if (matching.length === 0) {
+        if (allCandidates.length > 0) {
           setLoginError('This account is not allowed on this portal.');
         } else {
           setLoginError('Email or password is incorrect.');
@@ -598,16 +604,21 @@ function LoginHome() {
         setSubmitting(false);
         return;
       }
-      if (matchingForSubdomain.length === 1) {
-        await finalizeLogin(matchingForSubdomain[0] as string);
+      if (matching.length === 1) {
+        const only = matching[0]!;
+        await finalizeLogin(only.role_id, only.user_id);
         setSubmitting(false);
         return;
       }
-      // Multi-role case: show the picker. Build the {value, label} list
-      // from the subdomain's roleOptions so the labels match the same
-      // dictionary used elsewhere.
-      const candidates = roleOptions.filter((o) => matchingForSubdomain.includes(o.value));
-      setPendingRoles(candidates);
+      // Multiple matches: build picker entries. Label = name (or role label),
+      // sublabel = role + student id when present.
+      const cards: PendingCandidate[] = matching.map((c) => {
+        const roleLabel = roleLabelByValue.get(String(c.role_id)) ?? `Role ${c.role_id}`;
+        const display = c.name?.trim() || roleLabel;
+        const sub = [roleLabel, c.student_id].filter(Boolean).join(' • ');
+        return { user_id: c.user_id, role_id: c.role_id, label: display, sublabel: sub };
+      });
+      setPendingCandidates(cards);
     } catch (submitError: unknown) {
       const message = submitError instanceof Error ? submitError.message : 'Unable to login with provided credentials.';
       setLoginError(message);
@@ -616,11 +627,11 @@ function LoginHome() {
     }
   };
 
-  const onPickRole = async (chosenRoleId: string): Promise<void> => {
+  const onPickCandidate = async (candidate: PendingCandidate): Promise<void> => {
     setSubmitting(true);
     setLoginError(null);
     try {
-      await finalizeLogin(chosenRoleId);
+      await finalizeLogin(candidate.role_id, candidate.user_id);
     } catch (submitError: unknown) {
       const message = submitError instanceof Error ? submitError.message : 'Unable to continue with selected role.';
       setLoginError(message);
@@ -723,28 +734,34 @@ function LoginHome() {
             </div>
           ) : null}
 
-          {/* Multi-role picker shown after a successful password resolve.
-              Replaces the form so the user can't accidentally re-submit. */}
-          {pendingRoles ? (
+          {/* Post-password picker. One card per matching user record so an
+              email shared across multiple student rows (e.g., the same
+              email used for several students under different courses) is
+              disambiguated by name + role. Replaces the form so the user
+              can't accidentally re-submit. */}
+          {pendingCandidates ? (
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-semibold text-slate-800">Continue as…</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Your account is valid for more than one role on this portal. Pick one to continue.
+                  Your email is linked to more than one account on this portal. Pick which one to enter.
                 </p>
               </div>
               <div className="space-y-2">
-                {pendingRoles.map((opt) => (
+                {pendingCandidates.map((c) => (
                   <button
-                    key={opt.value}
+                    key={`${c.user_id}-${c.role_id}`}
                     type="button"
                     disabled={submitting}
-                    onClick={() => { void onPickRole(opt.value); }}
-                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium text-slate-800 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => { void onPickCandidate(c); }}
+                    className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="flex items-center gap-3">
                       <User aria-hidden="true" className="size-4 text-slate-400" />
-                      {opt.label}
+                      <span>
+                        <span className="block text-sm font-medium text-slate-800">{c.label}</span>
+                        {c.sublabel ? <span className="block text-xs text-slate-500">{c.sublabel}</span> : null}
+                      </span>
                     </span>
                     <span aria-hidden="true">&rarr;</span>
                   </button>
@@ -753,7 +770,7 @@ function LoginHome() {
               <button
                 type="button"
                 className="text-xs text-slate-500 underline-offset-2 hover:underline"
-                onClick={() => setPendingRoles(null)}
+                onClick={() => setPendingCandidates(null)}
               >
                 ← back to login
               </button>

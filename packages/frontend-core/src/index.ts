@@ -7,6 +7,7 @@ export {
   type AuthApi,
   type AuthSession,
   type LoginInput,
+  type LoginCandidate,
 } from './auth/auth-api.js';
 export {
   AuthProvider,

@@ -98,6 +98,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
           countryCode: toStringValue(payload.code) ?? toStringValue(payload.country_code),
           password: toStringValue(payload.password) ?? '',
           roleId: toNumber(payload.role_id),
+          userId: toNumber(payload.user_id),
           deviceId: toStringValue(payload.device_id),
           ...requestMeta(request),
         });
@@ -137,21 +138,27 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
   });
 
   // After the upfront "Login As" dropdown was removed, the client posts
-  // email + password here first. Server validates and returns the role_ids
-  // that match. The client either logs straight in (single match) or shows
-  // a picker (multiple matches).
+  // email + password here first. Server validates and returns the user
+  // records that match (one per user row, so multi-account emails get
+  // disambiguated by name in the picker too). The client either logs
+  // straight in (single match) or shows a picker (multiple matches).
   app.post('/login/resolve_roles', async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const email = toStringValue(payload.email) ?? '';
       const password = toStringValue(payload.password) ?? '';
       const meta = requestMeta(request);
-      const role_ids = await authService.resolveLoginRoles({
+      const candidates = await authService.resolveLoginCandidates({
         email, password,
         ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
         ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
       });
-      reply.code(200).send({ status: 1, role_ids });
+      reply.code(200).send({
+        status: 1,
+        // Keep role_ids for backward-compat (older clients consume just this).
+        role_ids: Array.from(new Set(candidates.map((c) => c.role_id))),
+        candidates,
+      });
     } catch (error: unknown) {
       sendAuthError(reply, error);
     }
