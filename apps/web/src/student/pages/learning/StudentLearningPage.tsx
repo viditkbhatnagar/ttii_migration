@@ -427,9 +427,25 @@ function FileRow({ file }: { file: Record<string, unknown> }) {
   const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
   const badge = getFileTypeBadgeStyle(attachmentType);
   const FileIcon = getFileTypeIcon(attachmentType);
+  const isLocked = file.lock === true || file.lock === 1 || file.lock === '1';
 
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3">
+  // Resolve the playable / openable URL by type. Video → video_url
+  // (Vimeo / YouTube link). Audio → audio_url. PDF / article /
+  // anything else → attachment_url. Quiz → no URL yet; we still let
+  // the row exist but disable the link.
+  const lower = attachmentType.toLowerCase();
+  const target = (() => {
+    if (isLocked) return '';
+    if (lower === 'quiz') return '';
+    if (lower === 'video' || lower === 'url' || lower === 'youtube_video' || lower === 'vimeo_video') {
+      return asString(file.video_url);
+    }
+    if (lower === 'audio') return asString(file.audio_url);
+    return asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
+  })();
+
+  const inner = (
+    <>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
         <FileIcon className="size-4 text-slate-600" />
       </div>
@@ -437,6 +453,30 @@ function FileRow({ file }: { file: Record<string, unknown> }) {
       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
         {badge.label}
       </span>
+    </>
+  );
+
+  if (target) {
+    return (
+      <a
+        href={target}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-blue-200 hover:bg-blue-50"
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 ${
+        isLocked ? 'opacity-60' : 'opacity-90'
+      }`}
+      title={isLocked ? 'Locked — complete the previous lesson first' : 'Content link not available yet'}
+    >
+      {inner}
     </div>
   );
 }
