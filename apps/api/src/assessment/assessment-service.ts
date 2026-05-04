@@ -1800,7 +1800,7 @@ export class AssessmentService {
     const sanitized = questions.map((q) => {
       let options: string[] = [];
       try {
-        const parsed = q.answers ? JSON.parse(q.answers) : [];
+        const parsed: unknown = q.answers ? JSON.parse(q.answers) : [];
         if (Array.isArray(parsed)) options = parsed.map((s) => String(s));
       } catch {
         options = [];
@@ -1890,7 +1890,7 @@ export class AssessmentService {
       if (q.answer_id !== null && q.answer_id > 0) set.add(q.answer_id - 1);
       if (q.answer_ids) {
         try {
-          const parsed = JSON.parse(q.answer_ids);
+          const parsed: unknown = JSON.parse(q.answer_ids);
           if (Array.isArray(parsed)) {
             for (const v of parsed) {
               const n = Number(v);
