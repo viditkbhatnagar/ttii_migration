@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, ChevronDown, Flame, Lock, FileText, Video, FileQuestion, BarChart3, CheckCircle, ArrowRight } from 'lucide-react';
+import { BookOpen, ChevronDown, Flame, Lock, FileText, Video, FileQuestion, BarChart3, CheckCircle, ArrowRight, X, ExternalLink } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,54 @@ function getFileTypeIcon(type: string) {
   if (lower === 'video' || lower === 'url') return Video;
   if (lower === 'quiz') return FileQuestion;
   return FileText;
+}
+
+// Vimeo: https://vimeo.com/{id}  →  https://player.vimeo.com/video/{id}
+// YouTube: https://(www\.)?youtube\.com/watch\?v={id}  →  https://www.youtube.com/embed/{id}
+// YouTube short: https://youtu.be/{id}  →  https://www.youtube.com/embed/{id}
+// Anything already pointing at an embed path is left alone.
+function toEmbeddableVideoUrl(url: string): string {
+  if (!url) return '';
+  if (url.includes('player.vimeo.com') || url.includes('youtube.com/embed') || url.includes('youtube-nocookie.com/embed')) {
+    return url;
+  }
+  const vimeo = url.match(/vimeo\.com\/(\d+)/);
+  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
+  const ytWatch = url.match(/youtube\.com\/watch\?v=([\w-]+)/);
+  if (ytWatch) return `https://www.youtube.com/embed/${ytWatch[1]}`;
+  const ytShort = url.match(/youtu\.be\/([\w-]+)/);
+  if (ytShort) return `https://www.youtube.com/embed/${ytShort[1]}`;
+  return url;
+}
+
+interface SelectedContent {
+  id: string;
+  title: string;
+  type: 'video' | 'audio' | 'pdf' | 'other';
+  url: string;
+}
+
+function resolveSelectedContent(file: Record<string, unknown>): SelectedContent | null {
+  const id = asString(file.id);
+  const title = asString(file.title) || `File ${id}`;
+  const lower = (asString(file.attachment_type) || asString(file.lesson_type)).toLowerCase();
+
+  if (lower === 'video' || lower === 'url' || lower === 'youtube_video' || lower === 'vimeo_video') {
+    const url = asString(file.video_url);
+    if (!url) return null;
+    return { id, title, type: 'video', url: toEmbeddableVideoUrl(url) };
+  }
+  if (lower === 'audio') {
+    const url = asString(file.audio_url);
+    if (!url) return null;
+    return { id, title, type: 'audio', url };
+  }
+  const url = asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
+  if (!url) return null;
+  if (lower === 'pdf' || /\.pdf($|\?)/i.test(url)) {
+    return { id, title, type: 'pdf', url };
+  }
+  return { id, title, type: 'other', url };
 }
 
 function getFileTypeBadgeStyle(type: string): { label: string; className: string } {
@@ -82,6 +130,18 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     [api, session.token],
   );
 
+  // Inline player state — set when a file is clicked, cleared by the
+  // close button on the player banner.
+  const [selectedContent, setSelectedContent] = useState<SelectedContent | null>(null);
+  const handleFileSelect = (file: Record<string, unknown>) => {
+    const resolved = resolveSelectedContent(file);
+    if (resolved) {
+      setSelectedContent(resolved);
+      // Scroll the player into view on small screens.
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const courses = useMemo(() => data?.courses ?? [], [data]);
   const subjects = useMemo(() => data?.subjects ?? [], [data]);
   const lessons = useMemo(() => data?.lessons ?? [], [data]);
@@ -119,6 +179,13 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
 
   return (
     <div className="space-y-6">
+      {/* Inline player banner — shown above the lessons when a file is
+          selected. Player type follows the file type. Close to return to
+          the lesson list. */}
+      {selectedContent ? (
+        <ContentPlayer content={selectedContent} onClose={() => setSelectedContent(null)} />
+      ) : null}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -253,7 +320,15 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                         {subjectLessons.map((lesson) => {
                           const lessonId = asString(lesson.id);
                           const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-                          return <LessonRow key={lessonId} lesson={lesson} files={filesForLesson} />;
+                          return (
+                            <LessonRow
+                              key={lessonId}
+                              lesson={lesson}
+                              files={filesForLesson}
+                              onSelectFile={handleFileSelect}
+                              activeFileId={selectedContent?.id ?? null}
+                            />
+                          );
                         })}
                       </div>
                     ) : (
@@ -300,7 +375,15 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
             {orphanLessons.map((lesson) => {
               const lessonId = asString(lesson.id);
               const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-              return <LessonRow key={lessonId} lesson={lesson} files={filesForLesson} />;
+              return (
+                <LessonRow
+                  key={lessonId}
+                  lesson={lesson}
+                  files={filesForLesson}
+                  onSelectFile={handleFileSelect}
+                  activeFileId={selectedContent?.id ?? null}
+                />
+              );
             })}
           </div>
         </div>
@@ -315,7 +398,15 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
             {lessons.map((lesson) => {
               const lessonId = asString(lesson.id);
               const filesForLesson = lessonFiles.filter((f) => asString(f.lesson_id) === lessonId);
-              return <LessonRow key={lessonId} lesson={lesson} files={filesForLesson} />;
+              return (
+                <LessonRow
+                  key={lessonId}
+                  lesson={lesson}
+                  files={filesForLesson}
+                  onSelectFile={handleFileSelect}
+                  activeFileId={selectedContent?.id ?? null}
+                />
+              );
             })}
           </div>
         </div>
@@ -355,7 +446,17 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
 
 /* ─── Shared sub-components ────────────────────────────────── */
 
-function LessonRow({ lesson, files = [] }: { lesson: Record<string, unknown>; files?: Record<string, unknown>[] }) {
+function LessonRow({
+  lesson,
+  files = [],
+  onSelectFile,
+  activeFileId,
+}: {
+  lesson: Record<string, unknown>;
+  files?: Record<string, unknown>[];
+  onSelectFile?: (file: Record<string, unknown>) => void;
+  activeFileId?: string | null;
+}) {
   const id = asString(lesson.id);
   const title = asString(lesson.title) || `Lesson ${id}`;
   const completion = asNumber(lesson.completed_percentage);
@@ -412,7 +513,12 @@ function LessonRow({ lesson, files = [] }: { lesson: Record<string, unknown>; fi
         <div className="border-t border-slate-100 bg-slate-50/40 px-3 py-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {files.map((file) => (
-              <FileRow key={asString(file.id)} file={file} />
+              <FileRow
+                key={asString(file.id)}
+                file={file}
+                {...(onSelectFile ? { onSelect: onSelectFile } : {})}
+                isActive={activeFileId !== null && activeFileId === asString(file.id)}
+              />
             ))}
           </div>
         </div>
@@ -421,51 +527,51 @@ function LessonRow({ lesson, files = [] }: { lesson: Record<string, unknown>; fi
   );
 }
 
-function FileRow({ file }: { file: Record<string, unknown> }) {
+function FileRow({
+  file,
+  onSelect,
+  isActive,
+}: {
+  file: Record<string, unknown>;
+  onSelect?: (file: Record<string, unknown>) => void;
+  isActive?: boolean;
+}) {
   const fId = asString(file.id);
   const fTitle = asString(file.title) || `File ${fId}`;
   const attachmentType = asString(file.attachment_type) || asString(file.lesson_type);
   const badge = getFileTypeBadgeStyle(attachmentType);
   const FileIcon = getFileTypeIcon(attachmentType);
   const isLocked = file.lock === true || file.lock === 1 || file.lock === '1';
-
-  // Resolve the playable / openable URL by type. Video → video_url
-  // (Vimeo / YouTube link). Audio → audio_url. PDF / article /
-  // anything else → attachment_url. Quiz → no URL yet; we still let
-  // the row exist but disable the link.
-  const lower = attachmentType.toLowerCase();
-  const target = (() => {
-    if (isLocked) return '';
-    if (lower === 'quiz') return '';
-    if (lower === 'video' || lower === 'url' || lower === 'youtube_video' || lower === 'vimeo_video') {
-      return asString(file.video_url);
-    }
-    if (lower === 'audio') return asString(file.audio_url);
-    return asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
-  })();
+  const resolved = !isLocked ? resolveSelectedContent(file) : null;
+  const isPlayable = resolved !== null;
 
   const inner = (
     <>
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-        <FileIcon className="size-4 text-slate-600" />
+      <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
+        isActive ? 'bg-student-primary/15 text-student-primary' : 'bg-slate-100 text-slate-600'
+      }`}>
+        <FileIcon className="size-4" />
       </div>
-      <p className="text-sm font-medium text-slate-700 truncate flex-1">{fTitle}</p>
+      <p className="text-sm font-medium text-slate-700 truncate flex-1 text-left">{fTitle}</p>
       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
         {badge.label}
       </span>
     </>
   );
 
-  if (target) {
+  if (isPlayable && onSelect) {
     return (
-      <a
-        href={target}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 transition-colors hover:border-blue-200 hover:bg-blue-50"
+      <button
+        type="button"
+        onClick={() => onSelect(file)}
+        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+          isActive
+            ? 'border-student-primary bg-student-primary/5'
+            : 'border-slate-100 bg-white hover:border-blue-200 hover:bg-blue-50'
+        }`}
       >
         {inner}
-      </a>
+      </button>
     );
   }
 
@@ -477,6 +583,73 @@ function FileRow({ file }: { file: Record<string, unknown> }) {
       title={isLocked ? 'Locked — complete the previous lesson first' : 'Content link not available yet'}
     >
       {inner}
+    </div>
+  );
+}
+
+function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose: () => void }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-student-text">{content.title}</p>
+          <p className="text-[11px] uppercase tracking-wider text-student-muted">{content.type}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <a
+            href={content.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in new tab"
+            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+          >
+            <ExternalLink className="size-4" />
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close player"
+            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
+      <div className="bg-black">
+        {content.type === 'video' ? (
+          <div className="aspect-video w-full">
+            <iframe
+              key={content.id}
+              src={content.url}
+              title={content.title}
+              className="size-full"
+              allow="autoplay; fullscreen; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : content.type === 'audio' ? (
+          <div className="bg-white p-4">
+            <audio key={content.id} controls className="w-full">
+              <source src={content.url} />
+              Your browser does not support audio playback.
+            </audio>
+          </div>
+        ) : content.type === 'pdf' ? (
+          <iframe
+            key={content.id}
+            src={content.url}
+            title={content.title}
+            className="h-[70vh] w-full bg-white"
+          />
+        ) : (
+          <iframe
+            key={content.id}
+            src={content.url}
+            title={content.title}
+            className="h-[70vh] w-full bg-white"
+          />
+        )}
+      </div>
     </div>
   );
 }
