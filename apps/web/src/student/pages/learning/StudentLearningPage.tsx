@@ -6,8 +6,11 @@ import {
   Flame,
   Lock,
   FileText,
+  File,
   Video,
+  Headphones,
   FileQuestion,
+  Globe,
   BarChart3,
   CheckCircle,
   ArrowLeft,
@@ -22,11 +25,17 @@ import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.j
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
+// Map file type → icon. Naji 2026-05-04: every content type should look
+// distinct in the timeline (video / audio / pdf / quiz / url / file).
 function getFileTypeIcon(type: string) {
   const lower = type.toLowerCase();
-  if (lower === 'video' || lower === 'url') return Video;
+  if (lower === 'video' || lower === 'youtube_video' || lower === 'vimeo_video') return Video;
+  if (lower === 'audio') return Headphones;
+  if (lower === 'pdf') return FileText;
   if (lower === 'quiz') return FileQuestion;
-  return FileText;
+  if (lower === 'url') return Globe;
+  if (lower === 'practice') return BookOpen;
+  return File;
 }
 
 // Vimeo: https://vimeo.com/{id}  →  https://player.vimeo.com/video/{id}
@@ -52,37 +61,41 @@ interface SelectedContent {
   title: string;
   type: 'video' | 'audio' | 'pdf' | 'other';
   url: string;
+  description: string;
 }
 
 function resolveSelectedContent(file: Record<string, unknown>): SelectedContent | null {
   const id = asString(file.id);
   const title = asString(file.title) || `File ${id}`;
+  const description = asString(file.description) || asString(file.summary) || asString(file.note) || '';
   const lower = (asString(file.attachment_type) || asString(file.lesson_type)).toLowerCase();
 
   if (lower === 'video' || lower === 'url' || lower === 'youtube_video' || lower === 'vimeo_video') {
     const url = asString(file.video_url);
     if (!url) return null;
-    return { id, title, type: 'video', url: toEmbeddableVideoUrl(url) };
+    return { id, title, type: 'video', url: toEmbeddableVideoUrl(url), description };
   }
   if (lower === 'audio') {
     const url = asString(file.audio_url);
     if (!url) return null;
-    return { id, title, type: 'audio', url };
+    return { id, title, type: 'audio', url, description };
   }
   const url = asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
   if (!url) return null;
   if (lower === 'pdf' || /\.pdf($|\?)/i.test(url)) {
-    return { id, title, type: 'pdf', url };
+    return { id, title, type: 'pdf', url, description };
   }
-  return { id, title, type: 'other', url };
+  return { id, title, type: 'other', url, description };
 }
 
 function getFileTypeBadgeStyle(type: string): { label: string; className: string } {
   const lower = type.toLowerCase();
-  if (lower === 'video' || lower === 'url') return { label: 'Video', className: 'bg-blue-100 text-blue-700' };
+  if (lower === 'video' || lower === 'youtube_video' || lower === 'vimeo_video') return { label: 'Video', className: 'bg-blue-100 text-blue-700' };
+  if (lower === 'audio') return { label: 'Audio', className: 'bg-amber-100 text-amber-700' };
   if (lower === 'quiz') return { label: 'Quiz', className: 'bg-purple-100 text-purple-700' };
   if (lower === 'pdf') return { label: 'PDF', className: 'bg-red-100 text-red-700' };
   if (lower === 'practice') return { label: 'Practice', className: 'bg-emerald-100 text-emerald-700' };
+  if (lower === 'url') return { label: 'Link', className: 'bg-cyan-100 text-cyan-700' };
   return { label: type || 'File', className: 'bg-slate-100 text-slate-700' };
 }
 
@@ -101,6 +114,9 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   // View state — list of courses vs detail view of a single course.
   const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
   const [selectedContent, setSelectedContent] = useState<SelectedContent | null>(null);
+  // Naji 2026-05-04: only one subject can be expanded at a time. Tracks
+  // the open subject id; null means everything collapsed.
+  const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
 
   const enrolledCourses = useMemo(() => data?.courses ?? [], [data]);
   const catalogCourses = useMemo(() => data?.catalogCourses ?? [], [data]);
@@ -241,6 +257,10 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                       lessonFiles={lessonFiles}
                       activeFileId={selectedContent?.id ?? null}
                       onSelectFile={handleSelectFile}
+                      expanded={expandedSubjectId === subjectId}
+                      onToggle={() =>
+                        setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
+                      }
                     />
                   );
                 })
@@ -248,14 +268,10 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
             </div>
           </aside>
 
-          {/* RIGHT — Content View */}
-          <section className="rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-100 px-4 py-3">
-              <h2 className="text-sm font-semibold text-student-text">Content View</h2>
-              <p className="mt-0.5 text-xs text-student-muted">
-                {selectedContent ? selectedContent.title : 'Select a lesson item from the timeline'}
-              </p>
-            </div>
+          {/* RIGHT — Content View. Naji 2026-05-04: player sits at the
+              top with no banner strip above it; the title and description
+              live BELOW the player. */}
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             {selectedContent ? (
               <ContentPlayer content={selectedContent} onClose={() => setSelectedContent(null)} />
             ) : (
@@ -502,16 +518,19 @@ function SubjectNode({
   lessonFiles,
   activeFileId,
   onSelectFile,
+  expanded,
+  onToggle,
 }: {
   subject: Record<string, unknown>;
   lessons: Record<string, unknown>[];
   lessonFiles: Record<string, unknown>[];
   activeFileId: string | null;
   onSelectFile: (file: Record<string, unknown>) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const id = asString(subject.id);
   const title = asString(subject.title) || `Subject ${id}`;
-  const [open, setOpen] = useState(true);
   const completion = lessons.length === 0
     ? 0
     : Math.round(
@@ -522,12 +541,12 @@ function SubjectNode({
     <div className="mb-1 rounded-lg">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"
       >
         <ChevronDown
           aria-hidden="true"
-          className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+          className={`size-4 shrink-0 text-slate-400 transition-transform ${expanded ? '' : '-rotate-90'}`}
         />
         <span className="flex-1 truncate text-sm font-semibold text-student-text">{title}</span>
         <span className="text-[10px] font-medium text-student-muted">
@@ -543,7 +562,7 @@ function SubjectNode({
           {completion}%
         </Badge>
       </button>
-      {open ? (
+      {expanded ? (
         <div className="ml-3 space-y-0.5 border-l border-slate-100 pl-3">
           {lessons.length === 0 ? (
             <p className="py-2 text-xs text-student-muted">No lessons yet.</p>
@@ -691,30 +710,12 @@ function FileNode({
 }
 
 function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose: () => void }) {
+  // Naji 2026-05-04: player goes flush at the top (no banner strip above
+  // it) and the title + description sit BELOW so the bottom space is
+  // useful instead of empty. Open-in-new-tab and Close move into the
+  // info row to keep the chrome out of the way.
   return (
-    <div className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2">
-        <p className="text-[11px] uppercase tracking-wider text-student-muted">{content.type}</p>
-        <div className="flex items-center gap-1">
-          <a
-            href={content.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open in new tab"
-            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
-          >
-            <ExternalLink className="size-4" />
-          </a>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close player"
-            className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
+    <div>
       <div className="bg-black">
         {content.type === 'video' ? (
           <div className="aspect-video w-full">
@@ -741,6 +742,40 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
             title={content.title}
             className="h-[70vh] w-full bg-white"
           />
+        )}
+      </div>
+      <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wider text-student-muted">{content.type}</p>
+            <h3 className="mt-0.5 truncate text-sm font-semibold text-student-text">{content.title}</h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <a
+              href={content.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in new tab"
+              className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              <ExternalLink className="size-4" />
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close"
+              className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+        {content.description ? (
+          <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
+            {content.description}
+          </p>
+        ) : (
+          <p className="text-xs italic text-slate-400">No description provided for this content.</p>
         )}
       </div>
     </div>

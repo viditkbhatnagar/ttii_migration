@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
@@ -1312,11 +1312,30 @@ export class ContentService {
       return null;
     }
 
-    const cohortRowIds = cohortStudents
-      .map((cs) => (cs.cohort_id == null ? null : Number(cs.cohort_id)))
-      .filter((n): n is number => Number.isFinite(n) && (n as number) > 0);
+    // Production has TWO populations of cohort_students.cohort_id values:
+    // (a) the stringified cohorts.id (e.g. "5", "1014") written by the
+    //     new add-students flows at operations-service.ts:1657, and
+    // (b) the legacy text code (e.g. "MMJAN26", "COH-1734...") inherited
+    //     from the PHP LMS pre-migration.
+    // Naji 2026-05-04 was still seeing locked subjects because the
+    // initial fix only handled (a). We now query both shapes in one
+    // round-trip and union the results.
+    const rawCohortRefs = cohortStudents
+      .map((cs) => (cs.cohort_id == null ? '' : String(cs.cohort_id).trim()))
+      .filter((s) => s.length > 0);
 
-    if (cohortRowIds.length === 0) return null;
+    const cohortRowIds: number[] = [];
+    const cohortTextCodes: string[] = [];
+    for (const ref of rawCohortRefs) {
+      const n = Number(ref);
+      if (Number.isFinite(n) && n > 0 && /^\d+$/.test(ref)) {
+        cohortRowIds.push(n);
+      } else {
+        cohortTextCodes.push(ref);
+      }
+    }
+
+    if (cohortRowIds.length === 0 && cohortTextCodes.length === 0) return null;
 
     // Match a cohort the student is enrolled in for this subject. We
     // accept either a direct subject_id match or a course-level cohort
@@ -1329,9 +1348,13 @@ export class ContentService {
     });
     const subjectCourseId = subjectRow?.course_id ?? null;
 
+    const cohortWhereOr: Prisma.cohortsWhereInput[] = [];
+    if (cohortRowIds.length > 0) cohortWhereOr.push({ id: { in: cohortRowIds } });
+    if (cohortTextCodes.length > 0) cohortWhereOr.push({ cohort_id: { in: cohortTextCodes } });
+
     const cohorts = await this.prisma.cohorts.findMany({
       where: {
-        id: { in: cohortRowIds },
+        OR: cohortWhereOr,
         deleted_at: null,
       },
       select: { id: true, cohort_id: true, subject_id: true, course_id: true },
@@ -1352,6 +1375,18 @@ export class ContentService {
     if (subjectCourseId !== null) {
       for (const cohort of cohorts) {
         if (cohort.subject_id === null && cohort.course_id === subjectCourseId) {
+          return idString(cohort.cohort_id ?? cohort.id);
+        }
+      }
+    }
+
+    // Reverse master fallback: the cohort points to a master subject and
+    // we're viewing one of its children. Check if any cohort.subject_id
+    // matches our subject's master_subject_id.
+    const ownMasterId = subjectRow?.master_subject_id ?? null;
+    if (ownMasterId !== null) {
+      for (const cohort of cohorts) {
+        if (cohort.subject_id === ownMasterId) {
           return idString(cohort.cohort_id ?? cohort.id);
         }
       }
