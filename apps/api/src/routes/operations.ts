@@ -1713,6 +1713,17 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.post('/admin/cohorts/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const cohortId = toStringValue(payload.id);
+      const result = await operationsService.deleteAdminCohort(requestUserId(request), cohortId);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   // ─── Phase 3: Course Fees ─────────────────────────────────────────────
 
   app.get('/admin/course_fee/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {

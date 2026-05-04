@@ -3533,6 +3533,32 @@ export class OperationsService {
     return { status: 1, message: 'Cohort updated successfully.' };
   }
 
+  // Soft-delete a cohort. Naji 2026-05-04: the frontend has called
+  // /admin/cohorts/delete since day one but the route + service were
+  // never wired, so the Delete action in the cohort list silently 404'd.
+  // Soft-delete only — keep the row for historical assignment / live
+  // class lookups.
+  async deleteAdminCohort(actorUserId: string, cohortId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(cohortId);
+    if (!id) return { status: 0, message: 'Invalid cohort id.' };
+    const existing = await this.prisma.cohorts.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!existing) return { status: 0, message: 'Cohort not found.' };
+
+    const now = new Date();
+    await this.prisma.cohorts.update({
+      where: { id },
+      data: {
+        deleted_at: now,
+        deleted_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Cohort deleted successfully.' };
+  }
+
   async listCourseFees(): Promise<SqlRow[]> {
     const courses = await this.prisma.course.findMany({
       where: { deleted_at: null },
