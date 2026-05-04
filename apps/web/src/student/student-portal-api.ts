@@ -18,11 +18,16 @@ function asArray(value: unknown): unknown[] {
 }
 
 function asString(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '';
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  // Numeric IDs come straight from Prisma as `number`; without this
+  // coercion, the loadLearning fan-out maps subject.id (Int) to '',
+  // filters them out, and never fires /course/get_lessons — the page
+  // shows "0/0 lessons" for every subject even when content exists.
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    return String(value);
   }
-
-  return value.trim();
+  return '';
 }
 
 function asNumber(value: unknown): number {
