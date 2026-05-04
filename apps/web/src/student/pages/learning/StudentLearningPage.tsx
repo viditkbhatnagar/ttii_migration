@@ -80,7 +80,7 @@ function toEmbeddableVideoUrl(url: string): string {
 interface SelectedContent {
   id: string;
   title: string;
-  type: 'video' | 'audio' | 'pdf' | 'other';
+  type: 'video' | 'audio' | 'pdf' | 'article' | 'quiz' | 'other';
   url: string;
   description: string;
 }
@@ -100,6 +100,18 @@ function resolveSelectedContent(file: Record<string, unknown>): SelectedContent 
     const url = asString(file.audio_url);
     if (!url) return null;
     return { id, title, type: 'audio', url, description };
+  }
+  // Articles carry their content in the description / summary text —
+  // no URL is involved. Naji 2026-05-04: doc + quiz were greyed out
+  // because the previous resolver bailed when there was no URL.
+  if (lower === 'article') {
+    return { id, title, type: 'article', url: '', description };
+  }
+  // Quizzes link out to the legacy practice player. quiz_link is built
+  // server-side in buildLessonFileData (content-service.ts).
+  if (lower === 'quiz') {
+    const url = asString(file.quiz_link);
+    return { id, title, type: 'quiz', url, description };
   }
   const url = asString(file.attachment_url) || asString(file.video_url) || asString(file.audio_url);
   if (!url) return null;
@@ -919,36 +931,42 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
   // it) and the title + description sit BELOW so the bottom space is
   // useful instead of empty. Open-in-new-tab and Close move into the
   // info row to keep the chrome out of the way.
+  // Article + quiz types don't use the dark video frame — articles
+  // render their content (description) inline; quizzes show a launch
+  // CTA pointing at the legacy practice player.
+  const showTopFrame = content.type !== 'article' && content.type !== 'quiz';
   return (
     <div>
-      <div className="bg-black">
-        {content.type === 'video' ? (
-          <div className="aspect-video w-full">
+      {showTopFrame ? (
+        <div className="bg-black">
+          {content.type === 'video' ? (
+            <div className="aspect-video w-full">
+              <iframe
+                key={content.id}
+                src={content.url}
+                title={content.title}
+                className="size-full"
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          ) : content.type === 'audio' ? (
+            <div className="bg-white p-4">
+              <audio key={content.id} controls className="w-full">
+                <source src={content.url} />
+                Your browser does not support audio playback.
+              </audio>
+            </div>
+          ) : (
             <iframe
               key={content.id}
               src={content.url}
               title={content.title}
-              className="size-full"
-              allow="autoplay; fullscreen; picture-in-picture"
-              allowFullScreen
+              className="h-[70vh] w-full bg-white"
             />
-          </div>
-        ) : content.type === 'audio' ? (
-          <div className="bg-white p-4">
-            <audio key={content.id} controls className="w-full">
-              <source src={content.url} />
-              Your browser does not support audio playback.
-            </audio>
-          </div>
-        ) : (
-          <iframe
-            key={content.id}
-            src={content.url}
-            title={content.title}
-            className="h-[70vh] w-full bg-white"
-          />
-        )}
-      </div>
+          )}
+        </div>
+      ) : null}
       <div className="space-y-2 border-t border-slate-100 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -956,15 +974,17 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
             <h3 className="mt-0.5 truncate text-sm font-semibold text-student-text">{content.title}</h3>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <a
-              href={content.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open in new tab"
-              className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-            >
-              <ExternalLink className="size-4" />
-            </a>
+            {content.url ? (
+              <a
+                href={content.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open in new tab"
+                className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              >
+                <ExternalLink className="size-4" />
+              </a>
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -975,7 +995,36 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
             </button>
           </div>
         </div>
-        {content.description ? (
+        {content.type === 'article' ? (
+          content.description ? (
+            <article className="prose prose-sm max-w-none whitespace-pre-line text-sm leading-relaxed text-student-text">
+              {content.description}
+            </article>
+          ) : (
+            <p className="text-xs italic text-slate-400">This article has no body yet.</p>
+          )
+        ) : content.type === 'quiz' ? (
+          <div className="space-y-3">
+            {content.description ? (
+              <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
+                {content.description}
+              </p>
+            ) : null}
+            {content.url ? (
+              <a
+                href={content.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-md bg-student-primary px-4 py-2 text-sm font-semibold text-white hover:bg-student-primary/90"
+              >
+                <FileQuestion aria-hidden="true" className="size-4" />
+                Start Quiz
+              </a>
+            ) : (
+              <p className="text-xs italic text-slate-400">Quiz link is not configured for this lesson item.</p>
+            )}
+          </div>
+        ) : content.description ? (
           <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
             {content.description}
           </p>
