@@ -1298,8 +1298,12 @@ export class EngagementService {
         id: lc.id,
         title: lc.title,
         date: toDateOnly(lc.date),
-        from_time: toStringValue(lc.fromTime),
-        to_time: toStringValue(lc.toTime),
+        // Naji 2026-05-04: from_time / to_time were going out as
+        // "1970-01-01T19:30:00.000Z" because Prisma reads MySQL TIME as
+        // a Date anchored at the unix epoch and toStringValue called
+        // toISOString. Use timeColumnToString to get "HH:MM:SS".
+        from_time: timeColumnToString(lc.fromTime),
+        to_time: timeColumnToString(lc.toTime),
         platform: toStringValue(lc.platform),
         join_url: toStringValue(lc.join_url),
         zoom_id: toStringValue(lc.zoom_id),

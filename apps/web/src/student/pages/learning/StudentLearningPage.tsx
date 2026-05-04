@@ -97,7 +97,7 @@ function toEmbeddableVideoUrl(url: string): string {
 interface SelectedContent {
   id: string;
   title: string;
-  type: 'video' | 'audio' | 'pdf' | 'article' | 'quiz' | 'other';
+  type: 'video' | 'mp4' | 'audio' | 'pdf' | 'article' | 'quiz' | 'other';
   url: string;
   description: string;
 }
@@ -205,6 +205,21 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const handleSelectFile = (file: Record<string, unknown>) => {
     const resolved = resolveSelectedContent(file);
     if (resolved) setSelectedContent(resolved);
+  };
+
+  // Naji 2026-05-04: clicking "Recording" on a past live class should
+  // play the MP4 inside the right-pane player instead of opening it
+  // in a new tab.
+  const handlePlayRecording = (row: Record<string, unknown>) => {
+    const url = asString(row.recording_url);
+    if (!url) return;
+    setSelectedContent({
+      id: `live-${asString(row.id)}`,
+      title: asString(row.title) || 'Recording',
+      type: 'mp4',
+      url,
+      description: asString(row.subject_title) || '',
+    });
   };
 
   const handleOpenCourse = (courseId: string) => {
@@ -354,7 +369,11 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                   })
                 )
               ) : (
-                <LiveClassesPanel rows={liveClasses} loading={liveClassesLoading} />
+                <LiveClassesPanel
+                  rows={liveClasses}
+                  loading={liveClassesLoading}
+                  onPlayRecording={handlePlayRecording}
+                />
               )}
             </div>
           </aside>
@@ -825,12 +844,36 @@ function FileNode({
   );
 }
 
+// Trim "HH:MM:SS" → "HH:MM" so the row doesn't waste pixels on seconds.
+function shortTime(value: string): string {
+  if (!value) return '';
+  const m = value.match(/^(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : value;
+}
+
+function formatLiveClassDate(value: string): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Strip hyphen from legacy "C-1013" cohort codes (mirrors the helper
+// used on the admin Cohorts page). New "MMJUL26" style codes pass
+// through untouched.
+function normalizeCohortCode(value: string): string {
+  if (!value) return '';
+  return value.replace(/^([A-Za-z]+)-(\d+)$/, '$1$2');
+}
+
 function LiveClassesPanel({
   rows,
   loading,
+  onPlayRecording,
 }: {
   rows: Record<string, unknown>[];
   loading: boolean;
+  onPlayRecording: (row: Record<string, unknown>) => void;
 }) {
   if (loading) {
     return <p className="px-2 py-6 text-center text-sm text-student-muted">Loading live classes...</p>;
@@ -842,43 +885,110 @@ function LiveClassesPanel({
       </p>
     );
   }
-  // Group by status — upcoming/today first, past at the bottom.
-  const upcoming = rows.filter((r) => asString(r.status) === 'upcoming');
-  const today = rows.filter((r) => asString(r.status) === 'today');
-  const past = rows.filter((r) => asString(r.status) === 'past');
-  const groups: Array<{ label: string; items: Record<string, unknown>[] }> = [
-    ...(today.length > 0 ? [{ label: 'Today', items: today }] : []),
-    ...(upcoming.length > 0 ? [{ label: 'Upcoming', items: upcoming }] : []),
-    ...(past.length > 0 ? [{ label: 'Past', items: past }] : []),
-  ];
+  // Naji 2026-05-04: Upcoming + Today shown individually on top; Past
+  // grouped under their subject so the Completed list stays compact
+  // and scoped to the subject the recording belongs to.
+  const upcomingRows = rows.filter((r) => asString(r.status) === 'upcoming');
+  const todayRows = rows.filter((r) => asString(r.status) === 'today');
+  const pastRows = rows.filter((r) => asString(r.status) === 'past');
+  const upcomingTop = [...todayRows, ...upcomingRows];
+
+  const pastBySubject = new Map<string, { title: string; items: Record<string, unknown>[] }>();
+  for (const row of pastRows) {
+    const key = asString(row.subject_id) || 'unknown';
+    const title = asString(row.subject_title) || 'Other sessions';
+    const entry = pastBySubject.get(key) ?? { title, items: [] };
+    entry.items.push(row);
+    pastBySubject.set(key, entry);
+  }
+
   return (
-    <div className="space-y-3">
-      {groups.map((g) => (
-        <div key={g.label} className="space-y-1.5">
+    <div className="space-y-4">
+      {upcomingTop.length > 0 ? (
+        <div className="space-y-1.5">
           <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-student-muted">
-            {g.label}
+            Upcoming
           </p>
-          {g.items.map((row) => (
-            <LiveClassRow key={asString(row.id)} row={row} />
+          {upcomingTop.map((row) => (
+            <LiveClassRow key={asString(row.id)} row={row} onPlayRecording={onPlayRecording} />
           ))}
         </div>
-      ))}
+      ) : null}
+
+      {pastBySubject.size > 0 ? (
+        <div className="space-y-2">
+          <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-student-muted">
+            Past
+          </p>
+          {[...pastBySubject.values()].map((group) => (
+            <PastSubjectGroup
+              key={group.title}
+              title={group.title}
+              items={group.items}
+              onPlayRecording={onPlayRecording}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function LiveClassRow({ row }: { row: Record<string, unknown> }) {
+function PastSubjectGroup({
+  title,
+  items,
+  onPlayRecording,
+}: {
+  title: string;
+  items: Record<string, unknown>[];
+  onPlayRecording: (row: Record<string, unknown>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-slate-100">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+      >
+        <ChevronDown
+          aria-hidden="true"
+          className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`}
+        />
+        <span className="flex-1 truncate text-xs font-semibold text-student-text">{title}</span>
+        <span className="text-[10px] font-medium text-student-muted">
+          {items.length} session{items.length === 1 ? '' : 's'}
+        </span>
+      </button>
+      {open ? (
+        <div className="space-y-1.5 border-t border-slate-100 p-2">
+          {items.map((row) => (
+            <LiveClassRow key={asString(row.id)} row={row} onPlayRecording={onPlayRecording} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LiveClassRow({
+  row,
+  onPlayRecording,
+}: {
+  row: Record<string, unknown>;
+  onPlayRecording: (row: Record<string, unknown>) => void;
+}) {
   const title = asString(row.title) || 'Live Class';
-  const date = asString(row.date);
-  const fromTime = asString(row.from_time);
-  const toTime = asString(row.to_time);
+  const date = formatLiveClassDate(asString(row.date));
+  const fromTime = shortTime(asString(row.from_time));
+  const toTime = shortTime(asString(row.to_time));
   const subject = asString(row.subject_title);
-  const cohortCode = asString(row.cohort_code);
+  const cohortCode = normalizeCohortCode(asString(row.cohort_code));
   const instructor = asString(row.instructor_name);
   const joinUrl = asString(row.join_url);
   const recordingUrl = asString(row.recording_url);
   const status = asString(row.status);
-  const hasRecording = row.has_recording === true;
+  const hasRecording = row.has_recording === true && Boolean(recordingUrl);
   const isPast = status === 'past';
   const isToday = status === 'today';
 
@@ -913,7 +1023,7 @@ function LiveClassRow({ row }: { row: Record<string, unknown> }) {
         ) : null}
         {instructor ? <span className="opacity-80">{instructor}</span> : null}
       </div>
-      {(joinUrl && !isPast) || (hasRecording && recordingUrl) ? (
+      {(joinUrl && !isPast) || hasRecording ? (
         <div className="mt-2 flex items-center gap-2">
           {joinUrl && !isPast ? (
             <a
@@ -926,16 +1036,15 @@ function LiveClassRow({ row }: { row: Record<string, unknown> }) {
               Join
             </a>
           ) : null}
-          {hasRecording && recordingUrl ? (
-            <a
-              href={recordingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+          {hasRecording ? (
+            <button
+              type="button"
+              onClick={() => onPlayRecording(row)}
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-student-text hover:bg-slate-50"
             >
               <PlayCircle aria-hidden="true" className="size-3" />
               Recording
-            </a>
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -966,6 +1075,16 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
                 allow="autoplay; fullscreen; picture-in-picture"
                 allowFullScreen
               />
+            </div>
+          ) : content.type === 'mp4' ? (
+            // Live-class recordings come back as signed MP4 URLs from
+            // DO Spaces — iframe won't render those, so use the native
+            // video element with controls.
+            <div className="aspect-video w-full">
+              <video key={content.id} controls className="size-full bg-black">
+                <source src={content.url} type="video/mp4" />
+                Your browser does not support video playback.
+              </video>
             </div>
           ) : content.type === 'audio' ? (
             <div className="bg-white p-4">
