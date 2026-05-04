@@ -376,6 +376,35 @@ export function registerEngagementRoutes(
     }
   });
 
+  // Returns a playable URL for a live-class recording the student can
+  // access — either a freshly-signed DO Spaces URL (when the recording
+  // was synced from Microsoft Graph) or the legacy external link.
+  app.get('/student/live_classes/recording-url', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const liveClassId = toStringValue(payload.id);
+      const target = await engagementService.getStudentLiveRecordingTarget(requestUserId(request), liveClassId);
+      if (!target) {
+        reply.code(404).send({ status: 0, message: 'Recording not available yet for this session.' });
+        return;
+      }
+      if (target.kind === 'url') {
+        reply.code(200).send({ status: 1, data: { url: target.url, expiresInSeconds: 0 } });
+        return;
+      }
+      const storage = options.storage as { createSignedDownloadUrl: (input: { key: string; expiresInSeconds: number }) => Promise<string> } | undefined;
+      if (!storage) {
+        reply.code(503).send({ status: 0, message: 'Storage provider not configured.' });
+        return;
+      }
+      const expiresInSeconds = 3600;
+      const url = await storage.createSignedDownloadUrl({ key: target.key, expiresInSeconds });
+      reply.code(200).send({ status: 1, data: { url, expiresInSeconds } });
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
   app.get('/support/get_messages', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const messages = await engagementService.getSupportMessages(requestUserId(request));

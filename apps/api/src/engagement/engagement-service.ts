@@ -1322,6 +1322,51 @@ export class EngagementService {
     });
   }
 
+  // Resolve the recording target for a live class IF the calling student
+  // is enrolled in that cohort. Returns the same shape the admin route
+  // returns: { kind: 'key', key } for storage-backed recordings,
+  // { kind: 'url', url } for external links, or null when nothing's
+  // available.
+  async getStudentLiveRecordingTarget(
+    userId: string,
+    liveClassId: string,
+  ): Promise<{ kind: 'key'; key: string } | { kind: 'url'; url: string } | null> {
+    const userIdInt = toNullableIntId(userId);
+    const liveIdInt = toNullableIntId(liveClassId);
+    if (userIdInt === null || liveIdInt === null) return null;
+
+    const live = await this.prisma.live_class.findFirst({
+      where: { id: liveIdInt, deleted_at: null },
+      select: {
+        cohort_id: true,
+        recording_storage_key: true,
+        recording_url: true,
+        video_url: true,
+      },
+    });
+    if (!live || live.cohort_id === null) return null;
+
+    // Verify enrolment — either numeric id match OR legacy text-code match
+    // (mirrors the dual-format lookup used elsewhere).
+    const cohortIdNumStr = String(live.cohort_id);
+    const cohortRow = await this.prisma.cohorts.findFirst({
+      where: { id: live.cohort_id, deleted_at: null },
+      select: { id: true, cohort_id: true },
+    });
+    const cohortRefs = [cohortIdNumStr];
+    if (cohortRow?.cohort_id) cohortRefs.push(cohortRow.cohort_id);
+    const enrolment = await this.prisma.cohort_students.findFirst({
+      where: { user_id: userIdInt, cohort_id: { in: cohortRefs }, deleted_at: null },
+      select: { id: true },
+    });
+    if (!enrolment) return null;
+
+    if (live.recording_storage_key) return { kind: 'key', key: live.recording_storage_key };
+    const fallback = live.recording_url || live.video_url;
+    if (fallback && /^https?:\/\//i.test(fallback)) return { kind: 'url', url: fallback };
+    return null;
+  }
+
   async getSupportMessages(userId: string): Promise<Record<string, unknown>[]> {
     if (!userId) {
       return [];

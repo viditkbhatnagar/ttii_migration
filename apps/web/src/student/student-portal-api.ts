@@ -392,6 +392,16 @@ export class StudentPortalApi {
       .filter((entry): entry is Record<string, unknown> => entry !== null);
   }
 
+  async getLiveRecordingUrl(authToken: string, liveClassId: string): Promise<string> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      '/student/live_classes/recording-url',
+      authToken,
+      { id: liveClassId },
+    );
+    const data = asRecord(payload.data) ?? {};
+    return asString(data.url);
+  }
+
   async loadLearning(authToken: string): Promise<StudentLearningSnapshot> {
     const [coursesPayload, catalogPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),

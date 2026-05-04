@@ -22,6 +22,7 @@ import {
   Clock,
   Circle,
   CircleDot,
+  FileType2,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
@@ -30,13 +31,15 @@ import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.j
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
-// Map file type → icon. Naji 2026-05-04: every content type should look
-// distinct in the timeline (video / audio / pdf / quiz / url / file).
+// Map file type → icon. Naji 2026-05-04 / 05-05: every content type
+// should look distinct. PDF and article were sharing FileText so they
+// were impossible to tell apart in the timeline — PDF now uses FileType2
+// (the doc icon with a label corner).
 function getFileTypeIcon(type: string) {
   const lower = type.toLowerCase();
   if (lower === 'video' || lower === 'youtube_video' || lower === 'vimeo_video') return Video;
   if (lower === 'audio') return Headphones;
-  if (lower === 'pdf') return FileText;
+  if (lower === 'pdf') return FileType2;
   if (lower === 'quiz') return FileQuestion;
   if (lower === 'article') return FileText;
   if (lower === 'url') return Globe;
@@ -53,12 +56,18 @@ function getFileTypeIcon(type: string) {
 function pickFileType(file: Record<string, unknown>): string {
   const lessonType = asString(file.lesson_type).toLowerCase();
   const attachmentType = asString(file.attachment_type).toLowerCase();
-  // 'doc' / 'document' are legacy aliases the PHP LMS used for articles —
-  // normalise them so the timeline icon, badge and content player all
-  // treat them as articles (Naji 2026-05-05: "enabled doc is not opening
-  // in right side" was caused by these falling through as 'other' which
-  // resolveSelectedContent rejected for lack of a URL).
-  const normalize = (t: string) => (t === 'doc' || t === 'document' ? 'article' : t);
+  // 'doc' is the legacy PHP alias for an article (Word-like body text);
+  // 'document' is ambiguous — admins use it for PDFs that they uploaded
+  // as a generic file. Naji 2026-05-05: PDFs stored as 'document' were
+  // being misrouted as articles (same icon + tried to render description
+  // instead of the file). Decide by URL extension when type is generic.
+  const attachmentUrl = asString(file.attachment_url) || asString(file.attachment);
+  const looksLikePdf = /\.pdf($|\?)/i.test(attachmentUrl);
+  const normalize = (t: string): string => {
+    if (t === 'doc') return 'article';
+    if (t === 'document') return looksLikePdf ? 'pdf' : 'article';
+    return t;
+  };
   const semantic = new Set(['video', 'audio', 'pdf', 'quiz', 'article', 'practice']);
   const ln = normalize(lessonType);
   const an = normalize(attachmentType);
@@ -215,19 +224,26 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     if (resolved) setSelectedContent(resolved);
   };
 
-  // Naji 2026-05-04: clicking "Recording" on a past live class should
-  // play the MP4 inside the right-pane player instead of opening it
-  // in a new tab.
+  // Naji 2026-05-04 / 05-05: clicking "Recording" on a past live class
+  // resolves a fresh signed URL (DO Spaces recordings rotate every hour)
+  // and plays the MP4 inside the right-pane player. The earlier version
+  // tried to play the stale `recording_url` from the list payload —
+  // signed URL had usually expired by then so the <video> element drew
+  // a black frame with no source.
   const handlePlayRecording = (row: Record<string, unknown>) => {
-    const url = asString(row.recording_url);
-    if (!url) return;
-    setSelectedContent({
-      id: `live-${asString(row.id)}`,
-      title: asString(row.title) || 'Recording',
-      type: 'mp4',
-      url,
-      description: asString(row.subject_title) || '',
-    });
+    const liveClassId = asString(row.id);
+    if (!liveClassId) return;
+    void (async () => {
+      const url = await api.getLiveRecordingUrl(session.token, liveClassId).catch(() => '');
+      if (!url) return;
+      setSelectedContent({
+        id: `live-${liveClassId}`,
+        title: asString(row.title) || 'Recording',
+        type: 'mp4',
+        url,
+        description: asString(row.subject_title) || '',
+      });
+    })();
   };
 
   const handleOpenCourse = (courseId: string) => {
