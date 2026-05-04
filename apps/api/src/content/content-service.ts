@@ -357,7 +357,15 @@ export interface LessonMaterialFilter {
 }
 
 export class ContentService {
-  private readonly appBaseUrl = env.APP_BASE_URL.replace(/\/$/, '');
+  // Production env still has APP_BASE_URL=https://api.teachersindia.in
+  // — a host with no DNS record on the new infra. Every URL built with
+  // appBaseUrl was 404'ing (PDFs, quiz_link, practice_link, dummy_user
+  // image). Rewrite once at construction time so every consumer is
+  // safe; toFileUrl also applies the same rewrite for absolute paths
+  // already baked into the database. Naji 2026-05-05.
+  private readonly appBaseUrl = env.APP_BASE_URL
+    .replace(/\/$/, '')
+    .replace(/^https?:\/\/api\.teachersindia\.in/i, 'https://lms.teachersindia.in');
 
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
