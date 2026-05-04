@@ -367,11 +367,20 @@ export class ContentService {
       return '';
     }
 
+    // Naji 2026-05-05: production prefixes paths with APP_BASE_URL,
+    // which legacy data set to https://api.teachersindia.in — a host
+    // that has no DNS record on the new infra. Real uploads are
+    // served from https://lms.teachersindia.in/uploads/... Rewrite
+    // both absolute legacy URLs AND newly-built URLs through the
+    // alive host so PDFs / images render.
+    const rewriteDeadHost = (url: string) =>
+      url.replace(/^https?:\/\/api\.teachersindia\.in/i, 'https://lms.teachersindia.in');
+
     if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-      return normalized;
+      return rewriteDeadHost(normalized);
     }
 
-    return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
+    return rewriteDeadHost(`${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`);
   }
 
   private async getUserById(userId: string) {

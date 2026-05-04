@@ -236,13 +236,27 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     void (async () => {
       const url = await api.getLiveRecordingUrl(session.token, liveClassId).catch(() => '');
       if (!url) return;
-      setSelectedContent({
-        id: `live-${liveClassId}`,
-        title: asString(row.title) || 'Recording',
-        type: 'mp4',
-        url,
-        description: asString(row.subject_title) || '',
-      });
+      // Live recordings come back in two shapes:
+      //   - Vimeo / YouTube URL (legacy: `video_url` field on live_class)
+      //   - Direct MP4 (new: signed DO Spaces URL from recording_storage_key)
+      // Vimeo/YouTube must use the iframe embed, not a <video> element.
+      const isVimeoOrYouTube = /vimeo\.com|youtube\.com|youtu\.be/.test(url);
+      const playable: SelectedContent = isVimeoOrYouTube
+        ? {
+            id: `live-${liveClassId}`,
+            title: asString(row.title) || 'Recording',
+            type: 'video',
+            url: toEmbeddableVideoUrl(url),
+            description: asString(row.subject_title) || '',
+          }
+        : {
+            id: `live-${liveClassId}`,
+            title: asString(row.title) || 'Recording',
+            type: 'mp4',
+            url,
+            description: asString(row.subject_title) || '',
+          };
+      setSelectedContent(playable);
     })();
   };
 
@@ -815,6 +829,18 @@ function FileNode({
   const Icon = getFileTypeIcon(fileType);
   const locked = isLocked(file);
   const playable = !locked && resolveSelectedContent(file) !== null;
+  // Naji 2026-05-05: PDF and article looked identical at small size
+  // because both icons were neutral slate. Tint PDFs red (the
+  // conventional PDF brand colour) so they read at a glance; quizzes
+  // get a purple tint, audio amber, video blue. Articles stay slate.
+  const iconTint = (() => {
+    if (fileType === 'pdf') return 'text-red-500';
+    if (fileType === 'quiz') return 'text-purple-500';
+    if (fileType === 'audio') return 'text-amber-500';
+    if (fileType === 'video') return 'text-blue-500';
+    if (fileType === 'url') return 'text-cyan-500';
+    return 'text-slate-500';
+  })();
   // Naji 2026-05-04: replace the right-side type badge with a
   // completion status indicator (tick when done, dot when in progress,
   // empty circle when not started).
@@ -844,7 +870,7 @@ function FileNode({
         }`}
         title={locked ? 'Locked — complete the previous lesson first' : 'Content link not available'}
       >
-        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
+        <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${iconTint} opacity-60`} />
         <span className="flex-1 truncate text-student-muted">{title}</span>
         <StatusIcon aria-hidden="true" className={`size-3.5 shrink-0 ${statusTint}`} />
       </div>
@@ -861,7 +887,7 @@ function FileNode({
           : 'hover:bg-slate-50'
       }`}
     >
-      <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${isActive ? 'text-student-primary' : 'text-slate-500'}`} />
+      <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${isActive ? 'text-student-primary' : iconTint}`} />
       <span className="flex-1 truncate font-medium text-student-text">{title}</span>
       <StatusIcon aria-hidden="true" className={`size-3.5 shrink-0 ${statusTint}`} />
     </button>
@@ -1081,10 +1107,11 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
   // it) and the title + description sit BELOW so the bottom space is
   // useful instead of empty. Open-in-new-tab and Close move into the
   // info row to keep the chrome out of the way.
-  // Article + quiz types don't use the dark video frame — articles
-  // render their content (description) inline; quizzes show a launch
-  // CTA pointing at the legacy practice player.
-  const showTopFrame = content.type !== 'article' && content.type !== 'quiz';
+  // Article doesn't use the dark video frame — it renders inline as
+  // an HTML article body. Quiz embeds the legacy practice player as
+  // an iframe in place of the video frame so the student takes the
+  // quiz inside the LMS rather than in a new tab (Naji 2026-05-05).
+  const showTopFrame = content.type !== 'article';
   return (
     <div>
       {showTopFrame ? (
@@ -1117,6 +1144,16 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
                 Your browser does not support audio playback.
               </audio>
             </div>
+          ) : content.type === 'quiz' && content.url ? (
+            // Quiz iframes the legacy practice player so students take
+            // the quiz inside the LMS instead of being shoved to a new
+            // tab. Naji 2026-05-05.
+            <iframe
+              key={content.id}
+              src={content.url}
+              title={content.title}
+              className="h-[70vh] w-full bg-white"
+            />
           ) : (
             <iframe
               key={content.id}
@@ -1169,26 +1206,18 @@ function ContentPlayer({ content, onClose }: { content: SelectedContent; onClose
             <p className="text-xs italic text-slate-400">This article has no body yet.</p>
           )
         ) : content.type === 'quiz' ? (
-          <div className="space-y-3">
-            {content.description ? (
+          // Quiz body is the embedded iframe above. Footer just shows
+          // the description (if any) or a "open in new tab" fallback
+          // when the URL is missing.
+          content.url ? (
+            content.description ? (
               <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
                 {stripHtml(content.description)}
               </p>
-            ) : null}
-            {content.url ? (
-              <a
-                href={content.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-md bg-student-primary px-4 py-2 text-sm font-semibold text-white hover:bg-student-primary/90"
-              >
-                <FileQuestion aria-hidden="true" className="size-4" />
-                Start Quiz
-              </a>
-            ) : (
-              <p className="text-xs italic text-slate-400">Quiz link is not configured for this lesson item.</p>
-            )}
-          </div>
+            ) : null
+          ) : (
+            <p className="text-xs italic text-slate-400">Quiz link is not configured for this lesson item.</p>
+          )
         ) : content.description ? (
           // Strip HTML tags for non-article descriptions so the right pane
           // doesn't show "<p>...</p>" verbatim — Naji 2026-05-04.
