@@ -2229,6 +2229,36 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // ─── Lead → Enrolment workflow (Naji 2026-05-05) ─────────────────
+  app.post('/admin/leads/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addLead(requestUserId(request), {
+        name: toStringValue(payload.name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        countryCode: toStringValue(payload.country_code),
+        courseId: toStringValue(payload.course_id),
+        offeringId: toStringValue(payload.offering_id),
+        combinationId: toStringValue(payload.combination_id),
+        source: toStringValue(payload.source),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/leads/list', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listLeads(requestUserId(request), {
+        stage: toStringValue(payload.stage) || undefined,
+        courseId: toStringValue(payload.course_id) || undefined,
+        search: toStringValue(payload.search) || undefined,
+      });
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/applications/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

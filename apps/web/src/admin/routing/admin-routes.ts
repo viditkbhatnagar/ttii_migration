@@ -32,6 +32,7 @@ const EntranceExamRegistrationsPage = lazy(() => import('../pages/entrance_exam/
 const EntranceExamResultsPage = lazy(() => import('../pages/entrance_exam/EntranceExamResultsPage.js'));
 const ApplicationsPage = lazy(() => import('../pages/applications/ApplicationsPage.js'));
 const AddApplicationPage = lazy(() => import('../pages/applications/AddApplicationPage.js'));
+const AddLeadPage = lazy(() => import('../pages/applications/AddLeadPage.js'));
 const ViewApplicationPage = lazy(() => import('../pages/applications/ViewApplicationPage.js'));
 const StudentsPage = lazy(() => import('../pages/students/StudentsPage.js'));
 const ViewStudentPage = lazy(() => import('../pages/students/ViewStudentPage.js'));
@@ -130,6 +131,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Learner Management
   { path: '/admin/applications/index', aliases: ['/admin/applications'], pageComponent: ApplicationsPage, title: 'Applications' },
   { path: '/admin/applications/add', pageComponent: AddApplicationPage, title: 'Add Application' },
+  { path: '/admin/leads/add', pageComponent: AddLeadPage, title: 'Add Lead' },
   { path: '/admin/applications/view/:id', pageComponent: ViewApplicationPage, title: 'View Application' },
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },
   { path: '/admin/students/view/:id', pageComponent: ViewStudentPage, title: 'View Student' },

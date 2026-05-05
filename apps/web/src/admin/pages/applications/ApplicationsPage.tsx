@@ -216,8 +216,8 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
     <div>
       <AdminPageHeader
         title="Applications"
-        addLabel="Add Application"
-        onAdd={() => onNavigate('/admin/applications/add')}
+        addLabel="+ Add Lead"
+        onAdd={() => onNavigate('/admin/leads/add')}
       />
 
       <AdminFilterBar

@@ -4700,6 +4700,203 @@ export class OperationsService {
     };
   }
 
+  // ─── Lead → Enrolment workflow (Naji 2026-05-05) ─────────────────
+  // Step 1: Add Lead. Minimal capture — Name / Email / Phone / Course /
+  // Offering / Combination / Source. The pipeline + pipeline_user_id are
+  // auto-stamped from the logged-in user (no manual choice). Duplicate
+  // handling per Naji's spec:
+  //   - Same email + same course already a lead → block.
+  //   - Same email already a Student in a different course → return
+  //     `duplicate_student_other_course` so the UI can show the
+  //     "enrol to second course" dialog.
+  //   - Same email already a Student in the target course → block.
+  async addLead(
+    actorUserId: string,
+    input: {
+      name: string;
+      email: string;
+      phone: string;
+      countryCode?: string;
+      courseId: string;
+      offeringId?: string;
+      combinationId?: string;
+      source?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    const name = input.name.trim();
+    const email = input.email.trim().toLowerCase();
+    const phone = input.phone.trim();
+    const courseIdInt = toNullableIntId(input.courseId);
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { id: true, role_id: true, name: true },
+    });
+    if (!name) return { status: 0, message: 'Name is required.' };
+    if (!email) return { status: 0, message: 'Email is required.' };
+    if (!phone) return { status: 0, message: 'Phone is required.' };
+    if (!courseIdInt) return { status: 0, message: 'Course is required.' };
+    if (!actor) return { status: 0, message: 'Actor user not found.' };
+
+    // 1) Already a lead for the same course?
+    const existingLead = await this.prisma.applications.findFirst({
+      where: {
+        deleted_at: null,
+        user_email: email,
+        course_id: courseIdInt,
+        stage: { not: 'enrolled' },
+      },
+      select: { id: true, stage: true },
+    });
+    if (existingLead) {
+      return {
+        status: 0,
+        code: 'duplicate_lead_same_course',
+        message: 'A lead with this email already exists for this course.',
+      };
+    }
+
+    // 2) Already a Student? Check `users` (role 2) AND check if they're
+    //    enrolled in the target course via `enrol`.
+    const studentUser = await this.prisma.users.findFirst({
+      where: {
+        deleted_at: null,
+        role_id: 2,
+        OR: [{ email }, { user_email: email }],
+      },
+      select: { id: true },
+    });
+    if (studentUser) {
+      const alreadyEnrolled = await this.prisma.enrol.findFirst({
+        where: {
+          user_id: studentUser.id,
+          course_id: courseIdInt,
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+      if (alreadyEnrolled) {
+        return {
+          status: 0,
+          code: 'duplicate_student_same_course',
+          message: 'This student is already enrolled in the selected course.',
+        };
+      }
+      // Different course — surface the dialog so admin/counsellor can
+      // confirm enrolling them to the second course.
+      return {
+        status: 2,
+        code: 'duplicate_student_other_course',
+        message: 'This email is already a student. Enrol them to the new course?',
+        data: { existing_user_id: studentUser.id },
+      };
+    }
+
+    const roleLabel: Record<number, string> = {
+      1: 'Super Admin',
+      8: 'Admin',
+      9: 'Counsellor',
+      10: 'Associate',
+    };
+    const pipeline = (actor.role_id !== null && roleLabel[actor.role_id]) || 'Admin';
+
+    const now = new Date();
+    const created = await this.prisma.applications.create({
+      data: {
+        application_id: `APP-${Date.now()}`,
+        name,
+        phone,
+        email: phone, // legacy column quirk: `email` was reused for phone
+        user_email: email,
+        country_code: input.countryCode ? `+${input.countryCode.replace(/^\+/, '')}` : '+91',
+        course_id: courseIdInt,
+        offering_id: input.offeringId ? toNullableIntId(input.offeringId) : null,
+        certificate_combination_id: input.combinationId ? toNullableIntId(input.combinationId) : null,
+        marketing_source: input.source?.trim() || null,
+        lead_source: input.source?.trim() || null,
+        pipeline,
+        pipeline_user: actor.id,
+        stage: 'lead',
+        image: '',
+        second_code: 0,
+        second_phone: '',
+        whatsapp_no: 0,
+        created_at: now,
+        updated_at: now,
+        created_by: actor.id,
+      },
+    });
+
+    return {
+      status: 1,
+      message: 'Lead added.',
+      data: { application_id: created.id, stage: 'lead' },
+    };
+  }
+
+  async listLeads(
+    actorUserId: string,
+    options?: { stage?: string | undefined; courseId?: string | undefined; search?: string | undefined },
+  ): Promise<Record<string, unknown>[]> {
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { id: true, role_id: true },
+    });
+    if (!actor) return [];
+
+    // Counsellor scoping (Naji 2026-05-05): counsellors see only their
+    // own leads. Admin / Super Admin see everything.
+    const where: Prisma.applicationsWhereInput = { deleted_at: null };
+    if (actor.role_id === 9) where.pipeline_user = actor.id;
+    if (options?.stage) where.stage = options.stage;
+    if (options?.courseId) {
+      const cid = toNullableIntId(options.courseId);
+      if (cid !== null) where.course_id = cid;
+    }
+    if (options?.search?.trim()) {
+      const q = options.search.trim();
+      where.OR = [{ name: { contains: q } }, { user_email: { contains: q } }, { phone: { contains: q } }];
+    }
+
+    const rows = await this.prisma.applications.findMany({
+      where,
+      orderBy: { id: 'desc' },
+      take: 500,
+    });
+    const courseIds = [...new Set(rows.map((r) => r.course_id).filter((v): v is number => v !== null))];
+    const userIds = [...new Set(rows.map((r) => r.pipeline_user).filter((v): v is number => v !== null))];
+    const offeringIds = [...new Set(rows.map((r) => r.offering_id).filter((v): v is number => v !== null))];
+    const [courses, users, offerings] = await Promise.all([
+      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+      offeringIds.length > 0 ? this.prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true } }) : [],
+    ]);
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    const userMap = new Map(users.map((u) => [u.id, u.name ?? '']));
+    const offeringMap = new Map(offerings.map((o) => [o.id, o.title ?? '']));
+
+    return rows.map((r) => ({
+      id: r.id,
+      application_id: r.application_id,
+      name: r.name,
+      email: r.user_email,
+      phone: r.phone,
+      stage: r.stage ?? 'lead',
+      course_id: r.course_id,
+      course_title: r.course_id ? courseMap.get(r.course_id) ?? null : null,
+      offering_id: r.offering_id,
+      offering_title: r.offering_id ? offeringMap.get(r.offering_id) ?? null : null,
+      combination_id: r.certificate_combination_id,
+      pipeline: r.pipeline,
+      pipeline_user: r.pipeline_user,
+      pipeline_user_name: r.pipeline_user ? userMap.get(r.pipeline_user) ?? null : null,
+      source: r.lead_source ?? r.marketing_source,
+      payment_status: r.payment_status,
+      payment_link_url: r.payment_link_url,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }));
+  }
+
   async createApplication(actorUserId: string, input: AdminApplicationInput): Promise<Record<string, unknown>> {
     if (!input.firstName.trim()) return { status: 0, message: 'First name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };

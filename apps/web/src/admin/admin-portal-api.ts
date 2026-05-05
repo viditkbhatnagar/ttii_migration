@@ -2214,6 +2214,31 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/offerings/delete', authToken, { id });
   }
 
+  // ── Lead → Enrolment workflow (Naji 2026-05-05) ────────────────
+  async addLead(
+    authToken: string,
+    input: {
+      name: string;
+      email: string;
+      phone: string;
+      country_code?: string | undefined;
+      course_id: string;
+      offering_id?: string | undefined;
+      combination_id?: string | undefined;
+      source?: string | undefined;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/leads/add', authToken, input);
+  }
+
+  async listLeads(
+    authToken: string,
+    filters?: { stage?: string; course_id?: string; search?: string },
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/leads/list', authToken, filters);
+    return toRecords(payload.data);
+  }
+
   // ── File Upload ────────────────────────────────────────────────
 
   async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
