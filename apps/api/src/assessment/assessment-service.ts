@@ -1844,10 +1844,14 @@ export class AssessmentService {
       where: { lesson_file_id: lessonFileIdInt, deleted_at: null },
     });
     const now = new Date();
+    // practice_attempt.lesson_id and .question_id are LONGTEXT columns
+    // with a CHECK (json_valid(...)) constraint — they must hold JSON,
+    // not raw values. Legacy data: lesson_id = '["23"]', question_id =
+    // '["10","11","12"]'. Mirror that shape.
     const created = await this.prisma.practice_attempt.create({
       data: {
         user_id: userIdInt,
-        lesson_id: lessonFile.lesson_id !== null ? String(lessonFile.lesson_id) : null,
+        lesson_id: lessonFile.lesson_id !== null ? JSON.stringify([String(lessonFile.lesson_id)]) : null,
         lesson_file_id: String(lessonFileIdInt),
         question_no: total,
         start_time: now,
@@ -1950,9 +1954,8 @@ export class AssessmentService {
         submit_status: true,
         updated_at: now,
         updated_by: userIdInt,
-        question_id: input.answers
-          .map((a) => String(a.question_id))
-          .join(','),
+        // CHECK (json_valid(question_id)) — must be a JSON array.
+        question_id: JSON.stringify(input.answers.map((a) => String(a.question_id))),
       },
     });
 
