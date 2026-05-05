@@ -2342,24 +2342,11 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  // Razorpay webhook. Public route (no auth) but signature-verified.
-  app.post('/webhooks/razorpay', async (request, reply) => {
-    try {
-      const signature = (request.headers['x-razorpay-signature'] as string | undefined) ?? '';
-      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
-      const { createIntegrationRegistry } = await import('../integrations/registry.js');
-      const registry = createIntegrationRegistry();
-      const ok = registry.payment.verifyWebhookSignature({ payload: rawBody, signature });
-      if (!ok) {
-        reply.code(401).send({ status: 0, message: 'Invalid signature' });
-        return;
-      }
-      const parsed = (typeof request.body === 'string' ? JSON.parse(request.body) : request.body) as Record<string, unknown>;
-      const eventName = toStringValue(parsed.event);
-      await operationsService.handleRazorpayWebhook(eventName, parsed);
-      reply.code(200).send({ status: 1, message: 'ok' });
-    } catch (error: unknown) { sendOperationsError(reply, error); }
-  });
+  // Razorpay webhook is registered by the commerce route plugin
+  // (apps/api/src/routes/commerce.ts:193). It signature-verifies and
+  // 200-acks fast. Application stage transitions for `payment_link.paid`
+  // are dispatched from THERE via operationsService.handleRazorpayWebhook
+  // — see commerce.ts. We can't re-declare the same path here.
 
   app.post('/admin/applications/counsellor-approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {

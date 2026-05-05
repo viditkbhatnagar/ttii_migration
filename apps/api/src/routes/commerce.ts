@@ -214,6 +214,25 @@ export function registerCommerceRoutes(
       return;
     }
 
+    // Dispatch `payment_link.paid` to the operations service so the
+    // application stage transitions (Naji 2026-05-05). Best-effort —
+    // we still ack 200 even if the dispatcher throws, because Razorpay
+    // retries non-2xx for hours and the link state is recoverable
+    // from the application list (admin can manually mark paid).
+    try {
+      const parsed = typeof request.body === 'string'
+        ? (JSON.parse(request.body) as Record<string, unknown>)
+        : ((request.body ?? {}) as Record<string, unknown>);
+      const eventName = typeof parsed.event === 'string' ? parsed.event : '';
+      if (eventName === 'payment_link.paid') {
+        const { OperationsService } = await import('../operations/operations-service.js');
+        const ops = new OperationsService();
+        await ops.handleRazorpayWebhook(eventName, parsed);
+      }
+    } catch {
+      // swallow — ack to Razorpay anyway
+    }
+
     // Acknowledge fast — Razorpay retries non-2xx for hours.
     reply.code(200).send({ status: 1, message: 'received' });
   });
