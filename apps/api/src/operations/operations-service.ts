@@ -4906,6 +4906,127 @@ export class OperationsService {
     }));
   }
 
+  // Phase G (Naji 2026-05-05): notification dispatcher. Single entry
+  // point so every stage transition in this file fires the right
+  // emails to student / counsellor / admin per the locked spec.
+  private async notifyApplicationEvent(
+    applicationId: number,
+    event:
+      | 'payment_received'
+      | 'form_submitted'
+      | 'rejected'
+      | 'enrolment_confirmed',
+  ): Promise<void> {
+    try {
+      const app = await this.prisma.applications.findFirst({
+        where: { id: applicationId, deleted_at: null },
+        select: {
+          id: true, name: true, user_email: true, course_id: true,
+          pipeline_user: true, rejection_reason: true,
+        },
+      });
+      if (!app) return;
+      const courseTitle = app.course_id
+        ? (await this.prisma.course.findFirst({ where: { id: app.course_id }, select: { title: true } }))?.title ?? ''
+        : '';
+      const counsellor = app.pipeline_user
+        ? await this.prisma.users.findFirst({
+            where: { id: app.pipeline_user, deleted_at: null },
+            select: { id: true, name: true, user_email: true, email: true },
+          })
+        : null;
+      const admins = await this.prisma.users.findMany({
+        where: { deleted_at: null, role_id: { in: [1, 8] }, status: 1 },
+        select: { id: true, name: true, user_email: true, email: true },
+      });
+      const { createIntegrationRegistry } = await import('../integrations/registry.js');
+      const registry = createIntegrationRegistry();
+      const studentEmail = app.user_email ?? '';
+      const counsellorEmail = counsellor?.user_email ?? counsellor?.email ?? '';
+      const adminEmails = admins
+        .map((a) => a.user_email ?? a.email ?? '')
+        .filter((e) => e !== '');
+
+      const send = async (to: string, subject: string, body: string) => {
+        if (!to) return;
+        try {
+          await registry.email.sendEmail({ to, subject, html: body });
+        } catch {
+          // best-effort
+        }
+      };
+
+      const courseLine = courseTitle
+        ? `<p><strong>Course:</strong> ${escapeHtmlText(courseTitle)}</p>`
+        : '';
+      const wrap = (heading: string, body: string) => `<!DOCTYPE html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;"><div style="max-width:560px;margin:0 auto;padding:24px;"><h2 style="color:#8F2774;margin:0 0 8px;">${escapeHtmlText(heading)}</h2>${body}<p style="color:#6b7280;font-size:13px;margin-top:24px;">— Teachers' Training Institute of India</p></div></body></html>`;
+
+      switch (event) {
+        case 'payment_received': {
+          await send(studentEmail, 'Payment received',
+            wrap('Payment received',
+              `<p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>${courseLine}<p>We have received your payment. Your counsellor will share the application form shortly.</p>`,
+            ));
+          if (counsellorEmail) {
+            await send(counsellorEmail, 'Payment received from a lead',
+              wrap('Payment received',
+                `<p>${escapeHtmlText(app.name ?? '')} has paid the registration fee for ${escapeHtmlText(courseTitle)}. You can now send the application form.</p>`,
+              ));
+          }
+          break;
+        }
+        case 'form_submitted': {
+          await send(studentEmail, 'Application received',
+            wrap('Application received',
+              `<p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>${courseLine}<p>Thank you. Your application has been submitted. We will email you once it has been reviewed.</p>`,
+            ));
+          if (counsellorEmail) {
+            await send(counsellorEmail, 'Application form received from your lead',
+              wrap('Application received',
+                `<p>${escapeHtmlText(app.name ?? '')} has submitted their application for ${escapeHtmlText(courseTitle)}. Please review and approve.</p>`,
+              ));
+          }
+          for (const admEmail of adminEmails) {
+            await send(admEmail, 'Application awaiting admin approval',
+              wrap('Awaiting admin approval',
+                `<p>An application from ${escapeHtmlText(app.name ?? '')} for ${escapeHtmlText(courseTitle)} has been verified by the counsellor and is awaiting admin approval.</p>`,
+              ));
+          }
+          break;
+        }
+        case 'rejected': {
+          const reason = app.rejection_reason ? `<p><strong>Reason:</strong> ${escapeHtmlText(app.rejection_reason)}</p>` : '';
+          await send(studentEmail, 'Application status update',
+            wrap('Application not approved',
+              `<p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>${courseLine}<p>Unfortunately your application was not approved at this time.</p>${reason}<p>Please reach out to your counsellor if you have any questions.</p>`,
+            ));
+          if (counsellorEmail) {
+            await send(counsellorEmail, 'Application rejected by Admin',
+              wrap('Rejected by Admin',
+                `<p>The application from ${escapeHtmlText(app.name ?? '')} for ${escapeHtmlText(courseTitle)} has been rejected by Admin.</p>${reason}`,
+              ));
+          }
+          break;
+        }
+        case 'enrolment_confirmed': {
+          await send(studentEmail, 'Welcome to TTII — your enrolment is confirmed',
+            wrap('Enrolment confirmed',
+              `<p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>${courseLine}<p>Your enrolment is confirmed. You can sign in at <a href="https://learn.teachersindia.in">learn.teachersindia.in</a> with the credentials you received from us.</p><p>If you didn't receive credentials, please reply to this email and your counsellor will resend them.</p>`,
+            ));
+          if (counsellorEmail) {
+            await send(counsellorEmail, 'Enrolment confirmed by Admin',
+              wrap('Enrolment confirmed',
+                `<p>${escapeHtmlText(app.name ?? '')} has been enrolled in ${escapeHtmlText(courseTitle)}.</p>`,
+              ));
+          }
+          break;
+        }
+      }
+    } catch {
+      // silent: notifications are best-effort
+    }
+  }
+
   // Phase D (Naji 2026-05-05): magic-link application form. Counsellor
   // generates a tokenised URL the student can fill without logging in.
   async generateApplicationFormToken(
@@ -5051,6 +5172,7 @@ export class OperationsService {
       where: { id: row.id },
       data: { used_at: now },
     });
+    await this.notifyApplicationEvent(row.application_id, 'form_submitted');
     return { status: 1, message: 'Application submitted.', data: { application_id: row.application_id } };
   }
 
@@ -5203,6 +5325,7 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.notifyApplicationEvent(id, 'payment_received');
     return { status: 1, message: 'Marked as paid.' };
   }
 
@@ -5231,6 +5354,7 @@ export class OperationsService {
         updated_at: now,
       },
     });
+    await this.notifyApplicationEvent(app.id, 'payment_received');
   }
 
   // Phase E (Naji 2026-05-05): approval + enrolment.
@@ -5355,6 +5479,7 @@ export class OperationsService {
     // paths (new + existing) once the email integration test is wired.
     void isNew;
 
+    await this.notifyApplicationEvent(id, 'enrolment_confirmed');
     return {
       status: 1,
       message: isNew
@@ -5381,6 +5506,7 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.notifyApplicationEvent(id, 'rejected');
     return { status: 1, message: 'Application rejected.' };
   }
 
@@ -5705,11 +5831,26 @@ export class OperationsService {
         })
       : [];
 
+    // Naji 2026-05-05: Bugs X1+X2 — surface ALL application-captured
+    // fields on the student profile so View and Edit are consistent
+    // and "age" / address / second-phone / emergency / biography
+    // / signature don't go missing after a student is enrolled.
     const studentWithPhoto = {
       ...user,
       image: photo,
       profile_picture: photo,
       date_of_birth: user.dob ?? application?.date_of_birth ?? null,
+      age: application?.age ?? null,
+      gender: user.gender ?? application?.gender ?? null,
+      biography: application?.biography ?? null,
+      learning_disabilities: application?.learning_disabilities ?? null,
+      accessibility_needs: application?.accessibility_needs ?? null,
+      emergency_name: application?.emergency_name ?? null,
+      emergency_relation: application?.emergency_relation ?? null,
+      emergency_phone: application?.emergency_phone ?? null,
+      second_phone: application?.second_phone ?? null,
+      second_code: application?.second_code ?? null,
+      signature_data: application?.signature_data ?? null,
       address: application?.address ?? null,
       father_name: application?.father_name ?? null,
       mother_name: application?.mother_name ?? null,
