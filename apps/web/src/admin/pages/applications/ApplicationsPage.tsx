@@ -311,6 +311,24 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         },
       },
       {
+        label: 'Send Application Form Link',
+        onClick: (row) => {
+          void (async () => {
+            try {
+              const res = await api.generateApplicationFormLink(session.token, asString(row.id), 7);
+              const m = asString((res as { message?: unknown }).message) || '';
+              if ((res as { status?: number }).status === 1) {
+                toast.success(m || 'Form link emailed to student.');
+              } else {
+                toast.error(m || 'Could not generate form link.');
+              }
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed.');
+            }
+          })();
+        },
+      },
+      {
         label: 'Counsellor Approve',
         onClick: (row) => {
           void (async () => {

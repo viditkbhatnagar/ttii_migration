@@ -2259,6 +2259,49 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Phase D (Naji 2026-05-05): magic-link application form.
+  app.post('/admin/applications/form-link/generate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.generateApplicationFormToken(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toInteger(payload.expires_in_days) || 7,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Public routes (no auth) for the student-facing form.
+  app.get('/apply/:token', async (request, reply) => {
+    try {
+      const params = request.params as { token: string };
+      const result = await operationsService.getApplicationByToken(params.token);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/apply/:token/save-draft', async (request, reply) => {
+    try {
+      const params = request.params as { token: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const draftJson = JSON.stringify(body.draft ?? body);
+      const result = await operationsService.saveApplicationFormDraft(params.token, draftJson);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/apply/:token/submit', async (request, reply) => {
+    try {
+      const params = request.params as { token: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const formData = (body.form ?? {}) as Record<string, unknown>;
+      const signature = toStringValue(body.signature);
+      const result = await operationsService.submitApplicationForm(params.token, formData, signature);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/applications/payment-link/generate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

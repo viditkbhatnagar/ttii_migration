@@ -30,6 +30,7 @@ import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
+import PublicApplyPage from './public/PublicApplyPage.js';
 
 interface ShellMetric {
   label: string;
@@ -927,18 +928,32 @@ function PortalRouter({
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
   const { authApi, session } = useAuthState();
 
+  // Public Application Form (Naji 2026-05-05) — student receives a
+  // tokenised URL after the registration fee is confirmed; no login.
+  // Detected up-front; the early-return happens BELOW the hooks so
+  // hook order stays stable across renders.
+  const isPublicApply = pathname.startsWith('/apply/');
+  const applyToken = isPublicApply
+    ? (pathname.slice('/apply/'.length).split('/')[0] ?? '')
+    : '';
+
   // On subdomain, redirect root or wrong-portal paths to the correct portal —
   // but ONLY when the user is authenticated. Otherwise let `/` render the
   // login form; auto-redirecting an unauthenticated user to a protected path
   // lands them on the "Login required" guard screen instead of a login form.
   useEffect(() => {
+    if (isPublicApply) return;
     if (!subdomainPortal) return;
     if (!session) return;
     const redirect = getSubdomainRedirectPath(subdomainPortal, pathname);
     if (redirect) {
       navigateTo(redirect);
     }
-  }, [subdomainPortal, pathname, session]);
+  }, [isPublicApply, subdomainPortal, pathname, session]);
+
+  if (isPublicApply) {
+    return <PublicApplyPage token={applyToken} />;
+  }
 
   // Forgot Password flow — role_id is forwarded so multi-role accounts
   // (same email, e.g. Centre + Super Admin) hit the right user record.

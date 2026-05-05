@@ -4906,6 +4906,154 @@ export class OperationsService {
     }));
   }
 
+  // Phase D (Naji 2026-05-05): magic-link application form. Counsellor
+  // generates a tokenised URL the student can fill without logging in.
+  async generateApplicationFormToken(
+    actorUserId: string,
+    applicationId: string,
+    expiresInDays: number = 7,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({ where: { id, deleted_at: null }, select: { id: true, stage: true, user_email: true, name: true } });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (app.stage !== 'paid' && app.stage !== 'form_pending') {
+      return { status: 0, message: 'Application is not in a state that allows sending the form (must be Paid).' };
+    }
+    const token = (await import('node:crypto')).randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + expiresInDays * 86400 * 1000);
+    await this.prisma.application_form_tokens.create({
+      data: { application_id: id, token, expires_at: expiresAt, created_at: new Date() },
+    });
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: { stage: 'form_pending', updated_at: now, updated_by: actor },
+    });
+    // Email the student the link.
+    if (app.user_email) {
+      try {
+        const { createIntegrationRegistry } = await import('../integrations/registry.js');
+        const registry = createIntegrationRegistry();
+        const url = `https://learn.teachersindia.in/apply/${token}`;
+        const html = `<!DOCTYPE html>
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <h2 style="color:#8F2774;margin:0 0 8px;">Complete your TTII application</h2>
+    <p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>
+    <p>Your registration fee is received. Please complete your application form using the link below.</p>
+    <p><a href="${url}" style="display:inline-block;padding:10px 20px;background:#8F2774;color:#fff;text-decoration:none;border-radius:4px;">Open Application Form</a></p>
+    <p style="color:#6b7280;font-size:13px;">This link expires on ${expiresAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.</p>
+  </div>
+</body></html>`;
+        await registry.email.sendEmail({ to: app.user_email, subject: 'Complete your TTII application', html });
+      } catch {
+        // ignore; admin can resend
+      }
+    }
+    return { status: 1, message: 'Application form link generated and emailed.', data: { token, expires_at: expiresAt.toISOString() } };
+  }
+
+  async getApplicationByToken(token: string): Promise<Record<string, unknown>> {
+    if (!token) return { status: 0, message: 'Invalid token.' };
+    const row = await this.prisma.application_form_tokens.findFirst({
+      where: { token },
+      select: { id: true, application_id: true, expires_at: true, used_at: true, draft_data: true },
+    });
+    if (!row) return { status: 0, message: 'Token not found.' };
+    if (row.used_at) return { status: 0, message: 'This application has already been submitted.' };
+    if (row.expires_at < new Date()) return { status: 0, message: 'This link has expired.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id: row.application_id, deleted_at: null },
+      select: {
+        id: true, name: true, user_email: true, phone: true, country_code: true,
+        date_of_birth: true, gender: true, nationality: true, marital_status: true,
+        father_name: true, mother_name: true, guardian_name: true, aadhar_no: true, passport_no: true,
+        address: true, native_address: true, country_id: true, state: true, district: true,
+        highest_qualification: true, previous_school: true, year_of_passing: true,
+        percentage_or_grade: true, teaching_experience: true, employment_status: true,
+        organization_name: true, experience_years: true, designation: true,
+        course_id: true, offering_id: true,
+      },
+    });
+    if (!app) return { status: 0, message: 'Application missing.' };
+    let draft: unknown = null;
+    if (row.draft_data) {
+      try { draft = JSON.parse(row.draft_data); } catch { draft = null; }
+    }
+    return { status: 1, data: { application: app, draft } };
+  }
+
+  async saveApplicationFormDraft(token: string, draftJson: string): Promise<Record<string, unknown>> {
+    if (!token) return { status: 0, message: 'Invalid token.' };
+    const row = await this.prisma.application_form_tokens.findFirst({ where: { token }, select: { id: true, used_at: true, expires_at: true } });
+    if (!row) return { status: 0, message: 'Token not found.' };
+    if (row.used_at) return { status: 0, message: 'Already submitted.' };
+    if (row.expires_at < new Date()) return { status: 0, message: 'Link expired.' };
+    await this.prisma.application_form_tokens.update({
+      where: { id: row.id },
+      data: { draft_data: draftJson },
+    });
+    return { status: 1, message: 'Draft saved.' };
+  }
+
+  async submitApplicationForm(token: string, formData: Record<string, unknown>, signature: string): Promise<Record<string, unknown>> {
+    if (!token) return { status: 0, message: 'Invalid token.' };
+    const row = await this.prisma.application_form_tokens.findFirst({ where: { token }, select: { id: true, application_id: true, used_at: true, expires_at: true } });
+    if (!row) return { status: 0, message: 'Token not found.' };
+    if (row.used_at) return { status: 0, message: 'Already submitted.' };
+    if (row.expires_at < new Date()) return { status: 0, message: 'Link expired.' };
+    const f = formData;
+    const fullName = `${toStringValue(f.first_name)} ${toStringValue(f.last_name)}`.trim();
+    const now = new Date();
+    let age: number | null = null;
+    const dobStr = toStringValue(f.date_of_birth);
+    if (dobStr) {
+      const dob = new Date(dobStr);
+      if (!Number.isNaN(dob.getTime())) {
+        age = Math.floor((now.getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+      }
+    }
+    await this.prisma.applications.update({
+      where: { id: row.application_id },
+      data: {
+        ...(fullName ? { name: fullName } : {}),
+        date_of_birth: dobStr ? new Date(dobStr) : null,
+        age,
+        gender: toNullableString(f.gender),
+        nationality: toNullableString(f.nationality),
+        marital_status: toNullableString(f.marital_status),
+        father_name: toNullableString(f.father_name),
+        mother_name: toNullableString(f.mother_name),
+        guardian_name: toNullableString(f.guardian_name),
+        aadhar_no: toNullableString(f.aadhar_no),
+        passport_no: toNullableString(f.passport_no),
+        address: toNullableString(f.address),
+        native_address: toNullableString(f.native_address),
+        state: toNullableString(f.state),
+        district: toNullableString(f.district),
+        highest_qualification: toNullableString(f.highest_qualification),
+        previous_school: toNullableString(f.previous_school),
+        year_of_passing: toNullableString(f.year_of_passing),
+        percentage_or_grade: toNullableString(f.percentage_or_grade),
+        teaching_experience: toNullableString(f.teaching_experience),
+        employment_status: toNullableString(f.employment_status),
+        organization_name: toNullableString(f.organization_name),
+        experience_years: toNullableString(f.experience_years),
+        designation: toNullableString(f.designation),
+        signature_data: signature || null,
+        stage: 'form_submitted',
+        updated_at: now,
+      },
+    });
+    await this.prisma.application_form_tokens.update({
+      where: { id: row.id },
+      data: { used_at: now },
+    });
+    return { status: 1, message: 'Application submitted.', data: { application_id: row.application_id } };
+  }
+
   // Phase C (Naji 2026-05-05): Payment link generation. Builds the
   // payment plan (full or installment), calls Razorpay Payment Links
   // API, persists everything on the application row, transitions stage

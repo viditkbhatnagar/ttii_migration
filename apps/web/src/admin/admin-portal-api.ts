@@ -2269,6 +2269,13 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, { id, note: note ?? '' });
   }
 
+  async generateApplicationFormLink(authToken: string, id: string, expiresInDays?: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/form-link/generate', authToken, {
+      id,
+      expires_in_days: expiresInDays ?? 7,
+    });
+  }
+
   // ── File Upload ────────────────────────────────────────────────
 
   async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
