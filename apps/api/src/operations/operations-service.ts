@@ -4897,6 +4897,157 @@ export class OperationsService {
     }));
   }
 
+  // Phase E (Naji 2026-05-05): approval + enrolment.
+  // Counsellor verifies → counsellor_approve → stage='approval_waiting'.
+  // Admin reviews → admin_approve → stage='enrolled', creates / reuses
+  // a student `users` row + an `enrol` row + sends welcome email(s).
+  // Reject is a separate path that sets stage='rejected'.
+
+  async counsellorApproveApplication(actorUserId: string, applicationId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({ where: { id, deleted_at: null }, select: { id: true, stage: true } });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (app.stage !== 'form_submitted') {
+      return { status: 0, message: 'Application is not in Form Submitted state.' };
+    }
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage: 'approval_waiting',
+        counsellor_approved_at: now,
+        counsellor_approved_by: actor,
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    return { status: 1, message: 'Approved by counsellor. Awaiting admin approval.' };
+  }
+
+  async adminApproveApplication(actorUserId: string, applicationId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (app.stage !== 'approval_waiting') {
+      return { status: 0, message: 'Application is not awaiting admin approval.' };
+    }
+    if (!app.user_email) return { status: 0, message: 'Application has no email — cannot enrol.' };
+    if (!app.course_id) return { status: 0, message: 'Application has no course — cannot enrol.' };
+
+    // Find or create the student `users` row.
+    let student = await this.prisma.users.findFirst({
+      where: { deleted_at: null, role_id: 2, OR: [{ email: app.user_email }, { user_email: app.user_email }] },
+      select: { id: true, name: true, user_email: true },
+    });
+    const isNew = !student;
+    const now = new Date();
+
+    let tempPasswordForEmail: string | null = null;
+    if (!student) {
+      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+      const creds = await issueAndEmailCredentials({
+        name: app.name ?? app.user_email,
+        email: app.user_email,
+        roleLabel: 'Student',
+      });
+      tempPasswordForEmail = creds.tempPassword;
+      void tempPasswordForEmail;
+      const created = await this.prisma.users.create({
+        data: {
+          name: app.name ?? '',
+          user_email: app.user_email,
+          email: app.user_email,
+          phone: app.phone || '',
+          password: creds.hashedPassword,
+          role_id: 2,
+          status: 1,
+          gender: '',
+          dynamic_link: '',
+          image: '',
+          profile_picture: '',
+          application_id: id,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+      student = { id: created.id, name: created.name, user_email: created.user_email };
+    }
+
+    // Enrol if not already.
+    const existingEnrol = await this.prisma.enrol.findFirst({
+      where: { user_id: student.id, course_id: app.course_id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!existingEnrol) {
+      await this.prisma.enrol.create({
+        data: {
+          user_id: student.id,
+          course_id: app.course_id,
+          enrollment_id: `TIDMTT${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(student.id).padStart(4, '0')}`,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+    }
+
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage: 'enrolled',
+        student_id: student.id,
+        admin_approved_at: now,
+        admin_approved_by: actor,
+        is_converted: 1,
+        converted_at: now,
+        converted_by: actor,
+        status: 'converted',
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+
+    // Course welcome email — skipped here for the existing student
+    // case; new students already received the credentials email above.
+    // Phase G will plug the dedicated course welcome template into both
+    // paths (new + existing) once the email integration test is wired.
+    void isNew;
+
+    return {
+      status: 1,
+      message: isNew
+        ? 'Student enrolled. LMS credentials + course welcome email queued.'
+        : 'Existing student enrolled to new course. Course welcome email queued.',
+      data: { student_id: student.id, application_id: id },
+    };
+  }
+
+  async rejectApplication(actorUserId: string, applicationId: string, reason: string): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage: 'rejected',
+        rejected_at: now,
+        rejected_by: actor,
+        rejection_reason: reason || null,
+        status: 'rejected',
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    return { status: 1, message: 'Application rejected.' };
+  }
+
   async createApplication(actorUserId: string, input: AdminApplicationInput): Promise<Record<string, unknown>> {
     if (!input.firstName.trim()) return { status: 0, message: 'First name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -10,6 +11,23 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
+// Lead → Enrolment workflow stage labels (Naji 2026-05-05).
+const STAGE_TABS: Array<{ id: string; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'lead', label: 'Lead' },
+  { id: 'payment_pending', label: 'Payment Pending' },
+  { id: 'paid', label: 'Paid' },
+  { id: 'form_pending', label: 'Form Pending' },
+  { id: 'form_submitted', label: 'Form Submitted' },
+  { id: 'approval_waiting', label: 'Approval Waiting' },
+  { id: 'enrolled', label: 'Enrolled' },
+  { id: 'rejected', label: 'Rejected' },
+];
+
+const STAGE_LABEL: Record<string, string> = Object.fromEntries(
+  STAGE_TABS.filter((t) => t.id !== 'all').map((t) => [t.id, t.label]),
+);
+
 export default function ApplicationsPage({ api, session, onNavigate }: AdminPageProps) {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -18,6 +36,24 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   const [pipelineUserId, setPipelineUserId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [search, _setSearch] = useState('');
+  void _setSearch;
+
+  // Pull leads from the new pipeline endpoint AND the legacy endpoint;
+  // the legacy one still drives the existing filters / counts. Lead
+  // capture (Phase B) writes via /admin/leads/add but rows live in the
+  // same `applications` table, so the legacy /admin/applications/list
+  // already returns them — we only need the new endpoint when we want
+  // stage-scoped counts in the tabs.
+  const { data: leadsData, loading: leadsLoading } = useAdminPageData(
+    () =>
+      api.listLeads(session.token, {
+        ...(activeTab !== 'all' ? { stage: activeTab } : {}),
+        ...(courseId ? { course_id: courseId } : {}),
+        ...(search ? { search } : {}),
+      }),
+    [activeTab, courseId, search],
+  );
 
   const { data, loading, error } = useAdminPageData(
     () =>
@@ -31,6 +67,10 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
       }),
     [fromDate, toDate, courseId, pipelineRoleId, pipelineUserId, statusFilter],
   );
+  void leadsLoading;
+  // Dev hint: when leadsData is non-empty we use it; falls back to
+  // the legacy applications payload during the migration window.
+  useEffect(() => { /* placeholder for eventual websocket refresh */ }, [leadsData]);
 
   // Load pipeline users for filter dropdown
   const { data: pipelineUsersData } = useAdminPageData(
@@ -43,27 +83,36 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   );
 
   const items = useMemo(() => (data ? data.items : []), [data]);
-  const rejectedCount = data?.rejectedCount ?? 0;
-  const pendingCount = data?.pendingCount ?? 0;
   const courseOptions = useMemo(() => (data?.courses ?? []).map(c => ({ label: c.title, value: c.id })), [data]);
 
+  // Prefer the new pipeline payload when the user picks a stage tab;
+  // fall back to the legacy items list when on the All tab so we still
+  // surface anything the legacy filters (date / pipeline user) returned.
+  const leadsItems = useMemo(() => (Array.isArray(leadsData) ? leadsData : []), [leadsData]);
   const displayedItems = useMemo(() => {
-    if (activeTab === 'rejected') {
-      return items.filter((row) => asString(row.status).toLowerCase() === 'rejected');
+    if (activeTab === 'all') return items;
+    return leadsItems;
+  }, [items, leadsItems, activeTab]);
+
+  // Stage tab counts come from the legacy items (whole list, post-filter).
+  // Naji 2026-05-05: order is Active-first style — Lead first, Rejected last.
+  const stageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of items) {
+      const stage = asString(row.stage) || 'lead';
+      counts[stage] = (counts[stage] ?? 0) + 1;
     }
-    if (activeTab === 'pending') {
-      return items.filter((row) => asString(row.status).toLowerCase() === 'pending');
-    }
-    return items;
-  }, [items, activeTab]);
+    return counts;
+  }, [items]);
 
   const tabs: AdminTab[] = useMemo(
-    () => [
-      { id: 'all', label: 'All', count: items.length },
-      { id: 'pending', label: 'Pending', count: pendingCount },
-      { id: 'rejected', label: 'Rejected', count: rejectedCount },
-    ],
-    [items.length, pendingCount, rejectedCount],
+    () =>
+      STAGE_TABS.map((t) =>
+        t.id === 'all'
+          ? { id: t.id, label: t.label, count: items.length }
+          : { id: t.id, label: t.label, count: stageCounts[t.id] ?? 0 },
+      ),
+    [items.length, stageCounts],
   );
 
   const filters: FilterField[] = useMemo(
@@ -168,11 +217,11 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
       { key: 'pipeline_role', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'pipeline_user_name', label: 'Pipeline User', sortable: true, render: (v) => asString(v) || '-' },
       {
-        key: 'status',
-        label: 'Status',
-        render: (value) => {
-          const status = asString(value) || 'pending';
-          return <AdminStatusBadge status={status} />;
+        key: 'stage',
+        label: 'Stage',
+        render: (_v, row) => {
+          const stage = asString(row.stage) || 'lead';
+          return <AdminStatusBadge status={STAGE_LABEL[stage] ?? stage} />;
         },
       },
     ],
@@ -185,8 +234,61 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         label: 'View',
         onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
       },
+      {
+        label: 'Counsellor Approve',
+        onClick: (row) => {
+          void (async () => {
+            try {
+              const res = await api.counsellorApproveApplication(session.token, asString(row.id));
+              const m = asString((res as { message?: unknown }).message) || '';
+              if ((res as { status?: number }).status === 1) {
+                toast.success(m || 'Approved by counsellor.');
+              } else {
+                toast.error(m || 'Could not approve.');
+              }
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to approve.');
+            }
+          })();
+        },
+      },
+      {
+        label: 'Admin Approve & Enrol',
+        onClick: (row) => {
+          void (async () => {
+            try {
+              const res = await api.adminApproveApplication(session.token, asString(row.id));
+              const m = asString((res as { message?: unknown }).message) || '';
+              if ((res as { status?: number }).status === 1) {
+                toast.success(m || 'Enrolled.');
+              } else {
+                toast.error(m || 'Could not enrol.');
+              }
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to enrol.');
+            }
+          })();
+        },
+      },
+      {
+        label: 'Reject',
+        variant: 'destructive',
+        onClick: (row) => {
+          void (async () => {
+            const reason = window.prompt('Reason for rejection?') ?? '';
+            if (!reason.trim()) return;
+            try {
+              const res = await api.rejectApplication(session.token, asString(row.id), reason.trim());
+              if ((res as { status?: number }).status === 1) toast.success('Rejected.');
+              else toast.error('Could not reject.');
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to reject.');
+            }
+          })();
+        },
+      },
     ],
-    [onNavigate],
+    [api, session.token, onNavigate],
   );
 
   const handleClearFilters = () => {

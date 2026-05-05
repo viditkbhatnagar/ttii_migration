@@ -2239,6 +2239,18 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async counsellorApproveApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/counsellor-approve', authToken, { id });
+  }
+
+  async adminApproveApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/admin-approve', authToken, { id });
+  }
+
+  async rejectApplication(authToken: string, id: string, reason: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/reject', authToken, { id, reason });
+  }
+
   // ── File Upload ────────────────────────────────────────────────
 
   async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {
