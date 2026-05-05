@@ -235,6 +235,82 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
       },
       {
+        label: 'Generate Payment Link',
+        onClick: (row) => {
+          void (async () => {
+            const modeStr = window.prompt('Mode? Type "full" or "installment"', 'full');
+            if (!modeStr) return;
+            const mode = modeStr.trim().toLowerCase() === 'installment' ? 'installment' : 'full';
+            const totalStr = window.prompt('Total course fee (in INR rupees, e.g. 25000)');
+            if (!totalStr) return;
+            const totalRupees = Number(totalStr);
+            if (!Number.isFinite(totalRupees) || totalRupees <= 0) {
+              toast.error('Invalid amount.');
+              return;
+            }
+            const total_amount_minor = Math.round(totalRupees * 100);
+            let registration_fee_minor: number | undefined;
+            const installments: Array<{ label: string; amount_minor: number; due_date: string }> = [];
+            if (mode === 'installment') {
+              const regStr = window.prompt('Registration fee due now (INR rupees)');
+              if (!regStr) return;
+              const regRupees = Number(regStr);
+              if (!Number.isFinite(regRupees) || regRupees <= 0) { toast.error('Invalid registration fee.'); return; }
+              registration_fee_minor = Math.round(regRupees * 100);
+              const countStr = window.prompt('How many remaining installments?', '3');
+              const n = Math.max(1, Math.min(12, Number(countStr) || 3));
+              const remainingRupees = totalRupees - regRupees;
+              if (remainingRupees > 0) {
+                const per = Math.floor(remainingRupees / n);
+                const today = new Date();
+                for (let i = 1; i <= n; i++) {
+                  const due = new Date(today.getTime());
+                  due.setMonth(due.getMonth() + i);
+                  installments.push({
+                    label: `Installment ${i} of ${n}`,
+                    amount_minor: per * 100,
+                    due_date: due.toISOString().slice(0, 10),
+                  });
+                }
+              }
+            }
+            try {
+              const res = await api.generatePaymentLink(session.token, {
+                id: asString(row.id),
+                mode,
+                total_amount_minor,
+                ...(registration_fee_minor !== undefined ? { registration_fee_minor } : {}),
+                installments,
+                expires_in_days: 7,
+              });
+              const m = asString((res as { message?: unknown }).message) || '';
+              if ((res as { status?: number }).status === 1) {
+                toast.success(m || 'Payment link sent.');
+              } else {
+                toast.error(m || 'Could not generate link.');
+              }
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed.');
+            }
+          })();
+        },
+      },
+      {
+        label: 'Mark Paid (Manual)',
+        onClick: (row) => {
+          void (async () => {
+            const note = window.prompt('Reference / note (e.g. Bank ref no.)') ?? '';
+            try {
+              const res = await api.markApplicationPaid(session.token, asString(row.id), note);
+              if ((res as { status?: number }).status === 1) toast.success('Marked as paid.');
+              else toast.error('Could not mark paid.');
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed.');
+            }
+          })();
+        },
+      },
+      {
         label: 'Counsellor Approve',
         onClick: (row) => {
           void (async () => {

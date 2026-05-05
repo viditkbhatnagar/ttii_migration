@@ -2251,6 +2251,24 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/reject', authToken, { id, reason });
   }
 
+  async generatePaymentLink(
+    authToken: string,
+    input: {
+      id: string;
+      mode: 'full' | 'installment';
+      total_amount_minor: number;
+      registration_fee_minor?: number;
+      installments?: Array<{ label: string; amount_minor: number; due_date: string }>;
+      expires_in_days?: number;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/payment-link/generate', authToken, input);
+  }
+
+  async markApplicationPaid(authToken: string, id: string, note?: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, { id, note: note ?? '' });
+  }
+
   // ── File Upload ────────────────────────────────────────────────
 
   async uploadFile(authToken: string, file: File): Promise<{ key: string; url: string }> {

@@ -2259,6 +2259,65 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  app.post('/admin/applications/payment-link/generate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const installmentsRaw = Array.isArray(payload.installments) ? payload.installments : [];
+      const installments = installmentsRaw
+        .map((entry) => {
+          if (typeof entry !== 'object' || entry === null) return null;
+          const r = entry as Record<string, unknown>;
+          const label = toStringValue(r.label);
+          const amountMinor = toInteger(r.amount_minor);
+          const dueDate = toStringValue(r.due_date);
+          if (!label || amountMinor <= 0) return null;
+          return { label, amountMinor, dueDate };
+        })
+        .filter((v): v is { label: string; amountMinor: number; dueDate: string } => v !== null);
+      const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
+      const result = await operationsService.generatePaymentLink(requestUserId(request), {
+        applicationId: toStringValue(payload.id),
+        mode,
+        registrationFee: toInteger(payload.registration_fee_minor),
+        totalAmount: toInteger(payload.total_amount_minor),
+        installments,
+        expiresInDays: toInteger(payload.expires_in_days) || 7,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/applications/mark-paid', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.markApplicationPaidManual(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toStringValue(payload.note) || undefined,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Razorpay webhook. Public route (no auth) but signature-verified.
+  app.post('/webhooks/razorpay', async (request, reply) => {
+    try {
+      const signature = (request.headers['x-razorpay-signature'] as string | undefined) ?? '';
+      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+      const { createIntegrationRegistry } = await import('../integrations/registry.js');
+      const registry = createIntegrationRegistry();
+      const ok = registry.payment.verifyWebhookSignature({ payload: rawBody, signature });
+      if (!ok) {
+        reply.code(401).send({ status: 0, message: 'Invalid signature' });
+        return;
+      }
+      const parsed = (typeof request.body === 'string' ? JSON.parse(request.body) : request.body) as Record<string, unknown>;
+      const eventName = toStringValue(parsed.event);
+      await operationsService.handleRazorpayWebhook(eventName, parsed);
+      reply.code(200).send({ status: 1, message: 'ok' });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/applications/counsellor-approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

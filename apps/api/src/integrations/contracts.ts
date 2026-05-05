@@ -117,9 +117,27 @@ export interface PaymentWebhookVerificationInput {
   signature: string;
 }
 
+export interface PaymentLinkRequest {
+  amountMinor: number;
+  currency: string;
+  description: string;
+  customer: { name: string; email: string; phone?: string };
+  notes?: Record<string, string>;
+  expireBy?: number; // unix seconds
+}
+
+export interface PaymentLinkResult {
+  paymentLinkId: string;
+  shortUrl: string;
+  status: string;
+  expireBy?: number;
+  providerPayload?: Record<string, unknown>;
+}
+
 export interface PaymentGateway {
   readonly name: string;
   createOrder(input: PaymentOrderRequest): Promise<PaymentOrder>;
+  createPaymentLink?(input: PaymentLinkRequest): Promise<PaymentLinkResult>;
   verifyPaymentSignature(input: PaymentSignatureVerificationInput): boolean;
   verifyWebhookSignature(input: PaymentWebhookVerificationInput): boolean;
 }

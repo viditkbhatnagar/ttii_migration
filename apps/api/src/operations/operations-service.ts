@@ -102,6 +102,15 @@ function rowsToCsv(headers: string[], rows: Array<Record<string, unknown>>): str
   return `${lines.join('\n')}\n`;
 }
 
+function escapeHtmlText(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function safeParseJson(value: string): unknown {
   try {
     return JSON.parse(value);
@@ -4895,6 +4904,185 @@ export class OperationsService {
       created_at: r.created_at,
       updated_at: r.updated_at,
     }));
+  }
+
+  // Phase C (Naji 2026-05-05): Payment link generation. Builds the
+  // payment plan (full or installment), calls Razorpay Payment Links
+  // API, persists everything on the application row, transitions stage
+  // to 'payment_pending', and emails the student the link + plan.
+  async generatePaymentLink(
+    actorUserId: string,
+    input: {
+      applicationId: string;
+      mode: 'full' | 'installment';
+      registrationFee?: number; // installment only: amount due now (minor)
+      totalAmount: number; // total course fee (minor)
+      installments?: Array<{ label: string; amountMinor: number; dueDate: string }>; // schedule for the plan PDF
+      expiresInDays?: number; // payment-link expiry, default 7
+    },
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(input.applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: {
+        id: true, name: true, user_email: true, phone: true,
+        course_id: true, offering_id: true, stage: true,
+      },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (!app.user_email) return { status: 0, message: 'Application has no email.' };
+    if (input.totalAmount <= 0) return { status: 0, message: 'Total amount must be > 0.' };
+
+    const amountMinor = input.mode === 'full'
+      ? input.totalAmount
+      : (input.registrationFee && input.registrationFee > 0 ? input.registrationFee : 0);
+    if (amountMinor <= 0) return { status: 0, message: 'Payable amount must be > 0.' };
+
+    const { createIntegrationRegistry } = await import('../integrations/registry.js');
+    const registry = createIntegrationRegistry();
+    if (typeof registry.payment.createPaymentLink !== 'function') {
+      return { status: 0, message: 'Active payment provider does not support payment links.' };
+    }
+
+    const expireBy = Math.floor(Date.now() / 1000) + (input.expiresInDays ?? 7) * 86400;
+
+    const courseTitle = app.course_id
+      ? (await this.prisma.course.findFirst({ where: { id: app.course_id }, select: { title: true } }))?.title ?? ''
+      : '';
+    const description = input.mode === 'full'
+      ? `${courseTitle} — Course fee`
+      : `${courseTitle} — Registration fee`;
+
+    let link;
+    try {
+      link = await registry.payment.createPaymentLink({
+        amountMinor,
+        currency: 'INR',
+        description,
+        customer: {
+          name: app.name ?? 'Student',
+          email: app.user_email,
+          ...(app.phone ? { phone: app.phone } : {}),
+        },
+        notes: { application_id: String(id), mode: input.mode },
+        expireBy,
+      });
+    } catch (err) {
+      return { status: 0, message: err instanceof Error ? err.message : 'Razorpay request failed.' };
+    }
+
+    const planJson = JSON.stringify({
+      mode: input.mode,
+      total_amount_minor: input.totalAmount,
+      registration_fee_minor: input.registrationFee ?? null,
+      installments: input.installments ?? [],
+    });
+
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage: 'payment_pending',
+        payment_plan: planJson,
+        payment_link_url: link.shortUrl,
+        payment_link_id: link.paymentLinkId,
+        payment_link_expires_at: new Date(expireBy * 1000),
+        payment_status: 'sent',
+        payment_method: 'razorpay',
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+
+    // Email the student the link + plan summary. Razorpay also emails
+    // its own checkout page when notify.email=true; this one carries
+    // the human plan summary.
+    try {
+      const planRows = (input.installments ?? []).map(
+        (i) => `<tr><td style="padding:4px 8px;border:1px solid #eee;">${escapeHtmlText(i.label)}</td><td style="padding:4px 8px;border:1px solid #eee;">₹${(i.amountMinor / 100).toLocaleString('en-IN')}</td><td style="padding:4px 8px;border:1px solid #eee;">${escapeHtmlText(i.dueDate)}</td></tr>`,
+      ).join('');
+      const html = `<!DOCTYPE html>
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;">
+  <div style="max-width:560px;margin:0 auto;padding:24px;">
+    <h2 style="color:#8F2774;margin:0 0 8px;">Your TTII payment link</h2>
+    <p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>
+    <p>Please use the link below to complete your ${input.mode === 'full' ? 'course fee' : 'registration fee'} payment for <strong>${escapeHtmlText(courseTitle)}</strong>.</p>
+    <p><a href="${link.shortUrl}" style="display:inline-block;padding:10px 20px;background:#8F2774;color:#fff;text-decoration:none;border-radius:4px;">Pay ₹${(amountMinor / 100).toLocaleString('en-IN')}</a></p>
+    ${input.mode === 'installment' && planRows ? `<h3 style="margin-top:24px;">Payment Plan</h3><table style="border-collapse:collapse;font-size:14px;"><thead><tr><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Installment</th><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Amount</th><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Due</th></tr></thead><tbody>${planRows}</tbody></table>` : ''}
+    <p style="color:#6b7280;font-size:13px;">This link expires on ${new Date(expireBy * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.</p>
+    <p style="color:#6b7280;font-size:13px;margin-top:24px;">— Teachers' Training Institute of India</p>
+  </div>
+</body></html>`;
+      await registry.email.sendEmail({
+        to: app.user_email,
+        subject: 'Your TTII payment link',
+        html,
+      });
+    } catch {
+      // email failure shouldn't block the link save — admin can resend.
+    }
+
+    return {
+      status: 1,
+      message: 'Payment link generated and emailed.',
+      data: { payment_link_url: link.shortUrl, payment_link_id: link.paymentLinkId },
+    };
+  }
+
+  // Manual mark-paid for cash / bank transfer.
+  async markApplicationPaidManual(
+    actorUserId: string,
+    applicationId: string,
+    note?: string,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage: 'paid',
+        payment_status: 'paid',
+        payment_method: 'manual',
+        payment_marked_paid_at: now,
+        payment_marked_paid_by: actor,
+        rejection_reason: note ?? null,
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    return { status: 1, message: 'Marked as paid.' };
+  }
+
+  // Razorpay webhook handler — `payment_link.paid` flips paid + advances
+  // to stage='paid'. Returns just status 1/0; route does signature verification.
+  async handleRazorpayWebhook(eventName: string, payload: Record<string, unknown>): Promise<void> {
+    if (eventName !== 'payment_link.paid') return;
+    const ev = payload as { payload?: { payment_link?: { entity?: Record<string, unknown> } } };
+    const link = ev.payload?.payment_link?.entity ?? null;
+    if (!link) return;
+    const linkId = typeof link.id === 'string' ? link.id : '';
+    if (!linkId) return;
+    const app = await this.prisma.applications.findFirst({
+      where: { payment_link_id: linkId, deleted_at: null },
+      select: { id: true },
+    });
+    if (!app) return;
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id: app.id },
+      data: {
+        stage: 'paid',
+        payment_status: 'paid',
+        payment_method: 'razorpay',
+        payment_marked_paid_at: now,
+        updated_at: now,
+      },
+    });
   }
 
   // Phase E (Naji 2026-05-05): approval + enrolment.
