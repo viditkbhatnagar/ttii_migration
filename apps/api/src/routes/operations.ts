@@ -2297,8 +2297,64 @@ export function registerOperationsRoutes(
       const body = (request.body ?? {}) as Record<string, unknown>;
       const formData = (body.form ?? {}) as Record<string, unknown>;
       const signature = toStringValue(body.signature);
-      const result = await operationsService.submitApplicationForm(params.token, formData, signature);
+      const docsRaw = Array.isArray(body.documents) ? body.documents : [];
+      const documents = docsRaw
+        .map((entry) => {
+          if (typeof entry !== 'object' || entry === null) return null;
+          const r = entry as Record<string, unknown>;
+          const name = toStringValue(r.name);
+          const url = toStringValue(r.url);
+          if (!name || !url) return null;
+          const out: { name: string; url: string; key?: string; size?: number; contentType?: string } = { name, url };
+          const key = toStringValue(r.key);
+          const ct = toStringValue(r.contentType);
+          if (key) out.key = key;
+          if (typeof r.size === 'number') out.size = r.size;
+          if (ct) out.contentType = ct;
+          return out;
+        })
+        .filter((v): v is { name: string; url: string; key?: string; size?: number; contentType?: string } => v !== null);
+      const result = await operationsService.submitApplicationForm(params.token, formData, signature, documents);
       reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Public upload — token-scoped (Naji 2026-05-05). The student's
+  // application token authenticates the upload; storage provider
+  // routes the file to DO Spaces (publicRead so the admin can see
+  // the document later). Refuses if token is expired or used.
+  app.post('/apply/:token/upload', async (request, reply) => {
+    try {
+      const params = request.params as { token: string };
+      const tokenRow = await operationsService.findApplicationFormToken(params.token);
+      if (!tokenRow) { reply.code(404).send({ status: 0, message: 'Token not found.' }); return; }
+      if (tokenRow.used_at) { reply.code(400).send({ status: 0, message: 'Already submitted.' }); return; }
+      if (tokenRow.expires_at < new Date()) { reply.code(400).send({ status: 0, message: 'Link expired.' }); return; }
+
+      const storage = options.storage as
+        | { uploadObject: (input: { key: string; body: Buffer; contentType?: string; publicRead?: boolean }) => Promise<{ location: string }> }
+        | undefined;
+      if (!storage) { reply.code(503).send({ status: 0, message: 'Storage not configured.' }); return; }
+
+      const fileReq = request as unknown as {
+        file: () => Promise<{
+          filename: string;
+          mimetype: string;
+          toBuffer: () => Promise<Buffer>;
+        } | undefined>;
+      };
+      const file = await fileReq.file();
+      if (!file) { reply.code(400).send({ status: 0, message: 'No file uploaded.' }); return; }
+      const buf = await file.toBuffer();
+      const safeName = file.filename.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80);
+      const key = `application-docs/${tokenRow.application_id}/${Date.now()}_${safeName}`;
+      const out = await storage.uploadObject({
+        key,
+        body: buf,
+        contentType: file.mimetype,
+        publicRead: true,
+      });
+      reply.code(200).send({ status: 1, message: 'Uploaded.', data: { key, url: out.location } });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 

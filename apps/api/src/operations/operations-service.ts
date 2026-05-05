@@ -5076,6 +5076,18 @@ export class OperationsService {
     return { status: 1, message: 'Application form link generated and emailed.', data: { token, expires_at: expiresAt.toISOString() } };
   }
 
+  // Lightweight token lookup for the public upload endpoint. Returns
+  // the raw row so the route can check expires_at / used_at without
+  // re-running the full hydration.
+  async findApplicationFormToken(token: string): Promise<{ id: number; application_id: number; expires_at: Date; used_at: Date | null } | null> {
+    if (!token) return null;
+    const row = await this.prisma.application_form_tokens.findFirst({
+      where: { token },
+      select: { id: true, application_id: true, expires_at: true, used_at: true },
+    });
+    return row;
+  }
+
   async getApplicationByToken(token: string): Promise<Record<string, unknown>> {
     if (!token) return { status: 0, message: 'Invalid token.' };
     const row = await this.prisma.application_form_tokens.findFirst({
@@ -5119,7 +5131,12 @@ export class OperationsService {
     return { status: 1, message: 'Draft saved.' };
   }
 
-  async submitApplicationForm(token: string, formData: Record<string, unknown>, signature: string): Promise<Record<string, unknown>> {
+  async submitApplicationForm(
+    token: string,
+    formData: Record<string, unknown>,
+    signature: string,
+    documents?: Array<{ name: string; url: string; key?: string; size?: number; contentType?: string }>,
+  ): Promise<Record<string, unknown>> {
     if (!token) return { status: 0, message: 'Invalid token.' };
     const row = await this.prisma.application_form_tokens.findFirst({ where: { token }, select: { id: true, application_id: true, used_at: true, expires_at: true } });
     if (!row) return { status: 0, message: 'Token not found.' };
@@ -5135,6 +5152,25 @@ export class OperationsService {
       if (!Number.isNaN(dob.getTime())) {
         age = Math.floor((now.getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
       }
+    }
+    // Stash uploaded documents on the legacy `biography` JSON column —
+    // ViewStudentPage already reads documents from there. Preserves any
+    // existing biography content.
+    let biographyJson: string | null = null;
+    if (documents && documents.length > 0) {
+      const existing = await this.prisma.applications.findFirst({
+        where: { id: row.application_id }, select: { biography: true },
+      });
+      let existingObj: Record<string, unknown> = {};
+      if (existing?.biography) {
+        try {
+          const parsed: unknown = JSON.parse(existing.biography);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            existingObj = parsed as Record<string, unknown>;
+          }
+        } catch { /* not JSON, overwrite */ }
+      }
+      biographyJson = JSON.stringify({ ...existingObj, documents });
     }
     await this.prisma.applications.update({
       where: { id: row.application_id },
@@ -5164,6 +5200,7 @@ export class OperationsService {
         experience_years: toNullableString(f.experience_years),
         designation: toNullableString(f.designation),
         signature_data: signature || null,
+        ...(biographyJson !== null ? { biography: biographyJson } : {}),
         stage: 'form_submitted',
         updated_at: now,
       },

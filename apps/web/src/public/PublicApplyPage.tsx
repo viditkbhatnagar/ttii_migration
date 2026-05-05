@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -72,6 +72,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const [appName, setAppName] = useState<string>('');
   const [form, setForm] = useState<FormState>(emptyForm());
   const [signature, setSignature] = useState<string>('');
+  const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [saving, setSaving] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -153,13 +154,13 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const handleSubmit = async () => {
     if (!form.first_name.trim()) { toast.error('First name is required.'); return; }
     if (!form.date_of_birth) { toast.error('Date of birth is required.'); return; }
-    if (!signature.trim()) { toast.error('Please type your full name as signature.'); return; }
+    if (!signature.trim()) { toast.error('Please sign in the signature box.'); return; }
     setSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form, signature: signature.trim() }),
+        body: JSON.stringify({ form, signature: signature.trim(), documents }),
       });
       const json = (await res.json()) as ApiOk | ApiErr;
       if (json.status === 1) {
@@ -250,11 +251,17 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <FieldTextArea label="Teaching Experience (optional)" value={form.teaching_experience} onChange={update('teaching_experience')} />
           </div>
 
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Confirm</h2>
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Documents</h2>
           <p className="text-xs text-slate-500">
-            By typing your full legal name below as your signature, you confirm that all the information provided is true and complete.
+            Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
           </p>
-          <FieldText label="Type your full name as signature *" value={signature} onChange={(e) => setSignature(e.target.value)} />
+          <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
+
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Signature</h2>
+          <p className="text-xs text-slate-500">
+            Sign in the box below to confirm that all the information provided is true and complete.
+          </p>
+          <SignaturePad value={signature} onChange={setSignature} />
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => { void handleSaveDraft(); }} disabled={saving}>
@@ -297,6 +304,223 @@ function FieldTextArea({ label, value, onChange }: { label: string; value: strin
     <div className="space-y-1.5">
       <Label>{label}</Label>
       <textarea className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+interface UploadedDoc {
+  name: string;
+  url: string;
+  key: string;
+  size: number;
+  contentType: string;
+}
+
+/**
+ * SignaturePad — finger / mouse draw, captured as a PNG data URL.
+ * Stored as `signature_data` on the application.
+ */
+function SignaturePad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef<boolean>(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Re-render the saved data URL when value changes from outside (e.g. clear).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (!value) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [value]);
+
+  // Initialize canvas with a white background so the captured PNG isn't transparent.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1f2937';
+  }, []);
+
+  const point = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  }, []);
+
+  const handleStart = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    drawingRef.current = true;
+    lastPointRef.current = point(e);
+    canvasRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const handleMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const next = point(e);
+    const last = lastPointRef.current;
+    if (last) {
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(next.x, next.y);
+      ctx.stroke();
+    }
+    lastPointRef.current = next;
+  };
+
+  const handleEnd = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    lastPointRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      onChange(canvas.toDataURL('image/png'));
+    }
+  };
+
+  const handleClear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    onChange('');
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-md border border-slate-200 bg-white">
+        <canvas
+          ref={canvasRef}
+          width={560}
+          height={160}
+          className="block w-full touch-none"
+          onPointerDown={handleStart}
+          onPointerMove={handleMove}
+          onPointerUp={handleEnd}
+          onPointerLeave={handleEnd}
+          onPointerCancel={handleEnd}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">{value ? 'Signature captured.' : 'Sign anywhere in the box above.'}</p>
+        <Button type="button" variant="outline" size="sm" onClick={handleClear}>
+          Clear
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * DocumentUploads — multi-file upload via the public token-scoped
+ * upload endpoint. Files go straight to the storage provider (DO Spaces
+ * in prod) and come back as { key, url } pairs which submit() persists
+ * onto the application.
+ */
+function DocumentUploads({
+  token,
+  documents,
+  setDocuments,
+}: {
+  token: string;
+  documents: UploadedDoc[];
+  setDocuments: (next: UploadedDoc[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const handlePick = () => inputRef.current?.click();
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    const next = [...documents];
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name} is larger than 10 MB.`);
+          continue;
+        }
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/upload`, {
+          method: 'POST',
+          body: fd,
+        });
+        const json = (await res.json()) as { status: number; message?: string; data?: Record<string, unknown> };
+        if (json.status !== 1) {
+          toast.error(json.message ?? `Failed to upload ${file.name}.`);
+          continue;
+        }
+        const data = json.data ?? {};
+        next.push({
+          name: file.name,
+          url: typeof data.url === 'string' ? data.url : '',
+          key: typeof data.key === 'string' ? data.key : '',
+          size: file.size,
+          contentType: file.type,
+        });
+      }
+      setDocuments(next);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const handleRemove = (idx: number) => {
+    const next = documents.filter((_, i) => i !== idx);
+    setDocuments(next);
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".pdf,image/png,image/jpeg,image/jpg"
+        className="hidden"
+        onChange={(e) => { void handleFiles(e.target.files); }}
+      />
+      <Button type="button" variant="outline" onClick={handlePick} disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Choose Files'}
+      </Button>
+      {documents.length > 0 ? (
+        <ul className="space-y-1.5 text-sm">
+          {documents.map((doc, idx) => (
+            <li key={`${doc.key}-${idx}`} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-slate-700">{doc.name}</p>
+                <p className="text-xs text-slate-500">{(doc.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => handleRemove(idx)}>Remove</Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
