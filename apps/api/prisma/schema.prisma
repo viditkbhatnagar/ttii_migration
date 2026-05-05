@@ -106,12 +106,51 @@ model applications {
   application_discount     Decimal? @db.Decimal(10, 2)
   application_gst_percent  Decimal? @db.Decimal(5, 2)
   application_final_fee    Decimal? @db.Decimal(10, 2)
+  // Lead → Enrolment workflow (Naji 2026-05-05). Stage names match
+  // the Applications pipeline labels: lead, payment_pending, paid,
+  // form_pending, form_submitted, approval_waiting, enrolled, rejected.
+  stage                    String?  @default("lead") @db.VarChar(40)
+  payment_plan             String?  @db.LongText
+  payment_link_url         String?  @db.VarChar(500)
+  payment_link_id          String?  @db.VarChar(120)
+  payment_link_expires_at  DateTime? @db.DateTime(0)
+  payment_status           String?  @db.VarChar(40)
+  payment_method           String?  @db.VarChar(40)
+  payment_marked_paid_at   DateTime? @db.DateTime(0)
+  payment_marked_paid_by   Int?
+  signature_data           String?  @db.LongText
+  counsellor_approved_at   DateTime? @db.DateTime(0)
+  counsellor_approved_by   Int?
+  admin_approved_at        DateTime? @db.DateTime(0)
+  admin_approved_by        Int?
+  rejected_at              DateTime? @db.DateTime(0)
+  rejected_by              Int?
+  rejection_reason         String?  @db.Text
   created_at            DateTime?            @db.DateTime(0)
   updated_at            DateTime?            @db.DateTime(0)
   deleted_at            DateTime?            @db.DateTime(0)
   created_by            Int?
   updated_by            Int?
   deleted_by            Int?
+
+  @@index([stage], map: "idx_applications_stage")
+}
+
+/// Magic-link tokens for the public Application form. Lead → Enrolment
+/// workflow (Naji 2026-05-05). The student receives a tokenised URL
+/// (no login) that pre-fills what we know and lets them save-draft +
+/// submit. Token expires; once `used_at` is set, submit is locked.
+model application_form_tokens {
+  id             Int       @id @default(autoincrement())
+  application_id Int       @db.UnsignedInt
+  token          String    @unique @db.VarChar(64)
+  expires_at     DateTime  @db.DateTime(0)
+  used_at        DateTime? @db.DateTime(0)
+  draft_data     String?   @db.LongText
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([application_id], map: "idx_aft_application")
+  @@index([token], map: "idx_aft_token")
 }
 
 /// Education Pathway entries linked to an application — multi-row sub-form.
