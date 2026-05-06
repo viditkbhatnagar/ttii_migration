@@ -152,7 +152,10 @@ export function SsoButtons({ authApi, onGoogleSuccess, onError }: SsoButtonsProp
           text: 'signin_with',
           shape: 'pill',
           logo_alignment: 'left',
-          width: 320,
+          // 400 is the max width the Google Identity Services button
+          // widget allows. Pairs with the Microsoft button below so the
+          // two stack at the same visual width.
+          width: 400,
         });
       })
       .catch(() => {
@@ -184,6 +187,9 @@ export function SsoButtons({ authApi, onGoogleSuccess, onError }: SsoButtonsProp
         <div className="flex-1 border-t border-slate-200" />
       </div>
 
+      {/* Both SSO buttons land at 400px (Google's max GIS width) and
+          center, so the two stack visually balanced regardless of the
+          surrounding form width. Naji 2026-05-07. */}
       {config.google && googleClientId ? (
         <div className="flex justify-center">
           <div ref={googleButtonRef} aria-label="Sign in with Google" />
@@ -194,7 +200,7 @@ export function SsoButtons({ authApi, onGoogleSuccess, onError }: SsoButtonsProp
         <button
           type="button"
           onClick={handleMicrosoftClick}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+          className="mx-auto flex h-10 w-full max-w-[400px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
         >
           <svg aria-hidden="true" viewBox="0 0 23 23" className="size-4">
             <rect x="1" y="1" width="10" height="10" fill="#F25022" />

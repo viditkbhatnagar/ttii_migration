@@ -447,7 +447,19 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         title="Applications"
         addLabel="+ Add Lead"
         onAdd={() => onNavigate('/admin/leads/add')}
-      />
+      >
+        {/* Naji 2026-05-07 — secondary action that opens the legacy multi-tab
+            Add Application form. The primary "Add Lead" button replaced
+            it on 2026-05-05; this keeps the longer-form path one click
+            away while the team trains on the new lead → enrolment flow. */}
+        <button
+          type="button"
+          onClick={() => onNavigate('/admin/applications/add')}
+          className="rounded-md border border-ttii-primary bg-white px-3 py-1.5 text-sm font-medium text-ttii-primary hover:bg-ttii-primary/5"
+        >
+          Add Application (full form)
+        </button>
+      </AdminPageHeader>
 
       <AdminFilterBar
         filters={filters}
