@@ -679,53 +679,82 @@ function LoginHome() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#1a1a2e] p-4 animate-[shellEnter_360ms_ease]" style={{ fontFamily: "'Inter', 'Manrope', system-ui, -apple-system, sans-serif" }}>
-      <div className="flex w-full max-w-[900px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.20)] lg:flex-row" style={{ minHeight: '552px' }}>
-        {/* ── Left Panel: Gradient Hero ──────────────────────────────────── */}
-        <div
-          className="relative overflow-hidden p-8 lg:w-1/2 lg:p-10 flex flex-col justify-between"
-          style={{
-            background: 'linear-gradient(135deg, #3B5BBE 0%, #5263BF 20%, #8B6BAA 45%, #C4714E 70%, #E8864E 85%, #E87932 100%)',
-            minHeight: '280px',
-          }}
-        >
-          {/* Logo — full white version on gradient background */}
-          <div className="relative z-10">
-            <img
-              src="/logos/ttii-full-white.svg"
-              alt="Teachers' Training Institute of India"
-              className="h-12 w-auto"
-            />
-          </div>
-
-          {/* Tagline */}
-          <h1 className="relative z-10 mt-12 font-bold leading-tight text-white lg:mt-0" style={{ fontSize: 'clamp(28px, 4.5vw, 44px)', letterSpacing: '-0.5px' }}>
-            Become a<br />Future-Ready<br />Teacher Today.
-          </h1>
-
-          {/* Sparkle decorations (4-pointed stars) */}
-          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ top: '55%', left: '18%', width: '55px', height: '55px', opacity: 0.3 }} viewBox="0 0 50 50" fill="none">
-            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
-          </svg>
-          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ bottom: '14%', left: '38%', width: '90px', height: '90px', opacity: 0.32 }} viewBox="0 0 50 50" fill="none">
-            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
-          </svg>
-          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ top: '32%', right: '14%', width: '38px', height: '38px', opacity: 0.28 }} viewBox="0 0 50 50" fill="none">
-            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
-          </svg>
-          <svg aria-hidden="true" className="absolute pointer-events-none" style={{ bottom: '38%', right: '22%', width: '45px', height: '45px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
-            <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
-          </svg>
+    <main className="grid min-h-screen w-full grid-cols-1 bg-white animate-[shellEnter_360ms_ease] lg:grid-cols-2" style={{ fontFamily: "'Inter', 'Manrope', system-ui, -apple-system, sans-serif" }}>
+      {/* ── Left Panel: Gradient Hero ──────────────────────────────────── */}
+      <div
+        className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex xl:p-14"
+        style={{
+          background: 'linear-gradient(135deg, #3B5BBE 0%, #5263BF 20%, #8B6BAA 45%, #C4714E 70%, #E8864E 85%, #E87932 100%)',
+        }}
+      >
+        {/* Logo */}
+        <div className="relative z-10">
+          <img
+            src="/logos/ttii-full-white.svg"
+            alt="Teachers' Training Institute of India"
+            className="h-14 w-auto"
+          />
         </div>
 
-        {/* ── Right Panel: Login Form ─────────────────────────────────── */}
-        <div className="flex flex-col items-center justify-center bg-white px-8 py-10 lg:w-1/2 lg:px-12">
-          <div className="w-full max-w-sm">
-            {/* Heading */}
-            <div className="mb-8 text-center">
-              <h2 className="font-extrabold text-slate-900" style={{ fontSize: '40px', lineHeight: '1.1', letterSpacing: '-0.5px' }}>Welcome</h2>
-              <p className="mt-2.5 text-sm text-slate-500">Enter Your LMS Credentials To Continue.</p>
-            </div>
+        {/* Tagline + supporting copy */}
+        <div className="relative z-10 max-w-xl space-y-6 text-white">
+          <h1 className="font-bold leading-[1.05] tracking-tight" style={{ fontSize: 'clamp(36px, 4.5vw, 56px)' }}>
+            Become a<br />Future-Ready<br />Teacher Today.
+          </h1>
+          <p className="text-base leading-relaxed text-white/85 sm:text-lg">
+            India's professional training institute for educators. Live classes, certified curricula, and dedicated counsellors — all in one place.
+          </p>
+          <ul className="space-y-2.5 text-sm text-white/85">
+            <li className="flex items-start gap-2.5">
+              <Check className="mt-0.5 size-4 shrink-0 text-white" strokeWidth={2.5} />
+              <span>Live + recorded sessions you can revisit anytime</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <Check className="mt-0.5 size-4 shrink-0 text-white" strokeWidth={2.5} />
+              <span>Industry-recognised certifications</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <Check className="mt-0.5 size-4 shrink-0 text-white" strokeWidth={2.5} />
+              <span>One-on-one counsellor support throughout your journey</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Footer attribution */}
+        <p className="relative z-10 text-xs text-white/70">© {new Date().getFullYear()} Teachers' Training Institute of India</p>
+
+        {/* Sparkle decorations */}
+        <svg aria-hidden="true" className="pointer-events-none absolute" style={{ top: '50%', left: '12%', width: '70px', height: '70px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
+          <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+        </svg>
+        <svg aria-hidden="true" className="pointer-events-none absolute" style={{ top: '20%', right: '10%', width: '50px', height: '50px', opacity: 0.25 }} viewBox="0 0 50 50" fill="none">
+          <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+        </svg>
+        <svg aria-hidden="true" className="pointer-events-none absolute" style={{ bottom: '14%', right: '24%', width: '44px', height: '44px', opacity: 0.22 }} viewBox="0 0 50 50" fill="none">
+          <path d="M25 0 Q26 18 25 25 Q24 32 25 50 Q26 32 25 25 Q32 24 50 25 Q32 26 25 25 Q18 24 0 25 Q18 26 25 25 Q26 18 25 0Z" fill="#FFFFFF" />
+        </svg>
+      </div>
+
+      {/* Mobile-only branded header (since the gradient panel is hidden under lg) */}
+      <div
+        className="flex items-center justify-center px-6 py-8 lg:hidden"
+        style={{ background: 'linear-gradient(135deg, #3B5BBE 0%, #8B6BAA 50%, #E87932 100%)' }}
+      >
+        <img
+          src="/logos/ttii-full-white.svg"
+          alt="Teachers' Training Institute of India"
+          className="h-12 w-auto"
+        />
+      </div>
+
+      {/* ── Right Panel: Login Form ─────────────────────────────────── */}
+      <div className="flex flex-col items-center justify-center bg-white px-6 py-10 sm:px-10 lg:px-16">
+        <div className="w-full max-w-md">
+          {/* Heading */}
+          <div className="mb-8">
+            <h2 className="font-extrabold text-slate-900" style={{ fontSize: 'clamp(32px, 3.5vw, 44px)', lineHeight: '1.1', letterSpacing: '-0.5px' }}>Welcome back</h2>
+            <p className="mt-2.5 text-sm text-slate-500">Sign in with your LMS credentials to continue.</p>
+          </div>
 
           {/* Error messages */}
           {error ? (
@@ -890,7 +919,6 @@ function LoginHome() {
             >
               support@teachersindia.in
             </a>
-          </div>
           </div>
         </div>
       </div>
