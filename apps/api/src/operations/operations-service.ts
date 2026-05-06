@@ -5679,7 +5679,12 @@ export class OperationsService {
         guardian_name: input.guardianName || null,
         aadhar_no: input.aadharNo || null,
         passport_no: input.passportNo || null,
-        whatsapp_no: toIntId(input.whatsappNo),
+        // The form sends a country-code-prefixed string ("+91 9544125503"),
+        // so storing it via toIntId() produced 0 for everyone. Persist the
+        // raw string into applications.whatsapp (VarChar 20) and a
+        // digits-only int into whatsapp_no for legacy reads.
+        whatsapp: input.whatsappNo ? input.whatsappNo.trim() : null,
+        whatsapp_no: input.whatsappNo ? Number((input.whatsappNo.match(/\d+/g) ?? []).join('').slice(-15)) || 0 : 0,
         state: input.state || null,
         district: input.city || null,
         address: input.permanentAddress || (input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null),
@@ -5704,13 +5709,16 @@ export class OperationsService {
         // Biography is free-text; until dedicated columns exist, stash the
         // installment plan, documents and discount type / registration fee
         // there as JSON. Read back via JSON.parse when surfacing on the
-        // View Application page.
-        biography: (input.installmentPlan || input.documents || input.registrationFee || input.discountType)
+        // View Application page. Naji 2026-05-07 — also stash
+        // specialization here since the schema doesn't have a top-level
+        // column for it; getStudentDetail surfaces it back to View+Edit.
+        biography: (input.installmentPlan || input.documents || input.registrationFee || input.discountType || input.specialization)
           ? JSON.stringify({
               discount_type: input.discountType || null,
               registration_fee: input.registrationFee || null,
               installment_plan: input.installmentPlan ? safeParseJson(input.installmentPlan) : null,
               documents: input.documents ? safeParseJson(input.documents) : null,
+              specialization: input.specialization || null,
             })
           : null,
         pipeline_user: toNullableIntId(input.pipelineUser),
@@ -5952,13 +5960,40 @@ export class OperationsService {
     // fields on the student profile so View and Edit are consistent
     // and "age" / address / second-phone / emergency / biography
     // / signature don't go missing after a student is enrolled.
+    // Gender format normalization (Naji 2026-05-07 — was showing "1" raw).
+    // Legacy data has int-as-string ("1"/"2"/"3"); newer rows have text
+    // ("Male"/"Female"/"Other"). Map known ints; pass everything else
+    // through unchanged so unexpected values (e.g. "Prefer not to say")
+    // don't get stripped.
+    const normalizeGender = (raw: string | number | null | undefined): string | null => {
+      if (raw == null) return null;
+      const v = typeof raw === 'number' ? String(raw) : raw.trim();
+      if (!v) return null;
+      if (v === '1') return 'Male';
+      if (v === '2') return 'Female';
+      if (v === '3') return 'Other';
+      return v;
+    };
+
+    // WhatsApp lives on multiple columns thanks to the legacy schema. Pull
+    // from the first non-empty source — application.whatsapp (string) is
+    // the canonical place after the 2026-05-07 fix; the int column is a
+    // fallback for rows that pre-date the fix.
+    const resolvedWhatsapp =
+      ((application as Record<string, unknown> | null)?.whatsapp as string | null) ??
+      ((user as unknown as Record<string, unknown>).whatsapp as string | null) ??
+      ((user as unknown as Record<string, unknown>).whatsapp_phone as string | null) ??
+      (application?.whatsapp_no != null && application.whatsapp_no !== 0
+        ? String(application.whatsapp_no)
+        : null);
+
     const studentWithPhoto = {
       ...user,
       image: photo,
       profile_picture: photo,
       date_of_birth: user.dob ?? application?.date_of_birth ?? null,
       age: application?.age ?? null,
-      gender: user.gender ?? application?.gender ?? null,
+      gender: normalizeGender(user.gender ?? application?.gender),
       biography: application?.biography ?? null,
       learning_disabilities: application?.learning_disabilities ?? null,
       accessibility_needs: application?.accessibility_needs ?? null,
@@ -5977,7 +6012,7 @@ export class OperationsService {
       country: application?.country_id ? String(application.country_id) : null,
       state: application?.state ?? null,
       city: application?.district ?? null,
-      whatsapp_no: application?.whatsapp_no != null ? String(application.whatsapp_no) : null,
+      whatsapp_no: resolvedWhatsapp,
       nationality: application?.nationality ?? null,
       marital_status: application?.marital_status ?? null,
       // Qualification fields live on applications.
@@ -5988,7 +6023,10 @@ export class OperationsService {
       employment_status: application?.employment_status ?? null,
       current_occupation: application?.current_occupation ?? null,
       work_experience: application?.experience_years ?? application?.teaching_experience ?? null,
-      specialization: null as string | null,
+      // Naji 2026-05-07: specialization is stashed in biography JSON
+      // (no top-level column on applications). Surface it here so View
+      // and Edit can read it without parsing biography themselves.
+      specialization: (biographyParsed?.specialization as string | null | undefined) ?? null,
       // Application metadata for the new "Application Details" card.
       application_id: application?.id ?? null,
       application_date: application?.created_at ?? null,
@@ -6277,7 +6315,14 @@ export class OperationsService {
       if (input.profilePicture !== undefined) userFields.profile_picture = input.profilePicture || '';
       if (input.image !== undefined) userFields.image = input.image || '';
       if (input.countryCode !== undefined) userFields.country_code = input.countryCode || null;
-      if (input.whatsappNo !== undefined) userFields.whatsapp_phone = input.whatsappNo || null;
+      // WhatsApp lives on multiple columns: users.whatsapp_phone (legacy),
+      // users.whatsapp, applications.whatsapp (string), applications.whatsapp_no
+      // (int). Naji 2026-05-07 — write to all so any read path surfaces the
+      // value. The int column gets digits-only.
+      if (input.whatsappNo !== undefined) {
+        userFields.whatsapp_phone = input.whatsappNo || null;
+        userFields.whatsapp = input.whatsappNo || null;
+      }
       if (input.status !== undefined) {
         const s = Number(input.status);
         if (Number.isFinite(s)) userFields.status = s;
@@ -6297,6 +6342,15 @@ export class OperationsService {
       if (input.city !== undefined) appFields.district = input.city || null;
       if (input.address !== undefined) appFields.address = input.address || null;
       if (input.nativeAddress !== undefined) appFields.native_address = input.nativeAddress || null;
+      // Naji 2026-05-07 — also write WhatsApp to the applications row so
+      // View can read it back without depending on the users table column.
+      if (input.whatsappNo !== undefined) {
+        appFields.whatsapp = input.whatsappNo || null;
+        appFields.whatsapp_no = input.whatsappNo
+          ? Number((input.whatsappNo.match(/\d+/g) ?? []).join('').slice(-15)) || 0
+          : 0;
+      }
+      if (input.alternatePhone !== undefined) appFields.second_phone = input.alternatePhone || '';
       // Qualification + employment fields (the application form captured them).
       if (input.highestQualification !== undefined) appFields.highest_qualification = input.highestQualification || null;
       if (input.institutionName !== undefined) appFields.previous_school = input.institutionName || null;
@@ -6347,6 +6401,9 @@ export class OperationsService {
       if (input.discountType !== undefined) biographyKeys.discount_type = input.discountType || null;
       if (input.installmentPlan !== undefined) biographyKeys.installment_plan = safeParseJson(input.installmentPlan);
       if (input.documents !== undefined) biographyKeys.documents = safeParseJson(input.documents);
+      // Naji 2026-05-07: stash specialization here too — schema has no
+      // top-level column on applications, but this lets View round-trip it.
+      if (input.specialization !== undefined) biographyKeys.specialization = input.specialization || null;
       if (Object.keys(biographyKeys).length > 0) {
         // Merge into existing biography JSON if present, else create a new
         // object. Stored as a string regardless.

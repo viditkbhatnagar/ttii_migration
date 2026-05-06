@@ -1998,6 +1998,7 @@ export class AdminPortalApi {
       alternate_phone: string;
       status: string;
       highest_qualification: string;
+      specialization: string;
       institution_name: string;
       year_of_passing: string;
       percentage_or_grade: string;

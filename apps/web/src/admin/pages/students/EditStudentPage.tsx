@@ -78,6 +78,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       native_address: asString(student.native_address),
       status: asString(student.status) || '1',
       highest_qualification: asString(student.highest_qualification),
+      specialization: asString(student.specialization),
       institution_name: asString(student.institution_name) || asString(student.previous_school),
       year_of_passing: asString(student.year_of_passing),
       percentage_or_grade: asString(student.percentage_or_grade),
@@ -294,6 +295,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
           <div className="grid gap-4 md:grid-cols-2">
             <SelectRow label="Highest Qualification" value={form.highest_qualification ?? ''} onChange={(v) => set('highest_qualification', v)}
               options={[{ value: '', label: 'Select' }, ...QUALIFICATIONS.map((q) => ({ value: q, label: q }))]} />
+            <FieldRow label="Specialization" value={form.specialization ?? ''} onChange={(v) => set('specialization', v)} />
             <FieldRow label="School / College" value={form.institution_name ?? ''} onChange={(v) => set('institution_name', v)} />
             <FieldRow label="Year of Passing" value={form.year_of_passing ?? ''} onChange={(v) => set('year_of_passing', v)} />
             <FieldRow label="Percentage / Grade" value={form.percentage_or_grade ?? ''} onChange={(v) => set('percentage_or_grade', v)} />

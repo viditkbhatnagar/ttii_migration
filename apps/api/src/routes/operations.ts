@@ -2637,6 +2637,7 @@ export function registerOperationsRoutes(
         alternatePhone: toStringValue(payload.alternate_phone),
         status: toStringValue(payload.status),
         highestQualification: toStringValue(payload.highest_qualification),
+        specialization: toStringValue(payload.specialization),
         institutionName: toStringValue(payload.institution_name) || toStringValue(payload.previous_school),
         yearOfPassing: toStringValue(payload.year_of_passing),
         percentageOrGrade: toStringValue(payload.percentage_or_grade),
