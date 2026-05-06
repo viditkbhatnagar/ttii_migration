@@ -319,113 +319,269 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
           courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
             courseLessons.length,
         );
+    const completedLessons = courseLessons.filter(
+      (l) => asNumber(l.completed_percentage) >= 100,
+    ).length;
+    // A "module" is a subject. In progress = any lesson started; complete = all done.
+    const subjectsInProgress = courseSubjects.filter((s) => {
+      const sid = asString(s.id);
+      const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
+      if (sl.length === 0) return false;
+      const total = sl.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0);
+      return total > 0 && total < sl.length * 100;
+    }).length;
+    const completedSubjects = courseSubjects.filter((s) => {
+      const sid = asString(s.id);
+      const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
+      if (sl.length === 0) return false;
+      return sl.every((l) => asNumber(l.completed_percentage) >= 100);
+    }).length;
+
+    // First non-completed lesson for the "UP NEXT" card. Falls through
+    // to null (course finished) — the card hides itself in that case.
+    const upNextLesson = courseLessons.find(
+      (l) => asNumber(l.completed_percentage) < 100 && !isLocked(l),
+    ) ?? null;
+    const upNextSubject = upNextLesson
+      ? courseSubjects.find((s) => asString(s.id) === asString(upNextLesson.subject_id)) ?? null
+      : null;
+    const upNextFile = upNextLesson
+      ? lessonFiles.find((f) => asString(f.lesson_id) === asString(upNextLesson.id)) ?? null
+      : null;
+
+    // Final Exam = the last quiz file in the last subject (heuristic — most
+    // courses surface a "final" quiz at the end). Skipped if no quizzes.
+    const allQuizFiles = lessonFiles
+      .filter((f) => {
+        const lessonId = asString(f.lesson_id);
+        const lesson = courseLessons.find((l) => asString(l.id) === lessonId);
+        if (!lesson) return false;
+        return pickFileType(f) === 'quiz';
+      });
+    const finalExamFile = allQuizFiles.length > 0 ? allQuizFiles[allQuizFiles.length - 1] : null;
+
+    const handleStartUpNext = () => {
+      if (!upNextLesson) return;
+      // Expand subject + lesson, and if a playable file exists, open it.
+      if (upNextSubject) {
+        setExpandedSubjectId(asString(upNextSubject.id));
+      }
+      if (upNextFile) {
+        handleSelectFile(upNextFile);
+      }
+    };
+
+    const handleStartFinalExam = () => {
+      if (!finalExamFile) return;
+      const lessonId = asString(finalExamFile.lesson_id);
+      const lesson = courseLessons.find((l) => asString(l.id) === lessonId);
+      if (lesson) {
+        setExpandedSubjectId(asString(lesson.subject_id));
+      }
+      handleSelectFile(finalExamFile);
+    };
+
+    const courseDuration = asString(course.duration);
+    const liveClassCount = liveClasses.length;
 
     return (
       <div className="space-y-4">
-        {/* Course summary strip */}
-        <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
-          <Button variant="outline" size="sm" onClick={handleBackToList} className="rounded-lg">
-            <ArrowLeft aria-hidden="true" className="mr-1 size-4" />
-            Back
-          </Button>
-          {course.thumbnail ? (
-            <img
-              src={asString(course.thumbnail)}
-              alt=""
-              className="size-14 shrink-0 rounded-lg object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-semibold text-student-text">
-              {asString(course.title) || 'Course'}
-            </h1>
-            <p className="text-xs text-student-muted">
-              {courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'} &middot;{' '}
-              {courseLessons.length} lesson{courseLessons.length === 1 ? '' : 's'} &middot;{' '}
-              {courseCompletion}% complete
-            </p>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-student-primary transition-all duration-500"
-                style={{ width: `${Math.min(courseCompletion, 100)}%` }}
-              />
+        {/* Hero banner — gradient blue with course title, tags, and a
+            circular progress indicator on the right. Naji 2026-05-07. */}
+        <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#1e3a8a] via-[#2347a8] to-[#3b5bdb] p-6 text-white shadow-lg">
+          <button
+            type="button"
+            onClick={handleBackToList}
+            className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-white/85 transition-colors hover:text-white"
+          >
+            <ArrowLeft aria-hidden="true" className="size-3.5" />
+            Back to Courses
+          </button>
+          <div className="flex items-start justify-between gap-6">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <span className="inline-flex items-center rounded-full bg-white/15 px-3 py-0.5 text-[11px] font-medium text-white">
+                  Enrolled
+                </span>
+                {finalExamFile ? (
+                  <span className="inline-flex items-center rounded-full bg-amber-400/25 px-3 py-0.5 text-[11px] font-medium text-amber-100">
+                    Final Exam Available
+                  </span>
+                ) : null}
+                {courseDuration ? (
+                  <span className="inline-flex items-center rounded-full bg-white/15 px-3 py-0.5 text-[11px] font-medium text-white">
+                    {courseDuration}
+                  </span>
+                ) : null}
+              </div>
+              <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
+                {asString(course.title) || 'Course'}
+              </h1>
             </div>
+            <CourseProgressRing percentage={courseCompletion} />
           </div>
         </div>
 
-        {/* Two-column layout: timeline left, content view right */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
-          {/* LEFT — Course Timeline + Live Classes tabs */}
-          <aside className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="flex border-b border-slate-100">
-              <button
-                type="button"
-                onClick={() => setLeftTab('timeline')}
-                className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-xs font-semibold transition-colors ${
-                  leftTab === 'timeline'
-                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
-                    : 'text-student-muted hover:text-student-text'
-                }`}
-              >
-                <BookOpen className="size-3.5" aria-hidden="true" />
-                Timeline
-              </button>
-              <button
-                type="button"
-                onClick={() => setLeftTab('live')}
-                className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-xs font-semibold transition-colors ${
-                  leftTab === 'live'
-                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
-                    : 'text-student-muted hover:text-student-text'
-                }`}
-              >
-                <Radio className="size-3.5" aria-hidden="true" />
-                Live Classes
-              </button>
-            </div>
-            <div className="max-h-[70vh] overflow-y-auto p-2">
-              {leftTab === 'timeline' ? (
-                courseSubjects.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-sm text-student-muted">
-                    No subjects in this course yet.
-                  </p>
-                ) : (
-                  courseSubjects.map((subject) => {
-                    const subjectId = asString(subject.id);
-                    const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
-                    return (
-                      <SubjectNode
-                        key={subjectId}
-                        subject={subject}
-                        lessons={subjectLessons}
-                        lessonFiles={lessonFiles}
-                        activeFileId={selectedContent?.id ?? null}
-                        onSelectFile={handleSelectFile}
-                        expanded={expandedSubjectId === subjectId}
-                        onToggle={() =>
-                          setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
-                        }
-                      />
-                    );
-                  })
-                )
-              ) : (
-                <LiveClassesPanel
-                  rows={liveClasses}
-                  loading={liveClassesLoading}
-                  onPlayRecording={handlePlayRecording}
-                />
-              )}
-            </div>
-          </aside>
+        {/* Stats row — 4 cards summarising the course at a glance. */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon={BookOpen}
+            iconClass="bg-blue-50 text-blue-600"
+            label="Modules"
+            value={`${completedSubjects} / ${courseSubjects.length}`}
+            sublabel={subjectsInProgress > 0 ? `${subjectsInProgress} in progress` : courseSubjects.length === 0 ? 'No modules yet' : 'Ready to start'}
+          />
+          <StatCard
+            icon={BarChart3}
+            iconClass="bg-emerald-50 text-emerald-600"
+            label="Progress"
+            value={`${courseCompletion}%`}
+            sublabel="Content watched"
+          />
+          <StatCard
+            icon={CheckCircle}
+            iconClass="bg-purple-50 text-purple-600"
+            label="Lessons"
+            value={`${completedLessons} / ${courseLessons.length}`}
+            sublabel={courseLessons.length > 0 ? `${courseLessons.length - completedLessons} remaining` : 'No lessons yet'}
+          />
+          <StatCard
+            icon={Radio}
+            iconClass="bg-amber-50 text-amber-600"
+            label="Live Classes"
+            value={String(liveClassCount)}
+            sublabel={liveClassCount > 0 ? 'View schedule' : 'None scheduled'}
+          />
+        </div>
 
-          {/* RIGHT — Content View. Naji 2026-05-04: player sits at the
-              top with no banner strip above it; the title and description
-              live BELOW the player. */}
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {/* Two-column layout: stack of UP NEXT / Final Exam / Modules
+            on the left, content player on the right. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(300px,400px)_1fr]">
+          {/* LEFT column */}
+          <div className="space-y-3">
+            {/* UP NEXT card — surfaces the next non-completed lesson. */}
+            {upNextLesson ? (
+              <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#3b5bdb] to-[#5a7be8] p-4 text-white shadow-md">
+                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/80">
+                  <PlayCircle aria-hidden="true" className="size-3.5" />
+                  Up Next
+                </div>
+                <p className="line-clamp-2 text-sm font-semibold leading-snug">
+                  {asString(upNextLesson.title) || 'Continue learning'}
+                </p>
+                {upNextSubject ? (
+                  <p className="mt-1 text-xs text-white/75">
+                    {asString(upNextSubject.title)}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleStartUpNext}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white py-2 text-sm font-semibold text-[#3b5bdb] transition-colors hover:bg-white/95"
+                >
+                  <PlayCircle aria-hidden="true" className="size-4" />
+                  Continue
+                </button>
+              </div>
+            ) : null}
+
+            {/* Final Examination card — only shown if a final quiz exists. */}
+            {finalExamFile ? (
+              <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 p-4 text-white shadow-md">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/25">
+                    <FileQuestion aria-hidden="true" className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold leading-snug">Final Examination</p>
+                    <p className="mt-0.5 text-xs text-white/85">Test your knowledge</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleStartFinalExam}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white/95 py-2 text-sm font-semibold text-orange-600 transition-colors hover:bg-white"
+                >
+                  Take Final Exam
+                </button>
+              </div>
+            ) : null}
+
+            {/* Course Modules + Live Classes — toggleable list */}
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="flex border-b border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('timeline')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                    leftTab === 'timeline'
+                      ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                      : 'text-student-muted hover:text-student-text'
+                  }`}
+                >
+                  <BookOpen className="size-3.5" aria-hidden="true" />
+                  Course Modules
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    {courseSubjects.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('live')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                    leftTab === 'live'
+                      ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                      : 'text-student-muted hover:text-student-text'
+                  }`}
+                >
+                  <Radio className="size-3.5" aria-hidden="true" />
+                  Live Classes
+                  {liveClassCount > 0 ? (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                      {liveClassCount}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto p-2">
+                {leftTab === 'timeline' ? (
+                  courseSubjects.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-sm text-student-muted">
+                      No modules in this course yet.
+                    </p>
+                  ) : (
+                    courseSubjects.map((subject) => {
+                      const subjectId = asString(subject.id);
+                      const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
+                      return (
+                        <SubjectNode
+                          key={subjectId}
+                          subject={subject}
+                          lessons={subjectLessons}
+                          lessonFiles={lessonFiles}
+                          activeFileId={selectedContent?.id ?? null}
+                          onSelectFile={handleSelectFile}
+                          expanded={expandedSubjectId === subjectId}
+                          onToggle={() =>
+                            setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
+                          }
+                        />
+                      );
+                    })
+                  )
+                ) : (
+                  <LiveClassesPanel
+                    rows={liveClasses}
+                    loading={liveClassesLoading}
+                    onPlayRecording={handlePlayRecording}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT — Content View. */}
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             {selectedContent ? (
               <ContentPlayer
                 content={selectedContent}
@@ -434,14 +590,26 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                 authToken={session.token}
               />
             ) : (
-              <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-                <div className="rounded-full bg-slate-100 p-4">
-                  <PlayCircle aria-hidden="true" className="size-8 text-slate-400" />
+              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+                <div className="flex size-16 items-center justify-center rounded-2xl bg-student-primary/10">
+                  <PlayCircle aria-hidden="true" className="size-9 text-student-primary" />
                 </div>
-                <p className="text-sm font-medium text-student-text">Nothing playing yet</p>
-                <p className="max-w-xs text-xs text-student-muted">
-                  Pick any lesson, video, audio or PDF from the timeline on the left to start.
-                </p>
+                <div>
+                  <p className="text-base font-semibold text-student-text">Ready to Learn?</p>
+                  <p className="mt-1 max-w-xs text-sm text-student-muted">
+                    Select a module from the left to start watching videos, reading materials, or taking quizzes.
+                  </p>
+                </div>
+                {upNextLesson ? (
+                  <button
+                    type="button"
+                    onClick={handleStartUpNext}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                  >
+                    <PlayCircle aria-hidden="true" className="size-4" />
+                    Continue Learning
+                  </button>
+                ) : null}
               </div>
             )}
           </section>
@@ -583,6 +751,66 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
 function formatInr(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
+}
+
+// Circular progress indicator shown in the course detail hero banner.
+// Naji 2026-05-07 — visual reskin of the course summary strip.
+function CourseProgressRing({ percentage }: { percentage: number }) {
+  const clamped = Math.max(0, Math.min(100, percentage));
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (clamped / 100) * circumference;
+  return (
+    <div className="relative flex size-20 shrink-0 items-center justify-center sm:size-24">
+      <svg className="size-full -rotate-90" viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r={radius} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={5} />
+        <circle
+          cx="40"
+          cy="40"
+          r={radius}
+          fill="none"
+          stroke="white"
+          strokeWidth={5}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 600ms ease-out' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-lg font-bold text-white sm:text-xl">{clamped}%</span>
+        <span className="text-[9px] font-medium uppercase tracking-wider text-white/75">Complete</span>
+      </div>
+    </div>
+  );
+}
+
+// Single metric card for the stats row.
+function StatCard({
+  icon: Icon,
+  iconClass,
+  label,
+  value,
+  sublabel,
+}: {
+  icon: typeof BookOpen;
+  iconClass: string;
+  label: string;
+  value: string;
+  sublabel: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">{label}</p>
+        <p className="mt-1 truncate text-xl font-bold text-student-text">{value}</p>
+        <p className="mt-0.5 truncate text-[11px] text-student-muted">{sublabel}</p>
+      </div>
+      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
+        <Icon aria-hidden="true" className="size-5" />
+      </div>
+    </div>
+  );
 }
 
 function CourseCard({
@@ -1194,8 +1422,40 @@ function ContentPlayer({
     );
   }
   const showTopFrame = content.type !== 'article';
+  // Naji 2026-05-07: green Reading Material header for article + PDF
+  // content. The "Page 1" label is decorative — we don't track page
+  // count for HTML articles, but it lines up with the visual style.
+  const isReadingMaterial = content.type === 'article' || content.type === 'pdf';
   return (
     <div>
+      {isReadingMaterial ? (
+        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-2.5 text-white">
+          <div className="flex items-center gap-2">
+            <FileText aria-hidden="true" className="size-4" />
+            <p className="text-sm font-semibold">Reading Material</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {content.url ? (
+              <a
+                href={content.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-white/90 underline-offset-2 hover:text-white hover:underline"
+              >
+                Open in New Tab
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded-md p-1 text-white/85 transition-colors hover:bg-white/15 hover:text-white"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
       {showTopFrame ? (
         <div className="bg-black">
           {content.type === 'video' ? (
