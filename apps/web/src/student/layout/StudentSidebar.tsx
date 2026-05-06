@@ -1,5 +1,4 @@
 import {
-  Bell,
   BookOpen,
   CreditCard,
   GraduationCap,
@@ -12,6 +11,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useStudentLayout } from './StudentLayoutContext.js';
 import { STUDENT_NAV_TREE, findActiveStudentNav, type StudentNavItem } from '../routing/student-nav-tree.js';
 import type { AuthSession } from '@ttii/frontend-core';
@@ -21,7 +21,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   BookOpen,
   GraduationCap,
   CreditCard,
-  Bell,
   Settings,
   HelpCircle,
 };
@@ -90,6 +89,7 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
 
   const displayName = currentUser?.name || 'Student';
   const initials = currentUser?.initials ?? 'ST';
+  const avatarImage = currentUser?.image ?? '';
 
   const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
   const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
@@ -174,12 +174,12 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
         {!sidebarCollapsed ? (
           <>
             <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-              <div
-                aria-hidden="true"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-              >
-                {initials}
-              </div>
+              <Avatar className="size-10 shrink-0 shadow-lg">
+                {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{displayName}</p>
                 <p className="text-xs text-white/50 truncate">Student Portal</p>
@@ -199,12 +199,12 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
           </>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <div
-              aria-label={displayName}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-xs shadow-lg"
-            >
-              {initials}
-            </div>
+            <Avatar className="size-9 shrink-0 shadow-lg" aria-label={displayName}>
+              {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+              <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-xs">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
             {onLogout ? (
               <Button
                 variant="ghost"
@@ -230,6 +230,7 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
   const activeItemId = findActiveStudentNav(pathname);
   const displayName = currentUser?.name || 'Student';
   const initials = currentUser?.initials ?? 'ST';
+  const avatarImage = currentUser?.image ?? '';
 
   const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
   const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
@@ -288,12 +289,12 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
       {/* User Profile */}
       <div className="p-4 border-t border-white/10">
         <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-          <div
-            aria-hidden="true"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-          >
-            {initials}
-          </div>
+          <Avatar className="size-10 shrink-0 shadow-lg">
+            {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+            <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{displayName}</p>
             <p className="text-xs text-white/50 truncate">Student Portal</p>

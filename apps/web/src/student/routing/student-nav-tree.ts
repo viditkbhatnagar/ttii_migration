@@ -12,7 +12,7 @@ export const STUDENT_NAV_TREE: readonly StudentNavItem[] = [
   { id: 'courses', label: 'Courses', href: '/student/courses', icon: 'BookOpen', section: 'general' },
   { id: 'grades', label: 'Grades', href: '/student/grades', icon: 'GraduationCap', section: 'general' },
   { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard', section: 'general' },
-  { id: 'notifications', label: 'Notifications', href: '/student/notifications', icon: 'Bell', section: 'general' },
+  // Notifications: accessible from the header bell; no sidebar entry.
   // Tools section
   { id: 'settings', label: 'Settings', href: '/student/settings', icon: 'Settings', section: 'tools' },
   { id: 'help', label: 'Help Center', href: '/student/help', icon: 'HelpCircle', section: 'tools' },

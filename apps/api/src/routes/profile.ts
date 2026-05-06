@@ -4,9 +4,11 @@ import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth } from '../auth/middleware.js';
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import type { StorageProvider } from '../integrations/contracts.js';
 
 interface RegisterProfileRoutesOptions {
   authService?: AuthService;
+  storage?: StorageProvider;
   [key: string]: unknown;
 }
 
@@ -210,6 +212,63 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         status: 1,
         message: 'Profile image updated successfully',
         data: normalizeProfileRow(profile),
+      });
+    } catch (error: unknown) {
+      sendProfileError(reply, error);
+    }
+  });
+
+  // Multipart photo upload for the signed-in user. The auth token rides
+  // on the URL query (?auth_token=…) because @fastify/multipart isn't
+  // configured with attachFieldsToBody, so the middleware can't see body
+  // fields on multipart requests. Same trick the admin uploadFile uses.
+  // Uploaded photos are public-read so the <img> in the avatar can fetch
+  // them without a signed URL on every page render.
+  app.post('/profile/upload_image', { preHandler: [requireAuth] }, async (request, reply) => {
+    const storage = options.storage;
+    if (!storage) {
+      reply.code(500).send({ status: 0, message: 'Storage not configured', data: {} });
+      return;
+    }
+    try {
+      const file = await request.file();
+      if (!file) {
+        reply.code(400).send({ status: 0, message: 'No file provided', data: {} });
+        return;
+      }
+      if (!file.mimetype.startsWith('image/')) {
+        reply.code(400).send({ status: 0, message: 'Only image files are allowed', data: {} });
+        return;
+      }
+      const ext = (file.filename.split('.').pop() ?? 'bin').toLowerCase();
+      const userId = requestUserId(request);
+      const key = `public/profile-photos/${userId || 'anon'}-${Date.now()}.${ext}`;
+      const chunks: Buffer[] = [];
+      for await (const chunk of file.file) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+      }
+      const body = Buffer.concat(chunks);
+      const result = await storage.uploadObject({
+        key,
+        body,
+        contentType: file.mimetype,
+        cacheControl: 'public, max-age=31536000, immutable',
+        publicRead: true,
+      });
+
+      await prisma.users.updateMany({
+        where: { id: toIntId(userId), deleted_at: null },
+        data: {
+          image: result.location,
+          updated_by: toIntId(userId),
+          updated_at: new Date(),
+        },
+      });
+
+      reply.code(200).send({
+        status: 1,
+        message: 'Profile photo updated',
+        data: { key: result.key, url: result.location },
       });
     } catch (error: unknown) {
       sendProfileError(reply, error);

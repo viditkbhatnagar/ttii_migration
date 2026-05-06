@@ -378,6 +378,33 @@ export class StudentPortalApi {
     });
   }
 
+  async requestEnrolment(authToken: string, courseId: string): Promise<{ status: number; message: string }> {
+    const payload = await this.post<{ status?: number; message?: string }>(
+      '/student/leads/request-enrolment',
+      authToken,
+      { course_id: courseId },
+    );
+    return {
+      status: asNumber(payload?.status),
+      message: asString(payload?.message),
+    };
+  }
+
+  // Auth token rides on the URL because @fastify/multipart isn't configured
+  // with attachFieldsToBody — body fields are invisible to the auth
+  // middleware on multipart requests. Mirrors AdminPortalApi.uploadFile.
+  async uploadProfileImage(authToken: string, file: File): Promise<{ key: string; url: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}profile/upload_image?auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (!payload || payload.status !== 1) {
+      throw new Error((payload?.message as string) || 'Upload failed');
+    }
+    return payload.data as { key: string; url: string };
+  }
+
   async loadStudentLiveClasses(
     authToken: string,
     courseId: string,

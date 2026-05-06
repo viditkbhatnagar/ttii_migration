@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
-import { Eye, EyeOff, Pencil, X } from 'lucide-react';
+import { Camera, Eye, EyeOff, Pencil, X } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -69,6 +69,25 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   const [passwordMessage, setPasswordMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const handlePhotoUpload = useCallback(async (file: File) => {
+    setPhotoUploading(true);
+    setMessage('');
+    try {
+      await api.uploadProfileImage(session.token, file);
+      setMessage('Profile photo updated successfully.');
+      reload();
+      refreshCurrentUser();
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : 'Failed to upload photo.');
+    } finally {
+      setPhotoUploading(false);
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  }, [api, session.token, reload, refreshCurrentUser]);
 
   useEffect(() => {
     if (profile) {
@@ -173,19 +192,43 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <Avatar className="size-14">
-              {profile?.image ? (
-                <AvatarImage src={profile.image} alt="" />
-              ) : null}
-              <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-base text-white font-semibold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative shrink-0">
+              <Avatar className="size-14">
+                {profile?.image ? (
+                  <AvatarImage src={profile.image} alt="" />
+                ) : null}
+                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-base text-white font-semibold">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <button
+                type="button"
+                aria-label="Change profile photo"
+                disabled={photoUploading}
+                onClick={() => photoInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-white bg-student-primary text-white shadow-sm hover:bg-student-primary/90 disabled:opacity-60"
+              >
+                <Camera aria-hidden="true" className="size-3.5" />
+              </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handlePhotoUpload(file);
+                }}
+              />
+            </div>
             <div className="min-w-0">
               <h2 className="text-lg font-semibold text-student-text truncate">{profile?.name || 'Student'}</h2>
               <p className="text-sm text-student-muted truncate">
                 {profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`}
               </p>
+              {photoUploading ? (
+                <p className="mt-0.5 text-xs text-student-muted">Uploading photo…</p>
+              ) : null}
             </div>
           </div>
           <div className="text-right shrink-0">
