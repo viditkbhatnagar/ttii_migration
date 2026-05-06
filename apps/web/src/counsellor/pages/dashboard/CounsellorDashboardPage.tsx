@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { FileText, Target, TrendingUp, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -52,32 +52,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
   const conversionRate = totalApps > 0 ? Math.round((convertedApps / totalApps) * 100) : 0;
 
   if (loading) {
-    return (
-      <div aria-busy="true" className="space-y-6">
-        <AdminPageHeader title="My Dashboard" />
-        <p className="-mt-4 text-sm text-gray-500">Counsellor performance overview</p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="bg-white">
-              <CardContent className="flex items-center gap-4 p-5">
-                <Skeleton className="size-10 shrink-0 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-7 w-12" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="space-y-2">
-            <Skeleton className="h-5 w-44" />
-            <Skeleton className="h-48 w-full rounded-xl" />
-          </div>
-        ))}
-        <span className="sr-only" role="status">Loading counsellor dashboard</span>
-      </div>
-    );
+    return <DashboardLoader label="counsellor dashboard" />;
   }
 
   if (error) {

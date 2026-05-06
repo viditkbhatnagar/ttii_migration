@@ -1,5 +1,5 @@
 import { Calendar, Clock, Play, Users, Video } from 'lucide-react';
-import { PageLoader } from '@/components/ui/page-loader';
+import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -104,7 +104,7 @@ export default function InstructorDashboardPage({ api, session, onNavigate }: In
   const greetingName = firstName || 'there';
 
   if (loading) {
-    return <PageLoader label="Loading dashboard..." />;
+    return <DashboardLoader label="instructor dashboard" />;
   }
 
   if (error) {

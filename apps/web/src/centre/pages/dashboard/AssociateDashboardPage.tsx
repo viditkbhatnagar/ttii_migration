@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { FileText, Target, TrendingUp, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { PageLoader } from '@/components/ui/page-loader';
+import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -45,7 +45,7 @@ export default function AssociateDashboardPage({ api, session }: CentrePageProps
   const conversionRate = totalApps > 0 ? Math.round((convertedApps / totalApps) * 100) : 0;
 
   if (loading) {
-    return <PageLoader label="Loading associate dashboard..." />;
+    return <DashboardLoader label="associate dashboard" />;
   }
 
   if (error) {

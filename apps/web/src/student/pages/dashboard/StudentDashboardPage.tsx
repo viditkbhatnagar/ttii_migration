@@ -3,7 +3,7 @@ import {
   BookOpen, ClipboardList, FileText, Bell, Flame, CheckCircle,
   CreditCard, ArrowRight, Target, TrendingUp, BarChart3,
 } from 'lucide-react';
-import { PageLoader } from '@/components/ui/page-loader';
+import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -152,9 +152,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   const greetingName = firstName || 'there';
 
   if (loading) {
-    return (
-      <PageLoader label="Loading dashboard..." />
-    );
+    return <DashboardLoader label="dashboard data" />;
   }
 
   if (error) {

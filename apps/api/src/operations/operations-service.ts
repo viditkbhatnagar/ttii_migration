@@ -2484,19 +2484,37 @@ export class OperationsService {
   async getAdminDashboard(): Promise<Record<string, unknown>> {
     const range = normalizeReportRange(undefined, undefined);
 
+    // Naji 2026-05-07 reskin: also surface 6-month enrolment trend,
+    // 7-day sparkline data per metric, instructor + question counts,
+    // and an enrolment progress distribution. Computed in parallel
+    // so one extra round-trip doesn't dominate the request.
+    const now = new Date();
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const fourteenDaysAgo = new Date(todayUtc.getTime() - 13 * 24 * 60 * 60 * 1000);
+    const sixMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+
     const [
       coursesCount,
       centresCount,
       studentsCount,
+      instructorsCount,
       enrolmentsCount,
+      questionsCount,
       paymentsAgg,
       recentStudentRows,
       upcomingEvents,
+      enrolmentsLast14Days,
+      studentsLast14Days,
+      coursesLast14Days,
+      enrolmentsLast6Months,
+      videoProgressRows,
     ] = await Promise.all([
       this.prisma.course.count({ where: { deleted_at: null } }),
       this.prisma.centres.count({ where: { deleted_at: null } }),
       this.prisma.users.count({ where: { role_id: 2, deleted_at: null } }),
+      this.prisma.users.count({ where: { role_id: 3, deleted_at: null } }),
       this.prisma.enrol.count({ where: { deleted_at: null } }),
+      this.prisma.question.count({ where: { deleted_at: null } }),
       this.prisma.payment_info.aggregate({ where: { deleted_at: null }, _sum: { amount_paid: true } }),
       this.prisma.users.findMany({
         where: { role_id: 2, deleted_at: null },
@@ -2510,17 +2528,117 @@ export class OperationsService {
         orderBy: { event_date: 'asc' },
         take: 10,
       }),
+      // Trend rows: last 14 days. We use 7d sparkline + diff vs prior 7d.
+      this.prisma.enrol.findMany({
+        where: { deleted_at: null, created_at: { gte: fourteenDaysAgo } },
+        select: { created_at: true, course_id: true, user_id: true },
+      }),
+      this.prisma.users.findMany({
+        where: { role_id: 2, deleted_at: null, created_at: { gte: fourteenDaysAgo } },
+        select: { created_at: true },
+      }),
+      this.prisma.course.findMany({
+        where: { deleted_at: null, created_at: { gte: fourteenDaysAgo } },
+        select: { created_at: true },
+      }),
+      // Monthly enrolment counts for the trend chart.
+      this.prisma.enrol.findMany({
+        where: { deleted_at: null, created_at: { gte: sixMonthsAgo } },
+        select: { created_at: true },
+      }),
+      // Video progress aggregated per user → bucket distribution.
+      this.prisma.video_progress_status.findMany({
+        where: { deleted_at: null },
+        select: { user_id: true, status: true },
+      }),
     ]);
 
+    // Sparkline + trend % helper: bucket rows into 7 daily counts and
+    // diff total vs the prior 7-day window.
+    const bucketByDay = (rows: Array<{ created_at: Date | null }>): { sparkline: number[]; trendPercent: number; lastBucketTotal: number; priorBucketTotal: number } => {
+      const sparkline = Array(7).fill(0) as number[];
+      let priorTotal = 0;
+      for (const row of rows) {
+        if (!row.created_at) continue;
+        const created = new Date(row.created_at);
+        const diffDays = Math.floor((todayUtc.getTime() - Date.UTC(created.getUTCFullYear(), created.getUTCMonth(), created.getUTCDate())) / (24 * 60 * 60 * 1000));
+        if (diffDays < 0) continue;
+        if (diffDays < 7) {
+          sparkline[6 - diffDays] = (sparkline[6 - diffDays] ?? 0) + 1;
+        } else if (diffDays < 14) {
+          priorTotal += 1;
+        }
+      }
+      const lastTotal = sparkline.reduce((s, v) => s + v, 0);
+      const trendPercent = priorTotal === 0
+        ? (lastTotal > 0 ? 100 : 0)
+        : Math.round(((lastTotal - priorTotal) / priorTotal) * 100);
+      return { sparkline, trendPercent, lastBucketTotal: lastTotal, priorBucketTotal: priorTotal };
+    };
+
+    const enrolTrend = bucketByDay(enrolmentsLast14Days);
+    const studentTrend = bucketByDay(studentsLast14Days);
+    const courseTrend = bucketByDay(coursesLast14Days);
+
+    // 6-month enrolment trend grouped into monthly buckets. Iterate
+    // exactly 6 buckets so the chart always has a full series.
+    const monthlyTrend: Array<{ label: string; year: number; month: number; count: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      monthlyTrend.push({
+        label: d.toLocaleString('en-US', { month: 'short' }),
+        year: d.getUTCFullYear(),
+        month: d.getUTCMonth(),
+        count: 0,
+      });
+    }
+    for (const row of enrolmentsLast6Months) {
+      if (!row.created_at) continue;
+      const d = new Date(row.created_at);
+      const bucket = monthlyTrend.find((b) => b.year === d.getUTCFullYear() && b.month === d.getUTCMonth());
+      if (bucket) bucket.count += 1;
+    }
+
+    // Student progress distribution. Each video_progress_status row
+    // marks one watched item; we aggregate percent-watched per user
+    // against the total video count and bucket users by completion %.
+    const totalVideosCount = await this.prisma.lesson_files.count({
+      where: { deleted_at: null, lesson_type: { in: ['video', 'youtube_video', 'vimeo_video'] } },
+    });
+    const userVideoCount = new Map<number, { watched: number; completed: number }>();
+    for (const row of videoProgressRows) {
+      if (row.user_id == null) continue;
+      const cur = userVideoCount.get(row.user_id) ?? { watched: 0, completed: 0 };
+      cur.watched += 1;
+      if (row.status === 1) cur.completed += 1;
+      userVideoCount.set(row.user_id, cur);
+    }
+    let progressLow = 0; // 0-25%
+    let progressMid = 0; // 25-75%
+    let progressHigh = 0; // 75-100%
+    for (const stat of userVideoCount.values()) {
+      const pct = totalVideosCount === 0 ? 0 : Math.round((stat.completed / totalVideosCount) * 100);
+      if (pct < 25) progressLow += 1;
+      else if (pct < 75) progressMid += 1;
+      else progressHigh += 1;
+    }
+    // Treat enrolled-but-never-watched students as "0-25% Done" so the
+    // chart total adds up to active enrolments, not just active viewers.
+    const trackedUsers = userVideoCount.size;
+    progressLow += Math.max(0, enrolmentsCount - trackedUsers);
+
+    const upcomingClassesCount = upcomingEvents.length;
+
     // LEFT JOIN enrol + course for recent students
-    const studentIds = recentStudentRows.map(s => s.id);
+    const studentIds = recentStudentRows.map((s: { id: number }) => s.id);
     const enrolments = studentIds.length > 0 ? await this.prisma.enrol.findMany({ where: { user_id: { in: studentIds }, deleted_at: null }, select: { user_id: true, course_id: true } }) : [];
     const courseIds = [...new Set(enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const courses = courseIds.length > 0 ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [];
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const enrolMap = new Map(enrolments.filter(e => e.user_id !== null).map(e => [e.user_id, e]));
 
-    const recentStudents = recentStudentRows.map(u => {
+    type RecentStudentRow = (typeof recentStudentRows)[number];
+    const recentStudents = recentStudentRows.map((u: RecentStudentRow) => {
       const enrol = enrolMap.get(u.id);
       return {
         ...u,
@@ -2532,10 +2650,25 @@ export class OperationsService {
       courses_count: coursesCount,
       centres_count: centresCount,
       students_count: studentsCount,
+      instructors_count: instructorsCount,
       enrolments_count: enrolmentsCount,
+      questions_count: questionsCount,
+      upcoming_classes_count: upcomingClassesCount,
       payments_total: paymentsAgg._sum.amount_paid ?? 0,
       recent_students: recentStudents,
       upcoming_events: upcomingEvents,
+      // Naji 2026-05-07 reskin extras:
+      students_trend: studentTrend,
+      enrolments_trend: enrolTrend,
+      courses_trend: courseTrend,
+      classes_trend: { sparkline: Array(7).fill(0) as number[], trendPercent: 0, lastBucketTotal: upcomingClassesCount, priorBucketTotal: 0 },
+      enrolment_monthly: monthlyTrend.map((b) => ({ label: b.label, count: b.count })),
+      progress_distribution: {
+        low: progressLow,
+        mid: progressMid,
+        high: progressHigh,
+        total: progressLow + progressMid + progressHigh,
+      },
     };
   }
 
