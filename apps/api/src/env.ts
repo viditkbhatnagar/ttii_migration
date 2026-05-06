@@ -74,6 +74,16 @@ const envSchema = z.object({
   EMAIL_MSGRAPH_TENANT_ID: optionalStringFromEnv,
   EMAIL_MSGRAPH_SENDER_EMAIL: optionalStringFromEnv,
 
+  // SSO (Sign in with Google / Microsoft) — student-only per Naji 2026-05-06.
+  // When unset, the SSO routes refuse with 503 and the frontend hides the
+  // buttons; this lets the code ship before the IdP apps are registered.
+  GOOGLE_OAUTH_CLIENT_ID: optionalStringFromEnv,
+  AZURE_AD_TENANT_ID: z.string().default('common'),
+  AZURE_AD_CLIENT_ID: optionalStringFromEnv,
+  AZURE_AD_CLIENT_SECRET: optionalStringFromEnv,
+  AZURE_AD_REDIRECT_URI: optionalStringFromEnv,
+  SSO_STATE_SIGNING_KEY: z.string().min(16).default('ttii-dev-sso-state-signing-key'),
+
   OTP_PROVIDER: z.enum(['console', 'noop', 'http']).default('console'),
   OTP_HTTP_ENDPOINT: optionalUrlFromEnv,
   OTP_HTTP_AUTH_TOKEN: optionalStringFromEnv,

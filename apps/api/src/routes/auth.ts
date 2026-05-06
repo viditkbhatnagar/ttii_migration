@@ -418,6 +418,97 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
     }
   });
 
+  /* ─── SSO (Sign in with Google / Microsoft) ─────────────────────
+     Student-only per Naji 2026-05-06. The frontend asks /auth/sso/config
+     up front to know which buttons to render — keeps the buttons hidden
+     when the IdP apps aren't registered yet.
+     ───────────────────────────────────────────────────────────── */
+
+  app.get('/auth/sso/config', async (_request, reply) => {
+    const cfg = authService.isSsoConfigured();
+    reply.code(200).send({
+      status: 1,
+      message: 'success',
+      data: {
+        google_enabled: cfg.google,
+        microsoft_enabled: cfg.microsoft,
+      },
+    });
+  });
+
+  app.post('/auth/sso/google', async (request, reply) => {
+    const payload = requestPayload(request);
+    const idToken = toStringValue(payload.id_token) ?? toStringValue(payload.credential);
+    try {
+      const result = await authService.loginWithGoogleIdToken(idToken ?? '', requestMeta(request));
+      reply.code(200).send({
+        status: 1,
+        message: 'Login Successfully!',
+        userdata: result.userData,
+        data: {
+          redirect_path: result.redirectPath,
+          session_expires_at: result.expiresAt.toISOString(),
+          requires_profile_completion: result.requiresProfileCompletion,
+        },
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
+  app.get('/auth/sso/microsoft/start', async (request, reply) => {
+    try {
+      const { url } = await authService.getMicrosoftAuthorizationUrl();
+      reply.redirect(url);
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
+  // After Microsoft authenticates, the IdP redirects back here with
+  // ?code=… and ?state=…. We exchange the code for an ID token,
+  // upsert the student, mint a legacy session, then 302 the browser
+  // to the student portal root with ?auth_token=… so the React shell
+  // can store it in localStorage and proceed. `requires_profile=1`
+  // signals the post-signup phone-collection modal.
+  app.get('/auth/sso/microsoft/callback', async (request, reply) => {
+    const payload = requestPayload(request);
+    const code = toStringValue(payload.code);
+    const state = toStringValue(payload.state);
+    const errorParam = toStringValue(payload.error);
+    const errorDescription = toStringValue(payload.error_description);
+
+    const portalRoot = 'https://learn.teachersindia.in/';
+    if (errorParam) {
+      const target = new URL(portalRoot);
+      target.searchParams.set('sso_error', errorDescription ?? errorParam);
+      reply.redirect(target.toString());
+      return;
+    }
+
+    try {
+      const result = await authService.loginWithMicrosoftAuthCode(
+        code ?? '',
+        state ?? '',
+        requestMeta(request),
+      );
+      const target = new URL(portalRoot);
+      target.searchParams.set('auth_token', result.userData.auth_token);
+      target.searchParams.set('user_id', result.userData.user_id);
+      target.searchParams.set('role_id', String(result.userData.role_id));
+      if (result.requiresProfileCompletion) {
+        target.searchParams.set('requires_profile', '1');
+      }
+      reply.redirect(target.toString());
+    } catch (error: unknown) {
+      const target = new URL(portalRoot);
+      const message =
+        error instanceof AuthError ? error.message : 'Microsoft sign-in failed.';
+      target.searchParams.set('sso_error', message);
+      reply.redirect(target.toString());
+    }
+  });
+
   app.get('/auth/me', { preHandler: [requireAuth] }, async (request, reply) => {
     const authContext = request.authContext;
     if (!authContext) {

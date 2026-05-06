@@ -1,6 +1,8 @@
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
+import { ConfidentialClientApplication } from '@azure/msal-node';
 import type { Prisma, PrismaClient, users } from '@prisma/client';
+import { OAuth2Client } from 'google-auth-library';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
@@ -888,6 +890,316 @@ export class AuthService {
     }
 
     return response;
+  }
+
+  /* ─── SSO (Sign in with Google / Microsoft) ─────────────────────
+     Student-only per Naji 2026-05-06. New users are auto-provisioned
+     as role_id=2. Phone is captured later via the
+     "complete your profile" modal — `requiresProfileCompletion` is
+     `true` when the user's phone is empty after lookup/create.
+     ───────────────────────────────────────────────────────────── */
+
+  // Lazy-init the Google + Microsoft clients so the service stays
+  // usable when SSO env is unset (the routes return 503 instead).
+  private googleClient: OAuth2Client | null = null;
+  private microsoftClient: ConfidentialClientApplication | null = null;
+
+  private getGoogleClient(): OAuth2Client {
+    if (!isTruthyString(env.GOOGLE_OAUTH_CLIENT_ID)) {
+      throw new AuthErrorClass(503, 'Google sign-in is not configured.', 'SSO_NOT_CONFIGURED');
+    }
+    if (!this.googleClient) {
+      this.googleClient = new OAuth2Client(env.GOOGLE_OAUTH_CLIENT_ID);
+    }
+    return this.googleClient;
+  }
+
+  private getMicrosoftClient(): ConfidentialClientApplication {
+    if (
+      !isTruthyString(env.AZURE_AD_CLIENT_ID) ||
+      !isTruthyString(env.AZURE_AD_CLIENT_SECRET) ||
+      !isTruthyString(env.AZURE_AD_REDIRECT_URI)
+    ) {
+      throw new AuthErrorClass(503, 'Microsoft sign-in is not configured.', 'SSO_NOT_CONFIGURED');
+    }
+    if (!this.microsoftClient) {
+      this.microsoftClient = new ConfidentialClientApplication({
+        auth: {
+          clientId: env.AZURE_AD_CLIENT_ID,
+          clientSecret: env.AZURE_AD_CLIENT_SECRET,
+          authority: `https://login.microsoftonline.com/${env.AZURE_AD_TENANT_ID}`,
+        },
+      });
+    }
+    return this.microsoftClient;
+  }
+
+  isSsoConfigured(): { google: boolean; microsoft: boolean } {
+    return {
+      google: isTruthyString(env.GOOGLE_OAUTH_CLIENT_ID),
+      microsoft:
+        isTruthyString(env.AZURE_AD_CLIENT_ID) &&
+        isTruthyString(env.AZURE_AD_CLIENT_SECRET) &&
+        isTruthyString(env.AZURE_AD_REDIRECT_URI),
+    };
+  }
+
+  async loginWithGoogleIdToken(
+    idToken: string,
+    requestMeta: RequestMeta,
+  ): Promise<{
+    userData: LegacyUserData;
+    redirectPath: string;
+    expiresAt: Date;
+    requiresProfileCompletion: boolean;
+  }> {
+    if (!isTruthyString(idToken)) {
+      throw new AuthErrorClass(400, 'Missing Google ID token.', 'VALIDATION_ERROR');
+    }
+    const client = this.getGoogleClient();
+    const audience = env.GOOGLE_OAUTH_CLIENT_ID;
+    if (!isTruthyString(audience)) {
+      throw new AuthErrorClass(503, 'Google sign-in is not configured.', 'SSO_NOT_CONFIGURED');
+    }
+    let payload;
+    try {
+      const ticket = await client.verifyIdToken({ idToken, audience });
+      payload = ticket.getPayload();
+    } catch {
+      throw new AuthErrorClass(401, 'Could not verify Google sign-in.', 'SSO_VERIFICATION_FAILED');
+    }
+    const email = isTruthyString(payload?.email) ? normalizeEmail(payload.email) : '';
+    const emailVerified = payload?.email_verified === true;
+    if (!email) {
+      throw new AuthErrorClass(401, 'Google account did not return an email.', 'SSO_NO_EMAIL');
+    }
+    if (!emailVerified) {
+      throw new AuthErrorClass(401, 'Your Google email is not verified yet.', 'SSO_EMAIL_NOT_VERIFIED');
+    }
+    const fullName =
+      [payload?.given_name, payload?.family_name].filter(isTruthyString).join(' ').trim() ||
+      (isTruthyString(payload?.name) ? payload.name.trim() : '') ||
+      email.split('@')[0] ||
+      'Student';
+
+    return this.finalizeSsoLogin({
+      email,
+      name: fullName,
+      provider: 'google',
+      requestMeta,
+    });
+  }
+
+  async getMicrosoftAuthorizationUrl(): Promise<{ url: string; state: string }> {
+    const client = this.getMicrosoftClient();
+    const state = this.signSsoState();
+    const url = await client.getAuthCodeUrl({
+      scopes: ['openid', 'profile', 'email', 'User.Read'],
+      redirectUri: env.AZURE_AD_REDIRECT_URI ?? '',
+      state,
+      prompt: 'select_account',
+    });
+    return { url, state };
+  }
+
+  async loginWithMicrosoftAuthCode(
+    code: string,
+    state: string,
+    requestMeta: RequestMeta,
+  ): Promise<{
+    userData: LegacyUserData;
+    redirectPath: string;
+    expiresAt: Date;
+    requiresProfileCompletion: boolean;
+  }> {
+    if (!isTruthyString(code)) {
+      throw new AuthErrorClass(400, 'Missing Microsoft auth code.', 'VALIDATION_ERROR');
+    }
+    if (!this.verifySsoState(state)) {
+      throw new AuthErrorClass(400, 'Invalid Microsoft sign-in state.', 'SSO_STATE_INVALID');
+    }
+    const client = this.getMicrosoftClient();
+    let response;
+    try {
+      response = await client.acquireTokenByCode({
+        code,
+        scopes: ['openid', 'profile', 'email', 'User.Read'],
+        redirectUri: env.AZURE_AD_REDIRECT_URI ?? '',
+      });
+    } catch {
+      throw new AuthErrorClass(401, 'Could not verify Microsoft sign-in.', 'SSO_VERIFICATION_FAILED');
+    }
+    const account = response?.account;
+    const idTokenClaims = (account?.idTokenClaims ?? {}) as Record<string, unknown>;
+    const rawEmail =
+      (typeof idTokenClaims.email === 'string' ? idTokenClaims.email : null) ??
+      (typeof idTokenClaims.preferred_username === 'string' ? idTokenClaims.preferred_username : null) ??
+      account?.username ??
+      '';
+    const email = isTruthyString(rawEmail) ? normalizeEmail(rawEmail) : '';
+    if (!email) {
+      throw new AuthErrorClass(401, 'Microsoft account did not return an email.', 'SSO_NO_EMAIL');
+    }
+    // Microsoft does not always emit `email_verified` for personal MSAs.
+    // Treat the email as verified when the IdP issued it through the
+    // "email" claim (work / school accounts always do). Personal MSAs
+    // may surface `preferred_username` only — accept those as long as
+    // the format is a real email; if it's a username (no @), reject.
+    const looksLikeEmail = /.+@.+\..+/.test(email);
+    if (!looksLikeEmail) {
+      throw new AuthErrorClass(401, 'Your Microsoft email is not verified yet.', 'SSO_EMAIL_NOT_VERIFIED');
+    }
+    const fullName =
+      (typeof idTokenClaims.name === 'string' ? idTokenClaims.name.trim() : '') ||
+      account?.name?.trim() ||
+      email.split('@')[0] ||
+      'Student';
+
+    return this.finalizeSsoLogin({
+      email,
+      name: fullName,
+      provider: 'microsoft',
+      requestMeta,
+    });
+  }
+
+  // Stateless HMAC-signed CSRF state for the Microsoft redirect flow.
+  // Format: `<random-32-hex>.<hmac>`. The random bytes give the value
+  // entropy; the HMAC binds it to our signing key so an attacker can't
+  // mint their own state to land on the callback.
+  private signSsoState(): string {
+    const nonce = randomBytes(16).toString('hex');
+    const sig = createHmac('sha256', env.SSO_STATE_SIGNING_KEY).update(nonce).digest('hex');
+    return `${nonce}.${sig}`;
+  }
+
+  private verifySsoState(state: string | undefined | null): boolean {
+    if (!isTruthyString(state)) return false;
+    const dot = state.indexOf('.');
+    if (dot <= 0) return false;
+    const nonce = state.slice(0, dot);
+    const sig = state.slice(dot + 1);
+    const expected = createHmac('sha256', env.SSO_STATE_SIGNING_KEY).update(nonce).digest('hex');
+    return safeHexEqual(sig, expected);
+  }
+
+  // Look up an existing student by email, or auto-provision a new one.
+  // Naji 2026-05-06: option (a) — we DO auto-create. Without it the
+  // student would have to ask admissions to add them before they could
+  // even browse courses, which contradicts the self-serve flow.
+  private async findOrCreateStudentBySsoEmail(input: {
+    email: string;
+    name: string;
+    provider: 'google' | 'microsoft';
+  }): Promise<{ user: users; created: boolean }> {
+    const existing = await this.prisma.users.findFirst({
+      where: {
+        deleted_at: null,
+        role_id: 2,
+        OR: [{ user_email: input.email }, { email: input.email }],
+      },
+    });
+    if (existing) {
+      return { user: existing, created: false };
+    }
+
+    const now = new Date();
+    const created = await this.prisma.users.create({
+      data: {
+        country_code: null,
+        phone: '',
+        email: input.email,
+        user_email: input.email,
+        name: input.name,
+        // SSO accounts have no password — leave the column empty so
+        // email/password login can never succeed for them.
+        password: '',
+        role_id: 2,
+        // Naji 2026-05-06: SSO email is verified by the IdP. Mark
+        // active so the student lands on the dashboard immediately.
+        status: 1,
+        gender: '',
+        dynamic_link: '',
+        image: '',
+        profile_picture: '',
+        application_id: 0,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    const studentId = `TT0000${created.id}`;
+    await this.prisma.users.updateMany({
+      where: { id: created.id },
+      data: { student_id: studentId, updated_at: now },
+    });
+
+    const refetched = (await this.prisma.users.findFirst({
+      where: { id: created.id, deleted_at: null },
+    })) ?? created;
+
+    return { user: refetched, created: true };
+  }
+
+  private async finalizeSsoLogin(input: {
+    email: string;
+    name: string;
+    provider: 'google' | 'microsoft';
+    requestMeta: RequestMeta;
+  }): Promise<{
+    userData: LegacyUserData;
+    redirectPath: string;
+    expiresAt: Date;
+    requiresProfileCompletion: boolean;
+  }> {
+    const { user, created } = await this.findOrCreateStudentBySsoEmail({
+      email: input.email,
+      name: input.name,
+      provider: input.provider,
+    });
+
+    // Per Naji 2026-05-06: blocked accounts (status=0 set by an admin)
+    // see a "contact support" message rather than auto-reactivating.
+    // The status=0 quirk for unverified students from the legacy phone-
+    // OTP flow doesn't apply here because SSO accounts are created with
+    // status=1 and existing student rows are already active.
+    if (user.status === 0 && !created) {
+      await this.writeAuditLog({
+        event: 'SSO_LOGIN_BLOCKED_INACTIVE',
+        success: false,
+        identifier: input.email,
+        userId: user.id,
+        requestMeta: input.requestMeta,
+        details: { provider: input.provider },
+      });
+      throw new AuthErrorClass(
+        403,
+        'Your account is currently disabled. Please contact admin support.',
+        'ACCOUNT_INACTIVE',
+      );
+    }
+
+    const issuedSession = await this.createSession(user.id, input.requestMeta);
+    const userData = this.toLegacyUserData(user, issuedSession.token);
+
+    await this.writeAuditLog({
+      event: created ? 'SSO_REGISTER_SUCCESS' : 'SSO_LOGIN_SUCCESS',
+      success: true,
+      identifier: input.email,
+      userId: user.id,
+      requestMeta: input.requestMeta,
+      details: {
+        provider: input.provider,
+        role_id: user.role_id,
+      },
+    });
+
+    return {
+      userData,
+      redirectPath: resolveLegacyPortalPath(user.role_id),
+      expiresAt: issuedSession.expiresAt,
+      requiresProfileCompletion: !isTruthyString(user.phone),
+    };
   }
 
   async requestOtpForPhone(input: {
