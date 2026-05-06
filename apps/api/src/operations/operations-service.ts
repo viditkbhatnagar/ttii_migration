@@ -4842,6 +4842,86 @@ export class OperationsService {
     };
   }
 
+  // Student-initiated enrolment request from the "Other Courses" catalog.
+  // Bypasses the duplicate-student-other-course block in addLead — the
+  // student IS the user requesting, so flagging them as a duplicate would
+  // block the very flow we want. Source is tagged so counsellors can see
+  // it came from the student portal.
+  async requestEnrolmentByStudent(
+    studentUserId: string,
+    courseId: string,
+  ): Promise<Record<string, unknown>> {
+    const courseIdInt = toNullableIntId(courseId);
+    if (!courseIdInt) return { status: 0, message: 'Course is required.' };
+
+    const student = await this.prisma.users.findFirst({
+      where: { id: toIntId(studentUserId), deleted_at: null, role_id: 2 },
+      select: { id: true, name: true, email: true, user_email: true, phone: true, country_code: true },
+    });
+    if (!student) return { status: 0, message: 'Student not found.' };
+
+    const email = (student.user_email || student.email || '').trim().toLowerCase();
+    const name = (student.name || '').trim();
+    const phone = (student.phone || '').trim();
+    if (!email) return { status: 0, message: 'Email is missing on your profile. Update it before requesting enrolment.' };
+    if (!name) return { status: 0, message: 'Name is missing on your profile.' };
+    if (!phone) return { status: 0, message: 'Phone is missing on your profile.' };
+
+    const alreadyEnrolled = await this.prisma.enrol.findFirst({
+      where: { user_id: student.id, course_id: courseIdInt, deleted_at: null },
+      select: { id: true },
+    });
+    if (alreadyEnrolled) {
+      return { status: 0, message: 'You are already enrolled in this course.' };
+    }
+
+    const existingLead = await this.prisma.applications.findFirst({
+      where: {
+        deleted_at: null,
+        user_email: email,
+        course_id: courseIdInt,
+        stage: { not: 'enrolled' },
+      },
+      select: { id: true },
+    });
+    if (existingLead) {
+      return { status: 0, message: 'You have already requested this course. A counsellor will reach out shortly.' };
+    }
+
+    const now = new Date();
+    const created = await this.prisma.applications.create({
+      data: {
+        application_id: `APP-${Date.now()}`,
+        name,
+        phone,
+        email: phone,
+        user_email: email,
+        country_code: student.country_code ? `+${String(student.country_code).replace(/^\+/, '')}` : '+91',
+        course_id: courseIdInt,
+        offering_id: null,
+        certificate_combination_id: null,
+        marketing_source: 'student_self_request',
+        lead_source: 'student_self_request',
+        pipeline: 'Counsellor',
+        pipeline_user: null,
+        stage: 'lead',
+        image: '',
+        second_code: 0,
+        second_phone: '',
+        whatsapp_no: 0,
+        created_at: now,
+        updated_at: now,
+        created_by: student.id,
+      },
+    });
+
+    return {
+      status: 1,
+      message: 'Request received. A counsellor will reach out to you shortly.',
+      data: { application_id: created.id },
+    };
+  }
+
   async listLeads(
     actorUserId: string,
     options?: { stage?: string | undefined; courseId?: string | undefined; search?: string | undefined },

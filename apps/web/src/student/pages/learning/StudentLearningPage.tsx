@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -510,7 +510,7 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
       {enrolledCourses.length > 0 ? (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">Enrolled Courses</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {enrolledCourses.map((course) => {
               const id = asString(course.id);
               const courseSubjects = subjects.filter((s) => asString(s.course_id) === id);
@@ -544,7 +544,7 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
       {otherCourses.length > 0 ? (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">All Other Courses</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {otherCourses.map((course) => {
               const id = asString(course.id);
               return (
@@ -555,6 +555,8 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                   lessonCount={asNumber(course.lessons_count)}
                   completion={0}
                   enrolled={false}
+                  api={api}
+                  authToken={session.token}
                 />
               );
             })}
@@ -578,6 +580,11 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
 
 /* ─── Sub-components ────────────────────────────────────────── */
 
+function formatInr(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
+}
+
 function CourseCard({
   course,
   subjectCount,
@@ -585,6 +592,8 @@ function CourseCard({
   completion,
   enrolled,
   onClick,
+  api,
+  authToken,
 }: {
   course: Record<string, unknown>;
   subjectCount: number;
@@ -592,14 +601,41 @@ function CourseCard({
   completion: number;
   enrolled: boolean;
   onClick?: () => void;
+  api?: StudentPortalApi;
+  authToken?: string;
 }) {
+  const id = asString(course.id);
   const title = asString(course.title) || 'Untitled Course';
   const thumbnail = asString(course.thumbnail);
-  const description = asString(course.short_description) || asString(course.description);
+  const price = asNumber(course.price);
+  const offerPrice = asNumber(course.offer_price);
+  const hasOffer = offerPrice > 0 && offerPrice < price;
+  const displayPrice = hasOffer ? offerPrice : price;
+
+  const [requesting, setRequesting] = useState(false);
+  const [requestState, setRequestState] = useState<{ kind: 'idle' } | { kind: 'success'; message: string } | { kind: 'error'; message: string }>({ kind: 'idle' });
+
+  const handleRequest = async (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!api || !authToken || !id || requesting) return;
+    setRequesting(true);
+    try {
+      const result = await api.requestEnrolment(authToken, id);
+      if (result.status === 1) {
+        setRequestState({ kind: 'success', message: result.message || 'Request sent.' });
+      } else {
+        setRequestState({ kind: 'error', message: result.message || 'Request failed.' });
+      }
+    } catch (err) {
+      setRequestState({ kind: 'error', message: err instanceof Error ? err.message : 'Request failed.' });
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   const inner = (
     <>
-      <div className="aspect-video w-full overflow-hidden bg-slate-100">
+      <div className="aspect-[4/3] w-full overflow-hidden bg-slate-100">
         {thumbnail ? (
           <img
             src={thumbnail}
@@ -612,44 +648,58 @@ function CourseCard({
           />
         ) : (
           <div className="flex size-full items-center justify-center">
-            <BookOpen aria-hidden="true" className="size-10 text-slate-300" />
+            <BookOpen aria-hidden="true" className="size-8 text-slate-300" />
           </div>
         )}
       </div>
-      <div className="space-y-2 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 text-sm font-semibold text-student-text">{title}</h3>
-          {enrolled ? (
-            <Badge className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 border-emerald-200">
-              Enrolled
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="shrink-0 rounded-full">Available</Badge>
-          )}
-        </div>
-        {description ? (
-          <p className="line-clamp-2 text-xs text-student-muted">{description}</p>
-        ) : null}
-        <p className="text-xs text-student-muted">
-          {subjectCount} subject{subjectCount === 1 ? '' : 's'} &middot;{' '}
-          {lessonCount} lesson{lessonCount === 1 ? '' : 's'}
+      <div className="space-y-1.5 p-3">
+        <h3 className="line-clamp-2 text-xs font-semibold leading-snug text-student-text">{title}</h3>
+        <p className="text-[10px] text-student-muted">
+          {subjectCount} sub &middot; {lessonCount} less
         </p>
         {enrolled ? (
           <>
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-student-primary transition-all duration-500"
                 style={{ width: `${Math.min(completion, 100)}%` }}
               />
             </div>
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center justify-between text-[10px]">
               <span className="font-medium text-student-primary">{completion}% complete</span>
               <span className="inline-flex items-center text-student-primary">
-                Continue <ChevronRight aria-hidden="true" className="ml-0.5 size-3.5" />
+                Continue <ChevronRight aria-hidden="true" className="ml-0.5 size-3" />
               </span>
             </div>
           </>
-        ) : null}
+        ) : (
+          <div className="space-y-1.5 pt-0.5">
+            {displayPrice > 0 ? (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-sm font-bold text-student-text">{formatInr(displayPrice)}</span>
+                {hasOffer ? (
+                  <span className="text-[10px] text-student-muted line-through">{formatInr(price)}</span>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-[10px] text-student-muted">Contact for pricing</p>
+            )}
+            {requestState.kind === 'success' ? (
+              <p role="status" className="text-[10px] text-emerald-600">{requestState.message}</p>
+            ) : requestState.kind === 'error' ? (
+              <p role="alert" className="text-[10px] text-red-600">{requestState.message}</p>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => { void handleRequest(e); }}
+                disabled={requesting || !api}
+                className="w-full rounded-md bg-student-primary px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {requesting ? 'Sending…' : 'Request Enrolment'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </>
   );
@@ -668,7 +718,7 @@ function CourseCard({
     );
   }
 
-  return <div className={`${baseClass} opacity-90`}>{inner}</div>;
+  return <div className={`${baseClass} hover:border-student-primary/40 hover:shadow-sm`}>{inner}</div>;
 }
 
 function SubjectNode({

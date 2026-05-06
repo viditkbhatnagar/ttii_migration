@@ -2247,6 +2247,21 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Student self-service: a logged-in student clicks "Request Enrolment"
+  // on an unenrolled course in their catalog. Creates an applications row
+  // tagged source=student_self_request so counsellors see it in the lead
+  // pipeline. Auth-only (no admin role gate) — student is the actor.
+  app.post('/student/leads/request-enrolment', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.requestEnrolmentByStudent(
+        requestUserId(request),
+        toStringValue(payload.course_id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/leads/list', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
