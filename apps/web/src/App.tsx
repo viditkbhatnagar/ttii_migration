@@ -30,6 +30,8 @@ import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
+import { SsoButtons } from './auth/SsoButtons.js';
+import { SsoCompleteProfileModal } from './auth/SsoCompleteProfileModal.js';
 import PublicApplyPage from './public/PublicApplyPage.js';
 
 interface ShellMetric {
@@ -549,11 +551,12 @@ const ALL_ROLE_OPTIONS = [
   { value: '10', label: 'Associate' },
 ];
 
-function LoginHome() {
-  const { authApi, error, clearError, login, logout, session } = useAuthState();
+function LoginHome({ studentPortalApi }: { studentPortalApi: StudentPortalApi }) {
+  const { authApi, error, clearError, login, applyExternalSession, logout, session } = useAuthState();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const portal = useMemo(() => detectPortalFromSubdomain(), []);
+  const isStudentPortal = portal === 'student';
   const roleOptions = useMemo(() => {
     if (portal && SUBDOMAIN_ROLE_OPTIONS[portal]) return SUBDOMAIN_ROLE_OPTIONS[portal];
     return ALL_ROLE_OPTIONS;
@@ -569,6 +572,59 @@ function LoginHome() {
   const [rememberMe, setRememberMe] = useState(false);
   type PendingCandidate = { user_id: number; role_id: number; label: string; sublabel: string };
   const [pendingCandidates, setPendingCandidates] = useState<PendingCandidate[] | null>(null);
+  // After SSO login, optionally show the "complete your profile" modal
+  // when the student's phone is missing. Naji 2026-05-06.
+  const [profileCompletionSession, setProfileCompletionSession] = useState<{ token: string; userId: string; roleId: number } | null>(null);
+
+  // Microsoft auth-code redirect-back handler. The /api/auth/sso/microsoft/callback
+  // route 302s here with auth_token + user_id + role_id (+ requires_profile=1).
+  // We capture the params, persist the session, clean the URL, and either
+  // show the profile-completion modal or route straight to the dashboard.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const authToken = params.get('auth_token');
+    const userId = params.get('user_id');
+    const roleIdRaw = params.get('role_id');
+    const ssoErr = params.get('sso_error');
+    if (ssoErr) {
+      setLoginError(ssoErr);
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+    if (!authToken || !userId || !roleIdRaw) return;
+    const roleId = Number.parseInt(roleIdRaw, 10);
+    if (!Number.isFinite(roleId)) return;
+    const requiresProfile = params.get('requires_profile') === '1';
+    const incomingSession = { token: authToken, userId, roleId };
+    applyExternalSession(incomingSession);
+    window.history.replaceState({}, '', window.location.pathname);
+    if (requiresProfile) {
+      setProfileCompletionSession(incomingSession);
+    } else {
+      navigateTo(resolveShellPathForRole(roleId));
+    }
+  }, [applyExternalSession]);
+
+  const handleGoogleSsoSuccess = useCallback(
+    (incomingSession: { token: string; userId: string; roleId: number }, requiresProfileCompletion: boolean) => {
+      setLoginError(null);
+      applyExternalSession(incomingSession);
+      if (requiresProfileCompletion) {
+        setProfileCompletionSession(incomingSession);
+      } else {
+        navigateTo(resolveShellPathForRole(incomingSession.roleId));
+      }
+    },
+    [applyExternalSession],
+  );
+
+  const handleProfileCompletionDone = useCallback(() => {
+    if (!profileCompletionSession) return;
+    const next = profileCompletionSession;
+    setProfileCompletionSession(null);
+    navigateTo(resolveShellPathForRole(next.roleId));
+  }, [profileCompletionSession]);
 
   const allowedRoleValues = useMemo(() => new Set(roleOptions.map((o) => o.value)), [roleOptions]);
   const roleLabelByValue = useMemo(() => {
@@ -909,6 +965,19 @@ function LoginHome() {
           </form>
           )}
 
+          {/* Sign in with Google / Microsoft — student portal only.
+              Component fetches /auth/sso/config; if neither IdP is
+              configured the whole block stays hidden. */}
+          {isStudentPortal && !pendingCandidates ? (
+            <div className="mt-5">
+              <SsoButtons
+                authApi={authApi}
+                onGoogleSuccess={handleGoogleSsoSuccess}
+                onError={(message) => setLoginError(message)}
+              />
+            </div>
+          ) : null}
+
           {/* Need Help */}
           <div className="mt-6 text-center">
             <p className="text-sm text-slate-500">Need Help?</p>
@@ -922,6 +991,14 @@ function LoginHome() {
           </div>
         </div>
       </div>
+
+      {profileCompletionSession ? (
+        <SsoCompleteProfileModal
+          api={studentPortalApi}
+          session={profileCompletionSession}
+          onComplete={handleProfileCompletionDone}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1002,7 +1079,7 @@ function PortalRouter({
   }
 
   if (pathname === '/') {
-    return <LoginHome />;
+    return <LoginHome studentPortalApi={studentPortalApi} />;
   }
 
   const route = findPortalRoute(pathname);
