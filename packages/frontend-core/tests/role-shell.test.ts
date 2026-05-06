@@ -6,9 +6,16 @@ describe('loadRoleShellAccess', () => {
   it('returns unauthenticated when no session is present', async () => {
     const authApi: AuthApi = {
       login: vi.fn(),
-      getCurrentUser: vi.fn().mockResolvedValue({ userId: 0, roleId: 0 }),
+      resolveLoginRoles: vi.fn(),
+      resolveLoginCandidates: vi.fn(),
+      getCurrentUser: vi.fn().mockResolvedValue({ userId: '0', roleId: 0 }),
       checkPortalAccess: vi.fn().mockResolvedValue(undefined),
       logout: vi.fn(),
+      forgotPassword: vi.fn(),
+      verifyOtp: vi.fn(),
+      resetPassword: vi.fn(),
+      loadSsoConfig: vi.fn(),
+      loginWithGoogleSso: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({
@@ -25,16 +32,23 @@ describe('loadRoleShellAccess', () => {
     const checkPortalAccess = vi.fn().mockResolvedValue(undefined);
     const authApi: AuthApi = {
       login: vi.fn(),
-      getCurrentUser: vi.fn().mockResolvedValue({ userId: 41, roleId: 2 }),
+      resolveLoginRoles: vi.fn(),
+      resolveLoginCandidates: vi.fn(),
+      getCurrentUser: vi.fn().mockResolvedValue({ userId: '41', roleId: 2 }),
       checkPortalAccess,
       logout: vi.fn(),
+      forgotPassword: vi.fn(),
+      verifyOtp: vi.fn(),
+      resetPassword: vi.fn(),
+      loadSsoConfig: vi.fn(),
+      loginWithGoogleSso: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({
       requiredSurface: 'student',
       session: {
         token: 'student-token',
-        userId: 41,
+        userId: '41',
         roleId: 2,
       },
       authApi,
@@ -48,7 +62,9 @@ describe('loadRoleShellAccess', () => {
   it('returns forbidden when portal access check fails with 403', async () => {
     const authApi: AuthApi = {
       login: vi.fn(),
-      getCurrentUser: vi.fn().mockResolvedValue({ userId: 7, roleId: 7 }),
+      resolveLoginRoles: vi.fn(),
+      resolveLoginCandidates: vi.fn(),
+      getCurrentUser: vi.fn().mockResolvedValue({ userId: '7', roleId: 7 }),
       checkPortalAccess: vi.fn().mockRejectedValue(
         new ApiError('Access denied.', {
           statusCode: 403,
@@ -56,13 +72,18 @@ describe('loadRoleShellAccess', () => {
         }),
       ),
       logout: vi.fn(),
+      forgotPassword: vi.fn(),
+      verifyOtp: vi.fn(),
+      resetPassword: vi.fn(),
+      loadSsoConfig: vi.fn(),
+      loginWithGoogleSso: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({
       requiredSurface: 'admin',
       session: {
         token: 'centre-token',
-        userId: 7,
+        userId: '7',
         roleId: 7,
       },
       authApi,

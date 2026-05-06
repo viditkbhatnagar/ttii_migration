@@ -25,6 +25,12 @@ interface AuthState {
 export interface AuthContextValue extends AuthState {
   authApi: AuthApi;
   login: (input: LoginInput) => Promise<AuthSession>;
+  /**
+   * Persist + activate a session that was minted out-of-band (SSO redirect
+   * callback, Google ID token exchange, etc.) without re-running the
+   * email/password flow.
+   */
+  applyExternalSession: (session: AuthSession) => void;
   logout: () => Promise<void>;
   refreshSession: () => Promise<AuthSession | null>;
   checkPortalAccess: (surface: PortalSurface) => Promise<boolean>;
@@ -100,6 +106,15 @@ export function AuthProvider({ authApi, storageKey, children }: AuthProviderProp
     [applyReadyState, authApi, storageKey],
   );
 
+  const applyExternalSession = useCallback(
+    (session: AuthSession): void => {
+      writeStoredSession(session, storageKey);
+      portalAccessCache.current.clear();
+      applyReadyState(session);
+    },
+    [applyReadyState, storageKey],
+  );
+
   const logout = useCallback(async (): Promise<void> => {
     const token = state.session?.token;
 
@@ -166,12 +181,24 @@ export function AuthProvider({ authApi, storageKey, children }: AuthProviderProp
       error: state.error,
       authApi,
       login,
+      applyExternalSession,
       logout,
       refreshSession,
       checkPortalAccess,
       clearError,
     }),
-    [authApi, checkPortalAccess, clearError, login, logout, refreshSession, state.error, state.phase, state.session],
+    [
+      applyExternalSession,
+      authApi,
+      checkPortalAccess,
+      clearError,
+      login,
+      logout,
+      refreshSession,
+      state.error,
+      state.phase,
+      state.session,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

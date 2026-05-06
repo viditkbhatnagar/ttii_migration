@@ -90,6 +90,16 @@ export interface ResetPasswordResult {
   message: string;
 }
 
+export interface SsoConfig {
+  googleEnabled: boolean;
+  microsoftEnabled: boolean;
+}
+
+export interface SsoLoginResult {
+  session: AuthSession;
+  requiresProfileCompletion: boolean;
+}
+
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
   resolveLoginRoles(input: { email: string; password: string }): Promise<number[]>;
@@ -100,6 +110,8 @@ export interface AuthApi {
   forgotPassword(email: string, roleId?: number): Promise<ForgotPasswordResult>;
   verifyOtp(email: string, otp: string, roleId?: number): Promise<VerifyOtpResult>;
   resetPassword(input: { email: string; resetToken: string; newPassword: string; roleId?: number }): Promise<ResetPasswordResult>;
+  loadSsoConfig(): Promise<SsoConfig>;
+  loginWithGoogleSso(idToken: string): Promise<SsoLoginResult>;
 }
 
 export class LegacyAuthApi implements AuthApi {
@@ -231,6 +243,49 @@ export class LegacyAuthApi implements AuthApi {
       path: '/login/logout',
       authToken,
     });
+  }
+
+  async loadSsoConfig(): Promise<SsoConfig> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'GET',
+      path: '/auth/sso/config',
+    });
+    const data = isRecord(response) && isRecord(response.data) ? response.data : {};
+    return {
+      googleEnabled: data.google_enabled === true,
+      microsoftEnabled: data.microsoft_enabled === true,
+    };
+  }
+
+  async loginWithGoogleSso(idToken: string): Promise<SsoLoginResult> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/auth/sso/google',
+      body: { id_token: idToken },
+    });
+    if (!isRecord(response) || !isRecord(response.userdata)) {
+      throw new ApiError('Invalid SSO login response.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/sso/google',
+      });
+    }
+    const token = asString(response.userdata.auth_token);
+    const rawUserId = response.userdata.user_id;
+    const userId = asString(rawUserId) ?? (typeof rawUserId === 'number' ? String(rawUserId) : '');
+    const roleId = asNumber(response.userdata.role_id);
+    if (!token || !userId || roleId === null) {
+      throw new ApiError('SSO response is missing required session fields.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/sso/google',
+      });
+    }
+    const data = isRecord(response.data) ? response.data : {};
+    return {
+      session: { token, userId, roleId },
+      requiresProfileCompletion: data.requires_profile_completion === true,
+    };
   }
 
   async forgotPassword(email: string, roleId?: number): Promise<ForgotPasswordResult> {

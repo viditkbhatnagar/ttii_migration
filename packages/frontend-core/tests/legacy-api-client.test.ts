@@ -40,7 +40,7 @@ describe('LegacyApiClient', () => {
       authToken: 'student-token',
     });
 
-    expect(requestUrl?.pathname).toBe('/api/auth/me');
+    expect((requestUrl as URL | null)?.pathname).toBe('/api/auth/me');
     expect(String(requestUrl)).toContain('auth_token=student-token');
   });
 
