@@ -225,6 +225,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <FieldRow label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => set('alternate_phone', v)} />
             <FieldRow label="WhatsApp" value={form.whatsapp_no ?? ''} onChange={(v) => set('whatsapp_no', v)} />
             <FieldRow label="Date of Birth" type="date" value={form.date_of_birth ?? ''} onChange={(v) => set('date_of_birth', v)} />
+            <FieldRow label="Age" value={form.age ?? ''} onChange={(v) => set('age', v)} />
             <SelectRow label="Gender" value={form.gender ?? ''} onChange={(v) => set('gender', v)}
               options={[{ value: '', label: 'Select' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} />
             <SelectRow label="Marital Status" value={form.marital_status ?? ''} onChange={(v) => set('marital_status', v)}
@@ -253,6 +254,36 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
               <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 rows={3} value={form.native_address ?? ''} onChange={(e) => set('native_address', e.target.value)} />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Emergency contact + health (Naji 2026-05-05): captured by the
+          application form but never editable on the student profile. */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Emergency Contact &amp; Health</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FieldRow label="Emergency Contact Name" value={form.emergency_name ?? ''} onChange={(v) => set('emergency_name', v)} />
+            <FieldRow label="Relation" value={form.emergency_relation ?? ''} onChange={(v) => set('emergency_relation', v)} />
+            <FieldRow label="Emergency Phone" value={form.emergency_phone ?? ''} onChange={(v) => set('emergency_phone', v)} />
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <Label className="mb-1 text-xs">Learning Disabilities</Label>
+              <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                rows={2} value={form.learning_disabilities ?? ''} onChange={(e) => set('learning_disabilities', e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1 text-xs">Accessibility Needs</Label>
+              <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                rows={2} value={form.accessibility_needs ?? ''} onChange={(e) => set('accessibility_needs', e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-4">
+            <Label className="mb-1 text-xs">Biography</Label>
+            <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              rows={3} value={form.biography ?? ''} onChange={(e) => set('biography', e.target.value)} />
           </div>
         </CardContent>
       </Card>

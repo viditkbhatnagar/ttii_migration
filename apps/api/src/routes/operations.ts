@@ -2645,6 +2645,15 @@ export function registerOperationsRoutes(
         discountType: toStringValue(payload.discount_type),
         installmentPlan: toStringValue(payload.installment_plan),
         documents: toStringValue(payload.documents),
+        // Naji 2026-05-05: application-captured fields the Edit form
+        // now exposes — round-trip them back onto the application row.
+        age: toStringValue(payload.age),
+        emergencyName: toStringValue(payload.emergency_name),
+        emergencyRelation: toStringValue(payload.emergency_relation),
+        emergencyPhone: toStringValue(payload.emergency_phone),
+        biography: toStringValue(payload.biography),
+        learningDisabilities: toStringValue(payload.learning_disabilities),
+        accessibilityNeeds: toStringValue(payload.accessibility_needs),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

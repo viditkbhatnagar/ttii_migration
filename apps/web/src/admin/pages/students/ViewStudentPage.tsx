@@ -235,14 +235,28 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <div>
                     <InfoRow label="Student ID" value={asString(student.student_id)} />
                     <InfoRow label="Name" value={asString(student.name)} />
+                    <InfoRow label="Username" value={asString(student.username)} />
                     <InfoRow label="Email" value={asString(student.user_email)} />
                     <InfoRow label="Phone" value={asString(student.phone)} />
+                    <InfoRow label="Alternate Phone" value={asString(student.second_phone) || asString(student.alternate_phone) || '-'} />
+                    <InfoRow label="WhatsApp" value={asString(student.whatsapp_no) || '-'} />
                     <InfoRow label="Date of Birth" value={formatDate(student.date_of_birth) || '-'} />
+                    <InfoRow label="Age" value={asString(student.age) || '-'} />
+                    <InfoRow label="Gender" value={asString(student.gender) || '-'} />
+                    <InfoRow label="Marital Status" value={asString(student.marital_status) || '-'} />
+                    <InfoRow label="Nationality" value={asString(student.nationality) || '-'} />
                   </div>
                   <div>
-                    <InfoRow label="Gender" value={asString(student.gender) || '-'} />
-                    <InfoRow label="Username" value={asString(student.username)} />
-                    <InfoRow label="Address" value={asString(student.address) || '-'} />
+                    <InfoRow label="Aadhaar No" value={asString(student.aadhar_no) || '-'} />
+                    <InfoRow label="Passport No" value={asString(student.passport_no) || '-'} />
+                    <InfoRow label="Father's Name" value={asString(student.father_name) || '-'} />
+                    <InfoRow label="Mother's Name" value={asString(student.mother_name) || '-'} />
+                    <InfoRow label="Guardian's Name" value={asString(student.guardian_name) || '-'} />
+                    <InfoRow label="Country" value={asString(student.country) || '-'} />
+                    <InfoRow label="State" value={asString(student.state) || '-'} />
+                    <InfoRow label="City / District" value={asString(student.city) || '-'} />
+                    <InfoRow label="Permanent Address" value={asString(student.address) || '-'} />
+                    <InfoRow label="Native Address" value={asString(student.native_address) || '-'} />
                     <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
                       <span className="text-sm font-medium text-gray-500">Status</span>
                       <span className="col-span-2">
@@ -252,6 +266,40 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   </div>
                 </div>
               </div>
+
+              {/* Emergency contact + health (Naji 2026-05-05) — these
+                  were captured by the application but never surfaced on
+                  the student profile. */}
+              {(asString(student.emergency_name) || asString(student.emergency_phone) || asString(student.emergency_relation)
+                || asString(student.learning_disabilities) || asString(student.accessibility_needs)
+                || asString(student.biography) || asString(student.signature_data)) ? (
+                <div className="mt-6 grid gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow label="Emergency Contact Name" value={asString(student.emergency_name) || '-'} />
+                    <InfoRow label="Emergency Relation" value={asString(student.emergency_relation) || '-'} />
+                    <InfoRow label="Emergency Phone" value={asString(student.emergency_phone) || '-'} />
+                  </div>
+                  <div>
+                    <InfoRow label="Learning Disabilities" value={asString(student.learning_disabilities) || '-'} />
+                    <InfoRow label="Accessibility Needs" value={asString(student.accessibility_needs) || '-'} />
+                  </div>
+                  {asString(student.biography) ? (
+                    <div className="md:col-span-2">
+                      <InfoRow label="Biography" value={asString(student.biography)} />
+                    </div>
+                  ) : null}
+                  {asString(student.signature_data) ? (
+                    <div className="md:col-span-2 mt-3">
+                      <p className="text-sm font-medium text-gray-500 mb-1">Signature</p>
+                      {asString(student.signature_data).startsWith('data:image') ? (
+                        <img src={asString(student.signature_data)} alt="Signature" className="h-20 rounded border border-gray-200 bg-white p-2" />
+                      ) : (
+                        <p className="text-sm italic text-gray-700">{asString(student.signature_data)}</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Profile completion bar */}
               <div className="mt-6">

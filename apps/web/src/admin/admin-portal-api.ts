@@ -2004,6 +2004,15 @@ export class AdminPortalApi {
       employment_status: string;
       current_occupation: string;
       experience_years: string;
+      // Naji 2026-05-05 — application-captured fields the Edit form
+      // now exposes so they round-trip back to the applications row.
+      age: string;
+      emergency_name: string;
+      emergency_relation: string;
+      emergency_phone: string;
+      biography: string;
+      learning_disabilities: string;
+      accessibility_needs: string;
     }>,
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, ...fields });

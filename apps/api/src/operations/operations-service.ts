@@ -6163,6 +6163,15 @@ export class OperationsService {
       discountType?: string;
       installmentPlan?: string; // JSON
       documents?: string;       // JSON
+      // Naji 2026-05-05: application-captured fields the Edit form
+      // now exposes — written to the applications row.
+      age?: string;
+      emergencyName?: string;
+      emergencyRelation?: string;
+      emergencyPhone?: string;
+      biography?: string;
+      learningDisabilities?: string;
+      accessibilityNeeds?: string;
     } | string,
     legacyPhone?: string,
   ): Promise<Record<string, unknown>> {
@@ -6216,6 +6225,17 @@ export class OperationsService {
       if (input.employmentStatus !== undefined) appFields.employment_status = input.employmentStatus || null;
       if (input.currentOccupation !== undefined) appFields.current_occupation = input.currentOccupation || null;
       if (input.experienceYears !== undefined) appFields.experience_years = input.experienceYears || null;
+      // Naji 2026-05-05: round-trip the application-captured fields.
+      if (input.age !== undefined) {
+        const n = Number(input.age);
+        appFields.age = Number.isFinite(n) && n > 0 ? n : null;
+      }
+      if (input.emergencyName !== undefined) appFields.emergency_name = input.emergencyName || null;
+      if (input.emergencyRelation !== undefined) appFields.emergency_relation = input.emergencyRelation || null;
+      if (input.emergencyPhone !== undefined) appFields.emergency_phone = input.emergencyPhone || null;
+      if (input.biography !== undefined) appFields.biography = input.biography || null;
+      if (input.learningDisabilities !== undefined) appFields.learning_disabilities = input.learningDisabilities || null;
+      if (input.accessibilityNeeds !== undefined) appFields.accessibility_needs = input.accessibilityNeeds || null;
       // Mirror Highest Qualification onto users.highest_qualification too —
       // legacy code reads it from the user record in places (e.g. analytics).
       if (input.highestQualification !== undefined) userFields.highest_qualification = input.highestQualification || null;
