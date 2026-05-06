@@ -1404,6 +1404,12 @@ function QuizPlayer({
     if (phase.current > 0) setPhase({ ...phase, current: phase.current - 1 });
   };
 
+  const handleJumpTo = (index: number) => {
+    if (phase.kind !== 'in_progress') return;
+    if (index < 0 || index >= phase.questions.length) return;
+    setPhase({ ...phase, current: index });
+  };
+
   const handleSubmit = async () => {
     if (phase.kind !== 'in_progress') return;
     const answers = phase.questions.map((q) => ({
@@ -1465,6 +1471,7 @@ function QuizPlayer({
             onSelect={handleSelect}
             onNext={handleNext}
             onPrev={handlePrev}
+            onJumpTo={handleJumpTo}
             onSubmit={() => { void handleSubmit(); }}
           />
         ) : (
@@ -1506,37 +1513,107 @@ function QuizInProgress({
   onSelect,
   onNext,
   onPrev,
+  onJumpTo,
   onSubmit,
 }: {
   phase: Extract<QuizPhase, { kind: 'in_progress' }>;
   onSelect: (qid: number, optionIndex: number) => void;
   onNext: () => void;
   onPrev: () => void;
+  onJumpTo: (index: number) => void;
   onSubmit: () => void;
 }) {
   const q = phase.questions[phase.current];
-  if (!q) return null;
   const total = phase.questions.length;
-  const answered = phase.answers.has(q.id) ? phase.answers.get(q.id) : null;
-  const progress = Math.round(((phase.current + 1) / total) * 100);
-  const allAnswered = phase.questions.every((qq) => phase.answers.has(qq.id) && phase.answers.get(qq.id) !== null);
+  const answeredCount = phase.questions.filter(
+    (qq) => phase.answers.has(qq.id) && phase.answers.get(qq.id) !== null,
+  ).length;
+  const remaining = total - answeredCount;
+  const progressPct = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
   const isLast = phase.current === total - 1;
+  const [confirming, setConfirming] = useState(false);
+
+  if (!q) return null;
+  const answered = phase.answers.has(q.id) ? phase.answers.get(q.id) : null;
+
+  const handleSubmitClick = () => {
+    if (remaining > 0) {
+      setConfirming(true);
+    } else {
+      onSubmit();
+    }
+  };
+
+  const jumpToFirstUnanswered = () => {
+    const idx = phase.questions.findIndex(
+      (qq) => !phase.answers.has(qq.id) || phase.answers.get(qq.id) === null,
+    );
+    if (idx >= 0) {
+      onJumpTo(idx);
+      setConfirming(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <div>
-        <div className="flex items-center justify-between text-xs text-student-muted">
-          <span>Question {phase.current + 1} of {total}</span>
-          <span>{progress}% through</span>
-        </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-student-primary transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+      {/* Counter strip — always visible so the student knows how many
+          they still need to answer before submitting. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+        <span className="font-medium text-student-text">
+          Answered <span className="text-student-primary">{answeredCount}</span> of {total}
+        </span>
+        <span className={`font-semibold ${remaining === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+          {remaining === 0 ? 'All questions answered' : `${remaining} unanswered`}
+        </span>
       </div>
-      <h3 className="text-base font-semibold leading-relaxed text-student-text">{q.question}</h3>
+
+      {/* Progress bar tracks completion (not position) so it lines up
+          with the counter above. */}
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-student-primary transition-all duration-300"
+          style={{ width: `${progressPct}%` }}
+          role="progressbar"
+          aria-valuenow={progressPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`${answeredCount} of ${total} questions answered`}
+        />
+      </div>
+
+      {/* Question grid tracker — every question shows as a numbered
+          chip. Click to jump straight to it. Filled = answered,
+          outlined amber = skipped, ring = current. */}
+      <div className="flex flex-wrap gap-1.5" role="navigation" aria-label="Question tracker">
+        {phase.questions.map((qq, idx) => {
+          const isCurrent = idx === phase.current;
+          const isAnswered = phase.answers.has(qq.id) && phase.answers.get(qq.id) !== null;
+          return (
+            <button
+              key={qq.id}
+              type="button"
+              onClick={() => onJumpTo(idx)}
+              aria-label={`Question ${idx + 1}${isAnswered ? ' (answered)' : ' (not answered)'}${isCurrent ? ' (current)' : ''}`}
+              aria-current={isCurrent ? 'true' : undefined}
+              className={`size-7 rounded-md text-[11px] font-semibold transition-colors ${
+                isCurrent
+                  ? 'bg-student-primary text-white ring-2 ring-student-primary/30 ring-offset-1'
+                  : isAnswered
+                    ? 'bg-student-primary/15 text-student-primary hover:bg-student-primary/25'
+                    : 'border border-amber-300 bg-white text-amber-600 hover:bg-amber-50'
+              }`}
+            >
+              {idx + 1}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Question + options */}
+      <div className="space-y-1.5 pt-1">
+        <p className="text-xs text-student-muted">Question {phase.current + 1} of {total}</p>
+        <h3 className="text-base font-semibold leading-relaxed text-student-text">{q.question}</h3>
+      </div>
       <div className="space-y-2">
         {q.options.map((opt, idx) => {
           const isActive = answered === idx;
@@ -1563,24 +1640,54 @@ function QuizInProgress({
           );
         })}
       </div>
-      <div className="flex items-center justify-between pt-2">
+
+      {/* Footer actions — Submit is always clickable. If there are
+          unanswered questions, clicking it shows a confirmation panel
+          rather than submitting straight away. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
         <Button variant="outline" onClick={onPrev} disabled={phase.current === 0}>
           Previous
         </Button>
-        {isLast ? (
+        <div className="flex items-center gap-2">
+          {!isLast ? (
+            <Button onClick={onNext} variant="outline">
+              Next
+            </Button>
+          ) : null}
           <Button
-            onClick={onSubmit}
-            disabled={!allAnswered}
+            onClick={handleSubmitClick}
             className="bg-student-primary hover:bg-student-primary/90"
           >
             Submit Quiz
           </Button>
-        ) : (
-          <Button onClick={onNext} className="bg-student-primary hover:bg-student-primary/90">
-            Next
-          </Button>
-        )}
+        </div>
       </div>
+
+      {/* Confirmation when submitting with unanswered questions. */}
+      {confirming ? (
+        <div role="alertdialog" aria-labelledby="quiz-confirm-title" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p id="quiz-confirm-title" className="font-semibold text-amber-900">
+            You still have {remaining} unanswered question{remaining === 1 ? '' : 's'}.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Skipped questions are marked as 0. Go back to fill them in, or submit and finish now.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              Keep going
+            </Button>
+            <Button variant="outline" onClick={jumpToFirstUnanswered}>
+              Jump to next unanswered
+            </Button>
+            <Button
+              onClick={() => { setConfirming(false); onSubmit(); }}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Submit anyway
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
