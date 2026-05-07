@@ -131,6 +131,9 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Learner Management
   { path: '/admin/applications/index', aliases: ['/admin/applications'], pageComponent: ApplicationsPage, title: 'Applications' },
   { path: '/admin/applications/add', pageComponent: AddApplicationPage, title: 'Add Application' },
+  // Naji 2026-05-08: edit route reuses AddApplicationPage in edit mode
+  // (component detects /edit/:id from window.location and pre-fills).
+  { path: '/admin/applications/edit/:id', pageComponent: AddApplicationPage, title: 'Edit Application' },
   { path: '/admin/leads/add', pageComponent: AddLeadPage, title: 'Add Lead' },
   { path: '/admin/applications/view/:id', pageComponent: ViewApplicationPage, title: 'View Application' },
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },

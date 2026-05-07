@@ -31,11 +31,18 @@ interface FormState {
   guardian_name: string;
   aadhar_no: string;
   passport_no: string;
+  // Naji 2026-05-08: contact info section — was missing entirely.
+  email: string;
+  phone: string;
+  alternate_phone: string;
+  whatsapp_no: string;
+  country: string;
   address: string;
   native_address: string;
   state: string;
   district: string;
   highest_qualification: string;
+  specialization: string;
   previous_school: string;
   year_of_passing: string;
   percentage_or_grade: string;
@@ -46,12 +53,23 @@ interface FormState {
   designation: string;
 }
 
+interface EducationPathwayRow {
+  qualification: string;
+  specialization: string;
+  institution: string;
+  board: string;
+  year_passed: string;
+  marks: string;
+}
+
 function emptyForm(): FormState {
   return {
     first_name: '', last_name: '', date_of_birth: '', gender: '', nationality: 'India',
     marital_status: '', father_name: '', mother_name: '', guardian_name: '',
-    aadhar_no: '', passport_no: '', address: '', native_address: '', state: '', district: '',
-    highest_qualification: '', previous_school: '', year_of_passing: '',
+    aadhar_no: '', passport_no: '',
+    email: '', phone: '', alternate_phone: '', whatsapp_no: '', country: 'India',
+    address: '', native_address: '', state: '', district: '',
+    highest_qualification: '', specialization: '', previous_school: '', year_of_passing: '',
     percentage_or_grade: '', teaching_experience: '', employment_status: '',
     organization_name: '', experience_years: '', designation: '',
   };
@@ -73,6 +91,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [signature, setSignature] = useState<string>('');
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
+  const [educationPathway, setEducationPathway] = useState<EducationPathwayRow[]>([]);
   const [saving, setSaving] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -97,8 +116,9 @@ export default function PublicApplyPage({ token }: { token: string }) {
         const fields: Array<keyof FormState> = [
           'first_name', 'last_name', 'date_of_birth', 'gender', 'nationality', 'marital_status',
           'father_name', 'mother_name', 'guardian_name', 'aadhar_no', 'passport_no',
+          'email', 'phone', 'alternate_phone', 'whatsapp_no', 'country',
           'address', 'native_address', 'state', 'district',
-          'highest_qualification', 'previous_school', 'year_of_passing', 'percentage_or_grade',
+          'highest_qualification', 'specialization', 'previous_school', 'year_of_passing', 'percentage_or_grade',
           'teaching_experience', 'employment_status', 'organization_name',
           'experience_years', 'designation',
         ];
@@ -107,6 +127,11 @@ export default function PublicApplyPage({ token }: { token: string }) {
           next.first_name = parts[0] ?? '';
           next.last_name = parts.slice(1).join(' ');
         }
+        // Pre-fill contact + email from the application's existing fields.
+        if (asString(app.user_email)) next.email = asString(app.user_email);
+        if (asString(app.phone)) next.phone = asString(app.phone);
+        if (asString(app.second_phone)) next.alternate_phone = asString(app.second_phone);
+        if (asString(app.whatsapp)) next.whatsapp_no = asString(app.whatsapp);
         for (const f of fields) {
           const v: unknown = draft[f] !== undefined ? draft[f] : app[f];
           if (v === undefined || v === null) continue;
@@ -116,6 +141,24 @@ export default function PublicApplyPage({ token }: { token: string }) {
           else if (typeof v === 'number' || typeof v === 'boolean') s = String(v);
           else continue;
           next[f] = s;
+        }
+        // Hydrate education pathway from server (if present).
+        const pathwayRaw = data.education_pathway ?? draft.education_pathway;
+        if (Array.isArray(pathwayRaw)) {
+          const rows: EducationPathwayRow[] = [];
+          for (const entry of pathwayRaw) {
+            if (!entry || typeof entry !== 'object') continue;
+            const r = entry as Record<string, unknown>;
+            rows.push({
+              qualification: asString(r.qualification),
+              specialization: asString(r.specialization),
+              institution: asString(r.institution),
+              board: asString(r.board),
+              year_passed: asString(r.year_passed),
+              marks: asString(r.marks),
+            });
+          }
+          if (rows.length > 0) setEducationPathway(rows);
         }
         setForm(next);
         setAppName(asString(app.name) || asString(app.user_email));
@@ -139,7 +182,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/save-draft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: form }),
+        body: JSON.stringify({ draft: { ...form, education_pathway: educationPathway } }),
       });
       const json = (await res.json()) as ApiOk | ApiErr;
       if (json.status === 1) toast.success('Draft saved.');
@@ -160,7 +203,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form, signature: signature.trim(), documents }),
+        body: JSON.stringify({ form, signature: signature.trim(), documents, education_pathway: educationPathway }),
       });
       const json = (await res.json()) as ApiOk | ApiErr;
       if (json.status === 1) {
@@ -224,6 +267,17 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <FieldText label="Passport No" value={form.passport_no} onChange={update('passport_no')} />
           </div>
 
+          {/* Contact Information — Naji 2026-05-08: was missing entirely;
+              public form now mirrors the admin Add Application contact group. */}
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Contact Information</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <FieldText label="Email *" type="email" value={form.email} onChange={update('email')} />
+            <FieldText label="Phone *" value={form.phone} onChange={update('phone')} />
+            <FieldText label="Alternate Phone" value={form.alternate_phone} onChange={update('alternate_phone')} />
+            <FieldText label="WhatsApp Number" value={form.whatsapp_no} onChange={update('whatsapp_no')} />
+            <FieldText label="Country" value={form.country} onChange={update('country')} />
+          </div>
+
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Address</h2>
           <div className="grid grid-cols-1 gap-4">
             <FieldTextArea label="Permanent Address" value={form.address} onChange={update('address')} />
@@ -234,13 +288,21 @@ export default function PublicApplyPage({ token }: { token: string }) {
             </div>
           </div>
 
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Education</h2>
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Qualification</h2>
           <div className="grid grid-cols-2 gap-4">
             <FieldText label="Highest Qualification" value={form.highest_qualification} onChange={update('highest_qualification')} />
-            <FieldText label="Previous School / Institute" value={form.previous_school} onChange={update('previous_school')} />
+            <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} />
+            <FieldText label="School / College" value={form.previous_school} onChange={update('previous_school')} />
             <FieldText label="Year of Passing" value={form.year_of_passing} onChange={update('year_of_passing')} />
             <FieldText label="Percentage / Grade" value={form.percentage_or_grade} onChange={update('percentage_or_grade')} />
           </div>
+
+          {/* Education Pathway — multi-row repeater, mirrors the admin
+              Application View. Naji 2026-05-08 — required to match
+              "Application form information should be as per our Full Application." */}
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Education Pathway</h2>
+          <p className="text-xs text-slate-500">Add one row per qualification (school, diploma, bachelor's, etc.).</p>
+          <EducationPathwayEditor rows={educationPathway} onChange={setEducationPathway} />
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Employment</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -274,6 +336,54 @@ export default function PublicApplyPage({ token }: { token: string }) {
         </CardContent>
       </Card>
     </main>
+  );
+}
+
+// Naji 2026-05-08 — multi-row Education Pathway editor for the public form.
+// Mirrors the admin View page's table; saved as `education_pathway` array on
+// the form payload. Backend persists rows into application_education_pathway.
+function EducationPathwayEditor({
+  rows,
+  onChange,
+}: {
+  rows: EducationPathwayRow[];
+  onChange: (rows: EducationPathwayRow[]) => void;
+}) {
+  const addRow = () =>
+    onChange([
+      ...rows,
+      { qualification: '', specialization: '', institution: '', board: '', year_passed: '', marks: '' },
+    ]);
+  const updateRow = (idx: number, patch: Partial<EducationPathwayRow>) =>
+    onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  const removeRow = (idx: number) => onChange(rows.filter((_, i) => i !== idx));
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 ? (
+        <p className="text-xs italic text-slate-400">No entries yet — add your first qualification below.</p>
+      ) : null}
+      {rows.map((r, idx) => (
+        <div key={idx} className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <FieldText label="Qualification" value={r.qualification} onChange={(e) => updateRow(idx, { qualification: e.target.value })} />
+            <FieldText label="Specialization" value={r.specialization} onChange={(e) => updateRow(idx, { specialization: e.target.value })} />
+            <FieldText label="Institution" value={r.institution} onChange={(e) => updateRow(idx, { institution: e.target.value })} />
+            <FieldText label="Board / University" value={r.board} onChange={(e) => updateRow(idx, { board: e.target.value })} />
+            <FieldText label="Year Passed" value={r.year_passed} onChange={(e) => updateRow(idx, { year_passed: e.target.value })} />
+            <FieldText label="Marks / Grade" value={r.marks} onChange={(e) => updateRow(idx, { marks: e.target.value })} />
+          </div>
+          <div className="mt-2 flex justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={() => removeRow(idx)}>
+              Remove row
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={addRow}>
+        + Add Qualification Row
+      </Button>
+    </div>
   );
 }
 

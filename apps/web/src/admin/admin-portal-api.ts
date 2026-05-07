@@ -1933,6 +1933,10 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/add', authToken, input);
   }
 
+  async editApplication(authToken: string, id: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/edit', authToken, { id, ...input });
+  }
+
   async deleteApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/delete', authToken, { id });
   }

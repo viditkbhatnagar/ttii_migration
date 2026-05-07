@@ -340,7 +340,7 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
       },
       {
         label: 'Edit',
-        onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id) + '?edit=1'),
+        onClick: (row) => onNavigate('/admin/applications/edit/' + asString(row._id || row.id)),
       },
     ],
     [onNavigate],

@@ -178,12 +178,114 @@ function calculateAge(dob: string): string {
 }
 
 export default function AddApplicationPage({ api, session, onNavigate }: AdminPageProps) {
+  // Naji 2026-05-08 — same component handles both Add and Edit. The
+  // route /admin/applications/edit/:id (or ?edit=1 query) flips us into
+  // edit mode: we load the application once, prefill the form, change
+  // the page title, and POST to /admin/applications/edit on save.
+  const editId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const path = window.location.pathname;
+    const m = path.match(/^\/admin\/applications\/edit\/(\d+)$/);
+    if (m) return m[1] ?? '';
+    return '';
+  }, []);
+  const isEditMode = editId !== '';
+
   const [activeTab, setActiveTab] = useState(0);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [editLoading, setEditLoading] = useState(isEditMode);
   const [educationRows, setEducationRows] = useState<EducationRow[]>([]);
   const [installments, setInstallments] = useState<InstallmentRow[]>([]);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+
+  // Pre-fill from the existing application row when in edit mode.
+  useEffect(() => {
+    if (!isEditMode || !editId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.getApplication(session.token, editId);
+        if (cancelled) return;
+        const r = (res as { application?: Record<string, unknown> }).application;
+        if (!r) {
+          toast.error('Application not found');
+          return;
+        }
+        const a = r;
+        const dob = asString(a.date_of_birth);
+        const enrolDate = asString(a.enrollment_date);
+        const appDate = asString(a.created_at);
+        const fullName = asString(a.name);
+        // Best-effort split of "Last, First" / "First Last" / "First M Last".
+        const nameParts = fullName.split(/\s+/);
+        const phoneRaw = asString(a.phone);
+        const phoneCC = asString(a.country_code).replace(/\+/g, '') || '91';
+        const whatsRaw = asString(a.whatsapp) || asString(a.whatsapp_no);
+        const whatsParts = whatsRaw.match(/^\+?(\d{1,3})\s+(.+)$/);
+        // Pull biography JSON keys back out for prefill.
+        let bio: Record<string, unknown> = {};
+        try { bio = a.biography ? (JSON.parse(asString(a.biography)) as Record<string, unknown>) : {}; }
+        catch { bio = {}; }
+        setForm((cur) => ({
+          ...cur,
+          fullName,
+          firstName: nameParts.slice(0, -1).join(' ') || nameParts[0] || '',
+          lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1] || '' : '',
+          dateOfBirth: dob ? dob.slice(0, 10) : '',
+          gender: asString(a.gender),
+          nationality: asString(a.nationality_name) || asString(a.nationality) || 'India',
+          maritalStatus: asString(a.marital_status),
+          fatherName: asString(a.father_name),
+          motherName: asString(a.mother_name),
+          guardianName: asString(a.guardian_name),
+          aadharNo: asString(a.aadhar_no),
+          passportNo: asString(a.passport_no),
+          email: asString(a.user_email) || asString(a.email),
+          phoneCountryCode: phoneCC,
+          phone: phoneRaw.replace(/^\+\d+\s*/, '').trim(),
+          alternatePhone: asString(a.second_phone),
+          whatsappCountryCode: whatsParts ? (whatsParts[1] ?? '91') : '91',
+          whatsappNo: whatsParts ? (whatsParts[2] ?? '') : whatsRaw,
+          country: asString(a.country_name) || asString(a.country) || asString(a.country_id) || '',
+          state: asString(a.state),
+          district: asString(a.district),
+          permanentAddress: asString(a.address),
+          correspondenceAddress: asString(a.native_address),
+          photoUrl: asString(a.image),
+          highestQualification: asString(a.highest_qualification),
+          specialization: asString(bio.specialization) || asString(a.specialization),
+          institutionName: asString(a.previous_school),
+          yearOfPassing: asString(a.year_of_passing),
+          employmentStatus: asString(a.employment_status),
+          currentOccupation: asString(a.current_occupation),
+          workExperience: asString(a.experience_years) || asString(a.teaching_experience),
+          courseId: asString(a.course_id),
+          offeringId: asString(a.offering_id),
+          certificateCombination: asString(a.certificate_combination_id),
+          applicationDate: appDate ? appDate.slice(0, 10) : '',
+          enrollmentDate: enrolDate || '',
+          modeOfStudy: asString(a.mode_of_study),
+          language: asString(a.language_name) || asString(a.preferred_language),
+          pipeline: asString(a.pipeline),
+          pipelineUser: asString(a.pipeline_user),
+          leadSource: asString(a.marketing_source).startsWith('Reference#') ? 'Reference' : asString(a.marketing_source),
+          referenceStudentId: asString(a.marketing_source).startsWith('Reference#') ? asString(a.marketing_source).slice('Reference#'.length) : '',
+          discount: a.application_discount != null ? asString(a.application_discount) || asNumber(a.application_discount).toString() : '',
+          discountType: (asString(bio.discount_type) || 'percent') as 'percent' | 'flat',
+          registrationFee: asString(bio.registration_fee),
+          gstPercent: a.application_gst_percent != null ? asString(a.application_gst_percent) || asNumber(a.application_gst_percent).toString() : '',
+          gstApplicability: a.application_gst_percent != null ? 'Yes' : 'No',
+          finalCourseFee: a.application_final_fee != null ? asString(a.application_final_fee) || asNumber(a.application_final_fee).toString() : '',
+        }));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load application');
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, session.token, isEditMode, editId]);
 
   // Load dropdown data
   const { data: refData, loading: refLoading } = useAdminPageData(
@@ -634,14 +736,17 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
         application_status: 'pending',
       };
 
-      const result = await api.createApplication(session.token, payload);
+      const result = isEditMode && editId
+        ? await api.editApplication(session.token, editId, payload)
+        : await api.createApplication(session.token, payload);
       if (asString(result.status) === '0' || result.status === 0) {
-        toast.error(asString(result.message) || 'Failed to create application');
+        toast.error(asString(result.message) || (isEditMode ? 'Failed to update application' : 'Failed to create application'));
       } else {
-        onNavigate('/admin/applications');
+        toast.success(isEditMode ? 'Application updated.' : 'Application created.');
+        onNavigate(isEditMode && editId ? '/admin/applications/view/' + editId : '/admin/applications');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create application');
+      toast.error(err instanceof Error ? err.message : (isEditMode ? 'Failed to update application' : 'Failed to create application'));
     } finally {
       setSaving(false);
     }
@@ -669,10 +774,21 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     );
   }
 
+  if (editLoading) {
+    return (
+      <div className="space-y-4">
+        <AdminPageHeader title="Edit Application" />
+        <div className="rounded-lg border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+          Loading application…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Add Application">
-        <Button variant="outline" onClick={() => onNavigate('/admin/applications')}>
+      <AdminPageHeader title={isEditMode ? 'Edit Application' : 'Add Application'}>
+        <Button variant="outline" onClick={() => onNavigate(isEditMode && editId ? '/admin/applications/view/' + editId : '/admin/applications')}>
           Cancel
         </Button>
       </AdminPageHeader>
@@ -1458,7 +1574,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
               disabled={saving}
               onClick={() => { void handleSubmit(); }}
             >
-              {saving ? 'Submitting...' : 'Submit Application'}
+              {saving ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'Update Application' : 'Submit Application')}
             </Button>
           )}
         </div>

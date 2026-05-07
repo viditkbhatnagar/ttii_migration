@@ -12,6 +12,7 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+import { GeneratePaymentLinkDialog } from './GeneratePaymentLinkDialog.js';
 
 const TAB_LABELS = ['Personal Information', 'Qualification', 'Enrolment & Fee', 'Payment History'];
 
@@ -30,6 +31,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [payDialogOpen, setPayDialogOpen] = useState(false);
 
   // Extract ID from URL path
   const applicationId = useMemo(() => {
@@ -167,38 +169,13 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     } finally { setSubmitting(false); }
   }, [api, session.token, applicationId, reload]);
 
-  // Lightweight Generate Payment Link — prompt for total + days.
-  // Naji 2026-05-07 has asked for a richer dialog (offering-derived
-  // pricing, installment plan editing) which lives in the deferred bucket;
-  // this stays usable for the Lead → Payment Pending transition until then.
-  const handleGeneratePaymentLink = useCallback(async () => {
+  // Naji 2026-05-08: Generate Payment Link now opens the rich dialog
+  // (offering-derived pricing, Full Payment vs Installment Plan with
+  // editable rows). The lightweight prompt-based fallback was removed.
+  const handleGeneratePaymentLink = useCallback(() => {
     if (!applicationId) return;
-    const totalRaw = window.prompt('Total course fee in INR (e.g. 25000)');
-    if (!totalRaw) return;
-    const total = Number(totalRaw);
-    if (!Number.isFinite(total) || total <= 0) {
-      toast.error('Enter a valid total fee.');
-      return;
-    }
-    const expRaw = window.prompt('Link expiry in days (default 7)', '7') ?? '7';
-    const expires = Math.max(1, Math.floor(Number(expRaw) || 7));
-    setSubmitting(true);
-    try {
-      const res = await api.generatePaymentLink(session.token, {
-        id: applicationId,
-        mode: 'full',
-        total_amount_minor: Math.round(total * 100),
-        expires_in_days: expires,
-      });
-      const m = asString((res as { message?: unknown }).message) || '';
-      if ((res as { status?: number }).status === 1) {
-        toast.success(m || 'Payment link emailed to student.');
-        reload();
-      } else toast.error(m || 'Could not generate payment link.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed.');
-    } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, reload]);
+    setPayDialogOpen(true);
+  }, [applicationId]);
 
   const paymentColumns: DataTableColumn[] = useMemo(
     () => [
@@ -279,7 +256,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               const buttons: React.ReactNode[] = [];
               if (stage === 'lead') {
                 buttons.push(
-                  <Button key="pay" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => void handleGeneratePaymentLink()}>
+                  <Button key="pay" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => handleGeneratePaymentLink()}>
                     Generate Payment Link
                   </Button>,
                 );
@@ -581,6 +558,24 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       )}
 
       {/* Reject Dialog with Reason */}
+      {/* Naji 2026-05-08 — rich Generate Payment Link dialog. Pulls
+          pricing from the application's offering / combination so the
+          breakdown is computed up-front. */}
+      <GeneratePaymentLinkDialog
+        open={payDialogOpen}
+        onOpenChange={setPayDialogOpen}
+        api={api}
+        authToken={session.token}
+        applicationId={applicationId}
+        studentName={asString(app.name) || asString(app.user_email) || 'this lead'}
+        offeringId={asString(app.offering_id)}
+        combinationId={asString(app.certificate_combination_id)}
+        initialBaseFee={Number(app.application_final_fee ?? 0)}
+        initialDiscount={Number(app.application_discount ?? 0)}
+        initialGstPercent={Number(app.application_gst_percent ?? 18)}
+        onSent={() => reload()}
+      />
+
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => { if (!open) { setRejectDialogOpen(false); setRejectReason(''); } }}>
         <DialogContent>
           <form

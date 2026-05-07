@@ -5414,7 +5414,13 @@ export class OperationsService {
     if (row.draft_data) {
       try { draft = JSON.parse(row.draft_data); } catch { draft = null; }
     }
-    return { status: 1, data: { application: app, draft } };
+    // Naji 2026-05-08 — also surface education_pathway so the public
+    // form can prefill the editor on load.
+    const educationPathway = await this.prisma.application_education_pathway.findMany({
+      where: { application_id: row.application_id },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    });
+    return { status: 1, data: { application: app, draft, education_pathway: educationPathway } };
   }
 
   async saveApplicationFormDraft(token: string, draftJson: string): Promise<Record<string, unknown>> {
@@ -5435,6 +5441,7 @@ export class OperationsService {
     formData: Record<string, unknown>,
     signature: string,
     documents?: Array<{ name: string; url: string; key?: string; size?: number; contentType?: string }>,
+    educationPathway?: Array<{ qualification: string; specialization: string; institution: string; board: string; year_passed: string; marks: string }>,
   ): Promise<Record<string, unknown>> {
     if (!token) return { status: 0, message: 'Invalid token.' };
     const row = await this.prisma.application_form_tokens.findFirst({ where: { token }, select: { id: true, application_id: true, used_at: true, expires_at: true } });
@@ -5471,6 +5478,32 @@ export class OperationsService {
       }
       biographyJson = JSON.stringify({ ...existingObj, documents });
     }
+    // Naji 2026-05-08 — public apply form was missing Contact section,
+    // Specialization, and Education Pathway. Now persist them too.
+    const emailIn = toStringValue(f.email);
+    const phoneIn = toStringValue(f.phone);
+    const altPhoneIn = toStringValue(f.alternate_phone);
+    const whatsAppIn = toStringValue(f.whatsapp_no);
+    const specializationIn = toStringValue(f.specialization);
+    // Stash specialization in biography JSON (no top-level column for it).
+    if (specializationIn) {
+      const existing = await this.prisma.applications.findFirst({ where: { id: row.application_id }, select: { biography: true } });
+      let bioObj: Record<string, unknown> = {};
+      if (existing?.biography) {
+        try {
+          const parsed: unknown = JSON.parse(existing.biography);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) bioObj = parsed as Record<string, unknown>;
+        } catch { /* ignore */ }
+      }
+      bioObj.specialization = specializationIn;
+      // Re-stringify; merges with any documents we persisted above.
+      const merged = JSON.stringify({
+        ...bioObj,
+        ...(documents && documents.length > 0 ? { documents } : {}),
+      });
+      biographyJson = merged;
+    }
+
     await this.prisma.applications.update({
       where: { id: row.application_id },
       data: {
@@ -5485,6 +5518,10 @@ export class OperationsService {
         guardian_name: toNullableString(f.guardian_name),
         aadhar_no: toNullableString(f.aadhar_no),
         passport_no: toNullableString(f.passport_no),
+        ...(emailIn ? { user_email: emailIn } : {}),
+        ...(phoneIn ? { phone: phoneIn } : {}),
+        ...(altPhoneIn ? { second_phone: altPhoneIn } : {}),
+        ...(whatsAppIn ? { whatsapp: whatsAppIn, whatsapp_no: Number((whatsAppIn.match(/\d+/g) ?? []).join('').slice(-15)) || 0 } : {}),
         address: toNullableString(f.address),
         native_address: toNullableString(f.native_address),
         state: toNullableString(f.state),
@@ -5504,6 +5541,26 @@ export class OperationsService {
         updated_at: now,
       },
     });
+    // Naji 2026-05-08 — replace any existing pathway rows with the
+    // submitted set. Idempotent across draft re-submits.
+    if (educationPathway && educationPathway.length > 0) {
+      await this.prisma.application_education_pathway.deleteMany({ where: { application_id: row.application_id } });
+      await this.prisma.application_education_pathway.createMany({
+        data: educationPathway.map((r, idx) => ({
+          application_id: row.application_id,
+          qualification: r.qualification,
+          specialization: r.specialization || null,
+          institution: r.institution || null,
+          board: r.board || null,
+          year_passed: r.year_passed || null,
+          marks: r.marks || null,
+          position: idx * 10,
+          created_at: now,
+          updated_at: now,
+        })),
+      });
+    }
+
     await this.prisma.application_form_tokens.update({
       where: { id: row.id },
       data: { used_at: now },
@@ -5967,6 +6024,103 @@ export class OperationsService {
     }
 
     return { status: 1, message: 'Application created successfully.', application_id: created.id };
+  }
+
+  // Naji 2026-05-08: dedicated update path for the new EditApplicationPage.
+  // Mirrors createApplication's field handling but applies a partial
+  // update to an existing applications row. Biography JSON merges with
+  // existing keys so we don't clobber installment_plan / documents /
+  // discount_type set elsewhere.
+  async updateApplication(
+    actorUserId: string,
+    applicationId: string,
+    input: AdminApplicationInput,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    const existing = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, biography: true },
+    });
+    if (!existing) return { status: 0, message: 'Application not found.' };
+
+    const fullName = `${input.firstName.trim()} ${input.lastName?.trim() || ''}`.trim();
+    const now = new Date();
+    let age: number | null = null;
+    if (input.dateOfBirth) {
+      const dob = new Date(input.dateOfBirth);
+      const ageDiff = now.getTime() - dob.getTime();
+      age = Math.floor(ageDiff / (365.25 * 24 * 60 * 60 * 1000));
+    }
+
+    // Merge biography JSON with existing.
+    let bioParsed: Record<string, unknown> = {};
+    if (existing.biography) {
+      try { bioParsed = JSON.parse(existing.biography) as Record<string, unknown>; }
+      catch { bioParsed = {}; }
+    }
+    const mergedBio: Record<string, unknown> = {
+      ...bioParsed,
+      ...(input.discountType !== undefined ? { discount_type: input.discountType || null } : {}),
+      ...(input.registrationFee !== undefined ? { registration_fee: input.registrationFee || null } : {}),
+      ...(input.installmentPlan !== undefined ? { installment_plan: input.installmentPlan ? safeParseJson(input.installmentPlan) : null } : {}),
+      ...(input.documents !== undefined ? { documents: input.documents ? safeParseJson(input.documents) : null } : {}),
+      ...(input.specialization !== undefined ? { specialization: input.specialization || null } : {}),
+    };
+    const bioHasContent = Object.values(mergedBio).some((v) => v !== null && v !== undefined && v !== '');
+
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        name: fullName,
+        phone: input.phone.trim(),
+        email: input.phone.trim(),
+        user_email: input.email.trim(),
+        country_code: input.countryCode ? `+${input.countryCode.replace(/^\+/, '')}` : '+91',
+        date_of_birth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+        age,
+        gender: input.gender || null,
+        nationality: input.nationality || input.country || 'India',
+        marital_status: input.maritalStatus || null,
+        father_name: input.fatherName || null,
+        mother_name: input.motherName || null,
+        guardian_name: input.guardianName || null,
+        aadhar_no: input.aadharNo || null,
+        passport_no: input.passportNo || null,
+        whatsapp: input.whatsappNo ? input.whatsappNo.trim() : null,
+        whatsapp_no: input.whatsappNo ? Number((input.whatsappNo.match(/\d+/g) ?? []).join('').slice(-15)) || 0 : 0,
+        state: input.state || null,
+        district: input.city || null,
+        address: input.permanentAddress || null,
+        native_address: input.correspondenceAddress || null,
+        second_phone: input.alternatePhone || '',
+        ...(input.photoUrl ? { image: input.photoUrl } : {}),
+        course_id: toNullableIntId(input.courseId),
+        offering_id: toNullableIntId(input.offeringId),
+        certificate_combination_id: toNullableIntId(input.certificateCombinationId),
+        enrollment_date: input.enrollmentDate || null,
+        mode_of_study: input.modeOfStudy || null,
+        preferred_language: input.language || null,
+        marketing_source:
+          input.leadSource === 'Reference' && input.referenceStudentId
+            ? `Reference#${input.referenceStudentId}`
+            : input.leadSource || null,
+        application_discount: input.discount ? Number(input.discount) : null,
+        application_gst_percent: input.gstPercent ? Number(input.gstPercent) : null,
+        application_final_fee: input.finalCourseFee ? Number(input.finalCourseFee) : null,
+        ...(bioHasContent ? { biography: JSON.stringify(mergedBio) } : {}),
+        pipeline_user: toNullableIntId(input.pipelineUser),
+        pipeline: input.pipeline || (input.pipelineUser ? '9' : null),
+        ...(input.applicationStatus
+          ? { status: input.applicationStatus as $Enums.applications_status }
+          : {}),
+        added_under_centre: toNullableIntId(input.centreId),
+        updated_by: toIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Application updated successfully.', application_id: id };
   }
 
   async deleteApplication(actorUserId: string, id: string): Promise<Record<string, unknown>> {

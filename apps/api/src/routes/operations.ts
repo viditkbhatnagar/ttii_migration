@@ -2329,7 +2329,26 @@ export function registerOperationsRoutes(
           return out;
         })
         .filter((v): v is { name: string; url: string; key?: string; size?: number; contentType?: string } => v !== null);
-      const result = await operationsService.submitApplicationForm(params.token, formData, signature, documents);
+      // Naji 2026-05-08 — accept education_pathway rows from the
+      // restructured public form. Each row maps onto application_education_pathway.
+      const pathwayRaw = Array.isArray(body.education_pathway) ? body.education_pathway : [];
+      const educationPathway = pathwayRaw
+        .map((entry) => {
+          if (typeof entry !== 'object' || entry === null) return null;
+          const r = entry as Record<string, unknown>;
+          const qualification = toStringValue(r.qualification);
+          if (!qualification) return null;
+          return {
+            qualification,
+            specialization: toStringValue(r.specialization),
+            institution: toStringValue(r.institution),
+            board: toStringValue(r.board),
+            year_passed: toStringValue(r.year_passed),
+            marks: toStringValue(r.marks),
+          };
+        })
+        .filter((v): v is { qualification: string; specialization: string; institution: string; board: string; year_passed: string; marks: string } => v !== null);
+      const result = await operationsService.submitApplicationForm(params.token, formData, signature, documents, educationPathway);
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
@@ -2549,6 +2568,83 @@ export function registerOperationsRoutes(
     } catch (error: unknown) {
       sendOperationsError(reply, error);
     }
+  });
+
+  // Naji 2026-05-08: dedicated update route for the new EditApplicationPage.
+  // Same input shape as /admin/applications/add — service decides
+  // create vs update based on the route. Skips the duplicate-email check
+  // (we're updating an existing row, not adding a new one).
+  app.post('/admin/applications/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      if (!id) {
+        reply.code(200).send({ status: 0, message: 'Application ID is required.' });
+        return;
+      }
+      const input: AdminApplicationInput = {
+        firstName: toStringValue(payload.first_name),
+        lastName: toStringValue(payload.last_name),
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+        alternatePhone: toStringValue(payload.alternate_phone),
+        dateOfBirth: toStringValue(payload.date_of_birth),
+        gender: toStringValue(payload.gender),
+        nationality: toStringValue(payload.nationality),
+        maritalStatus: toStringValue(payload.marital_status),
+        fatherName: toStringValue(payload.father_name),
+        motherName: toStringValue(payload.mother_name),
+        guardianName: toStringValue(payload.guardian_name),
+        aadharNo: toStringValue(payload.aadhar_no),
+        passportNo: toStringValue(payload.passport_no),
+        whatsappNo: toStringValue(payload.whatsapp_no),
+        addressLine1: toStringValue(payload.address_line_1),
+        addressLine2: toStringValue(payload.address_line_2),
+        city: toStringValue(payload.city),
+        state: toStringValue(payload.state),
+        pincode: toStringValue(payload.pincode),
+        country: toStringValue(payload.country),
+        permanentAddress: toStringValue(payload.permanent_address),
+        correspondenceAddress: toStringValue(payload.correspondence_address),
+        highestQualification: toStringValue(payload.highest_qualification),
+        specialization: toStringValue(payload.specialization),
+        institutionName: toStringValue(payload.institution_name),
+        yearOfPassing: toStringValue(payload.year_of_passing),
+        percentageOrCgpa: toStringValue(payload.percentage_or_cgpa),
+        workExperience: toStringValue(payload.work_experience),
+        currentOccupation: toStringValue(payload.current_occupation),
+        employmentStatus: toStringValue(payload.employment_status),
+        courseId: toStringValue(payload.course_id),
+        centreId: toStringValue(payload.centre_id),
+        batchId: toStringValue(payload.batch_id),
+        offeringId: toStringValue(payload.offering_id),
+        enrollmentDate: toStringValue(payload.enrollment_date),
+        modeOfStudy: toStringValue(payload.mode_of_study),
+        language: toStringValue(payload.language),
+        pipeline: toStringValue(payload.pipeline),
+        pipelineUser: toStringValue(payload.pipeline_user),
+        discount: toStringValue(payload.discount),
+        gstApplicability: toStringValue(payload.gst_applicability),
+        leadSource: toStringValue(payload.lead_source),
+        applicationStatus: toStringValue(payload.application_status),
+        notes: toStringValue(payload.notes),
+        crmTags: toStringValue(payload.crm_tags),
+        photoUrl: toStringValue(payload.photo_url),
+        countryCode: toStringValue(payload.country_code),
+        whatsappCountryCode: toStringValue(payload.whatsapp_country_code),
+        certificateCombinationId: toStringValue(payload.certificate_combination_id),
+        applicationDate: toStringValue(payload.application_date),
+        referenceStudentId: toStringValue(payload.reference_student_id),
+        discountType: toStringValue(payload.discount_type),
+        registrationFee: toStringValue(payload.registration_fee),
+        gstPercent: toStringValue(payload.gst_percent),
+        finalCourseFee: toStringValue(payload.final_course_fee),
+        installmentPlan: toStringValue(payload.installment_plan),
+        documents: toStringValue(payload.documents),
+      };
+      const result = await operationsService.updateApplication(requestUserId(request), id, input);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
   app.post('/admin/applications/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
