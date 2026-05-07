@@ -596,6 +596,20 @@ function toNullableIntId(id: string | number | null | undefined): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
+// Strict integer parse: returns null for non-numeric strings (e.g. "India"),
+// empties, and zero. Used when a column may legitimately store either a
+// numeric foreign key or a free-text fallback (legacy applications.country_id
+// / .nationality / .preferred_language all do this).
+function parseLooseInt(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  const n = parseInt(trimmed, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -4812,32 +4826,64 @@ export class OperationsService {
 
   // ── Applications Phase B ────────────────────────────────────────────────────
 
+  // Numeric coercion that returns null for empty/non-integer values.
+  // Used by getApplication to decide whether to look up a country /
+  // nationality / language by id, or treat the column as raw text.
+
   async getApplication(id: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
 
     const app = await this.prisma.applications.findFirst({ where: { id: toIntId(id), deleted_at: null } });
     if (!app) return { status: 0, message: 'Application not found.' };
 
-    // Resolve related records
-    const [course, pipelineUser, centre, payments] = await Promise.all([
+    // Resolve related records. Naji 2026-05-07: country / nationality /
+    // preferred_language store numeric IDs (legacy form), so we look the
+    // names up here so the View page can render text instead of "0".
+    const countryIdInt = parseLooseInt(app.country_id);
+    const nationalityIdInt = parseLooseInt(app.nationality);
+    const languageIdInt = parseLooseInt(app.preferred_language);
+
+    const [course, pipelineUser, centre, payments, countryRow, nationalityRow, languageRow, educationPathway, offering] = await Promise.all([
       app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
       app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
       app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: app.added_under_centre }, select: { id: true, centre_name: true } }) : null,
       this.prisma.student_payments.findMany({ where: { user_id: toIntId(id), deleted_at: null }, orderBy: { id: 'desc' } }),
+      countryIdInt !== null ? this.prisma.country.findFirst({ where: { id: countryIdInt }, select: { id: true, name: true } }) : null,
+      nationalityIdInt !== null ? this.prisma.country.findFirst({ where: { id: nationalityIdInt }, select: { id: true, name: true } }) : null,
+      languageIdInt !== null ? this.prisma.languages.findFirst({ where: { id: languageIdInt }, select: { id: true, title: true } }) : null,
+      this.prisma.application_education_pathway.findMany({
+        where: { application_id: app.id },
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      }),
+      app.offering_id ? this.prisma.offerings.findFirst({ where: { id: app.offering_id }, select: { id: true, title: true, offering_code: true } }) : null,
     ]);
 
     // Resolve batch
     const batch = app.batch_id ? await this.prisma.batch.findFirst({ where: { id: app.batch_id } }) : null;
 
+    // Country/nationality fall back to the raw text if the lookup misses
+    // (older rows stored e.g. "India" directly). Same for language.
+    const countryName = countryRow?.name ?? (countryIdInt === null ? toStringValue(app.country_id) : null);
+    const nationalityName = nationalityRow?.name ?? (nationalityIdInt === null ? toStringValue(app.nationality) : null);
+    const languageName = languageRow?.title ?? (languageIdInt === null ? toStringValue(app.preferred_language) : null);
+
     return {
       status: 1,
       application: {
         ...app,
+        // Photo resolves through the same legacy-asset URL helper that other
+        // student/centre payloads use.
+        image: toLegacyFileUrl(app.image) || toLegacyFileUrl((app as Record<string, unknown>).profile_picture as string | null),
         course_title: course?.title ?? null,
+        offering_title: offering?.title ?? offering?.offering_code ?? null,
         pipeline_user_name: pipelineUser?.name ?? null,
         centre_name: centre?.centre_name ?? null,
         batch_title: batch?.title ?? null,
+        country_name: countryName,
+        nationality_name: nationalityName,
+        language_name: languageName,
       },
+      education_pathway: educationPathway,
       payments,
     };
   }
@@ -5170,9 +5216,11 @@ export class OperationsService {
       };
 
       const courseLine = courseTitle
-        ? `<p><strong>Course:</strong> ${escapeHtmlText(courseTitle)}</p>`
+        ? `<p style="margin:0 0 12px;"><strong>Course:</strong> ${escapeHtmlText(courseTitle)}</p>`
         : '';
-      const wrap = (heading: string, body: string) => `<!DOCTYPE html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;"><div style="max-width:560px;margin:0 auto;padding:24px;"><h2 style="color:#8F2774;margin:0 0 8px;">${escapeHtmlText(heading)}</h2>${body}<p style="color:#6b7280;font-size:13px;margin-top:24px;">— Teachers' Training Institute of India</p></div></body></html>`;
+      const { renderBrandedEmail } = await import('../integrations/email-template.js');
+      const wrap = (heading: string, body: string) =>
+        renderBrandedEmail({ heading, bodyHtml: body });
 
       switch (event) {
         case 'payment_received': {

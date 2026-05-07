@@ -49,6 +49,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   }, [data]);
 
   const payments = useMemo(() => toRecords(data?.payments), [data]);
+  const educationPathway = useMemo(() => toRecords(data?.education_pathway), [data]);
 
   const handleApprove = useCallback(async () => {
     if (!applicationId) return;
@@ -239,12 +240,11 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
                 <div className="grid flex-1 gap-x-8 md:grid-cols-2">
                   <div>
-                    <InfoRow label="Application ID" value={asString(app.application_id)} />
                     <InfoRow label="Full Name" value={asString(app.name)} />
                     <InfoRow label="Date of Birth" value={formatDate(app.date_of_birth)} />
                     <InfoRow label="Age" value={asString(app.age)} />
                     <InfoRow label="Gender" value={asString(app.gender)} />
-                    <InfoRow label="Nationality" value={asString(app.nationality)} />
+                    <InfoRow label="Nationality" value={asString(app.nationality_name) || asString(app.nationality)} />
                     <InfoRow label="Marital Status" value={asString(app.marital_status)} />
                   </div>
                   <div>
@@ -253,7 +253,6 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                     <InfoRow label="Guardian Name" value={asString(app.guardian_name)} />
                     <InfoRow label="Aadhar No." value={asString(app.aadhar_no)} />
                     <InfoRow label="Passport No." value={asString(app.passport_no)} />
-                    <InfoRow label="Applied Date" value={formatDate(app.created_at)} />
                   </div>
                 </div>
               </div>
@@ -276,7 +275,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   <InfoRow label="WhatsApp" value={asString(app.whatsapp_no)} />
                 </div>
                 <div>
-                  <InfoRow label="Country" value={asString(app.country) || asString(app.nationality)} />
+                  <InfoRow label="Country" value={asString(app.country_name) || asString(app.country) || asString(app.country_id)} />
                   <InfoRow label="State" value={asString(app.state)} />
                   <InfoRow label="District" value={asString(app.district)} />
                   <InfoRow label="Permanent Address" value={asString(app.address)} />
@@ -314,19 +313,67 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Accessibility & Special Needs</CardTitle>
+              <CardTitle className="text-base">Education Pathway</CardTitle>
             </CardHeader>
-            <CardContent>
-              <InfoRow label="Learning Disabilities" value={asString(app.learning_disabilities)} />
-              <InfoRow label="Accessibility Needs" value={asString(app.accessibility_needs)} />
+            <CardContent className="p-0">
+              {educationPathway.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
+                      <tr>
+                        <th className="px-4 py-2.5">Qualification</th>
+                        <th className="px-4 py-2.5">Specialization</th>
+                        <th className="px-4 py-2.5">Institution</th>
+                        <th className="px-4 py-2.5">Board</th>
+                        <th className="px-4 py-2.5">Year</th>
+                        <th className="px-4 py-2.5">Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {educationPathway.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 text-gray-900">{asString(row.qualification) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.specialization) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.institution) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.board) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.year_passed) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.marks) || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="px-4 py-6 text-sm text-gray-400">No education pathway entries recorded.</p>
+              )}
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Tab 3: Enrolment & Fee */}
+      {/* Tab 3: Enrolment & Fee — Naji 2026-05-07: Application ID + Applied
+          Date moved here from Personal Info; Centre removed; Fee Information
+          moved to Payment History; Language now resolved to its title. */}
       {activeTab === 2 && (
         <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Application Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Application ID" value={asString(app.application_id)} />
+                  <InfoRow label="Applied Date" value={formatDate(app.created_at)} />
+                </div>
+                <div>
+                  <InfoRow label="Application Status" value={asString(app.status)} />
+                  <InfoRow label="Stage" value={asString(app.stage)} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Enrolment Details</CardTitle>
@@ -341,16 +388,21 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   <InfoRow label="Mode of Study" value={asString(app.mode_of_study)} />
                 </div>
                 <div>
-                  <InfoRow label="Language" value={asString(app.preferred_language)} />
-                  <InfoRow label="Pipeline" value={asString(app.pipeline_role)} />
+                  <InfoRow label="Language" value={asString(app.language_name) || asString(app.preferred_language)} />
+                  <InfoRow label="Pipeline" value={asString(app.pipeline)} />
                   <InfoRow label="Pipeline User" value={asString(app.pipeline_user_name)} />
                   <InfoRow label="Lead Source" value={asString(app.marketing_source)} />
-                  <InfoRow label="Centre" value={asString(app.centre_name)} />
                 </div>
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
 
+      {/* Tab 4: Payment History — Naji 2026-05-07: Fee Information moved here
+          from Enrolment & Fee tab so the financial side lives in one place. */}
+      {activeTab === 3 && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Fee Information</CardTitle>
@@ -368,23 +420,20 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               </div>
             </CardContent>
           </Card>
-        </div>
-      )}
 
-      {/* Tab 4: Payment History */}
-      {activeTab === 3 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payment History</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {payments.length > 0 ? (
-              <AdminDataTable columns={paymentColumns} rows={payments} searchable={false} exportable={false} />
-            ) : (
-              <p className="py-6 text-center text-sm text-gray-400">No payment records found.</p>
-            )}
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Payment History</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {payments.length > 0 ? (
+                <AdminDataTable columns={paymentColumns} rows={payments} searchable={false} exportable={false} />
+              ) : (
+                <p className="py-6 text-center text-sm text-gray-400">No payment records found.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Reject Dialog with Reason */}

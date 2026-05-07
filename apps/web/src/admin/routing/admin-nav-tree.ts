@@ -126,14 +126,8 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'associate-target', label: 'Associate Target', href: '/admin/associates_target/index' },
     ],
   },
-  {
-    id: 'crm',
-    label: 'CRM',
-    icon: 'Users',
-    children: [
-      { id: 'enquiries', label: 'Enquiries', href: '/admin/enquiries/index' },
-    ],
-  },
+  // CRM, AI Mentor, Circulars: hidden on Naji's request 2026-05-07.
+  // Routes still registered so deep links + future re-enable work.
   {
     id: 'content-library',
     label: 'Content Library',
@@ -165,17 +159,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'doc-delivery', label: 'Documents Delivery', href: '/admin/documents/delivery' },
     ],
   },
-  {
-    id: 'ai-mentor',
-    label: 'AI Mentor',
-    icon: 'Bot',
-    children: [
-      { id: 'mentorship-history', label: 'Mentorship History', href: '/admin/mentorship/history' },
-      { id: 'mentorship-analysis', label: 'Mentorship Analysis', href: '/admin/mentorship/analysis' },
-    ],
-  },
   { id: 'events', label: 'Events', href: '/admin/events/index', icon: 'CalendarDays' },
-  { id: 'circulars', label: 'Circulars', href: '/admin/circulars/index', icon: 'Megaphone' },
   {
     id: 'entrance-exam',
     label: 'Entrance Exam',

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { hashPassword } from './password.js';
+import { renderBrandedEmail, renderEmailFieldTable } from '../integrations/email-template.js';
 
 /**
  * Issues a one-time credential bundle for a newly-created admin-side user
@@ -52,33 +53,25 @@ function generateTempPassword(): string {
 
 function buildEmailHtml(ctx: CredentialEmailContext, tempPassword: string): string {
   const loginUrl = ctx.loginUrl ?? 'https://admin.teachersindia.in';
-  return `<!DOCTYPE html>
-<html>
-<body style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #1f2937; line-height: 1.6;">
-  <div style="max-width: 560px; margin: 0 auto; padding: 24px;">
-    <h2 style="color: #8F2774; margin: 0 0 8px;">Welcome to TTII LMS</h2>
-    <p>Hi ${escapeHtml(ctx.name)},</p>
-    <p>An account has been created for you on the TTII LMS as <strong>${escapeHtml(ctx.roleLabel)}</strong>. Use the credentials below to sign in.</p>
-    <table role="presentation" style="margin: 16px 0; border-collapse: collapse;">
-      <tr>
-        <td style="padding: 6px 12px; background: #F3F6F9; border-radius: 4px 0 0 4px;"><strong>Email</strong></td>
-        <td style="padding: 6px 12px; background: #F3F6F9; border-radius: 0 4px 4px 0;">${escapeHtml(ctx.email)}</td>
-      </tr>
-      <tr><td style="height: 4px;"></td></tr>
-      <tr>
-        <td style="padding: 6px 12px; background: #F3F6F9; border-radius: 4px 0 0 4px;"><strong>Temporary password</strong></td>
-        <td style="padding: 6px 12px; background: #F3F6F9; border-radius: 0 4px 4px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(tempPassword)}</td>
-      </tr>
-    </table>
-    <p><a href="${loginUrl}" style="display: inline-block; padding: 10px 20px; background: #8F2774; color: #ffffff; text-decoration: none; border-radius: 4px;">Sign in to your account</a></p>
-    <p style="color: #6b7280; font-size: 13px;">For security, please change your password the first time you sign in. If you did not expect this email, contact <a href="mailto:info@teachersindia.in">info@teachersindia.in</a>.</p>
-    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">— Teachers' Training Institute of India</p>
-  </div>
-</body>
-</html>`;
+  const fields = renderEmailFieldTable([
+    { label: 'Email', value: ctx.email },
+    { label: 'Temporary password', value: tempPassword, mono: true },
+  ]);
+  return renderBrandedEmail({
+    heading: 'Welcome to TTII LMS',
+    preheader: `Your ${ctx.roleLabel} account is ready.`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;">Hi <strong>${escapeText(ctx.name)}</strong>,</p>
+      <p style="margin:0 0 12px;">An account has been created for you on the TTII LMS as <strong>${escapeText(ctx.roleLabel)}</strong>. Use the credentials below to sign in.</p>
+      ${fields}
+    `,
+    cta: { label: 'Sign in to your account', href: loginUrl },
+    footerNote:
+      'For security, please change your password the first time you sign in. If you did not expect this email, please ignore it or contact our support team.',
+  });
 }
 
-function escapeHtml(s: string): string {
+function escapeText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

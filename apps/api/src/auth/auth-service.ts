@@ -543,21 +543,21 @@ export class AuthService {
     });
 
     try {
+      const { renderBrandedEmail } = await import('../integrations/email-template.js');
       await this.emailProvider.sendEmail({
         to: canonicalEmail,
         subject: 'TTII Password Reset OTP',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
-            <h2 style="color: #18548b;">Password Reset Request</h2>
-            <p>You requested to reset your TTII account password. Use the OTP below to continue:</p>
-            <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
-              <p style="margin: 0; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #18548b;">${otp}</p>
+        html: renderBrandedEmail({
+          heading: 'Password reset request',
+          preheader: 'Use this OTP to reset your password.',
+          bodyHtml: `
+            <p style="margin:0 0 12px;">You requested to reset your TTII account password. Use the OTP below to continue:</p>
+            <div style="margin:20px 0;padding:24px;background:#faf5fb;border:1px solid #e9d5e5;border-radius:12px;text-align:center;">
+              <div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#8F2774;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${otp}</div>
             </div>
-            <p style="color: #666; font-size: 14px;">This OTP expires in 2 minutes. If you didn't request this, please ignore this email.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-            <p style="color: #999; font-size: 12px;">Teachers' Training Institute of India</p>
-          </div>
-        `,
+          `,
+          footerNote: "This OTP expires in 2 minutes. If you didn't request a password reset, you can safely ignore this email.",
+        }),
         text: `Your TTII password reset OTP is: ${otp}\n\nThis OTP expires in 2 minutes.\n\nIf you didn't request this, please ignore this email.`,
       });
     } catch {
