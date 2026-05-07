@@ -13,9 +13,19 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { titleCaseOnBlur } from '@/lib/text-format';
+import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
+
+// Mirror of the backend's role → pipeline label map (operations-service.ts
+// addLead). Keep in sync if roles are added.
+const ROLE_PIPELINE_LABEL: Record<number, string> = {
+  1: 'Super Admin',
+  8: 'Admin',
+  9: 'Counsellor',
+  10: 'Associate',
+};
 
 /**
  * Add Lead — Step 1 of Naji's 8-step Lead → Enrolment workflow.
@@ -48,6 +58,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [offerings, setOfferings] = useState<Record<string, unknown>[]>([]);
   const [combinations, setCombinations] = useState<Record<string, unknown>[]>([]);
+  const [me, setMe] = useState<{ name: string; roleId: number } | null>(null);
 
   useEffect(() => {
     void api
@@ -56,29 +67,42 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       .catch(() => setCourses([]));
   }, [api, session.token]);
 
+  // Pull the logged-in user so the Pipeline card reflects their actual
+  // role + name (was hardcoded to "Counsellor" / "Auto-set...").
+  useEffect(() => {
+    void api
+      .loadMyProfile(session.token)
+      .then((profile) => setMe({ name: profile.name, roleId: profile.roleId }))
+      .catch(() => setMe(null));
+  }, [api, session.token]);
+
   useEffect(() => {
     if (!courseId) {
       setOfferings([]);
       setOfferingId('');
       return;
     }
+    // Naji 2026-05-08 — only show active offerings, not drafts.
     void api
-      .listOfferings(session.token, { course_id: courseId })
+      .listOfferings(session.token, { course_id: courseId, status: 'active' })
       .then((rows) => setOfferings(rows))
       .catch(() => setOfferings([]));
     setOfferingId('');
   }, [api, session.token, courseId]);
 
-  // Certificate combinations are course-scoped on this admin already.
-  // If the loader doesn't exist, just skip — combination is optional.
+  // Certificate combinations are course-scoped — load once a course
+  // is picked, then filter to active. Combination remains optional.
   useEffect(() => {
-    const loader = (api as unknown as {
-      loadCertificateCombinations?: (token: string, courseId?: string) => Promise<unknown>;
-    }).loadCertificateCombinations;
-    if (typeof loader !== 'function') return;
-    void loader(session.token, courseId)
-      .then((rows) => setCombinations(toRecords(rows)))
+    if (!courseId) {
+      setCombinations([]);
+      setCombinationId('');
+      return;
+    }
+    void api
+      .listCertificateCombinations(session.token, { course_id: courseId, status: 'active' })
+      .then((rows) => setCombinations(rows))
       .catch(() => setCombinations([]));
+    setCombinationId('');
   }, [api, session.token, courseId]);
 
   const courseOptions = useMemo(
@@ -90,9 +114,15 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     [offerings],
   );
   const combinationOptions = useMemo(
-    () => combinations.map((c) => ({ label: asString(c.label) || asString(c.title) || `Combination ${asString(c.id)}`, value: asString(c.id) })),
+    () => combinations.map((c) => ({
+      label: asString(c.combination_code) || asString(c.label) || asString(c.title) || `Combination ${asString(c.id)}`,
+      value: asString(c.id),
+    })),
     [combinations],
   );
+
+  const pipelineLabel = me ? (ROLE_PIPELINE_LABEL[me.roleId] ?? 'Admin') : '—';
+  const pipelineUserLabel = me?.name?.trim() || 'Auto-set from logged-in user';
 
   const handleSubmit = async () => {
     if (!name.trim()) { toast.error('Name is required.'); return; }
@@ -151,7 +181,18 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email *</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="student@example.com" />
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => {
+                  const trimmed = email.trim();
+                  if (!trimmed) return;
+                  void verifyEmailWithFeedback(api, session.token, trimmed, (corrected) => setEmail(corrected));
+                }}
+                placeholder="student@example.com"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone *</Label>
@@ -209,8 +250,9 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={combinationId}
                 onChange={(e) => setCombinationId(e.target.value)}
+                disabled={!courseId}
               >
-                <option value="">None</option>
+                <option value="">{courseId ? 'None' : 'Pick a course first'}</option>
                 {combinationOptions.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
@@ -240,18 +282,20 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             </select>
           </div>
           {/* Naji 2026-05-07 — show Pipeline + Pipeline User even though
-              they are auto-set so the team can see what's being recorded. */}
+              they are auto-set so the team can see what's being recorded.
+              Naji 2026-05-08 — values come from the logged-in user, not
+              hardcoded "Counsellor". */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Pipeline</Label>
               <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-700">
-                Counsellor
+                {pipelineLabel}
               </div>
             </div>
             <div className="space-y-2">
               <Label>Pipeline User</Label>
               <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-700">
-                Auto-set from logged-in user
+                {pipelineUserLabel}
               </div>
             </div>
           </div>

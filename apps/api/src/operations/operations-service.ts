@@ -4879,7 +4879,7 @@ export class OperationsService {
     const nationalityIdInt = parseLooseInt(app.nationality);
     const languageIdInt = parseLooseInt(app.preferred_language);
 
-    const [course, pipelineUser, centre, payments, countryRow, nationalityRow, languageRow, educationPathway, offering] = await Promise.all([
+    const [course, pipelineUser, centre, payments, countryRow, nationalityRow, languageRow, educationPathway, offering, combination] = await Promise.all([
       app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
       app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
       app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: app.added_under_centre }, select: { id: true, centre_name: true } }) : null,
@@ -4892,6 +4892,12 @@ export class OperationsService {
         orderBy: [{ position: 'asc' }, { id: 'asc' }],
       }),
       app.offering_id ? this.prisma.offerings.findFirst({ where: { id: app.offering_id }, select: { id: true, title: true, offering_code: true } }) : null,
+      app.certificate_combination_id
+        ? this.prisma.certificate_combinations.findFirst({
+            where: { id: app.certificate_combination_id },
+            select: { id: true, combination_code: true },
+          })
+        : null,
     ]);
 
     // Resolve batch
@@ -4912,6 +4918,7 @@ export class OperationsService {
         image: toLegacyFileUrl(app.image) || toLegacyFileUrl((app as Record<string, unknown>).profile_picture as string | null),
         course_title: course?.title ?? null,
         offering_title: offering?.title ?? offering?.offering_code ?? null,
+        combination_title: combination?.combination_code ?? null,
         pipeline_user_name: pipelineUser?.name ?? null,
         centre_name: centre?.centre_name ?? null,
         batch_title: batch?.title ?? null,

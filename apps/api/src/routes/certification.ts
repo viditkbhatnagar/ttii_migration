@@ -139,9 +139,19 @@ export function registerCertificationRoutes(
   });
 
   // ─── Certificate Combinations ────────────────────────────────────────
-  app.get('/admin/certificate_combinations', guards, async (_request, reply) => {
+  app.get('/admin/certificate_combinations', guards, async (request, reply) => {
     try {
-      reply.code(200).send({ status: 1, message: 'success', data: await combos.list() });
+      const p = requestPayload(request);
+      const courseId = toStringValue(p.course_id) || undefined;
+      const status = toStringValue(p.status) || undefined;
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data: await combos.list({
+          ...(courseId ? { courseId } : {}),
+          ...(status ? { status } : {}),
+        }),
+      });
     } catch (e) { sendError(reply, e); }
   });
 

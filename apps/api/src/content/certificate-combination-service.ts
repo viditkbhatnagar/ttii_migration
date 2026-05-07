@@ -118,9 +118,13 @@ export class CertificateCombinationService {
     );
   }
 
-  async list(): Promise<Record<string, unknown>[]> {
+  async list(filters?: { courseId?: string; status?: string }): Promise<Record<string, unknown>[]> {
+    const where: Record<string, unknown> = { deleted_at: null };
+    const courseId = filters?.courseId ? toNullableIntId(filters.courseId) : null;
+    if (courseId) where.course_id = courseId;
+    if (filters?.status) where.status = filters.status;
     const rows = await this.prisma.certificate_combinations.findMany({
-      where: { deleted_at: null },
+      where,
       orderBy: { id: 'desc' },
     });
     return this.enrich(rows);

@@ -16,6 +16,12 @@ import { GeneratePaymentLinkDialog } from './GeneratePaymentLinkDialog.js';
 
 const TAB_LABELS = ['Personal Information', 'Qualification', 'Enrolment & Fee', 'Payment History'];
 
+// Naji 2026-05-08 — until the applicant submits the form (`form_submitted`
+// onward), the View page shows only the fields actually captured at Add
+// Lead. Showing empty Personal/Qualification tabs early was confusing.
+// Stages where the Lead Snapshot view applies:
+const LEAD_STAGES = new Set(['lead', 'payment_pending', 'paid', 'form_pending']);
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
@@ -208,6 +214,8 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   }
 
   const currentStatus = asString(app.status) || 'pending';
+  const stage = asString(app.stage) || 'lead';
+  const isLeadStage = LEAD_STAGES.has(stage);
 
   return (
     <div className="space-y-4">
@@ -314,27 +322,68 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         </CardContent>
       </Card>
 
-      {/* Tab navigation */}
-      <div className="flex gap-1 border-b border-gray-200">
-        {TAB_LABELS.map((label, idx) => (
-          <button
-            key={label}
-            type="button"
-            className={`relative px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === idx ? 'text-ttii-primary' : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setActiveTab(idx)}
-          >
-            {label}
-            {activeTab === idx ? (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ttii-primary" />
-            ) : null}
-          </button>
-        ))}
-      </div>
+      {/* Naji 2026-05-08 — minimal Lead Snapshot for early stages: show
+          only the fields captured at Add Lead. Tabs + applicant-detail
+          tabs come back once the form is submitted. */}
+      {isLeadStage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Lead Snapshot</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-x-8 md:grid-cols-2">
+              <div>
+                <InfoRow label="Application ID" value={asString(app.application_id)} />
+                <InfoRow label="Name" value={asString(app.name)} />
+                <InfoRow
+                  label="Email"
+                  value={asString(app.user_email) || asString(app.email)}
+                />
+                <InfoRow
+                  label="Phone"
+                  value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
+                />
+                <InfoRow label="Source" value={asString(app.marketing_source) || asString(app.lead_source)} />
+              </div>
+              <div>
+                <InfoRow label="Course" value={asString(app.course_title)} />
+                <InfoRow label="Course Offering" value={asString(app.offering_title)} />
+                <InfoRow label="Certificate Combination" value={asString(app.combination_title)} />
+                <InfoRow label="Pipeline" value={asString(app.pipeline)} />
+                <InfoRow label="Pipeline User" value={asString(app.pipeline_user_name)} />
+                <InfoRow label="Created" value={formatDate(app.created_at)} />
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-gray-500">
+              Full applicant details will appear here once the student submits the application form.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab navigation — only after the applicant submits the form. */}
+      {!isLeadStage && (
+        <div className="flex gap-1 border-b border-gray-200">
+          {TAB_LABELS.map((label, idx) => (
+            <button
+              key={label}
+              type="button"
+              className={`relative px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === idx ? 'text-ttii-primary' : 'text-gray-500 hover:text-gray-700'
+              }`}
+              onClick={() => setActiveTab(idx)}
+            >
+              {label}
+              {activeTab === idx ? (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ttii-primary" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tab 1: Personal Information */}
-      {activeTab === 0 && (
+      {!isLeadStage && activeTab === 0 && (
         <div className="space-y-4">
           <Card>
             <CardHeader>
@@ -409,7 +458,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       )}
 
       {/* Tab 2: Qualification */}
-      {activeTab === 1 && (
+      {!isLeadStage && activeTab === 1 && (
         <div className="space-y-4">
           <Card>
             <CardHeader>
@@ -475,7 +524,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       {/* Tab 3: Enrolment & Fee — Naji 2026-05-07: Application ID + Applied
           Date moved here from Personal Info; Centre removed; Fee Information
           moved to Payment History; Language now resolved to its title. */}
-      {activeTab === 2 && (
+      {!isLeadStage && activeTab === 2 && (
         <div className="space-y-4">
           <Card>
             <CardHeader>
@@ -522,7 +571,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
       {/* Tab 4: Payment History — Naji 2026-05-07: Fee Information moved here
           from Enrolment & Fee tab so the financial side lives in one place. */}
-      {activeTab === 3 && (
+      {!isLeadStage && activeTab === 3 && (
         <div className="space-y-4">
           <Card>
             <CardHeader>

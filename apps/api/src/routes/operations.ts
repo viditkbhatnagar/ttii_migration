@@ -2233,9 +2233,23 @@ export function registerOperationsRoutes(
   app.post('/admin/leads/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
+      const email = toStringValue(payload.email);
+      // Naji 2026-05-08 — same MX + disposable check as Add Application,
+      // server-side defence in depth on the quick-add lead form.
+      if (email) {
+        const verification = await verifyEmail(email);
+        if (!verification.valid) {
+          reply.code(200).send({
+            status: 0,
+            message: verification.message ?? 'Email failed verification.',
+            data: { reason: verification.reason },
+          });
+          return;
+        }
+      }
       const result = await operationsService.addLead(requestUserId(request), {
         name: toStringValue(payload.name),
-        email: toStringValue(payload.email),
+        email,
         phone: toStringValue(payload.phone),
         countryCode: toStringValue(payload.country_code),
         courseId: toStringValue(payload.course_id),

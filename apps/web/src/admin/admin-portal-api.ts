@@ -2465,8 +2465,18 @@ export class AdminPortalApi {
 
   // ── Certificate Combinations ─────────────────────────────────────
 
-  async listCertificateCombinations(authToken: string): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certificate_combinations', authToken);
+  async listCertificateCombinations(
+    authToken: string,
+    filters?: { course_id?: string; status?: string },
+  ): Promise<Record<string, unknown>[]> {
+    const query: Record<string, string> = {};
+    if (filters?.course_id) query.course_id = filters.course_id;
+    if (filters?.status) query.status = filters.status;
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      '/admin/certificate_combinations',
+      authToken,
+      Object.keys(query).length ? query : undefined,
+    );
     return toRecords(payload.data);
   }
 
