@@ -5178,20 +5178,34 @@ export class OperationsService {
     const courseIds = [...new Set(rows.map((r) => r.course_id).filter((v): v is number => v !== null))];
     const userIds = [...new Set(rows.map((r) => r.pipeline_user).filter((v): v is number => v !== null))];
     const offeringIds = [...new Set(rows.map((r) => r.offering_id).filter((v): v is number => v !== null))];
-    const [courses, users, offerings] = await Promise.all([
+    const combinationIds = [...new Set(rows.map((r) => r.certificate_combination_id).filter((v): v is number => v !== null))];
+    const [courses, users, offerings, combinations] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
       offeringIds.length > 0 ? this.prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true } }) : [],
+      combinationIds.length > 0
+        ? this.prisma.certificate_combinations.findMany({
+            where: { id: { in: combinationIds } },
+            select: { id: true, combination_code: true },
+          })
+        : [],
     ]);
     const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
     const userMap = new Map(users.map((u) => [u.id, u.name ?? '']));
     const offeringMap = new Map(offerings.map((o) => [o.id, o.title ?? '']));
+    const combinationMap = new Map(
+      combinations.map((c: { id: number; combination_code: string | null }) => [c.id, c.combination_code ?? '']),
+    );
 
     return rows.map((r) => ({
       id: r.id,
       application_id: r.application_id,
       name: r.name,
+      // Naji 2026-05-08 — Applications list reads `user_email` and
+      // `combination_title`. The earlier payload only returned `email` and
+      // `combination_id`, so both columns rendered blank for new leads.
       email: r.user_email,
+      user_email: r.user_email,
       phone: r.phone,
       stage: r.stage ?? 'lead',
       course_id: r.course_id,
@@ -5199,6 +5213,9 @@ export class OperationsService {
       offering_id: r.offering_id,
       offering_title: r.offering_id ? offeringMap.get(r.offering_id) ?? null : null,
       combination_id: r.certificate_combination_id,
+      combination_title: r.certificate_combination_id
+        ? combinationMap.get(r.certificate_combination_id) ?? null
+        : null,
       pipeline: r.pipeline,
       pipeline_user: r.pipeline_user,
       pipeline_user_name: r.pipeline_user ? userMap.get(r.pipeline_user) ?? null : null,
