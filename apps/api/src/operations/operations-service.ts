@@ -128,6 +128,10 @@ export type AdminApplicationFilters = {
   centreId?: string;
   search?: string;
   status?: string;
+  // Naji 2026-05-08 — actor's user id; counsellors (role 9) auto-scope
+  // to their own pipeline rows so the counsellor portal Applications
+  // list never leaks other counsellors' or admins' leads.
+  actorUserId?: string;
 };
 
 export type AdminApplicationInput = {
@@ -717,6 +721,18 @@ export class OperationsService {
     }
     if ((filters.pipelineRoleId ?? 0) > 0) {
       where.pipeline = String(filters.pipelineRoleId);
+    }
+
+    // Naji 2026-05-08 — Counsellor scoping: role 9 only sees their own
+    // pipeline rows. Admins / Super Admins see everything.
+    if (filters.actorUserId) {
+      const actor = await this.prisma.users.findFirst({
+        where: { id: toIntId(filters.actorUserId), deleted_at: null },
+        select: { id: true, role_id: true },
+      });
+      if (actor?.role_id === 9) {
+        where.pipeline_user = actor.id;
+      }
     }
     if (filters.courseId) {
       where.course_id = toIntId(filters.courseId);
@@ -5802,6 +5818,47 @@ export class OperationsService {
       message: 'Payment link generated and emailed.',
       data: { payment_link_url: link.shortUrl, payment_link_id: link.paymentLinkId },
     };
+  }
+
+  // Naji 2026-05-08 — save the payment plan WITHOUT sending the link.
+  // Used by the Save / Save & Close buttons in the Generate Payment Link
+  // dialog so a counsellor can capture a draft plan and revisit it later
+  // before emailing. Persists `payment_plan` JSON; does NOT create a
+  // Razorpay link or change stage.
+  async savePaymentPlan(
+    actorUserId: string,
+    applicationId: string,
+    plan: {
+      mode: 'full' | 'installment';
+      totalAmountMinor: number;
+      registrationFeeMinor?: number | null;
+      installments?: Array<{ label: string; amountMinor: number; dueDate: string }>;
+    },
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    const planJson = JSON.stringify({
+      mode: plan.mode,
+      total_amount_minor: plan.totalAmountMinor,
+      registration_fee_minor: plan.registrationFeeMinor ?? null,
+      installments: plan.installments ?? [],
+      saved_at: new Date().toISOString(),
+    });
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        payment_plan: planJson,
+        updated_at: new Date(),
+        updated_by: actor,
+      },
+    });
+    return { status: 1, message: 'Payment plan saved.', data: { applicationId } };
   }
 
   // Manual mark-paid for cash / bank transfer.

@@ -285,13 +285,38 @@ export function GeneratePaymentLinkDialog({
     } finally { setSubmitting(false); }
   };
 
-  const savePlan = () => {
+  // Naji 2026-05-08 — Save persists to the applications.payment_plan
+  // column without sending the link or creating a Razorpay link. Once
+  // saved, the Lead Snapshot card on the View page surfaces the plan
+  // summary so admins / counsellors don't recreate it.
+  const savePlan = async () => {
     if (!plan || plan.length === 0) { toast.error('Nothing to save.'); return; }
-    // For now, "Save" persists by stashing in the backend via the same
-    // generatePaymentLink call but skips email — the backend always sends
-    // email. Future enhancement: a save-only endpoint. For v1 we just
-    // close the dialog and let the admin click Send when ready.
-    toast.info('Plan saved locally — click Send the Payment Link to email it.');
+    const total = breakdown.feeIncGst + registrationFee;
+    setSubmitting(true);
+    try {
+      const res = await api.savePaymentPlan(authToken, {
+        id: applicationId,
+        mode: 'installment',
+        total_amount_minor: Math.round(total * 100),
+        registration_fee_minor: Math.round((plan[0]?.amount ?? 0) * 100),
+        installments: plan.map((r) => ({
+          label: r.label,
+          amount_minor: Math.round(r.amount * 100),
+          due_date: r.dueDate,
+        })),
+      });
+      const m = (res as { message?: string }).message ?? '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Payment plan saved.');
+        onSent?.();
+      } else {
+        toast.error(m || 'Could not save plan.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -516,8 +541,14 @@ export function GeneratePaymentLinkDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           {mode === 'installment' && plan ? (
             <>
-              <Button variant="outline" onClick={savePlan}>Save</Button>
-              <Button variant="outline" onClick={() => { savePlan(); onOpenChange(false); }}>Save &amp; Close</Button>
+              <Button variant="outline" onClick={() => { void savePlan(); }} disabled={submitting}>Save</Button>
+              <Button
+                variant="outline"
+                onClick={() => { void savePlan().then(() => onOpenChange(false)); }}
+                disabled={submitting}
+              >
+                Save &amp; Close
+              </Button>
             </>
           ) : null}
           <Button

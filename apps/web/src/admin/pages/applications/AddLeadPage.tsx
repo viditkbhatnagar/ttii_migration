@@ -52,7 +52,9 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const editId = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const path = window.location.pathname;
-    const m = path.match(/^\/admin\/leads\/edit\/(\d+)$/);
+    // Same component is mounted under /admin/leads/edit/:id (admin
+    // portal) and /counsellor/leads/edit/:id (counsellor portal).
+    const m = path.match(/^\/(?:admin|counsellor)\/leads\/edit\/(\d+)$/);
     if (m) return m[1] ?? '';
     return '';
   }, []);

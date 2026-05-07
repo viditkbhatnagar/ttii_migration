@@ -218,6 +218,7 @@ export function registerOperationsRoutes(
         centreId: toStringValue(payload.centre_id),
         search: toStringValue(payload.search),
         status: toStringValue(payload.status),
+        actorUserId: requestUserId(request),
       });
 
       reply.code(200).send({
@@ -2462,6 +2463,34 @@ export function registerOperationsRoutes(
         totalAmount: toInteger(payload.total_amount_minor),
         installments,
         expiresInDays: toInteger(payload.expires_in_days) || 7,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Naji 2026-05-08 — save plan only (no Razorpay, no email). Used by
+  // the Save / Save & Close buttons in the Generate Payment Link dialog.
+  app.post('/admin/applications/payment-plan/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const installmentsRaw = Array.isArray(payload.installments) ? payload.installments : [];
+      const installments = installmentsRaw
+        .map((entry) => {
+          if (typeof entry !== 'object' || entry === null) return null;
+          const r = entry as Record<string, unknown>;
+          const label = toStringValue(r.label);
+          const amountMinor = toInteger(r.amount_minor);
+          const dueDate = toStringValue(r.due_date);
+          if (!label || amountMinor <= 0) return null;
+          return { label, amountMinor, dueDate };
+        })
+        .filter((v): v is { label: string; amountMinor: number; dueDate: string } => v !== null);
+      const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
+      const result = await operationsService.savePaymentPlan(requestUserId(request), toStringValue(payload.id), {
+        mode,
+        totalAmountMinor: toInteger(payload.total_amount_minor),
+        registrationFeeMinor: toInteger(payload.registration_fee_minor) || null,
+        installments,
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

@@ -2296,6 +2296,19 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/payment-link/generate', authToken, input);
   }
 
+  async savePaymentPlan(
+    authToken: string,
+    input: {
+      id: string;
+      mode: 'full' | 'installment';
+      total_amount_minor: number;
+      registration_fee_minor?: number;
+      installments?: Array<{ label: string; amount_minor: number; due_date: string }>;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/payment-plan/save', authToken, input);
+  }
+
   async markApplicationPaid(authToken: string, id: string, note?: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, { id, note: note ?? '' });
   }

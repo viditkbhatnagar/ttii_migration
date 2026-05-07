@@ -1,4 +1,5 @@
 import { type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { AdminPortalApi } from '../admin/admin-portal-api.js';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -51,9 +52,20 @@ export interface CounsellorPasswordUpdateInput {
  */
 export class CounsellorPortalApi {
   private readonly apiClient: LegacyApiClient;
+  // Naji 2026-05-08 — counsellors get the same Add Lead / View
+  // Application / Generate Payment Link UX as admins. Expose an
+  // AdminPortalApi instance bound to the same legacy client so the
+  // counsellor wrapper pages can mount the admin components directly.
+  // Backend already scopes results by role_id when role_id=9.
+  private _adminApi: AdminPortalApi | null = null;
 
   constructor(apiClient: LegacyApiClient) {
     this.apiClient = apiClient;
+  }
+
+  get admin(): AdminPortalApi {
+    if (!this._adminApi) this._adminApi = new AdminPortalApi(this.apiClient);
+    return this._adminApi;
   }
 
   private async get<T>(path: string, authToken: string, query?: Record<string, QueryValue>): Promise<T> {

@@ -217,6 +217,28 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const stage = asString(app.stage) || 'lead';
   const isLeadStage = LEAD_STAGES.has(stage);
 
+  // Naji 2026-05-08 — Lead Snapshot also surfaces the payment plan
+  // summary so admins/counsellors can see at a glance that one was
+  // already created and don't recreate it.
+  type SavedPlan = {
+    mode?: string;
+    total_amount_minor?: number;
+    registration_fee_minor?: number | null;
+    installments?: Array<{ label: string; amountMinor?: number; dueDate?: string; amount_minor?: number; due_date?: string }>;
+  };
+  const savedPlan: SavedPlan | null = (() => {
+    const raw = app.payment_plan;
+    if (raw === null || raw === undefined || raw === '') return null;
+    if (typeof raw === 'object') return raw as SavedPlan;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw) as SavedPlan; } catch { return null; }
+    }
+    return null;
+  })();
+  const paymentLinkUrl = asString(app.payment_link_url);
+  const paymentStatus = asString(app.payment_status);
+  const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
+
   return (
     <div className="space-y-4">
       <AdminPageHeader title="Application Detail">
@@ -268,9 +290,14 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               const stage = asString(app.stage) || 'lead';
               const buttons: React.ReactNode[] = [];
               if (stage === 'lead') {
+                // Naji 2026-05-08 — once a plan has been saved, swap
+                // the primary button to "Edit / Resend Plan" so the
+                // admin doesn't recreate one. The dialog reopens with
+                // its existing state and "Send the Payment Link" still
+                // generates / re-emails the link.
                 buttons.push(
                   <Button key="pay" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => handleGeneratePaymentLink()}>
-                    Generate Payment Link
+                    {hasPaymentPlan ? 'Edit / Resend Payment Plan' : 'Generate Payment Link'}
                   </Button>,
                 );
               }
@@ -330,6 +357,82 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
           </div>
         </CardContent>
       </Card>
+
+      {/* Naji 2026-05-08 — payment plan summary surfaced near the Lead
+          snapshot. Visible for any stage where a plan/link exists, so
+          admins always see at-a-glance what was already created. */}
+      {hasPaymentPlan && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between text-base">
+              <span>Payment Plan</span>
+              {paymentStatus ? (
+                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
+                  {paymentStatus}
+                </span>
+              ) : null}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-x-8 md:grid-cols-2">
+              <div>
+                <InfoRow label="Mode" value={savedPlan?.mode === 'installment' ? 'Installment Plan' : 'Full Payment'} />
+                <InfoRow
+                  label="Total"
+                  value={savedPlan?.total_amount_minor
+                    ? `₹${(Number(savedPlan.total_amount_minor) / 100).toLocaleString('en-IN')}`
+                    : '-'}
+                />
+                {savedPlan?.registration_fee_minor ? (
+                  <InfoRow
+                    label="Registration Fee"
+                    value={`₹${(Number(savedPlan.registration_fee_minor) / 100).toLocaleString('en-IN')}`}
+                  />
+                ) : null}
+              </div>
+              <div>
+                {paymentLinkUrl ? (
+                  <InfoRow
+                    label="Payment Link"
+                    value={paymentLinkUrl}
+                  />
+                ) : (
+                  <InfoRow label="Payment Link" value="Not sent yet (saved as draft)" />
+                )}
+                <InfoRow label="Expires" value={formatDate(app.payment_link_expires_at)} />
+              </div>
+            </div>
+            {Array.isArray(savedPlan?.installments) && savedPlan.installments.length > 0 ? (
+              <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Description</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2">Due</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {savedPlan.installments.map((row, i) => {
+                      const amount = Number(row.amountMinor ?? row.amount_minor ?? 0);
+                      const due = asString(row.dueDate ?? row.due_date);
+                      return (
+                        <tr key={i}>
+                          <td className="px-3 py-2 text-gray-900">{asString(row.label) || '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-900">
+                            ₹{(amount / 100).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">{due || '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Naji 2026-05-08 — minimal Lead Snapshot for early stages: show
           only the fields captured at Add Lead. Tabs + applicant-detail
