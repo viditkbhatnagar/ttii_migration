@@ -674,12 +674,18 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         ) : null}
       </div>
 
-      {/* Enrolled */}
+      {/* Enrolled — Naji 2026-05-07 reskin: rich card per course matching
+          the dashboard reference (numbered tile + 4 metric strips + bold
+          progress bar + dark Continue Learning CTA). */}
       {enrolledCourses.length > 0 ? (
         <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-student-text">Enrolled Courses</h2>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {enrolledCourses.map((course) => {
+          <h2 className="text-2xl font-bold text-student-text">My Courses</h2>
+          <p className="-mt-2 text-sm text-student-muted">
+            You are enrolled in <span className="font-semibold text-student-text">{enrolledCourses.length}</span>{' '}
+            course{enrolledCourses.length === 1 ? '' : 's'}
+          </p>
+          <div className="space-y-4">
+            {enrolledCourses.map((course, idx) => {
               const id = asString(course.id);
               const courseSubjects = subjects.filter((s) => asString(s.course_id) === id);
               const courseLessons = lessons.filter((l) => {
@@ -692,15 +698,21 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                     courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
                       courseLessons.length,
                   );
+              const completedSubjects = courseSubjects.filter((s) => {
+                const sid = asString(s.id);
+                const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
+                if (sl.length === 0) return false;
+                return sl.every((l) => asNumber(l.completed_percentage) >= 100);
+              }).length;
               return (
-                <CourseCard
+                <EnrolledCourseRichCard
                   key={id}
+                  index={idx + 1}
                   course={course}
-                  subjectCount={courseSubjects.length}
-                  lessonCount={courseLessons.length}
+                  modulesDone={completedSubjects}
+                  modulesTotal={courseSubjects.length}
                   completion={completion}
-                  enrolled
-                  onClick={() => handleOpenCourse(id)}
+                  onContinue={() => handleOpenCourse(id)}
                 />
               );
             })}
@@ -751,6 +763,178 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
 function formatInr(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
+}
+
+// Naji 2026-05-07 — rich enrolled-course card. Numbered tile on the left,
+// course title + tag + module count strip, four metric tiles, bold
+// progress bar, and a full-width dark "Continue Learning" CTA at bottom.
+// Matches the dashboard reference design.
+function EnrolledCourseRichCard({
+  index,
+  course,
+  modulesDone,
+  modulesTotal,
+  completion,
+  onContinue,
+}: {
+  index: number;
+  course: Record<string, unknown>;
+  modulesDone: number;
+  modulesTotal: number;
+  completion: number;
+  onContinue: () => void;
+}) {
+  const title = asString(course.title) || 'Untitled Course';
+  // Best-effort enrolment + validity dates. The legacy /course/all_course
+  // payload sometimes carries enrollment_date / start_date / created_at;
+  // we render whichever is present, otherwise fall through to a dash.
+  const enrolledDateRaw =
+    asString(course.enrollment_date) ||
+    asString(course.start_date) ||
+    asString(course.created_at);
+  const enrolledDate = enrolledDateRaw ? formatNiceDate(enrolledDateRaw) : '—';
+  const durationStr = asString(course.duration);
+  const validityMonths = parseDurationMonths(durationStr);
+  const enrolledDateObj = enrolledDateRaw ? new Date(enrolledDateRaw) : null;
+  const validUntilObj = enrolledDateObj && validityMonths
+    ? new Date(enrolledDateObj.getFullYear(), enrolledDateObj.getMonth() + validityMonths, enrolledDateObj.getDate())
+    : null;
+  const validUntilLabel = validUntilObj ? formatNiceDate(validUntilObj.toISOString()) : (durationStr || '—');
+  const timeLeftLabel = validUntilObj ? formatTimeLeft(validUntilObj) : (durationStr || '—');
+
+  return (
+    <div className="overflow-hidden rounded-2xl border-2 border-student-primary/15 bg-white shadow-sm">
+      {/* Header strip */}
+      <div className="flex items-center gap-4 border-b border-slate-100 px-5 py-4">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg font-bold text-slate-500">
+          {index}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-lg font-bold text-student-text">{title}</h3>
+          <div className="mt-1 flex items-center gap-2 text-xs">
+            <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+              Standalone
+            </span>
+            <span className="text-student-muted">{modulesDone}/{modulesTotal} modules</span>
+          </div>
+        </div>
+        <ChevronDown aria-hidden="true" className="size-5 shrink-0 -rotate-180 text-student-primary opacity-60" />
+      </div>
+
+      {/* 4 metric tiles */}
+      <div className="grid grid-cols-2 gap-3 px-5 py-4 lg:grid-cols-4">
+        <CourseMetricTile
+          icon={Calendar}
+          tint="text-blue-600 bg-blue-50"
+          label="Enrolled"
+          value={enrolledDate}
+        />
+        <CourseMetricTile
+          icon={Clock}
+          tint="text-amber-600 bg-amber-50"
+          label="Valid Until"
+          value={validUntilLabel}
+        />
+        <CourseMetricTile
+          icon={BookOpen}
+          tint="text-emerald-600 bg-emerald-50"
+          label="Modules"
+          value={`${modulesDone} of ${modulesTotal} done`}
+        />
+        <CourseMetricTile
+          icon={Clock}
+          tint="text-purple-600 bg-purple-50"
+          label="Time Left"
+          value={timeLeftLabel}
+        />
+      </div>
+
+      {/* Progress + CTA */}
+      <div className="space-y-3 px-5 pb-5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-student-muted">Course Progress</span>
+          <span className="text-base font-bold text-student-primary">{completion}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+            style={{ width: `${Math.min(completion, 100)}%` }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onContinue}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+        >
+          <PlayCircle aria-hidden="true" className="size-4" />
+          Continue Learning
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CourseMetricTile({
+  icon: Icon,
+  tint,
+  label,
+  value,
+}: {
+  icon: typeof BookOpen;
+  tint: string;
+  label: string;
+  value: string;
+}) {
+  // tint is a "text-xxx-Y00 bg-xxx-50" string — split for cleaner classNames.
+  const [textCls, bgCls] = tint.split(' ');
+  return (
+    <div className={`flex items-center gap-3 rounded-xl border border-slate-100 ${bgCls ?? ''} p-3`}>
+      <Icon aria-hidden="true" className={`size-5 shrink-0 ${textCls ?? ''}`} />
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium text-student-muted">{label}</p>
+        <p className="truncate text-sm font-semibold text-student-text">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function formatNiceDate(iso: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// Parse legacy "12 months", "1 year", "6 months" duration strings to a
+// month count. Returns null when the format isn't recognised.
+function parseDurationMonths(value: string): number | null {
+  if (!value) return null;
+  const v = value.toLowerCase().trim();
+  const match = v.match(/(\d+)\s*(year|month|day)/);
+  if (!match) return null;
+  const n = parseInt(match[1] ?? '', 10);
+  if (!Number.isFinite(n)) return null;
+  const unit = match[2];
+  if (unit === 'year') return n * 12;
+  if (unit === 'month') return n;
+  if (unit === 'day') return Math.max(1, Math.round(n / 30));
+  return null;
+}
+
+function formatTimeLeft(target: Date): string {
+  const now = new Date();
+  const diffMs = target.getTime() - now.getTime();
+  if (diffMs <= 0) return 'Expired';
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days >= 365) {
+    const years = Math.floor(days / 365);
+    return `${years} year${years === 1 ? '' : 's'}`;
+  }
+  if (days >= 30) {
+    const months = Math.floor(days / 30);
+    return `${months} month${months === 1 ? '' : 's'}`;
+  }
+  return `${days} day${days === 1 ? '' : 's'}`;
 }
 
 // Circular progress indicator shown in the course detail hero banner.

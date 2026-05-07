@@ -1,126 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
-  BookOpen, ClipboardList, FileText, Bell, Flame, CheckCircle,
-  CreditCard, ArrowRight, Target, TrendingUp, BarChart3,
+  BookOpen, Clock, Flame, Target, CheckCircle,
+  Sparkles, Calendar, Trophy, Zap, type LucideIcon,
 } from 'lucide-react';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type { StudentDashboardSnapshot } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
-
-/* ─── SVG Progress Ring ──────────────────────────────────── */
-
-function ProgressRing({ value, size = 120, strokeWidth = 10 }: { value: number; size?: number; strokeWidth?: number }) {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (Math.min(value, 100) / 100) * circumference;
-  const center = size / 2;
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      role="img"
-      aria-label={`${value}% complete`}
-      className="text-student-primary"
-    >
-      <circle
-        cx={center} cy={center} r={radius}
-        fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-        className="text-slate-100"
-      />
-      <circle
-        cx={center} cy={center} r={radius}
-        fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-        strokeDasharray={circumference} strokeDashoffset={offset}
-        strokeLinecap="round"
-        transform={`rotate(-90 ${center} ${center})`}
-        className="transition-all duration-500 ease-out"
-      />
-      <text
-        x="50%" y="50%"
-        textAnchor="middle" dominantBaseline="central"
-        className="fill-student-text text-2xl font-semibold"
-      >
-        {value}%
-      </text>
-    </svg>
-  );
-}
-
-/* ─── Dashboard Card Wrapper ──────────────────────────────── */
-
-function DashboardCard({
-  icon: Icon,
-  iconTint,
-  title,
-  subtitle,
-  children,
-  className = '',
-}: {
-  icon: React.ElementType;
-  iconTint: string;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-5 ${className}`}>
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${iconTint}`}>
-          <Icon aria-hidden="true" className="size-5" />
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-semibold text-slate-800 text-base">{title}</h3>
-          {subtitle ? <p className="text-xs text-slate-500 truncate">{subtitle}</p> : null}
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/* ─── Stat Cards ──────────────────────────────────────────── */
-
-interface QuickStatDef {
-  label: string;
-  getValue: (d: StudentDashboardSnapshot) => string;
-  icon: React.ElementType;
-  iconTint: string;
-}
-
-const QUICK_STATS: QuickStatDef[] = [
-  {
-    label: 'Courses',
-    getValue: (d) => String(d.coursesCount),
-    icon: BookOpen,
-    iconTint: 'bg-blue-50 text-blue-600',
-  },
-  {
-    label: 'Assignments',
-    getValue: (d) => String(d.currentAssignments + d.upcomingAssignments),
-    icon: ClipboardList,
-    iconTint: 'bg-emerald-50 text-emerald-600',
-  },
-  {
-    label: 'Exams',
-    getValue: (d) => String(d.upcomingExams),
-    icon: FileText,
-    iconTint: 'bg-violet-50 text-violet-600',
-  },
-  {
-    label: 'Notifications',
-    getValue: (d) => String(d.notificationsCount),
-    icon: Bell,
-    iconTint: 'bg-amber-50 text-amber-600',
-  },
-];
-
-/* ─── Main Component ──────────────────────────────────────── */
 
 const EMPTY_DASHBOARD: StudentDashboardSnapshot = {
   coursesCount: 0,
@@ -140,6 +28,15 @@ const EMPTY_DASHBOARD: StudentDashboardSnapshot = {
   recentPaymentDate: '',
 };
 
+const TIPS_OF_THE_DAY = [
+  'Believe you can and you\'re halfway there.',
+  'Small daily improvements lead to staggering long-term results.',
+  'The expert in anything was once a beginner.',
+  'Learn as if you will live forever.',
+  'Success is the sum of small efforts repeated day in and day out.',
+  'Your future is created by what you do today, not tomorrow.',
+];
+
 export default function StudentDashboardPage({ api, session, onNavigate }: StudentPageProps) {
   const { data, loading, error } = useAdminPageData(
     () => api.loadDashboard(session.token),
@@ -147,9 +44,17 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   );
   const { currentUser } = useStudentLayout();
 
+  // Tip of the Day rotates by date (deterministic per day so it doesn't
+  // flicker on re-renders, but the student gets a fresh quote daily).
+  const todaysTipIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24)) % TIPS_OF_THE_DAY.length;
+  const todaysTip = TIPS_OF_THE_DAY[todaysTipIndex] ?? TIPS_OF_THE_DAY[0];
+
   const dashboardData = useMemo(() => data ?? EMPTY_DASHBOARD, [data]);
   const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim();
   const greetingName = firstName || 'there';
+
+  const now = new Date();
+  const formattedDate = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
 
   if (loading) {
     return <DashboardLoader label="dashboard data" />;
@@ -166,226 +71,386 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     );
   }
 
-  const courseProgress = data?.courseProgress ?? 0;
-  const recentPaymentAmount = data?.recentPaymentAmount ?? 0;
-  const recentPaymentDate = data?.recentPaymentDate ?? '';
+  const courseProgress = dashboardData.courseProgress;
+  const completedTasks = dashboardData.completedAssignments;
+  const totalTasks = dashboardData.completedAssignments + dashboardData.currentAssignments + dashboardData.upcomingAssignments;
+  const taskCompletionPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Achievements derived from existing data — milestones the student has
+  // hit. Naji 2026-05-07 redesign — replaces the static placeholder.
+  const achievements: { label: string; icon: LucideIcon; earned: boolean; tone: string }[] = [
+    { label: 'First Course Started', icon: BookOpen, earned: dashboardData.coursesCount > 0, tone: 'from-blue-400 to-indigo-500' },
+    { label: 'On the Streak', icon: Flame, earned: dashboardData.streakCurrent >= 3, tone: 'from-amber-400 to-orange-500' },
+    { label: 'Task Completed', icon: CheckCircle, earned: dashboardData.completedAssignments > 0, tone: 'from-emerald-400 to-green-500' },
+    { label: 'Half Way There', icon: Target, earned: courseProgress >= 50, tone: 'from-violet-400 to-purple-500' },
+    { label: '7-Day Warrior', icon: Trophy, earned: dashboardData.streakTotal >= 7, tone: 'from-rose-400 to-pink-500' },
+    { label: 'Course Crusher', icon: Sparkles, earned: courseProgress >= 100, tone: 'from-cyan-400 to-sky-500' },
+  ];
+  const achievementsEarned = achievements.filter((a) => a.earned).length;
 
   return (
     <div className="space-y-6">
-      {/* Welcome Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-student-text">
-          Welcome back, {greetingName}
-        </h1>
-        <p className="mt-1 text-sm text-student-muted">
-          {data?.primaryCourseTitle
-            ? `Here's your ${data.primaryCourseTitle} progress.`
-            : "Here's an overview of your learning progress."}
-        </p>
+      {/* Welcome banner — Naji 2026-05-07 reskin. Hero greeting with the
+          subtitle showing course-completion sentence. */}
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-student-text sm:text-3xl">
+            Welcome back, <span className="text-student-primary">{greetingName}</span>!{' '}
+            <span aria-hidden="true">👋</span>
+          </h1>
+          <p className="mt-1.5 flex items-center gap-1.5 text-sm text-student-muted">
+            <Sparkles aria-hidden="true" className="size-4 text-student-primary" />
+            You've completed <span className="font-semibold text-student-primary">{courseProgress}%</span> of your course
+          </p>
+        </div>
+        <p className="text-xs text-student-muted">{formattedDate}</p>
       </div>
 
-      {/* Quick Stat Cards */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {QUICK_STATS.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-slate-200 bg-white p-4"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-semibold text-student-text">{stat.getValue(dashboardData)}</p>
-                  <p className="mt-0.5 text-xs font-medium text-student-muted">{stat.label}</p>
-                </div>
-                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.iconTint}`}>
-                  <Icon aria-hidden="true" className="size-5" />
-                </div>
+      {/* Top row: Continue Learning + Watch Time + Quiz Score (3-card row) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Continue Learning — left card spanning a wider area on desktop */}
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm">
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-student-primary/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-student-primary">
+            <BookOpen aria-hidden="true" className="size-3" />
+            Continue Learning
+          </div>
+          <h2 className="text-lg font-bold leading-snug text-student-text">
+            {dashboardData.primaryCourseTitle || 'No course in progress'}
+          </h2>
+          {dashboardData.primaryCourseTitle ? (
+            <>
+              <div className="mt-3 flex items-center justify-between text-xs text-student-muted">
+                <span>Progress</span>
+                <span className="font-semibold text-student-text">{courseProgress}%</span>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Bento Grid — Row 1 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {/* Continue Learning / Course Progress */}
-        {data?.primaryCourseTitle ? (
-          <DashboardCard
-            icon={BookOpen}
-            iconTint="bg-blue-50 text-blue-600"
-            title="Continue Learning"
-            subtitle={data.primaryCourseTitle}
-          >
-            <div className="flex items-center justify-center py-2">
-              <ProgressRing value={courseProgress} />
-            </div>
-            <Button
-              variant="link"
-              className="mt-2 h-auto p-0 text-sm text-student-primary font-medium"
-              onClick={() => onNavigate('/student/courses')}
-            >
-              Continue Learning
-              <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
-            </Button>
-          </DashboardCard>
-        ) : null}
-
-        {/* Overall Progress */}
-        <DashboardCard
-          icon={TrendingUp}
-          iconTint="bg-emerald-50 text-emerald-600"
-          title="Overall Progress"
-          subtitle="All courses combined"
-        >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-student-muted">Completion</span>
-              <span className="font-semibold text-student-text">{courseProgress}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
-                style={{ width: `${Math.min(courseProgress, 100)}%` }}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <div className="rounded-lg bg-slate-50 p-2 text-center">
-                <p className="text-lg font-semibold text-student-text">{data?.completedAssignments ?? 0}</p>
-                <p className="text-xs text-student-muted">Completed</p>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+                  style={{ width: `${Math.min(courseProgress, 100)}%` }}
+                />
               </div>
-              <div className="rounded-lg bg-slate-50 p-2 text-center">
-                <p className="text-lg font-semibold text-student-text">{data?.currentAssignments ?? 0}</p>
-                <p className="text-xs text-student-muted">Pending</p>
-              </div>
-            </div>
-          </div>
-        </DashboardCard>
-
-        {/* Quick Stats Grid */}
-        <DashboardCard
-          icon={BarChart3}
-          iconTint="bg-slate-100 text-slate-600"
-          title="Quick Stats"
-        >
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg bg-slate-50 p-3 text-center">
-              <Target aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
-              <p className="text-lg font-semibold text-student-text">{data?.completedAssignments ?? 0}</p>
-              <p className="text-[11px] text-student-muted">Tasks Done</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3 text-center">
-              <FileText aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
-              <p className="text-lg font-semibold text-student-text">{data?.upcomingExams ?? 0}</p>
-              <p className="text-[11px] text-student-muted">Exams Due</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3 text-center">
-              <TrendingUp aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
-              <p className="text-lg font-semibold text-student-text">{courseProgress}%</p>
-              <p className="text-[11px] text-student-muted">Avg Score</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3 text-center">
-              <Flame aria-hidden="true" className="mx-auto mb-1 size-4 text-slate-500" />
-              <p className="text-lg font-semibold text-student-text">{data?.streakCurrent ?? 0}</p>
-              <p className="text-[11px] text-student-muted">Day Streak</p>
-            </div>
-          </div>
-        </DashboardCard>
-      </div>
-
-      {/* Bento Grid — Row 2 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Study Streak */}
-        <DashboardCard
-          icon={Flame}
-          iconTint="bg-amber-50 text-amber-600"
-          title="Study Streak"
-          subtitle="Keep your momentum going"
-        >
-          <div className="flex items-baseline gap-3 mt-1">
-            <span className="text-3xl font-semibold text-student-text">{data?.streakCurrent ?? 0}</span>
-            <span className="text-sm text-student-muted">day streak</span>
-            <span className="ml-auto text-sm text-student-muted">{data?.streakTotal ?? 0} total days</span>
-          </div>
-        </DashboardCard>
-
-        {/* Recent Payment */}
-        <DashboardCard
-          icon={CreditCard}
-          iconTint="bg-emerald-50 text-emerald-600"
-          title="Recent Payment"
-        >
-          <div className="mt-1">
-            {recentPaymentAmount > 0 ? (
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-semibold text-student-text">{formatCurrency(recentPaymentAmount)}</span>
-                <span className="text-sm text-student-muted">
-                  on {recentPaymentDate ? formatDate(recentPaymentDate) : 'N/A'}
-                </span>
-              </div>
-            ) : (
-              <p className="text-sm text-student-muted">No payments yet</p>
-            )}
-            <Button
-              variant="link"
-              className="mt-3 h-auto p-0 text-sm text-student-primary font-medium"
-              onClick={() => onNavigate('/student/payments')}
-            >
-              View All Payments
-              <ArrowRight aria-hidden="true" className="ml-1 size-3.5" />
-            </Button>
-          </div>
-        </DashboardCard>
-      </div>
-
-      {/* Bento Grid — Row 3: Tasks + Quick Links */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Tasks Today */}
-        <DashboardCard
-          icon={CheckCircle}
-          iconTint="bg-green-50 text-green-600"
-          title="Tasks Today"
-          subtitle="Your schedule for today"
-        >
-          <div className="mt-1 flex items-baseline gap-3">
-            <span className="text-3xl font-semibold text-student-text">{data?.scheduledTasks ?? 0}</span>
-            <span className="text-sm text-student-muted">scheduled</span>
-            {(data?.overdueTasks ?? 0) > 0 ? (
-              <span className="ml-auto text-sm font-medium text-red-600">{data?.overdueTasks} overdue</span>
-            ) : (
-              <span className="ml-auto text-sm text-emerald-600">All caught up</span>
-            )}
-          </div>
-        </DashboardCard>
-
-        {/* Quick Links */}
-        <div className="space-y-2">
-          {[
-            { label: 'View All Assignments', detail: `${data?.currentAssignments ?? 0} current`, icon: ClipboardList, iconTint: 'bg-orange-50 text-orange-600', href: '/student/grades' },
-            { label: 'View All Exams', detail: `${data?.upcomingExams ?? 0} upcoming`, icon: FileText, iconTint: 'bg-red-50 text-red-600', href: '/student/grades' },
-            { label: 'My Courses', detail: `${data?.coursesCount ?? 0} enrolled`, icon: BookOpen, iconTint: 'bg-blue-50 text-blue-600', href: '/student/courses' },
-          ].map((link) => {
-            const LinkIcon = link.icon;
-            return (
-              <button
-                key={link.label}
-                type="button"
-                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:bg-slate-50"
-                onClick={() => onNavigate(link.href)}
+              <Button
+                onClick={() => onNavigate('/student/courses')}
+                className="mt-4 h-11 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
               >
-                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${link.iconTint}`}>
-                  <LinkIcon aria-hidden="true" className="size-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-student-text">{link.label}</p>
-                  <p className="text-xs text-student-muted">{link.detail}</p>
-                </div>
-                <ArrowRight aria-hidden="true" className="size-4 text-slate-400" />
-              </button>
-            );
-          })}
+                <span className="inline-flex items-center gap-2">
+                  ▶ Resume Course
+                </span>
+              </Button>
+            </>
+          ) : (
+            <Button
+              onClick={() => onNavigate('/student/courses')}
+              variant="outline"
+              className="mt-4 h-11 w-full rounded-xl"
+            >
+              Browse Courses
+            </Button>
+          )}
+        </div>
+
+        {/* Tasks Done card (Watch Time analogue — using existing data) */}
+        <SparklineStatCard
+          icon={Clock}
+          label="Tasks Done"
+          value={`${completedTasks}`}
+          sublabel={totalTasks > 0 ? `${taskCompletionPct}% completion` : 'No tasks yet'}
+          tint="rose"
+          sparkPercent={taskCompletionPct}
+        />
+
+        {/* Streak card (Quiz Score analogue) */}
+        <SparklineStatCard
+          icon={Flame}
+          label="Current Streak"
+          value={`${dashboardData.streakCurrent}`}
+          sublabel={dashboardData.streakCurrent > 0 ? `${dashboardData.streakTotal} total days` : 'Start studying'}
+          tint="amber"
+          sparkPercent={Math.min(dashboardData.streakCurrent * 10, 100)}
+        />
+      </div>
+
+      {/* Tip of the day — full-width brand-tinted card */}
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-r from-[#3B5BBE] via-[#4A6EDB] to-[#5A7BE8] p-5 text-white shadow-md">
+        <div className="flex items-start gap-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/20">
+            <Sparkles aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/85">Tip of the day</p>
+            <p className="mt-1 text-base font-medium leading-snug">"{todaysTip}"</p>
+          </div>
         </div>
       </div>
+
+      {/* Two-column grid: Overall Progress gauge + Streak + Live (right) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Overall Progress — semicircular gauge */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="mb-2 flex items-center gap-1.5">
+            <Target aria-hidden="true" className="size-4 text-emerald-600" />
+            <h2 className="text-base font-bold text-student-text">Overall Progress</h2>
+          </div>
+          <div className="flex flex-col items-center justify-center py-3">
+            <SemicircleGauge percentage={courseProgress} />
+            <p className="-mt-3 text-xs font-medium text-student-muted">Course Completion</p>
+            <div className="mt-4 grid w-full grid-cols-3 gap-3 sm:max-w-md">
+              <MiniMetric label="Courses" value={String(dashboardData.coursesCount)} />
+              <MiniMetric label="Completed Tasks" value={String(completedTasks)} />
+              <MiniMetric label="Pending" value={String(dashboardData.currentAssignments)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Streak panel — current / best / status */}
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+                <Flame aria-hidden="true" className="size-5 text-amber-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">Current Streak</p>
+                <p className="mt-0.5 flex items-baseline gap-1">
+                  <span className="text-2xl font-bold text-student-text">{dashboardData.streakCurrent}</span>
+                  <span className="text-xs text-student-muted">days</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('/student/courses')}
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:bg-amber-100"
+              >
+                <Zap aria-hidden="true" className="size-3" />
+                Study now
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">Best</p>
+              <p className="mt-1 text-base font-bold text-student-text">{dashboardData.streakTotal} days</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">Status</p>
+              <p className="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-emerald-600">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+                {dashboardData.streakCurrent > 0 ? 'Growing' : 'Begin'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom: Learning Goals + Upcoming Live + Achievements */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Learning Goals (Daily Goal placeholder) */}
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-1.5">
+            <Target aria-hidden="true" className="size-4 text-emerald-600" />
+            <h2 className="text-base font-bold text-student-text">Learning Goals</h2>
+          </div>
+          <div className="rounded-xl bg-white p-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-student-text">Daily Goal</p>
+              <p className="text-sm font-bold text-student-text">{taskCompletionPct}%</p>
+            </div>
+            <p className="mt-0.5 text-[11px] text-student-muted">{completedTasks} / {totalTasks || 0} tasks</p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                style={{ width: `${Math.min(taskCompletionPct, 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Upcoming Live */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Calendar aria-hidden="true" className="size-4 text-student-primary" />
+              <h2 className="text-base font-bold text-student-text">Upcoming Live</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('/student/courses')}
+              className="text-xs font-medium text-student-primary hover:underline"
+            >
+              See all
+            </button>
+          </div>
+          {dashboardData.scheduledTasks > 0 ? (
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-sm font-semibold text-student-text">
+                {dashboardData.scheduledTasks} session{dashboardData.scheduledTasks === 1 ? '' : 's'} scheduled
+              </p>
+              <p className="mt-0.5 text-[11px] text-student-muted">Open My Courses → Live Classes to see details</p>
+            </div>
+          ) : (
+            <p className="rounded-xl bg-slate-50 p-3 text-sm text-student-muted">No upcoming sessions</p>
+          )}
+        </div>
+
+        {/* Achievements */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Trophy aria-hidden="true" className="size-4 text-amber-500" />
+              <h2 className="text-base font-bold text-student-text">Achievements</h2>
+            </div>
+            <p className="text-xs font-semibold text-student-muted">
+              {achievementsEarned}/{achievements.length} earned
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {achievements.map((a) => {
+              const A = a.icon;
+              return (
+                <div
+                  key={a.label}
+                  className={`flex aspect-square flex-col items-center justify-center rounded-xl text-center transition-all ${
+                    a.earned
+                      ? `bg-gradient-to-br ${a.tone} text-white shadow-sm`
+                      : 'bg-slate-100 text-slate-400'
+                  }`}
+                  title={a.label}
+                >
+                  <A aria-hidden="true" className="size-5" />
+                  <p className="mt-1 line-clamp-2 px-1 text-[9px] font-semibold leading-tight">{a.label}</p>
+                </div>
+              );
+            })}
+          </div>
+          {achievementsEarned < achievements.length ? (
+            <p className="mt-3 text-center text-[10px] text-student-muted">Keep going!</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Helper components ──────────────────────────────────────── */
+
+// Card showing a metric with an icon, value, sublabel, and a horizontal
+// progress bar at the bottom acting as a visual sparkline equivalent.
+function SparklineStatCard({
+  icon: Icon,
+  label,
+  value,
+  sublabel,
+  tint,
+  sparkPercent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sublabel: string;
+  tint: 'rose' | 'amber';
+  sparkPercent: number;
+}) {
+  const palette =
+    tint === 'rose'
+      ? { bg: 'bg-rose-50', icon: 'text-rose-600', bar: 'bg-rose-500' }
+      : { bg: 'bg-amber-50', icon: 'text-amber-600', bar: 'bg-amber-500' };
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${palette.bg}`}>
+          <Icon aria-hidden="true" className={`size-5 ${palette.icon}`} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">{label}</p>
+          <p className="mt-1 text-2xl font-bold text-student-text">{value}</p>
+          <p className="mt-0.5 truncate text-[11px] text-student-muted">{sublabel}</p>
+        </div>
+      </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full ${palette.bar} transition-all duration-500`}
+          style={{ width: `${Math.min(Math.max(sparkPercent, 4), 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Semicircular gauge used by the Overall Progress card.
+function SemicircleGauge({ percentage }: { percentage: number }) {
+  const clamped = Math.max(0, Math.min(100, percentage));
+  const angle = (clamped / 100) * 180 - 90; // -90deg = far left, 90deg = far right
+  const radius = 72;
+  const circumference = Math.PI * radius;
+  const offset = circumference - (clamped / 100) * circumference;
+
+  const [animate, setAnimate] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAnimate(true), 40);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="relative w-full max-w-[260px]">
+      <svg viewBox="0 0 200 110" className="w-full">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#3B5BBE" />
+            <stop offset="60%" stopColor="#8F2774" />
+            <stop offset="100%" stopColor="#F06543" />
+          </linearGradient>
+        </defs>
+        {/* Background track */}
+        <path
+          d={`M 14 100 A ${radius} ${radius} 0 0 1 186 100`}
+          fill="none"
+          stroke="#e2e8f0"
+          strokeWidth="14"
+          strokeLinecap="round"
+        />
+        {/* Filled arc */}
+        <path
+          d={`M 14 100 A ${radius} ${radius} 0 0 1 186 100`}
+          fill="none"
+          stroke="url(#gaugeGrad)"
+          strokeWidth="14"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={animate ? offset : circumference}
+          style={{ transition: 'stroke-dashoffset 800ms ease-out' }}
+        />
+        {/* Tick marks */}
+        {Array.from({ length: 11 }).map((_, i) => {
+          const tickAngle = -180 + (i * 18);
+          const rad = (tickAngle * Math.PI) / 180;
+          const x1 = 100 + Math.cos(rad) * (radius + 12);
+          const y1 = 100 + Math.sin(rad) * (radius + 12);
+          const x2 = 100 + Math.cos(rad) * (radius + 18);
+          const y2 = 100 + Math.sin(rad) * (radius + 18);
+          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#cbd5e1" strokeWidth="1" />;
+        })}
+        {/* Needle */}
+        <g transform={`rotate(${animate ? angle : -90} 100 100)`} style={{ transition: 'transform 800ms ease-out' }}>
+          <path
+            d="M 100 100 L 96 100 L 100 30 L 104 100 Z"
+            fill="url(#gaugeGrad)"
+          />
+          <circle cx="100" cy="100" r="8" fill="#ffffff" stroke="#8F2774" strokeWidth="3" />
+        </g>
+      </svg>
+      <div className="absolute inset-x-0 bottom-2 text-center">
+        <span className="text-3xl font-bold text-student-text">{clamped}%</span>
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-3 text-center">
+      <p className="text-base font-bold text-student-text">{value}</p>
+      <p className="text-[10px] text-student-muted">{label}</p>
     </div>
   );
 }
