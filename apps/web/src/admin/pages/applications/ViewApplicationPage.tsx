@@ -104,6 +104,102 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     }
   }, [api, session.token, applicationId, onNavigate, confirm]);
 
+  // Naji 2026-05-07 — stage-transition handlers ported here from the
+  // applications row dropdown so the stage flow lives inside the View
+  // page contextually.
+  const handleMarkPaid = useCallback(async () => {
+    if (!applicationId) return;
+    const note = window.prompt('Reference / note (e.g. Bank ref no.)') ?? '';
+    setSubmitting(true);
+    try {
+      const res = await api.markApplicationPaid(session.token, applicationId, note);
+      if ((res as { status?: number }).status === 1) {
+        toast.success('Marked as paid.');
+        reload();
+      } else toast.error('Could not mark paid.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed.');
+    } finally { setSubmitting(false); }
+  }, [api, session.token, applicationId, reload]);
+
+  const handleSendFormLink = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
+    try {
+      const res = await api.generateApplicationFormLink(session.token, applicationId, 7);
+      const m = asString((res as { message?: unknown }).message) || '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Form link emailed to student.');
+        reload();
+      } else toast.error(m || 'Could not generate form link.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed.');
+    } finally { setSubmitting(false); }
+  }, [api, session.token, applicationId, reload]);
+
+  const handleCounsellorApprove = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
+    try {
+      const res = await api.counsellorApproveApplication(session.token, applicationId);
+      const m = asString((res as { message?: unknown }).message) || '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Approved by counsellor.');
+        reload();
+      } else toast.error(m || 'Could not approve.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve.');
+    } finally { setSubmitting(false); }
+  }, [api, session.token, applicationId, reload]);
+
+  const handleAdminApproveAndEnrol = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
+    try {
+      const res = await api.adminApproveApplication(session.token, applicationId);
+      const m = asString((res as { message?: unknown }).message) || '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Enrolled.');
+        reload();
+      } else toast.error(m || 'Could not enrol.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to enrol.');
+    } finally { setSubmitting(false); }
+  }, [api, session.token, applicationId, reload]);
+
+  // Lightweight Generate Payment Link — prompt for total + days.
+  // Naji 2026-05-07 has asked for a richer dialog (offering-derived
+  // pricing, installment plan editing) which lives in the deferred bucket;
+  // this stays usable for the Lead → Payment Pending transition until then.
+  const handleGeneratePaymentLink = useCallback(async () => {
+    if (!applicationId) return;
+    const totalRaw = window.prompt('Total course fee in INR (e.g. 25000)');
+    if (!totalRaw) return;
+    const total = Number(totalRaw);
+    if (!Number.isFinite(total) || total <= 0) {
+      toast.error('Enter a valid total fee.');
+      return;
+    }
+    const expRaw = window.prompt('Link expiry in days (default 7)', '7') ?? '7';
+    const expires = Math.max(1, Math.floor(Number(expRaw) || 7));
+    setSubmitting(true);
+    try {
+      const res = await api.generatePaymentLink(session.token, {
+        id: applicationId,
+        mode: 'full',
+        total_amount_minor: Math.round(total * 100),
+        expires_in_days: expires,
+      });
+      const m = asString((res as { message?: unknown }).message) || '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Payment link emailed to student.');
+        reload();
+      } else toast.error(m || 'Could not generate payment link.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed.');
+    } finally { setSubmitting(false); }
+  }, [api, session.token, applicationId, reload]);
+
   const paymentColumns: DataTableColumn[] = useMemo(
     () => [
       { key: 'installment_details', label: 'Installment' },
@@ -144,51 +240,99 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         </Button>
       </AdminPageHeader>
 
-      {/* Status bar with actions */}
+      {/* Status + Stage panel — Naji 2026-05-07: stage-transition actions
+          surface contextually here based on the current stage so the row
+          dropdown can stay clean (View + Edit only). */}
       <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-600">Status:</span>
-            <AdminStatusBadge status={currentStatus} />
-            {asString(app.reject_reason) && (
-              <span className="text-sm text-red-600">Reason: {asString(app.reject_reason)}</span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            {currentStatus !== 'approved' && (
+        <CardContent className="space-y-3 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-600">Stage:</span>
+              <AdminStatusBadge status={asString(app.stage) || currentStatus} />
+              {asString(app.reject_reason) && (
+                <span className="text-sm text-red-600">Reason: {asString(app.reject_reason)}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                className="bg-green-600 hover:bg-green-700"
-                disabled={submitting}
-                onClick={() => void handleApprove()}
+                variant="outline"
+                onClick={() => onNavigate('/admin/applications/edit/' + applicationId)}
               >
-                Approve
+                Edit
               </Button>
-            )}
-            {currentStatus !== 'rejected' && (
               <Button
                 size="sm"
                 variant="destructive"
-                disabled={submitting}
-                onClick={() => setRejectDialogOpen(true)}
+                onClick={() => void handleDelete()}
               >
-                Reject
+                Delete
               </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onNavigate('/admin/applications/edit/' + applicationId)}
-            >
-              Edit
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => void handleDelete()}
-            >
-              Delete
-            </Button>
+            </div>
+          </div>
+
+          {/* Stage-contextual action row */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+            <span className="text-xs font-medium uppercase tracking-wider text-gray-400">Next steps</span>
+            {(() => {
+              const stage = asString(app.stage) || 'lead';
+              const buttons: React.ReactNode[] = [];
+              if (stage === 'lead') {
+                buttons.push(
+                  <Button key="pay" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => void handleGeneratePaymentLink()}>
+                    Generate Payment Link
+                  </Button>,
+                );
+              }
+              if (stage === 'payment_pending') {
+                buttons.push(
+                  <Button key="paid" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleMarkPaid()}>
+                    Mark Paid (Manual)
+                  </Button>,
+                );
+              }
+              if (stage === 'paid' || stage === 'form_pending') {
+                buttons.push(
+                  <Button key="form" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => void handleSendFormLink()}>
+                    {stage === 'form_pending' ? 'Resend Application Form Link' : 'Send Application Form Link'}
+                  </Button>,
+                );
+              }
+              if (stage === 'form_submitted') {
+                buttons.push(
+                  <Button key="capp" size="sm" disabled={submitting} className="bg-blue-600 hover:bg-blue-700" onClick={() => void handleCounsellorApprove()}>
+                    Counsellor Approve
+                  </Button>,
+                );
+              }
+              if (stage === 'approval_waiting') {
+                buttons.push(
+                  <Button key="aapp" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleAdminApproveAndEnrol()}>
+                    Admin Approve &amp; Enrol
+                  </Button>,
+                );
+              }
+              if (stage !== 'rejected' && stage !== 'enrolled') {
+                buttons.push(
+                  <Button key="rej" size="sm" variant="destructive" disabled={submitting} onClick={() => setRejectDialogOpen(true)}>
+                    Reject
+                  </Button>,
+                );
+              }
+              if (currentStatus !== 'approved' && stage === 'enrolled') {
+                buttons.push(
+                  <Button key="appr" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleApprove()}>
+                    Mark Approved
+                  </Button>,
+                );
+              }
+              if (buttons.length === 0) {
+                buttons.push(
+                  <span key="done" className="text-xs text-gray-500">No further stage actions available.</span>,
+                );
+              }
+              return buttons;
+            })()}
           </div>
         </CardContent>
       </Card>

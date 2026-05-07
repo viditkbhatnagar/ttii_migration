@@ -15,6 +15,7 @@ import {
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 /**
  * Add Lead — Step 1 of Naji's 8-step Lead → Enrolment workflow.
@@ -139,7 +140,13 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         <CardContent className="space-y-4 p-6">
           <div className="space-y-2">
             <Label htmlFor="name">Name *</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={titleCaseOnBlur(setName)}
+              placeholder="Full name"
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -212,16 +219,42 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
           </div>
           <div className="space-y-2">
             <Label htmlFor="source">Source</Label>
-            <Input
+            <select
               id="source"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              placeholder="How did you hear about us? (Walk-in / Referral / Website / Social / etc.)"
-            />
+            >
+              <option value="">Select source</option>
+              <option value="Walk-in">Walk-in</option>
+              <option value="Referral">Referral</option>
+              <option value="Website">Website</option>
+              <option value="Social">Social Media</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Instagram">Instagram</option>
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="Email">Email</option>
+              <option value="Call-in">Call-in</option>
+              <option value="Reference">Reference (existing student)</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Pipeline user is auto-set from your logged-in account.
-          </p>
+          {/* Naji 2026-05-07 — show Pipeline + Pipeline User even though
+              they are auto-set so the team can see what's being recorded. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Pipeline</Label>
+              <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-700">
+                Counsellor
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Pipeline User</Label>
+              <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 text-sm text-slate-700">
+                Auto-set from logged-in user
+              </div>
+            </div>
+          </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => onNavigate('/admin/applications/index')}>
               Cancel

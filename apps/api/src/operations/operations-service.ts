@@ -659,6 +659,29 @@ export class OperationsService {
     return `TTS${String(nextNumber).padStart(4, '0')}`;
   }
 
+  // Naji 2026-05-07: continue the legacy TTII26#### sequence rather
+  // than minting APP-{timestamp} IDs. Year-prefixed (last two digits of
+  // the current year) so the sequence resets cleanly each January and
+  // matches the existing TTII26**** rows in production.
+  private async nextApplicationId(): Promise<string> {
+    const yy = String(new Date().getFullYear() % 100).padStart(2, '0');
+    const prefix = `TTII${yy}`;
+    const recent = await this.prisma.applications.findMany({
+      where: { application_id: { startsWith: prefix } },
+      select: { application_id: true },
+      orderBy: { id: 'desc' },
+      take: 500,
+    });
+    let maxSeq = 0;
+    for (const row of recent) {
+      const aid = row.application_id ?? '';
+      if (!aid.startsWith(prefix)) continue;
+      const n = Number.parseInt(aid.slice(prefix.length), 10);
+      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(4, '0')}`;
+  }
+
   async listPipelineUsers(roleId: number): Promise<SqlRow[]> {
     if (roleId <= 0) {
       return [];
@@ -676,9 +699,14 @@ export class OperationsService {
   async listAdminApplications(filters: AdminApplicationFilters): Promise<Record<string, unknown>> {
     const range = normalizeReportRange(filters.fromDate, filters.toDate);
 
+    // Naji 2026-05-07: hide enrolled rows from this list — once an
+    // application is enrolled, the source-of-truth row lives under
+    // Students. Keeping it here would let admins approve/reject already-
+    // enrolled rows by mistake.
     const where: Record<string, unknown> = {
       deleted_at: null,
       is_converted: 0,
+      stage: { not: 'enrolled' },
     };
 
     if (filters.fromDate) {
@@ -718,15 +746,19 @@ export class OperationsService {
       orderBy: { id: 'desc' },
     });
 
-    // LEFT JOIN: courses, users (pipeline), centres
+    // LEFT JOIN: courses, users (pipeline), centres, offerings, combinations
     const courseIds = [...new Set(apps.map(a => a.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const pipelineUserIds = [...new Set(apps.map(a => a.pipeline_user).filter((x): x is number => x !== null && x !== undefined))];
     const centreIds = [...new Set(apps.map(a => a.added_under_centre).filter((x): x is number => x !== null && x !== undefined))];
+    const offeringIds = [...new Set(apps.map(a => a.offering_id).filter((x): x is number => x !== null && x !== undefined))];
+    const combinationIds = [...new Set(apps.map(a => a.certificate_combination_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, pipelineUsers, centres, allCourses, allCentres] = await Promise.all([
+    const [courses, pipelineUsers, centres, offerings, combinations, allCourses, allCentres] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } } }) : [],
       pipelineUserIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: pipelineUserIds } }, select: { id: true, name: true } }) : [],
       centreIds.length > 0 ? this.prisma.centres.findMany({ where: { id: { in: centreIds } }, select: { id: true, centre_name: true } }) : [],
+      offeringIds.length > 0 ? this.prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true, offering_code: true } }) : [],
+      combinationIds.length > 0 ? this.prisma.certificate_combinations.findMany({ where: { id: { in: combinationIds } }, select: { id: true, combination_code: true } }) : [],
       this.prisma.course.findMany({ where: { deleted_at: null }, select: { id: true, title: true }, orderBy: { title: 'asc' } }),
       this.prisma.centres.findMany({ where: { deleted_at: null }, select: { id: true, centre_name: true }, orderBy: { centre_name: 'asc' } }),
     ]);
@@ -734,12 +766,16 @@ export class OperationsService {
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const pipelineUserMap = new Map(pipelineUsers.map(u => [u.id, u]));
     const centreMap = new Map(centres.map(c => [c.id, c]));
+    const offeringMap = new Map(offerings.map((o: { id: number; title: string | null; offering_code: string | null }) => [o.id, o]));
+    const combinationMap = new Map(combinations.map((c: { id: number; combination_code: string | null }) => [c.id, c]));
 
     const applications = apps.map(a => ({
       ...a,
       course_title: a.course_id ? courseMap.get(a.course_id)?.title ?? null : null,
       pipeline_user_name: a.pipeline_user ? pipelineUserMap.get(a.pipeline_user)?.name ?? null : null,
       centre_name: a.added_under_centre ? centreMap.get(a.added_under_centre)?.centre_name ?? null : null,
+      offering_title: a.offering_id ? (offeringMap.get(a.offering_id)?.title ?? offeringMap.get(a.offering_id)?.offering_code ?? null) : null,
+      combination_title: a.certificate_combination_id ? combinationMap.get(a.certificate_combination_id)?.combination_code ?? null : null,
     }));
 
     const rejectedCount = applications.filter((item) => toStringValue(item.status) === 'rejected').length;
@@ -4988,9 +5024,10 @@ export class OperationsService {
     const pipeline = (actor.role_id !== null && roleLabel[actor.role_id]) || 'Admin';
 
     const now = new Date();
+    const applicationIdSeq = await this.nextApplicationId();
     const created = await this.prisma.applications.create({
       data: {
-        application_id: `APP-${Date.now()}`,
+        application_id: applicationIdSeq,
         name,
         phone,
         email: phone, // legacy column quirk: `email` was reused for phone
@@ -5068,9 +5105,10 @@ export class OperationsService {
     }
 
     const now = new Date();
+    const applicationIdSeq = await this.nextApplicationId();
     const created = await this.prisma.applications.create({
       data: {
-        application_id: `APP-${Date.now()}`,
+        application_id: applicationIdSeq,
         name,
         phone,
         email: phone,
@@ -5842,9 +5880,10 @@ export class OperationsService {
       age = Math.floor(ageDiff / (365.25 * 24 * 60 * 60 * 1000));
     }
 
+    const applicationIdSeq = await this.nextApplicationId();
     const created = await this.prisma.applications.create({
       data: {
-        application_id: `APP-${Date.now()}`,
+        application_id: applicationIdSeq,
         name: fullName,
         phone,
         email: phone,

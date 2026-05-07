@@ -16,16 +16,18 @@ import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
 // Lead → Enrolment workflow stage labels (Naji 2026-05-05).
+// Naji 2026-05-07: 'Enrolled' tab removed (once enrolled, the row moves
+// to the Students module so it doesn't belong here any more); 'All' moved
+// to the end so the funnel reads left-to-right in pipeline order.
 const STAGE_TABS: Array<{ id: string; label: string }> = [
-  { id: 'all', label: 'All' },
   { id: 'lead', label: 'Lead' },
   { id: 'payment_pending', label: 'Payment Pending' },
   { id: 'paid', label: 'Paid' },
   { id: 'form_pending', label: 'Form Pending' },
   { id: 'form_submitted', label: 'Form Submitted' },
   { id: 'approval_waiting', label: 'Approval Waiting' },
-  { id: 'enrolled', label: 'Enrolled' },
   { id: 'rejected', label: 'Rejected' },
+  { id: 'all', label: 'All' },
 ];
 
 const STAGE_LABEL: Record<string, string> = Object.fromEntries(
@@ -39,7 +41,8 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   const [pipelineRoleId, setPipelineRoleId] = useState('');
   const [pipelineUserId, setPipelineUserId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  // Default to 'lead' — first non-empty stage and the natural starting point.
+  const [activeTab, setActiveTab] = useState('lead');
   const [search, _setSearch] = useState('');
   void _setSearch;
 
@@ -60,7 +63,8 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
   });
   const [paySubmitting, setPaySubmitting] = useState(false);
 
-  const openPayDialog = (row: Record<string, unknown>) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _openPayDialog = (row: Record<string, unknown>) => {
     setPayDialog({
       open: true,
       rowId: asString(row.id),
@@ -302,9 +306,14 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         ),
       },
       { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'offering_title', label: 'Course Offering', sortable: true, render: (v) => asString(v) || '-' },
+      { key: 'combination_title', label: 'Combination', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'phone', label: 'Phone No', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'user_email', label: 'E-mail', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'pipeline_role', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
+      // Naji 2026-05-07: was reading `pipeline_role` which the backend
+      // payload doesn't carry — column was always blank. Use the actual
+      // `pipeline` text column.
+      { key: 'pipeline', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'pipeline_user_name', label: 'Pipeline User', sortable: true, render: (v) => asString(v) || '-' },
       {
         key: 'stage',
@@ -318,6 +327,11 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
     [onNavigate],
   );
 
+  // Naji 2026-05-07: row menu reduced to just View + Edit. The previous
+  // 7 stage-transition actions (Generate Payment Link / Mark Paid /
+  // Send Application Form Link / Counsellor Approve / Admin Approve &
+  // Enrol / Reject) move INTO the View page where they appear
+  // contextually based on the current stage.
   const actions: DataTableAction[] = useMemo(
     () => [
       {
@@ -325,97 +339,11 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
       },
       {
-        label: 'Generate Payment Link',
-        onClick: (row) => openPayDialog(row),
-      },
-      {
-        label: 'Mark Paid (Manual)',
-        onClick: (row) => {
-          void (async () => {
-            const note = window.prompt('Reference / note (e.g. Bank ref no.)') ?? '';
-            try {
-              const res = await api.markApplicationPaid(session.token, asString(row.id), note);
-              if ((res as { status?: number }).status === 1) toast.success('Marked as paid.');
-              else toast.error('Could not mark paid.');
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed.');
-            }
-          })();
-        },
-      },
-      {
-        label: 'Send Application Form Link',
-        onClick: (row) => {
-          void (async () => {
-            try {
-              const res = await api.generateApplicationFormLink(session.token, asString(row.id), 7);
-              const m = asString((res as { message?: unknown }).message) || '';
-              if ((res as { status?: number }).status === 1) {
-                toast.success(m || 'Form link emailed to student.');
-              } else {
-                toast.error(m || 'Could not generate form link.');
-              }
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed.');
-            }
-          })();
-        },
-      },
-      {
-        label: 'Counsellor Approve',
-        onClick: (row) => {
-          void (async () => {
-            try {
-              const res = await api.counsellorApproveApplication(session.token, asString(row.id));
-              const m = asString((res as { message?: unknown }).message) || '';
-              if ((res as { status?: number }).status === 1) {
-                toast.success(m || 'Approved by counsellor.');
-              } else {
-                toast.error(m || 'Could not approve.');
-              }
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to approve.');
-            }
-          })();
-        },
-      },
-      {
-        label: 'Admin Approve & Enrol',
-        onClick: (row) => {
-          void (async () => {
-            try {
-              const res = await api.adminApproveApplication(session.token, asString(row.id));
-              const m = asString((res as { message?: unknown }).message) || '';
-              if ((res as { status?: number }).status === 1) {
-                toast.success(m || 'Enrolled.');
-              } else {
-                toast.error(m || 'Could not enrol.');
-              }
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to enrol.');
-            }
-          })();
-        },
-      },
-      {
-        label: 'Reject',
-        variant: 'destructive',
-        onClick: (row) => {
-          void (async () => {
-            const reason = window.prompt('Reason for rejection?') ?? '';
-            if (!reason.trim()) return;
-            try {
-              const res = await api.rejectApplication(session.token, asString(row.id), reason.trim());
-              if ((res as { status?: number }).status === 1) toast.success('Rejected.');
-              else toast.error('Could not reject.');
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to reject.');
-            }
-          })();
-        },
+        label: 'Edit',
+        onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id) + '?edit=1'),
       },
     ],
-    [api, session.token, onNavigate],
+    [onNavigate],
   );
 
   const handleClearFilters = () => {

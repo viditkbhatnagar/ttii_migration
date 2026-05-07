@@ -14,6 +14,7 @@ import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { COUNTRIES, INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -727,7 +728,12 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-2 md:col-span-2">
                     <Label>Full Name *</Label>
-                    <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} placeholder="Enter full name" />
+                    <Input
+                      value={form.fullName}
+                      onChange={(e) => set('fullName', e.target.value)}
+                      onBlur={titleCaseOnBlur((value) => set('fullName', value))}
+                      placeholder="Enter full name"
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Date of Birth (dd/mm/yyyy) *</Label>
