@@ -242,7 +242,12 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => onNavigate('/admin/applications/edit/' + applicationId)}
+                onClick={() => onNavigate(
+                  // Naji 2026-05-08 — at lead stages, the Edit button
+                  // opens the same minimal Add Lead form (in edit mode)
+                  // instead of the full multi-tab Add Application page.
+                  (isLeadStage ? '/admin/leads/edit/' : '/admin/applications/edit/') + applicationId,
+                )}
               >
                 Edit
               </Button>
@@ -297,7 +302,11 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   </Button>,
                 );
               }
-              if (stage !== 'rejected' && stage !== 'enrolled') {
+              // Naji 2026-05-08 — Reject only makes sense once the
+              // applicant has actually submitted something. Hide it for
+              // pre-submission stages (lead / payment_pending / paid /
+              // form_pending) so the Lead view stays minimal.
+              if (stage !== 'rejected' && stage !== 'enrolled' && !isLeadStage) {
                 buttons.push(
                   <Button key="rej" size="sm" variant="destructive" disabled={submitting} onClick={() => setRejectDialogOpen(true)}>
                     Reject

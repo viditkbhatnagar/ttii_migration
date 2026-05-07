@@ -44,6 +44,20 @@ const ROLE_PIPELINE_LABEL: Record<number, string> = {
  *     when we wire enrol-to-second-course).
  */
 export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps) {
+  // Naji 2026-05-08 — same component handles both Add and Edit. The
+  // route /admin/leads/edit/:id flips us into edit mode: prefill from
+  // the existing application, change the title + submit button, and
+  // call api.editLead instead of api.addLead. Pipeline + Pipeline User
+  // remain auto from the logged-in user (we never reassign on edit).
+  const editId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const path = window.location.pathname;
+    const m = path.match(/^\/admin\/leads\/edit\/(\d+)$/);
+    if (m) return m[1] ?? '';
+    return '';
+  }, []);
+  const isEditMode = editId !== '';
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -53,6 +67,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const [combinationId, setCombinationId] = useState('');
   const [source, setSource] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [editLoading, setEditLoading] = useState(isEditMode);
   const [duplicate, setDuplicate] = useState<{ message: string; existingUserId?: string } | null>(null);
 
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
@@ -66,6 +81,43 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       .then((rows) => setCourses(rows))
       .catch(() => setCourses([]));
   }, [api, session.token]);
+
+  // Pending offering / combination ids from the edit prefill — applied
+  // once the cascading loaders finish populating the dropdowns. The
+  // courseId-change effects clear offeringId/combinationId, so we
+  // can't set them in the same shot as the prefill.
+  const [pendingOfferingId, setPendingOfferingId] = useState('');
+  const [pendingCombinationId, setPendingCombinationId] = useState('');
+
+  // Pre-fill in edit mode.
+  useEffect(() => {
+    if (!isEditMode || !editId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.getApplication(session.token, editId);
+        if (cancelled) return;
+        const r = (res as { application?: Record<string, unknown> }).application;
+        if (!r) {
+          toast.error('Lead not found.');
+          return;
+        }
+        setName(asString(r.name));
+        setEmail(asString(r.user_email) || asString(r.email));
+        setPhone(asString(r.phone));
+        const cc = asString(r.country_code).replace(/\+/g, '');
+        if (cc) setCountryCode(cc);
+        setSource(asString(r.marketing_source) || asString(r.lead_source));
+        setPendingOfferingId(asString(r.offering_id));
+        setPendingCombinationId(asString(r.certificate_combination_id));
+        // Set courseId LAST — triggers the offering / combination loaders.
+        setCourseId(asString(r.course_id));
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, session.token, isEditMode, editId]);
 
   // Pull the logged-in user so the Pipeline card reflects their actual
   // role + name (was hardcoded to "Counsellor" / "Auto-set...").
@@ -85,10 +137,22 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     // Naji 2026-05-08 — only show active offerings, not drafts.
     void api
       .listOfferings(session.token, { course_id: courseId, status: 'active' })
-      .then((rows) => setOfferings(rows))
-      .catch(() => setOfferings([]));
-    setOfferingId('');
-  }, [api, session.token, courseId]);
+      .then((rows) => {
+        setOfferings(rows);
+        // If we're in edit mode and a pending offering exists in this
+        // course's list, restore it. Otherwise reset.
+        if (pendingOfferingId && rows.some((r) => asString(r.id) === pendingOfferingId)) {
+          setOfferingId(pendingOfferingId);
+          setPendingOfferingId('');
+        } else {
+          setOfferingId('');
+        }
+      })
+      .catch(() => {
+        setOfferings([]);
+        setOfferingId('');
+      });
+  }, [api, session.token, courseId, pendingOfferingId]);
 
   // Certificate combinations are course-scoped — load once a course
   // is picked, then filter to active. Combination remains optional.
@@ -100,10 +164,20 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     }
     void api
       .listCertificateCombinations(session.token, { course_id: courseId, status: 'active' })
-      .then((rows) => setCombinations(rows))
-      .catch(() => setCombinations([]));
-    setCombinationId('');
-  }, [api, session.token, courseId]);
+      .then((rows) => {
+        setCombinations(rows);
+        if (pendingCombinationId && rows.some((r) => asString(r.id) === pendingCombinationId)) {
+          setCombinationId(pendingCombinationId);
+          setPendingCombinationId('');
+        } else {
+          setCombinationId('');
+        }
+      })
+      .catch(() => {
+        setCombinations([]);
+        setCombinationId('');
+      });
+  }, [api, session.token, courseId, pendingCombinationId]);
 
   const courseOptions = useMemo(
     () => courses.map((c) => ({ label: asString(c.title) || `Course ${asString(c.id)}`, value: asString(c.id) })),
@@ -132,7 +206,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     setSubmitting(true);
     setDuplicate(null);
     try {
-      const res = await api.addLead(session.token, {
+      const payload = {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -141,13 +215,16 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         offering_id: offeringId || undefined,
         combination_id: combinationId || undefined,
         source: source.trim() || undefined,
-      });
+      };
+      const res = isEditMode
+        ? await api.editLead(session.token, editId, payload)
+        : await api.addLead(session.token, payload);
       const status = (res as { status?: number }).status;
       const code = (res as { code?: string }).code;
       const message = asString((res as { message?: unknown }).message) || 'Done.';
       if (status === 1) {
         toast.success(message);
-        onNavigate('/admin/applications/index');
+        onNavigate(isEditMode ? `/admin/applications/view/${editId}` : '/admin/applications/index');
         return;
       }
       if (status === 2 && code === 'duplicate_student_other_course') {
@@ -157,15 +234,24 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       }
       toast.error(message);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add lead.');
+      toast.error(err instanceof Error ? err.message : isEditMode ? 'Failed to update lead.' : 'Failed to add lead.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (editLoading) {
+    return (
+      <div className="space-y-4">
+        <AdminPageHeader title="Edit Lead" />
+        <Card className="mx-auto max-w-2xl"><CardContent className="p-6 text-sm text-slate-500">Loading lead…</CardContent></Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Add Lead" />
+      <AdminPageHeader title={isEditMode ? 'Edit Lead' : 'Add Lead'} />
       <Card className="mx-auto max-w-2xl">
         <CardContent className="space-y-4 p-6">
           <div className="space-y-2">
@@ -300,7 +386,10 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             </div>
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => onNavigate('/admin/applications/index')}>
+            <Button
+              variant="outline"
+              onClick={() => onNavigate(isEditMode ? `/admin/applications/view/${editId}` : '/admin/applications/index')}
+            >
               Cancel
             </Button>
             <Button
@@ -308,7 +397,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
               disabled={submitting || !name.trim() || !email.trim() || !phone.trim() || !courseId}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              {submitting ? 'Saving...' : 'Add Lead'}
+              {submitting ? 'Saving...' : isEditMode ? 'Save Changes' : 'Add Lead'}
             </Button>
           </div>
         </CardContent>

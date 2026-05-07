@@ -2245,6 +2245,23 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/leads/add', authToken, input);
   }
 
+  async editLead(
+    authToken: string,
+    id: string,
+    input: {
+      name: string;
+      email: string;
+      phone: string;
+      country_code?: string | undefined;
+      course_id: string;
+      offering_id?: string | undefined;
+      combination_id?: string | undefined;
+      source?: string | undefined;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/leads/edit', authToken, { id, ...input });
+  }
+
   async listLeads(
     authToken: string,
     filters?: { stage?: string; course_id?: string; search?: string },
@@ -2478,6 +2495,14 @@ export class AdminPortalApi {
       Object.keys(query).length ? query : undefined,
     );
     return toRecords(payload.data);
+  }
+
+  async getCertificateCombination(authToken: string, id: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      `/admin/certificate_combinations/${id}`,
+      authToken,
+    );
+    return payload.data ?? null;
   }
 
   async createCertificateCombination(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {

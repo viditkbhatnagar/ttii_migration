@@ -135,6 +135,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // (component detects /edit/:id from window.location and pre-fills).
   { path: '/admin/applications/edit/:id', pageComponent: AddApplicationPage, title: 'Edit Application' },
   { path: '/admin/leads/add', pageComponent: AddLeadPage, title: 'Add Lead' },
+  // Naji 2026-05-08: minimal edit reuses AddLeadPage in edit mode.
+  { path: '/admin/leads/edit/:id', pageComponent: AddLeadPage, title: 'Edit Lead' },
   { path: '/admin/applications/view/:id', pageComponent: ViewApplicationPage, title: 'View Application' },
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },
   { path: '/admin/students/view/:id', pageComponent: ViewStudentPage, title: 'View Student' },

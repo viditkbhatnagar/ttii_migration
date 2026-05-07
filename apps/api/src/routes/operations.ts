@@ -2261,6 +2261,39 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-05-08 — Edit Lead. Used by ViewApplicationPage Edit
+  // button when the row is in an early stage. Updates only the Add Lead
+  // captured fields.
+  app.post('/admin/leads/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      const email = toStringValue(payload.email);
+      if (email) {
+        const verification = await verifyEmail(email);
+        if (!verification.valid) {
+          reply.code(200).send({
+            status: 0,
+            message: verification.message ?? 'Email failed verification.',
+            data: { reason: verification.reason },
+          });
+          return;
+        }
+      }
+      const result = await operationsService.editLead(requestUserId(request), id, {
+        name: toStringValue(payload.name),
+        email,
+        phone: toStringValue(payload.phone),
+        countryCode: toStringValue(payload.country_code),
+        courseId: toStringValue(payload.course_id),
+        offeringId: toStringValue(payload.offering_id),
+        combinationId: toStringValue(payload.combination_id),
+        source: toStringValue(payload.source),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Student self-service: a logged-in student clicks "Request Enrolment"
   // on an unenrolled course in their catalog. Creates an applications row
   // tagged source=student_self_request so counsellors see it in the lead

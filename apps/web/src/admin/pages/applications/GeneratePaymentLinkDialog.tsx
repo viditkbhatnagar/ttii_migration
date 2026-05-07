@@ -89,8 +89,11 @@ export function GeneratePaymentLinkDialog({
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load offering pricing on open. Naji's spec: "Show the pricing based
-  // on offering". Falls back to initial* props passed from ViewApplicationPage.
+  // Load offering pricing + combination GST on open. Falls back to
+  // initial* props passed from ViewApplicationPage. Naji 2026-05-08 —
+  // Base Fee is now editable so admins can override / set it when the
+  // offering hasn't had pricing configured yet (production data still
+  // has many offerings with NULL base_fee).
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -99,25 +102,54 @@ export function GeneratePaymentLinkDialog({
       setBaseFee(initialBaseFee ?? 0);
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
-      // Then refresh from offering if we have an id.
-      if (!offeringId) return;
       setPricingLoading(true);
       try {
-        const offerings = await api.listOfferings(authToken, {});
-        if (cancelled) return;
-        const list = Array.isArray(offerings) ? offerings : [];
-        const off = list.find((o) => String((o as { id?: unknown }).id) === String(offeringId)) as { base_fee?: unknown; pricing_amount?: unknown; discount?: unknown; offered_fee?: unknown } | undefined;
-        if (off) {
-          const base = Number(off.base_fee ?? off.pricing_amount ?? 0);
-          const disc = Number(off.discount ?? 0);
-          const offered = Number(off.offered_fee ?? 0);
-          if (Number.isFinite(base) && base > 0) setBaseFee(base);
-          if (Number.isFinite(disc) && disc > 0) setDiscount(disc);
-          // If we know offered_fee, derive discount when not set explicitly.
-          if (offered > 0 && base > 0 && disc <= 0) setDiscount(Math.max(0, base - offered));
+        const tasks: Promise<unknown>[] = [];
+        // Pull offering pricing if we have one.
+        if (offeringId) {
+          tasks.push(
+            api
+              .listOfferings(authToken, {})
+              .then((offerings) => {
+                if (cancelled) return;
+                const list = Array.isArray(offerings) ? offerings : [];
+                const off = list.find((o) => String((o as { id?: unknown }).id) === String(offeringId)) as
+                  | { base_fee?: unknown; pricing_amount?: unknown; discount?: unknown; offered_fee?: unknown }
+                  | undefined;
+                if (off) {
+                  const base = Number(off.base_fee ?? off.pricing_amount ?? 0);
+                  const disc = Number(off.discount ?? 0);
+                  const offered = Number(off.offered_fee ?? 0);
+                  if (Number.isFinite(base) && base > 0) setBaseFee(base);
+                  if (Number.isFinite(disc) && disc > 0) setDiscount(disc);
+                  if (offered > 0 && base > 0 && disc <= 0) setDiscount(Math.max(0, base - offered));
+                }
+              })
+              .catch(() => undefined),
+          );
         }
-      } catch {
-        // Best-effort — keep the prop seeds.
+        // Pull combination GST if we have one. Combinations carry the
+        // gst_applicable + gst_percent — so the dialog should respect
+        // "no GST" when the combination is non-GST (e.g. TTII + MSU).
+        if (combinationId) {
+          tasks.push(
+            api
+              .getCertificateCombination(authToken, combinationId)
+              .then((combo) => {
+                if (cancelled || !combo) return;
+                const c = combo as { gst_applicable?: unknown; gst_percent?: unknown };
+                const applicable = Boolean(c.gst_applicable);
+                const percent = Number(c.gst_percent ?? 0);
+                if (!applicable) {
+                  setGstPercent(0);
+                } else if (Number.isFinite(percent) && percent > 0) {
+                  setGstPercent(percent);
+                }
+              })
+              .catch(() => undefined),
+          );
+        }
+        await Promise.all(tasks);
       } finally {
         if (!cancelled) setPricingLoading(false);
       }
@@ -300,7 +332,16 @@ export function GeneratePaymentLinkDialog({
               <tbody>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">Base Fee</td>
-                  <td className="py-2 text-right font-medium">{fmtInr(breakdown.baseFee)}</td>
+                  <td className="py-2 text-right">
+                    <input
+                      type="number"
+                      min={0}
+                      value={baseFee || ''}
+                      onChange={(e) => setBaseFee(Number(e.target.value) || 0)}
+                      className="w-32 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
+                      placeholder="0"
+                    />
+                  </td>
                 </tr>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">Discount</td>

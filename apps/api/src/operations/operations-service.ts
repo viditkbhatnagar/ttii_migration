@@ -5065,6 +5065,91 @@ export class OperationsService {
     };
   }
 
+  // Naji 2026-05-08 — Edit Lead. Used by the View page Edit button when
+  // the application is still in an early stage (lead / payment_pending /
+  // paid / form_pending). Updates only the fields captured at Add Lead;
+  // qualification / personal info live on the public application form.
+  async editLead(
+    actorUserId: string,
+    applicationId: string,
+    input: {
+      name: string;
+      email: string;
+      phone: string;
+      countryCode?: string;
+      courseId: string;
+      offeringId?: string;
+      combinationId?: string;
+      source?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    const existing = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, stage: true, user_email: true, course_id: true },
+    });
+    if (!existing) return { status: 0, message: 'Application not found.' };
+
+    const name = input.name.trim();
+    const email = input.email.trim().toLowerCase();
+    const phone = input.phone.trim();
+    const courseIdInt = toNullableIntId(input.courseId);
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { id: true },
+    });
+    if (!name) return { status: 0, message: 'Name is required.' };
+    if (!email) return { status: 0, message: 'Email is required.' };
+    if (!phone) return { status: 0, message: 'Phone is required.' };
+    if (!courseIdInt) return { status: 0, message: 'Course is required.' };
+    if (!actor) return { status: 0, message: 'Actor user not found.' };
+
+    // Re-check duplicate-lead-on-same-course only if the user changed
+    // email or course — otherwise the existing row would self-match.
+    const emailChanged = (existing.user_email ?? '').toLowerCase() !== email;
+    const courseChanged = (existing.course_id ?? null) !== courseIdInt;
+    if (emailChanged || courseChanged) {
+      const dupLead = await this.prisma.applications.findFirst({
+        where: {
+          deleted_at: null,
+          user_email: email,
+          course_id: courseIdInt,
+          stage: { not: 'enrolled' },
+          NOT: { id },
+        },
+        select: { id: true },
+      });
+      if (dupLead) {
+        return {
+          status: 0,
+          code: 'duplicate_lead_same_course',
+          message: 'Another lead with this email already exists for this course.',
+        };
+      }
+    }
+
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        name,
+        phone,
+        email: phone, // legacy quirk — `email` column holds phone
+        user_email: email,
+        country_code: input.countryCode ? `+${input.countryCode.replace(/^\+/, '')}` : '+91',
+        course_id: courseIdInt,
+        offering_id: input.offeringId ? toNullableIntId(input.offeringId) : null,
+        certificate_combination_id: input.combinationId ? toNullableIntId(input.combinationId) : null,
+        marketing_source: input.source?.trim() || null,
+        lead_source: input.source?.trim() || null,
+        updated_by: actor.id,
+        updated_at: new Date(),
+      },
+    });
+
+    return { status: 1, message: 'Lead updated.', data: { id } };
+  }
+
   // Student-initiated enrolment request from the "Other Courses" catalog.
   // Bypasses the duplicate-student-other-course block in addLead — the
   // student IS the user requesting, so flagging them as a duplicate would
