@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -85,9 +85,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   // Pending offering / combination ids from the edit prefill — applied
   // once the cascading loaders finish populating the dropdowns. The
   // courseId-change effects clear offeringId/combinationId, so we
-  // can't set them in the same shot as the prefill.
-  const [pendingOfferingId, setPendingOfferingId] = useState('');
-  const [pendingCombinationId, setPendingCombinationId] = useState('');
+  // can't set them in the same shot as the prefill. We use refs (not
+  // state) so consuming the pending value doesn't trigger another
+  // effect re-run that would wipe offeringId again.
+  const pendingOfferingIdRef = useRef('');
+  const pendingCombinationIdRef = useRef('');
+  const lastCourseIdRef = useRef('');
 
   // Pre-fill in edit mode.
   useEffect(() => {
@@ -108,8 +111,8 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         const cc = asString(r.country_code).replace(/\+/g, '');
         if (cc) setCountryCode(cc);
         setSource(asString(r.marketing_source) || asString(r.lead_source));
-        setPendingOfferingId(asString(r.offering_id));
-        setPendingCombinationId(asString(r.certificate_combination_id));
+        pendingOfferingIdRef.current = asString(r.offering_id);
+        pendingCombinationIdRef.current = asString(r.certificate_combination_id);
         // Set courseId LAST — triggers the offering / combination loaders.
         setCourseId(asString(r.course_id));
       } finally {
@@ -132,27 +135,38 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     if (!courseId) {
       setOfferings([]);
       setOfferingId('');
+      lastCourseIdRef.current = '';
       return;
     }
-    // Naji 2026-05-08 — only show active offerings, not drafts.
+    // Only wipe offeringId when the course actually changed — not when
+    // the effect re-fires for unrelated reasons. Otherwise the prefill
+    // restoration below gets clobbered.
+    const courseChanged = lastCourseIdRef.current !== '' && lastCourseIdRef.current !== courseId;
+    lastCourseIdRef.current = courseId;
+    if (courseChanged) setOfferingId('');
+    // Naji 2026-05-08 — only show active offerings, not drafts. Edit
+    // mode falls back to all offerings if the saved one isn't active.
     void api
       .listOfferings(session.token, { course_id: courseId, status: 'active' })
-      .then((rows) => {
-        setOfferings(rows);
-        // If we're in edit mode and a pending offering exists in this
-        // course's list, restore it. Otherwise reset.
-        if (pendingOfferingId && rows.some((r) => asString(r.id) === pendingOfferingId)) {
-          setOfferingId(pendingOfferingId);
-          setPendingOfferingId('');
-        } else {
-          setOfferingId('');
+      .then(async (rows) => {
+        let list = rows;
+        const pendingOff = pendingOfferingIdRef.current;
+        if (pendingOff && !list.some((r) => asString(r.id) === pendingOff)) {
+          // Saved offering isn't active — fetch all so the dropdown
+          // shows the actual value attached to this lead.
+          try {
+            const allRows = await api.listOfferings(session.token, { course_id: courseId });
+            list = allRows;
+          } catch { /* keep active list */ }
+        }
+        setOfferings(list);
+        if (pendingOff && list.some((r) => asString(r.id) === pendingOff)) {
+          setOfferingId(pendingOff);
+          pendingOfferingIdRef.current = '';
         }
       })
-      .catch(() => {
-        setOfferings([]);
-        setOfferingId('');
-      });
-  }, [api, session.token, courseId, pendingOfferingId]);
+      .catch(() => setOfferings([]));
+  }, [api, session.token, courseId]);
 
   // Certificate combinations are course-scoped — load once a course
   // is picked, then filter to active. Combination remains optional.
@@ -162,22 +176,27 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       setCombinationId('');
       return;
     }
+    const courseChanged = lastCourseIdRef.current !== courseId;
+    if (courseChanged) setCombinationId('');
     void api
       .listCertificateCombinations(session.token, { course_id: courseId, status: 'active' })
-      .then((rows) => {
-        setCombinations(rows);
-        if (pendingCombinationId && rows.some((r) => asString(r.id) === pendingCombinationId)) {
-          setCombinationId(pendingCombinationId);
-          setPendingCombinationId('');
-        } else {
-          setCombinationId('');
+      .then(async (rows) => {
+        let list = rows;
+        const pendingCombo = pendingCombinationIdRef.current;
+        if (pendingCombo && !list.some((r) => asString(r.id) === pendingCombo)) {
+          try {
+            const allRows = await api.listCertificateCombinations(session.token, { course_id: courseId });
+            list = allRows;
+          } catch { /* keep active list */ }
+        }
+        setCombinations(list);
+        if (pendingCombo && list.some((r) => asString(r.id) === pendingCombo)) {
+          setCombinationId(pendingCombo);
+          pendingCombinationIdRef.current = '';
         }
       })
-      .catch(() => {
-        setCombinations([]);
-        setCombinationId('');
-      });
-  }, [api, session.token, courseId, pendingCombinationId]);
+      .catch(() => setCombinations([]));
+  }, [api, session.token, courseId]);
 
   const courseOptions = useMemo(
     () => courses.map((c) => ({ label: asString(c.title) || `Course ${asString(c.id)}`, value: asString(c.id) })),
