@@ -214,3 +214,90 @@ export async function setUserPermissions(
     }
   });
 }
+
+/**
+ * Naji 2026-05-09 — Roles & Permissions overview. One row per admin
+ * staff user (Super Admin, Admin, Counsellor, Associate, Instructor)
+ * with their granted-permission count and slugs. Super Admin shows
+ * "all" — they have every permission by default.
+ *
+ * Counsellor / Associate / Instructor roles aren't gated by the
+ * permission catalogue today (their access is role-based), but we
+ * still surface them so admins see one unified directory.
+ */
+export interface RolesPermissionsRow {
+  user_id: number;
+  name: string;
+  email: string;
+  role_id: number;
+  role_label: string;
+  status: number | null;
+  granted_permission_ids: number[];
+  granted_count: number;
+  permission_managed: boolean; // false for non-admin roles (their access is role-based, not per-permission)
+}
+
+export async function listRolesPermissionsOverview(): Promise<{
+  users: RolesPermissionsRow[];
+  total_permissions: number;
+}> {
+  const ROLE_LABELS: Record<number, string> = {
+    1: 'Super Admin',
+    3: 'Instructor',
+    8: 'Admin',
+    9: 'Counsellor',
+    10: 'Associate',
+  };
+  const SHOW_ROLES = [1, 3, 8, 9, 10];
+
+  const adminPerms = await prisma.permission.findMany({
+    where: { category: { not: null } },
+    select: { id: true },
+  });
+  const totalPermissions = adminPerms.length;
+  const adminPermIds = adminPerms.map((p) => p.id);
+
+  const users = await prisma.users.findMany({
+    where: { deleted_at: null, role_id: { in: SHOW_ROLES } },
+    select: { id: true, name: true, email: true, user_email: true, role_id: true, status: true },
+    orderBy: [{ role_id: 'asc' }, { name: 'asc' }],
+  });
+
+  const grants = users.length > 0
+    ? await prisma.user_permission.findMany({
+        where: {
+          user_id: { in: users.map((u) => u.id) },
+          deleted_at: null,
+          permission_id: { in: adminPermIds },
+        },
+        select: { user_id: true, permission_id: true },
+      })
+    : [];
+  const grantsByUser = new Map<number, number[]>();
+  for (const g of grants) {
+    const arr = grantsByUser.get(g.user_id) ?? [];
+    arr.push(g.permission_id);
+    grantsByUser.set(g.user_id, arr);
+  }
+
+  return {
+    total_permissions: totalPermissions,
+    users: users.map((u): RolesPermissionsRow => {
+      const roleId = u.role_id ?? 0;
+      const ids = grantsByUser.get(u.id) ?? [];
+      const isAdmin = roleId === 8;
+      const isSuperAdmin = roleId === 1;
+      return {
+        user_id: u.id,
+        name: u.name ?? '',
+        email: u.user_email ?? u.email ?? '',
+        role_id: roleId,
+        role_label: ROLE_LABELS[roleId] ?? `Role ${roleId}`,
+        status: u.status,
+        granted_permission_ids: isSuperAdmin ? adminPermIds : ids,
+        granted_count: isSuperAdmin ? totalPermissions : ids.length,
+        permission_managed: isAdmin, // Only role 8 has per-permission grants today
+      };
+    }),
+  };
+}

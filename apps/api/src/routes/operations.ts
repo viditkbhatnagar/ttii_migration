@@ -2086,6 +2086,15 @@ export function registerOperationsRoutes(
   });
 
   // ── Admin permissions (Track 3 of QA round 2026-04-30) ─────────────
+  // Naji 2026-05-09 — overview for the Roles & Permissions page.
+  app.get('/admin/roles/permissions-overview', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const { listRolesPermissionsOverview } = await import('../auth/permissions.js');
+      const data = await listRolesPermissionsOverview();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/permissions/catalog', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const { listAdminPermissions } = await import('../auth/permissions.js');

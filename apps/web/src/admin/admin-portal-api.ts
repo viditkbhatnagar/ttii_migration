@@ -1795,6 +1795,20 @@ export class AdminPortalApi {
   }
 
   // ── Admin permissions (Track 3, 2026-04-30) ──────────────────────
+  // Naji 2026-05-09 — overview for the Roles & Permissions page.
+  async loadRolesPermissionsOverview(authToken: string): Promise<{
+    users: Array<Record<string, unknown>>;
+    total_permissions: number;
+  }> {
+    const payload = await this.get<LegacyEnvelope<{ users?: unknown; total_permissions?: number }>>(
+      '/admin/roles/permissions-overview',
+      authToken,
+    );
+    const data = payload.data ?? {};
+    const users = Array.isArray(data.users) ? data.users.filter((u): u is Record<string, unknown> => typeof u === 'object' && u !== null) : [];
+    return { users, total_permissions: Number(data.total_permissions ?? 0) };
+  }
+
   async listAdminPermissionsCatalog(authToken: string): Promise<Array<Record<string, unknown>>> {
     const payload = await this.get<LegacyEnvelope<Array<Record<string, unknown>>>>(
       '/admin/permissions/catalog',
