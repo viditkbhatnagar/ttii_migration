@@ -2262,6 +2262,15 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-05-09 — Lead History timeline. Returns events newest-first.
+  app.get('/admin/applications/:id/events', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await operationsService.listApplicationEvents(toStringValue(params.id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji 2026-05-08 — Edit Lead. Used by ViewApplicationPage Edit
   // button when the row is in an early stage. Updates only the Add Lead
   // captured fields.

@@ -5074,6 +5074,8 @@ export class OperationsService {
       },
     });
 
+    await this.recordEvent(created.id, 'lead_created', `Lead added by ${actor.name ?? 'staff'}`, actorUserId);
+
     return {
       status: 1,
       message: 'Lead added.',
@@ -5162,6 +5164,8 @@ export class OperationsService {
         updated_at: new Date(),
       },
     });
+
+    await this.recordEvent(id, 'lead_edited', 'Lead details edited', actorUserId);
 
     return { status: 1, message: 'Lead updated.', data: { id } };
   }
@@ -5328,6 +5332,68 @@ export class OperationsService {
     }));
   }
 
+  // Naji 2026-05-09 — Lead History timeline. recordEvent() writes one
+  // row per significant action on a lead. Read by /admin/applications/
+  // :id/events for the View page Lead History tab. Best-effort: write
+  // failures are logged (via console) but don't bubble into the caller.
+  async recordEvent(
+    applicationId: number,
+    eventType: string,
+    description: string,
+    actorUserId: string | null,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const actor = actorUserId ? toNullableIntId(actorUserId) : null;
+      let actorRoleId: number | null = null;
+      if (actor !== null) {
+        const u = await this.prisma.users.findFirst({ where: { id: actor }, select: { role_id: true } });
+        actorRoleId = u?.role_id ?? null;
+      }
+      await this.prisma.application_events.create({
+        data: {
+          application_id: applicationId,
+          event_type: eventType,
+          description,
+          actor_user_id: actor,
+          actor_role_id: actorRoleId,
+          metadata: metadata ? JSON.stringify(metadata) : null,
+        },
+      });
+    } catch (e) {
+      // Don't break the action just because the audit row failed.
+      console.warn('[recordEvent] failed', { applicationId, eventType, error: e instanceof Error ? e.message : e });
+    }
+  }
+
+  async listApplicationEvents(applicationId: string): Promise<Record<string, unknown>[]> {
+    const id = toIntId(applicationId);
+    if (!id) return [];
+    const rows = await this.prisma.application_events.findMany({
+      where: { application_id: id },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: 500,
+    });
+    if (rows.length === 0) return [];
+    const actorIds = Array.from(new Set(rows.map((r) => r.actor_user_id).filter((v): v is number => v !== null)));
+    const actors = actorIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, a.name ?? '']));
+    const ROLE_LABELS: Record<number, string> = { 1: 'Super Admin', 2: 'Student', 3: 'Instructor', 4: 'Centre', 8: 'Admin', 9: 'Counsellor', 10: 'Associate' };
+    return rows.map((r) => ({
+      id: r.id,
+      event_type: r.event_type,
+      description: r.description,
+      actor_user_id: r.actor_user_id,
+      actor_name: r.actor_user_id ? actorMap.get(r.actor_user_id) ?? null : null,
+      actor_role_id: r.actor_role_id,
+      actor_role_label: r.actor_role_id !== null && r.actor_role_id !== undefined ? (ROLE_LABELS[r.actor_role_id] ?? null) : null,
+      metadata: r.metadata,
+      created_at: r.created_at,
+    }));
+  }
+
   // Phase G (Naji 2026-05-05): notification dispatcher. Single entry
   // point so every stage transition in this file fires the right
   // emails to student / counsellor / admin per the locked spec.
@@ -5476,6 +5542,9 @@ export class OperationsService {
       where: { id },
       data: { stage: 'form_pending', updated_at: now, updated_by: actor },
     });
+    await this.recordEvent(id, 'form_link_sent', `Application form link emailed to ${app.user_email ?? 'student'}`, actorUserId, {
+      expires_at: expiresAt.toISOString(),
+    });
     // Email the student the link.
     if (app.user_email) {
       try {
@@ -5609,6 +5678,8 @@ export class OperationsService {
     const phoneIn = toStringValue(f.phone);
     const altPhoneIn = toStringValue(f.alternate_phone);
     const whatsAppIn = toStringValue(f.whatsapp_no);
+    const countryCodeIn = toStringValue(f.country_code).replace(/^\+/, '');
+    const photoUrlIn = toStringValue(f.photo_url);
     const specializationIn = toStringValue(f.specialization);
     // Stash specialization in biography JSON (no top-level column for it).
     if (specializationIn) {
@@ -5645,8 +5716,10 @@ export class OperationsService {
         passport_no: toNullableString(f.passport_no),
         ...(emailIn ? { user_email: emailIn } : {}),
         ...(phoneIn ? { phone: phoneIn } : {}),
+        ...(countryCodeIn ? { country_code: `+${countryCodeIn}` } : {}),
         ...(altPhoneIn ? { second_phone: altPhoneIn } : {}),
         ...(whatsAppIn ? { whatsapp: whatsAppIn, whatsapp_no: Number((whatsAppIn.match(/\d+/g) ?? []).join('').slice(-15)) || 0 } : {}),
+        ...(photoUrlIn ? { image: photoUrlIn } : {}),
         address: toNullableString(f.address),
         native_address: toNullableString(f.native_address),
         state: toNullableString(f.state),
@@ -5690,6 +5763,7 @@ export class OperationsService {
       where: { id: row.id },
       data: { used_at: now },
     });
+    await this.recordEvent(row.application_id, 'form_submitted', 'Applicant submitted the application form', null);
     await this.notifyApplicationEvent(row.application_id, 'form_submitted');
     return { status: 1, message: 'Application submitted.', data: { application_id: row.application_id } };
   }
@@ -5784,6 +5858,11 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.recordEvent(id, 'payment_link_sent', `Payment link emailed to ${app.user_email} (${input.mode})`, actorUserId, {
+      mode: input.mode,
+      total_amount_minor: input.totalAmount,
+      payment_link_url: link.shortUrl,
+    });
 
     // Email the student the link + plan summary. Razorpay also emails
     // its own checkout page when notify.email=true; this one carries
@@ -5858,6 +5937,10 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.recordEvent(id, 'payment_plan_saved', `Payment plan saved (${plan.mode})`, actorUserId, {
+      mode: plan.mode,
+      total_amount_minor: plan.totalAmountMinor,
+    });
     return { status: 1, message: 'Payment plan saved.', data: { applicationId } };
   }
 
@@ -5913,6 +5996,11 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.recordEvent(id, 'marked_as_paid', `Marked as paid via ${input.mode || 'manual'}${input.reference ? ` (ref: ${input.reference})` : ''}`, actorUserId, {
+      mode: input.mode,
+      reference: input.reference,
+      receipt_url: input.receiptUrl,
+    });
     await this.notifyApplicationEvent(id, 'payment_received');
     return { status: 1, message: 'Marked as paid.' };
   }
@@ -5942,6 +6030,7 @@ export class OperationsService {
         updated_at: now,
       },
     });
+    await this.recordEvent(app.id, 'payment_received_razorpay', 'Payment received via Razorpay', null, { link_id: linkId });
     await this.notifyApplicationEvent(app.id, 'payment_received');
   }
 
@@ -5971,6 +6060,7 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.recordEvent(id, 'counsellor_approved', 'Counsellor approved the application', actorUserId);
     return { status: 1, message: 'Approved by counsellor. Awaiting admin approval.' };
   }
 
@@ -6067,6 +6157,7 @@ export class OperationsService {
     // paths (new + existing) once the email integration test is wired.
     void isNew;
 
+    await this.recordEvent(id, 'admin_approved_enrolled', isNew ? 'Admin approved & enrolled (new student)' : 'Admin approved & enrolled (existing student, new course)', actorUserId, { student_id: student.id });
     await this.notifyApplicationEvent(id, 'enrolment_confirmed');
     return {
       status: 1,
@@ -6094,6 +6185,7 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    await this.recordEvent(id, 'rejected', `Application rejected${reason ? ` — ${reason}` : ''}`, actorUserId, { reason });
     await this.notifyApplicationEvent(id, 'rejected');
     return { status: 1, message: 'Application rejected.' };
   }

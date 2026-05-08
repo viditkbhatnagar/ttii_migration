@@ -34,8 +34,14 @@ interface FormState {
   // Naji 2026-05-08: contact info section — was missing entirely.
   email: string;
   phone: string;
+  // Naji 2026-05-09 — phone + WhatsApp country codes (the admin form
+  // captures these separately so PDFs / SMS use the right format).
+  country_code: string;
   alternate_phone: string;
   whatsapp_no: string;
+  whatsapp_country_code: string;
+  // Naji 2026-05-09 — applicant profile photo (was admin-only).
+  photo_url: string;
   country: string;
   address: string;
   native_address: string;
@@ -67,7 +73,7 @@ function emptyForm(): FormState {
     first_name: '', last_name: '', date_of_birth: '', gender: '', nationality: 'India',
     marital_status: '', father_name: '', mother_name: '', guardian_name: '',
     aadhar_no: '', passport_no: '',
-    email: '', phone: '', alternate_phone: '', whatsapp_no: '', country: 'India',
+    email: '', phone: '', country_code: '91', alternate_phone: '', whatsapp_no: '', whatsapp_country_code: '91', photo_url: '', country: 'India',
     address: '', native_address: '', state: '', district: '',
     highest_qualification: '', specialization: '', previous_school: '', year_of_passing: '',
     percentage_or_grade: '', teaching_experience: '', employment_status: '',
@@ -116,7 +122,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
         const fields: Array<keyof FormState> = [
           'first_name', 'last_name', 'date_of_birth', 'gender', 'nationality', 'marital_status',
           'father_name', 'mother_name', 'guardian_name', 'aadhar_no', 'passport_no',
-          'email', 'phone', 'alternate_phone', 'whatsapp_no', 'country',
+          'email', 'phone', 'country_code', 'alternate_phone', 'whatsapp_no', 'whatsapp_country_code', 'photo_url', 'country',
           'address', 'native_address', 'state', 'district',
           'highest_qualification', 'specialization', 'previous_school', 'year_of_passing', 'percentage_or_grade',
           'teaching_experience', 'employment_status', 'organization_name',
@@ -132,6 +138,10 @@ export default function PublicApplyPage({ token }: { token: string }) {
         if (asString(app.phone)) next.phone = asString(app.phone);
         if (asString(app.second_phone)) next.alternate_phone = asString(app.second_phone);
         if (asString(app.whatsapp)) next.whatsapp_no = asString(app.whatsapp);
+        // Country code prefilling (drop the leading + so the input shows just digits).
+        if (asString(app.country_code)) next.country_code = asString(app.country_code).replace(/^\+/, '');
+        if (asString(app.whatsapp_country_code)) next.whatsapp_country_code = asString(app.whatsapp_country_code).replace(/^\+/, '');
+        if (asString(app.image)) next.photo_url = asString(app.image);
         for (const f of fields) {
           const v: unknown = draft[f] !== undefined ? draft[f] : app[f];
           if (v === undefined || v === null) continue;
@@ -252,6 +262,14 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <p className="text-sm text-slate-500">{appName ? `Hi ${appName} — please review and complete the details below.` : 'Please complete the details below.'}</p>
           </div>
 
+          {/* Profile Photo — Naji 2026-05-09 — was admin-only. */}
+          <h2 className="pt-2 text-sm font-semibold text-slate-700">Profile Photo</h2>
+          <PhotoUploader
+            token={token}
+            value={form.photo_url}
+            onChange={(url) => setForm((p) => ({ ...p, photo_url: url }))}
+          />
+
           <h2 className="pt-2 text-sm font-semibold text-slate-700">Personal</h2>
           <div className="grid grid-cols-2 gap-4">
             <FieldText label="First Name *" value={form.first_name} onChange={update('first_name')} />
@@ -268,13 +286,27 @@ export default function PublicApplyPage({ token }: { token: string }) {
           </div>
 
           {/* Contact Information — Naji 2026-05-08: was missing entirely;
-              public form now mirrors the admin Add Application contact group. */}
+              public form now mirrors the admin Add Application contact group.
+              Naji 2026-05-09 — phone + WhatsApp split into country code +
+              number to match the admin Add Application form. */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Contact Information</h2>
           <div className="grid grid-cols-2 gap-4">
             <FieldText label="Email *" type="email" value={form.email} onChange={update('email')} />
-            <FieldText label="Phone *" value={form.phone} onChange={update('phone')} />
+            <PhoneFieldGroup
+              label="Phone *"
+              code={form.country_code}
+              onCodeChange={update('country_code')}
+              number={form.phone}
+              onNumberChange={update('phone')}
+            />
             <FieldText label="Alternate Phone" value={form.alternate_phone} onChange={update('alternate_phone')} />
-            <FieldText label="WhatsApp Number" value={form.whatsapp_no} onChange={update('whatsapp_no')} />
+            <PhoneFieldGroup
+              label="WhatsApp Number"
+              code={form.whatsapp_country_code}
+              onCodeChange={update('whatsapp_country_code')}
+              number={form.whatsapp_no}
+              onNumberChange={update('whatsapp_no')}
+            />
             <FieldText label="Country" value={form.country} onChange={update('country')} />
           </div>
 
@@ -632,5 +664,111 @@ function DocumentUploads({
         </ul>
       ) : null}
     </div>
+  );
+}
+
+// Naji 2026-05-09 — single-image profile photo uploader. Uses the
+// same /apply/:token/upload endpoint as documents. Public so no auth.
+function PhotoUploader({
+  token,
+  value,
+  onChange,
+}: {
+  token: string;
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFile = async (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Photo must be under 5 MB.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/upload`, { method: 'POST', body: fd });
+      const json = (await res.json()) as { status: number; message?: string; data?: Record<string, unknown> };
+      if (json.status !== 1) {
+        toast.error(json.message ?? 'Photo upload failed.');
+        return;
+      }
+      const url = typeof json.data?.url === 'string' ? json.data.url : '';
+      if (url) onChange(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-4">
+      {value ? (
+        <img src={value} alt="Profile" className="size-24 rounded-xl border border-slate-200 object-cover" />
+      ) : (
+        <div className="flex size-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400">No photo</div>
+      )}
+      <div className="space-y-1">
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/jpg"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleFile(f);
+          }}
+        />
+        <Button type="button" variant="outline" onClick={() => inputRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading…' : value ? 'Change Photo' : 'Upload Photo'}
+        </Button>
+        <p className="text-xs text-slate-500">JPG / PNG, max 5 MB.</p>
+      </div>
+    </div>
+  );
+}
+
+// Naji 2026-05-09 — country code + number side-by-side, mirrors the
+// admin Add Application phone input.
+function PhoneFieldGroup({
+  label,
+  code,
+  onCodeChange,
+  number,
+  onNumberChange,
+}: {
+  label: string;
+  code: string;
+  onCodeChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  number: string;
+  onNumberChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 block text-slate-600">{label}</span>
+      <div className="flex gap-2">
+        <input
+          value={code}
+          onChange={(e) => {
+            const ev = { ...e, target: { ...e.target, value: e.target.value.replace(/\D/g, '').slice(0, 4) } } as React.ChangeEvent<HTMLInputElement>;
+            onCodeChange(ev);
+          }}
+          placeholder="91"
+          className="w-16 rounded-md border border-slate-200 px-3 py-2 text-sm text-center"
+        />
+        <input
+          value={number}
+          onChange={onNumberChange}
+          inputMode="tel"
+          placeholder="9876543210"
+          className="flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm"
+        />
+      </div>
+    </label>
   );
 }

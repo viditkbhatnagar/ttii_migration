@@ -2270,6 +2270,15 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Naji 2026-05-09 — Lead History tab.
+  async listApplicationEvents(authToken: string, applicationId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>(
+      `/admin/applications/${applicationId}/events`,
+      authToken,
+    );
+    return toRecords(payload.data);
+  }
+
   async counsellorApproveApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/counsellor-approve', authToken, { id });
   }

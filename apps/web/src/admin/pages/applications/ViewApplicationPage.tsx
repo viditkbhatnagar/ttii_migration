@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,9 +34,9 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export default function ViewApplicationPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
-  // Naji 2026-05-09 — lead-stage view splits Lead Snapshot + Payment
-  // Plan into two tabs (Lead History coming next round).
-  const [leadActiveTab, setLeadActiveTab] = useState<'snapshot' | 'plan'>('snapshot');
+  // Naji 2026-05-09 — lead-stage view tabs: Lead Snapshot, Payment Plan,
+  // Lead History (event timeline of every action against the lead).
+  const [leadActiveTab, setLeadActiveTab] = useState<'snapshot' | 'plan' | 'history'>('snapshot');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -67,6 +67,22 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
   const payments = useMemo(() => toRecords(data?.payments), [data]);
   const educationPathway = useMemo(() => toRecords(data?.education_pathway), [data]);
+
+  // Naji 2026-05-09 — Lead History events. Fetched lazily when the
+  // Lead History tab is opened.
+  const [events, setEvents] = useState<Record<string, unknown>[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  useEffect(() => {
+    if (!applicationId) return;
+    if (leadActiveTab !== 'history') return;
+    let cancelled = false;
+    setEventsLoading(true);
+    void api.listApplicationEvents(session.token, applicationId)
+      .then((rows) => { if (!cancelled) setEvents(rows); })
+      .catch(() => { if (!cancelled) setEvents([]); })
+      .finally(() => { if (!cancelled) setEventsLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, session.token, applicationId, leadActiveTab]);
 
   const handleApprove = useCallback(async () => {
     if (!applicationId) return;
@@ -423,6 +439,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
             {([
               { id: 'snapshot' as const, label: 'Lead Snapshot' },
               { id: 'plan' as const, label: 'Payment Plan' },
+              { id: 'history' as const, label: 'Lead History' },
             ]).map((t) => (
               <button
                 key={t.id}
@@ -581,6 +598,46 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                 </CardContent>
               </Card>
             )
+          )}
+
+          {leadActiveTab === 'history' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Lead History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {eventsLoading ? (
+                  <p className="py-8 text-center text-sm text-gray-500">Loading timeline…</p>
+                ) : events.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-gray-500">No events recorded yet.</p>
+                ) : (
+                  <ol className="relative ml-2 border-l border-gray-200">
+                    {events.map((ev, i) => {
+                      const eventType = asString(ev.event_type);
+                      const description = asString(ev.description);
+                      const actorName = asString(ev.actor_name);
+                      const actorRole = asString(ev.actor_role_label);
+                      const ts = ev.created_at instanceof Date
+                        ? ev.created_at.toLocaleString('en-IN')
+                        : asString(ev.created_at)
+                          ? new Date(asString(ev.created_at)).toLocaleString('en-IN')
+                          : '';
+                      return (
+                        <li key={i} className="mb-4 ml-4">
+                          <span className="absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-white bg-ttii-primary" />
+                          <p className="text-sm font-medium text-gray-900">{description}</p>
+                          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-gray-500">
+                            <span>{ts}</span>
+                            {actorName ? <span>by {actorName}{actorRole ? ` (${actorRole})` : ''}</span> : <span>System</span>}
+                            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider">{eventType}</span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </CardContent>
+            </Card>
           )}
         </>
       )}

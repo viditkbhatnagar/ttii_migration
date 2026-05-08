@@ -153,6 +153,23 @@ model application_form_tokens {
   @@index([token], map: "idx_aft_token")
 }
 
+/// Lead/application timeline events — one row per significant action
+/// (created, payment plan saved, link sent, marked paid, form submitted,
+/// approved, rejected, etc.). Naji 2026-05-09 — Lead History tab.
+model application_events {
+  id             Int       @id @default(autoincrement()) @db.UnsignedInt
+  application_id Int
+  event_type     String    @db.VarChar(64)
+  description    String    @db.VarChar(500)
+  actor_user_id  Int?
+  actor_role_id  Int?
+  metadata       String?   @db.LongText
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([application_id], map: "idx_app_events_application")
+  @@index([created_at], map: "idx_app_events_created_at")
+}
+
 /// Education Pathway entries linked to an application — multi-row sub-form.
 /// Added 2026-04-26 per Naji's correction doc.
 model application_education_pathway {
