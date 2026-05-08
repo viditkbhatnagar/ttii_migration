@@ -2451,10 +2451,12 @@ export function registerOperationsRoutes(
           const label = toStringValue(r.label);
           const amountMinor = toInteger(r.amount_minor);
           const dueDate = toStringValue(r.due_date);
+          // Naji 2026-05-09 — gst_percent now stored per row.
+          const gstPercent = Number(r.gst_percent ?? 0);
           if (!label || amountMinor <= 0) return null;
-          return { label, amountMinor, dueDate };
+          return { label, amountMinor, dueDate, gstPercent: Number.isFinite(gstPercent) ? gstPercent : 0 };
         })
-        .filter((v): v is { label: string; amountMinor: number; dueDate: string } => v !== null);
+        .filter((v): v is { label: string; amountMinor: number; dueDate: string; gstPercent: number } => v !== null);
       const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
       const result = await operationsService.generatePaymentLink(requestUserId(request), {
         applicationId: toStringValue(payload.id),
@@ -2481,10 +2483,11 @@ export function registerOperationsRoutes(
           const label = toStringValue(r.label);
           const amountMinor = toInteger(r.amount_minor);
           const dueDate = toStringValue(r.due_date);
+          const gstPercent = Number(r.gst_percent ?? 0);
           if (!label || amountMinor <= 0) return null;
-          return { label, amountMinor, dueDate };
+          return { label, amountMinor, dueDate, gstPercent: Number.isFinite(gstPercent) ? gstPercent : 0 };
         })
-        .filter((v): v is { label: string; amountMinor: number; dueDate: string } => v !== null);
+        .filter((v): v is { label: string; amountMinor: number; dueDate: string; gstPercent: number } => v !== null);
       const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
       const result = await operationsService.savePaymentPlan(requestUserId(request), toStringValue(payload.id), {
         mode,
@@ -2502,7 +2505,12 @@ export function registerOperationsRoutes(
       const result = await operationsService.markApplicationPaidManual(
         requestUserId(request),
         toStringValue(payload.id),
-        toStringValue(payload.note) || undefined,
+        {
+          mode: toStringValue(payload.mode) || undefined,
+          reference: toStringValue(payload.reference) || undefined,
+          receiptUrl: toStringValue(payload.receipt_url) || undefined,
+          note: toStringValue(payload.note) || undefined,
+        },
       );
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

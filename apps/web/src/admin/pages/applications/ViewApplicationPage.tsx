@@ -34,10 +34,19 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export default function ViewApplicationPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
+  // Naji 2026-05-09 — lead-stage view splits Lead Snapshot + Payment
+  // Plan into two tabs (Lead History coming next round).
+  const [leadActiveTab, setLeadActiveTab] = useState<'snapshot' | 'plan'>('snapshot');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [payDialogOpen, setPayDialogOpen] = useState(false);
+  // Mark-as-Paid dialog state (Naji 2026-05-09 — replaces window.prompt).
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [markPaidMode, setMarkPaidMode] = useState('cash');
+  const [markPaidReference, setMarkPaidReference] = useState('');
+  const [markPaidReceiptUrl, setMarkPaidReceiptUrl] = useState('');
+  const [markPaidUploading, setMarkPaidUploading] = useState(false);
 
   // Extract ID from URL path
   const applicationId = useMemo(() => {
@@ -115,20 +124,48 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   // Naji 2026-05-07 — stage-transition handlers ported here from the
   // applications row dropdown so the stage flow lives inside the View
   // page contextually.
-  const handleMarkPaid = useCallback(async () => {
+  // Naji 2026-05-09 — opens the Mark-as-Paid dialog (Mode + Reference +
+  // Receipt). The actual API call lives in handleSubmitMarkPaid below.
+  const handleMarkPaid = useCallback(() => {
     if (!applicationId) return;
-    const note = window.prompt('Reference / note (e.g. Bank ref no.)') ?? '';
+    setMarkPaidMode('cash');
+    setMarkPaidReference('');
+    setMarkPaidReceiptUrl('');
+    setMarkPaidOpen(true);
+  }, [applicationId]);
+
+  const handleSubmitMarkPaid = useCallback(async () => {
+    if (!applicationId) return;
+    if (!markPaidReference.trim()) { toast.error('Reference number is required.'); return; }
     setSubmitting(true);
     try {
-      const res = await api.markApplicationPaid(session.token, applicationId, note);
+      const res = await api.markApplicationPaid(session.token, applicationId, {
+        mode: markPaidMode,
+        reference: markPaidReference.trim(),
+        receipt_url: markPaidReceiptUrl,
+      });
       if ((res as { status?: number }).status === 1) {
         toast.success('Marked as paid.');
+        setMarkPaidOpen(false);
         reload();
       } else toast.error('Could not mark paid.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed.');
     } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, reload]);
+  }, [api, session.token, applicationId, markPaidMode, markPaidReference, markPaidReceiptUrl, reload]);
+
+  const handleReceiptUpload = useCallback(async (file: File) => {
+    setMarkPaidUploading(true);
+    try {
+      const res = await api.uploadFile(session.token, file);
+      setMarkPaidReceiptUrl(res.url);
+      toast.success('Receipt uploaded.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setMarkPaidUploading(false);
+    }
+  }, [api, session.token]);
 
   const handleSendFormLink = useCallback(async () => {
     if (!applicationId) return;
@@ -224,7 +261,15 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     mode?: string;
     total_amount_minor?: number;
     registration_fee_minor?: number | null;
-    installments?: Array<{ label: string; amountMinor?: number; dueDate?: string; amount_minor?: number; due_date?: string }>;
+    installments?: Array<{
+      label: string;
+      amountMinor?: number;
+      dueDate?: string;
+      amount_minor?: number;
+      due_date?: string;
+      gstPercent?: number;
+      gst_percent?: number;
+    }>;
   };
   const savedPlan: SavedPlan | null = (() => {
     const raw = app.payment_plan;
@@ -301,10 +346,21 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   </Button>,
                 );
               }
+              // Naji 2026-05-09 — admins must be able to edit the plan
+              // and resend the link after the first send too (e.g. wrong
+              // email entered originally). Show the same dialog button
+              // alongside Mark as Paid through to form_pending.
+              if (stage === 'payment_pending' || stage === 'paid' || stage === 'form_pending') {
+                buttons.push(
+                  <Button key="resend" size="sm" variant="outline" disabled={submitting} onClick={() => handleGeneratePaymentLink()}>
+                    Edit / Resend Payment Plan
+                  </Button>,
+                );
+              }
               if (stage === 'payment_pending') {
                 buttons.push(
                   <Button key="paid" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleMarkPaid()}>
-                    Mark Paid (Manual)
+                    Mark as Paid
                   </Button>,
                 );
               }
@@ -358,10 +414,180 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         </CardContent>
       </Card>
 
-      {/* Naji 2026-05-08 — payment plan summary surfaced near the Lead
-          snapshot. Visible for any stage where a plan/link exists, so
-          admins always see at-a-glance what was already created. */}
-      {hasPaymentPlan && (
+      {/* Naji 2026-05-09 — early-stage view: tabbed Lead Snapshot + Payment
+          Plan. Tabs are visible whether or not a plan exists; the Payment
+          Plan tab simply shows an empty-state when nothing's been saved. */}
+      {isLeadStage && (
+        <>
+          <div className="flex gap-1 border-b border-gray-200">
+            {([
+              { id: 'snapshot' as const, label: 'Lead Snapshot' },
+              { id: 'plan' as const, label: 'Payment Plan' },
+            ]).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`relative px-4 py-2 text-sm font-medium transition-colors ${
+                  leadActiveTab === t.id ? 'text-ttii-primary' : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setLeadActiveTab(t.id)}
+              >
+                {t.label}
+                {leadActiveTab === t.id ? (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ttii-primary" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+
+          {leadActiveTab === 'snapshot' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Lead Snapshot</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow label="Application ID" value={asString(app.application_id)} />
+                    <InfoRow label="Name" value={asString(app.name)} />
+                    <InfoRow
+                      label="Email"
+                      value={asString(app.user_email) || asString(app.email)}
+                    />
+                    <InfoRow
+                      label="Phone"
+                      value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
+                    />
+                    <InfoRow label="Source" value={asString(app.marketing_source) || asString(app.lead_source)} />
+                  </div>
+                  <div>
+                    <InfoRow label="Course" value={asString(app.course_title)} />
+                    <InfoRow label="Course Offering" value={asString(app.offering_title)} />
+                    <InfoRow label="Certificate Combination" value={asString(app.combination_title)} />
+                    <InfoRow label="Pipeline" value={asString(app.pipeline)} />
+                    <InfoRow label="Pipeline User" value={asString(app.pipeline_user_name)} />
+                    <InfoRow label="Created" value={formatDate(app.created_at)} />
+                  </div>
+                </div>
+                <p className="mt-4 text-xs text-gray-500">
+                  Full applicant details will appear here once the student submits the application form.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {leadActiveTab === 'plan' && (
+            hasPaymentPlan ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between text-base">
+                    <span>Payment Plan</span>
+                    {paymentStatus ? (
+                      <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
+                        {paymentStatus}
+                      </span>
+                    ) : null}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    // Compute totals from rows (preferred) so the displayed
+                    // numbers match the saved per-row amounts even after edits.
+                    const rows = Array.isArray(savedPlan?.installments) ? savedPlan.installments : [];
+                    let excl = 0; let gst = 0; let incl = 0;
+                    for (const r of rows) {
+                      const a = Number(r.amountMinor ?? r.amount_minor ?? 0) / 100;
+                      const g = Number(r.gstPercent ?? r.gst_percent ?? 0);
+                      const gAmt = a * (g / 100);
+                      excl += a; gst += gAmt; incl += a + gAmt;
+                    }
+                    const totalDisplay = incl > 0
+                      ? incl
+                      : (savedPlan?.total_amount_minor ? Number(savedPlan.total_amount_minor) / 100 : 0);
+                    return (
+                      <div className="grid gap-x-8 md:grid-cols-2">
+                        <div>
+                          <InfoRow label="Mode" value={savedPlan?.mode === 'installment' ? 'Installment Plan' : 'Full Payment'} />
+                          <InfoRow
+                            label="Instalments Total"
+                            value={excl > 0 ? `₹${excl.toLocaleString('en-IN')}` : '-'}
+                          />
+                          <InfoRow
+                            label="GST"
+                            value={gst > 0 ? `₹${gst.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
+                          />
+                          <InfoRow
+                            label="Total Inc. GST"
+                            value={totalDisplay > 0 ? `₹${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
+                          />
+                          {savedPlan?.registration_fee_minor ? (
+                            <InfoRow
+                              label="Registration Fee"
+                              value={`₹${(Number(savedPlan.registration_fee_minor) / 100).toLocaleString('en-IN')}`}
+                            />
+                          ) : null}
+                        </div>
+                        <div>
+                          {paymentLinkUrl ? (
+                            <>
+                              <InfoRow label="Payment Link" value={paymentLinkUrl} />
+                              <InfoRow label="Expires" value={formatDate(app.payment_link_expires_at)} />
+                            </>
+                          ) : (
+                            <InfoRow label="Payment Link" value="Not sent yet (saved as draft)" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {Array.isArray(savedPlan?.installments) && savedPlan.installments.length > 0 ? (
+                    <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2">Description</th>
+                            <th className="px-3 py-2 text-right">Instalment (₹)</th>
+                            <th className="px-3 py-2 text-right">GST %</th>
+                            <th className="px-3 py-2 text-right">Inc. GST (₹)</th>
+                            <th className="px-3 py-2">Due</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {savedPlan.installments.map((row, i) => {
+                            const amount = Number(row.amountMinor ?? row.amount_minor ?? 0) / 100;
+                            const gst = Number(row.gstPercent ?? row.gst_percent ?? 0);
+                            const incl = amount + (amount * gst) / 100;
+                            const due = asString(row.dueDate ?? row.due_date);
+                            return (
+                              <tr key={i}>
+                                <td className="px-3 py-2 text-gray-900">{asString(row.label) || '-'}</td>
+                                <td className="px-3 py-2 text-right text-gray-900">₹{amount.toLocaleString('en-IN')}</td>
+                                <td className="px-3 py-2 text-right text-gray-700">{gst}%</td>
+                                <td className="px-3 py-2 text-right font-medium text-gray-900">₹{incl.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                                <td className="px-3 py-2 text-gray-700">{formatDate(due) || '-'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="py-10 text-center text-sm text-gray-500">
+                  No payment plan created yet. Use the <strong>Generate Payment Link</strong> button above to create one.
+                </CardContent>
+              </Card>
+            )
+          )}
+        </>
+      )}
+
+      {/* Payment Plan card (non-lead stages — keep visible inline so the
+          payment summary stays alongside the applicant tabs). */}
+      {!isLeadStage && hasPaymentPlan && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
@@ -383,92 +609,18 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                     ? `₹${(Number(savedPlan.total_amount_minor) / 100).toLocaleString('en-IN')}`
                     : '-'}
                 />
-                {savedPlan?.registration_fee_minor ? (
-                  <InfoRow
-                    label="Registration Fee"
-                    value={`₹${(Number(savedPlan.registration_fee_minor) / 100).toLocaleString('en-IN')}`}
-                  />
-                ) : null}
               </div>
               <div>
                 {paymentLinkUrl ? (
-                  <InfoRow
-                    label="Payment Link"
-                    value={paymentLinkUrl}
-                  />
+                  <>
+                    <InfoRow label="Payment Link" value={paymentLinkUrl} />
+                    <InfoRow label="Expires" value={formatDate(app.payment_link_expires_at)} />
+                  </>
                 ) : (
                   <InfoRow label="Payment Link" value="Not sent yet (saved as draft)" />
                 )}
-                <InfoRow label="Expires" value={formatDate(app.payment_link_expires_at)} />
               </div>
             </div>
-            {Array.isArray(savedPlan?.installments) && savedPlan.installments.length > 0 ? (
-              <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2">Description</th>
-                      <th className="px-3 py-2 text-right">Amount</th>
-                      <th className="px-3 py-2">Due</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {savedPlan.installments.map((row, i) => {
-                      const amount = Number(row.amountMinor ?? row.amount_minor ?? 0);
-                      const due = asString(row.dueDate ?? row.due_date);
-                      return (
-                        <tr key={i}>
-                          <td className="px-3 py-2 text-gray-900">{asString(row.label) || '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-900">
-                            ₹{(amount / 100).toLocaleString('en-IN')}
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">{due || '-'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Naji 2026-05-08 — minimal Lead Snapshot for early stages: show
-          only the fields captured at Add Lead. Tabs + applicant-detail
-          tabs come back once the form is submitted. */}
-      {isLeadStage && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Lead Snapshot</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-x-8 md:grid-cols-2">
-              <div>
-                <InfoRow label="Application ID" value={asString(app.application_id)} />
-                <InfoRow label="Name" value={asString(app.name)} />
-                <InfoRow
-                  label="Email"
-                  value={asString(app.user_email) || asString(app.email)}
-                />
-                <InfoRow
-                  label="Phone"
-                  value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
-                />
-                <InfoRow label="Source" value={asString(app.marketing_source) || asString(app.lead_source)} />
-              </div>
-              <div>
-                <InfoRow label="Course" value={asString(app.course_title)} />
-                <InfoRow label="Course Offering" value={asString(app.offering_title)} />
-                <InfoRow label="Certificate Combination" value={asString(app.combination_title)} />
-                <InfoRow label="Pipeline" value={asString(app.pipeline)} />
-                <InfoRow label="Pipeline User" value={asString(app.pipeline_user_name)} />
-                <InfoRow label="Created" value={formatDate(app.created_at)} />
-              </div>
-            </div>
-            <p className="mt-4 text-xs text-gray-500">
-              Full applicant details will appear here once the student submits the application form.
-            </p>
           </CardContent>
         </Card>
       )}
@@ -734,8 +886,79 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         initialBaseFee={Number(app.application_final_fee ?? 0)}
         initialDiscount={Number(app.application_discount ?? 0)}
         initialGstPercent={Number(app.application_gst_percent ?? 18)}
+        initialSavedPlan={savedPlan}
         onSent={() => reload()}
       />
+
+      {/* Mark as Paid dialog — Naji 2026-05-09 */}
+      <Dialog open={markPaidOpen} onOpenChange={setMarkPaidOpen}>
+        <DialogContent className="w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Mark as Paid</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="mp-mode">Mode</Label>
+              <select
+                id="mp-mode"
+                value={markPaidMode}
+                onChange={(e) => setMarkPaidMode(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+                <option value="card">Card / POS</option>
+                <option value="upi">UPI</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mp-ref">Reference Number *</Label>
+              <input
+                id="mp-ref"
+                type="text"
+                value={markPaidReference}
+                onChange={(e) => setMarkPaidReference(e.target.value)}
+                placeholder="e.g. Cheque no., Bank ref, UPI txn ID"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mp-receipt">Receipt</Label>
+              {markPaidReceiptUrl ? (
+                <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  <span className="truncate">Uploaded: {markPaidReceiptUrl.split('/').pop()}</span>
+                  <button type="button" className="text-xs text-emerald-700 underline" onClick={() => setMarkPaidReceiptUrl('')}>Replace</button>
+                </div>
+              ) : (
+                <input
+                  id="mp-receipt"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleReceiptUpload(file);
+                  }}
+                  disabled={markPaidUploading}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ttii-primary"
+                />
+              )}
+              {markPaidUploading ? <p className="text-xs text-gray-500">Uploading…</p> : null}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMarkPaidOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => void handleSubmitMarkPaid()}
+              disabled={submitting || !markPaidReference.trim() || markPaidUploading}
+            >
+              {submitting ? 'Saving…' : 'Mark as Paid'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => { if (!open) { setRejectDialogOpen(false); setRejectReason(''); } }}>
         <DialogContent>

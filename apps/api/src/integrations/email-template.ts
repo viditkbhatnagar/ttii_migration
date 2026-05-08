@@ -20,9 +20,15 @@ const BRAND = {
   highlight: '#faf5fb',
 };
 
+// Naji 2026-05-09 — wordmark + institute name shown side-by-side so the
+// brand reads at a glance, plus teachersindia.in as the primary site
+// URL in the footer. hello@teachersindia.in is the team-facing inbox
+// Naji wants surfaced. (Full-bleed PNG logo is a follow-up — Outlook
+// strips SVGs so we keep the existing icon PNG for now and pair it
+// with the wordmark text.)
 const LOGO_URL = 'https://learn.teachersindia.in/logos/ttii-icon-color.png';
-const SUPPORT_EMAIL = 'support@teachersindia.in';
-const SITE_URL = 'https://learn.teachersindia.in';
+const SUPPORT_EMAIL = 'hello@teachersindia.in';
+const SITE_URL = 'https://teachersindia.in';
 
 export interface BrandedEmailButton {
   label: string;
@@ -83,8 +89,8 @@ ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${pr
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td style="vertical-align:middle;">
-                  <img src="${LOGO_URL}" alt="TTII" width="40" height="40" style="display:inline-block;vertical-align:middle;border:0;border-radius:8px;background:#ffffff;padding:4px;" />
-                  <span style="display:inline-block;vertical-align:middle;margin-left:12px;font-size:18px;font-weight:600;color:#ffffff;letter-spacing:0.2px;">Teachers' Training Institute of India</span>
+                  <img src="${LOGO_URL}" alt="TTII" width="48" height="48" style="display:inline-block;vertical-align:middle;border:0;border-radius:10px;background:#ffffff;padding:6px;" />
+                  <span style="display:inline-block;vertical-align:middle;margin-left:14px;font-size:18px;font-weight:700;color:#ffffff;letter-spacing:0.3px;">Teachers' Training Institute of India</span>
                 </td>
               </tr>
             </table>

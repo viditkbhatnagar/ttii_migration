@@ -2309,8 +2309,18 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/payment-plan/save', authToken, input);
   }
 
-  async markApplicationPaid(authToken: string, id: string, note?: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, { id, note: note ?? '' });
+  async markApplicationPaid(
+    authToken: string,
+    id: string,
+    input?: { mode?: string; reference?: string; receipt_url?: string; note?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, {
+      id,
+      mode: input?.mode ?? '',
+      reference: input?.reference ?? '',
+      receipt_url: input?.receipt_url ?? '',
+      note: input?.note ?? '',
+    });
   }
 
   async generateApplicationFormLink(authToken: string, id: string, expiresInDays?: number): Promise<Record<string, unknown>> {

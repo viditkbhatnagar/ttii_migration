@@ -5705,7 +5705,7 @@ export class OperationsService {
       mode: 'full' | 'installment';
       registrationFee?: number; // installment only: amount due now (minor)
       totalAmount: number; // total course fee (minor)
-      installments?: Array<{ label: string; amountMinor: number; dueDate: string }>; // schedule for the plan PDF
+      installments?: Array<{ label: string; amountMinor: number; dueDate: string; gstPercent?: number }>; // schedule for the plan PDF
       expiresInDays?: number; // payment-link expiry, default 7
     },
   ): Promise<Record<string, unknown>> {
@@ -5832,7 +5832,7 @@ export class OperationsService {
       mode: 'full' | 'installment';
       totalAmountMinor: number;
       registrationFeeMinor?: number | null;
-      installments?: Array<{ label: string; amountMinor: number; dueDate: string }>;
+      installments?: Array<{ label: string; amountMinor: number; dueDate: string; gstPercent?: number }>;
     },
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
@@ -5861,25 +5861,54 @@ export class OperationsService {
     return { status: 1, message: 'Payment plan saved.', data: { applicationId } };
   }
 
-  // Manual mark-paid for cash / bank transfer.
+  // Manual mark-paid for cash / bank transfer / cheque / card.
+  // Naji 2026-05-09 — captures structured Mode + Reference + Receipt
+  // upload (URL). Reference + receipt URL are stashed inside the
+  // payment_plan JSON under a `manual_payment` key (no schema change).
   async markApplicationPaidManual(
     actorUserId: string,
     applicationId: string,
-    note?: string,
+    input: {
+      mode?: string | undefined;
+      reference?: string | undefined;
+      receiptUrl?: string | undefined;
+      note?: string | undefined;
+    } = {},
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
     const actor = toNullableIntId(actorUserId);
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const now = new Date();
+
+    // Read existing payment_plan so we can stash manual_payment metadata
+    // alongside the plan rows without losing them.
+    const existing = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { payment_plan: true },
+    });
+    let planObj: Record<string, unknown> = {};
+    if (existing?.payment_plan) {
+      try { planObj = JSON.parse(existing.payment_plan) as Record<string, unknown>; }
+      catch { planObj = {}; }
+    }
+    planObj.manual_payment = {
+      mode: input.mode ?? 'manual',
+      reference: input.reference ?? '',
+      receipt_url: input.receiptUrl ?? '',
+      note: input.note ?? '',
+      marked_at: now.toISOString(),
+      marked_by: actor,
+    };
+
     await this.prisma.applications.update({
       where: { id },
       data: {
         stage: 'paid',
         payment_status: 'paid',
-        payment_method: 'manual',
+        payment_method: input.mode || 'manual',
+        payment_plan: JSON.stringify(planObj),
         payment_marked_paid_at: now,
         payment_marked_paid_by: actor,
-        rejection_reason: note ?? null,
         updated_at: now,
         updated_by: actor,
       },

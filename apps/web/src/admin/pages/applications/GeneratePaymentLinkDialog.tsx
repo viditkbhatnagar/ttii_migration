@@ -27,7 +27,8 @@ interface PriceBreakdown {
 
 interface PlanRow {
   label: string;
-  amount: number; // INR (rupees, not minor)
+  amount: number; // INR — instalment amount EXCLUDING GST
+  gstPercent: number; // GST applied to this row
   dueDate: string; // yyyy-mm-dd
 }
 
@@ -46,6 +47,23 @@ interface Props {
   initialDiscount?: number;
   initialOfferedFee?: number;
   initialGstPercent?: number;
+  // Restore an existing saved plan when opened on a row that already
+  // has one — Naji 2026-05-09: admin should be able to Edit / Resend
+  // without re-entering everything.
+  initialSavedPlan?: {
+    mode?: string;
+    total_amount_minor?: number;
+    registration_fee_minor?: number | null;
+    installments?: Array<{
+      label?: string;
+      amountMinor?: number;
+      amount_minor?: number;
+      dueDate?: string;
+      due_date?: string;
+      gstPercent?: number;
+      gst_percent?: number;
+    }>;
+  } | null;
   onSent?: () => void;
 }
 
@@ -68,7 +86,7 @@ function fmtInr(amount: number): string {
 export function GeneratePaymentLinkDialog({
   open, onOpenChange, api, authToken, applicationId, studentName,
   offeringId, combinationId, initialBaseFee, initialDiscount,
-  initialOfferedFee, initialGstPercent, onSent,
+  initialOfferedFee, initialGstPercent, initialSavedPlan, onSent,
 }: Props) {
   const [mode, setMode] = useState<Mode>('full');
   const [pricingLoading, setPricingLoading] = useState(false);
@@ -109,6 +127,21 @@ export function GeneratePaymentLinkDialog({
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
       setPackageFound(null);
+      // Restore saved plan if one was passed in (Edit / Resend flow).
+      if (initialSavedPlan && Array.isArray(initialSavedPlan.installments) && initialSavedPlan.installments.length > 0) {
+        setMode(initialSavedPlan.mode === 'installment' ? 'installment' : 'full');
+        const restored: PlanRow[] = initialSavedPlan.installments.map((row) => ({
+          label: typeof row.label === 'string' ? row.label : '',
+          amount: Number(row.amountMinor ?? row.amount_minor ?? 0) / 100,
+          gstPercent: Number(row.gstPercent ?? row.gst_percent ?? 0),
+          dueDate: typeof (row.dueDate ?? row.due_date) === 'string' ? (row.dueDate ?? row.due_date) as string : '',
+        }));
+        setPlan(restored);
+        const reg = Number(initialSavedPlan.registration_fee_minor ?? 0) / 100;
+        if (reg > 0) setRegistrationFee(reg);
+      } else {
+        setPlan(null);
+      }
       setPricingLoading(true);
       try {
         let pkgMatched = false;
@@ -187,15 +220,24 @@ export function GeneratePaymentLinkDialog({
   }, [baseFee, discount, gstPercent]);
 
   // Generate the payment plan rows per Naji's row-structure spec.
+  // Naji 2026-05-09 — each row carries its own GST percent so the saved
+  // plan can render Description / Instalment / GST / Instalment Inc GST
+  // columns later. Registration fee and course-fee splits both inherit
+  // the current GST setting.
   const generatePlan = () => {
-    const totalDue = breakdown.feeIncGst + registrationFee;
+    // Course fee (excl GST) = final fee. Registration fee is added on
+    // top. Both then attract GST per the picked combination.
+    const courseFeeExcl = breakdown.finalFee;
+    const totalExcl = courseFeeExcl + registrationFee;
     const rows: PlanRow[] = [];
+    const gst = breakdown.gstPercent;
 
     // Row 1: Registration Fee (Fee Due Now), Today's date.
     if (registrationFee > 0 && registrationDueNow > 0) {
       rows.push({
         label: 'Registration Fee — Due Now',
         amount: Math.min(registrationDueNow, registrationFee),
+        gstPercent: gst,
         dueDate: todayIso(),
       });
     }
@@ -209,6 +251,7 @@ export function GeneratePaymentLinkDialog({
         rows.push({
           label: `Registration Fee Balance ${i + 1} of ${regSplitsRemaining}`,
           amount: each,
+          gstPercent: gst,
           dueDate: addMonthsIso(firstDueDate, i + 1),
         });
       }
@@ -217,12 +260,13 @@ export function GeneratePaymentLinkDialog({
       rows.push({
         label: 'Registration Fee Balance',
         amount: regBalance,
+        gstPercent: gst,
         dueDate: addMonthsIso(firstDueDate, 1),
       });
     }
 
     // Row N+1..N+M: Remaining course-fee installments equally split.
-    const remainingCourseFee = Math.max(0, totalDue - registrationFee);
+    const remainingCourseFee = Math.max(0, totalExcl - registrationFee);
     if (remainingInstallmentsCount > 0 && remainingCourseFee > 0) {
       const each = Math.round((remainingCourseFee / remainingInstallmentsCount) * 100) / 100;
       // Start dates after the registration-balance rows.
@@ -231,6 +275,7 @@ export function GeneratePaymentLinkDialog({
         rows.push({
           label: `Course Fee Installment ${i + 1} of ${remainingInstallmentsCount}`,
           amount: each,
+          gstPercent: gst,
           dueDate: addMonthsIso(firstDueDate, dateOffset + i + 1),
         });
       }
@@ -250,7 +295,17 @@ export function GeneratePaymentLinkDialog({
     setPlan((cur) => cur ? cur.filter((_, i) => i !== idx) : cur);
   };
 
-  const planTotal = useMemo(() => (plan ?? []).reduce((s, r) => s + (Number.isFinite(r.amount) ? r.amount : 0), 0), [plan]);
+  const planTotals = useMemo(() => {
+    const rows = plan ?? [];
+    let excl = 0; let gst = 0; let incl = 0;
+    for (const r of rows) {
+      const a = Number.isFinite(r.amount) ? r.amount : 0;
+      const g = Number.isFinite(r.gstPercent) ? r.gstPercent : 0;
+      const gAmt = (a * g) / 100;
+      excl += a; gst += gAmt; incl += a + gAmt;
+    }
+    return { excl, gst, incl };
+  }, [plan]);
 
   const sendPaymentLink = async () => {
     if (mode === 'full') {
@@ -278,7 +333,7 @@ export function GeneratePaymentLinkDialog({
 
     // Installment Plan mode — use the generated/edited plan.
     if (!plan || plan.length === 0) { toast.error('Generate a payment plan first.'); return; }
-    const total = breakdown.feeIncGst + registrationFee;
+    const total = planTotals.incl;
     setSubmitting(true);
     try {
       const res = await api.generatePaymentLink(authToken, {
@@ -289,6 +344,7 @@ export function GeneratePaymentLinkDialog({
         installments: plan.map((r) => ({
           label: r.label,
           amount_minor: Math.round(r.amount * 100),
+          gst_percent: r.gstPercent,
           due_date: r.dueDate,
         })),
         expires_in_days: linkExpiryDays,
@@ -310,7 +366,7 @@ export function GeneratePaymentLinkDialog({
   // summary so admins / counsellors don't recreate it.
   const savePlan = async () => {
     if (!plan || plan.length === 0) { toast.error('Nothing to save.'); return; }
-    const total = breakdown.feeIncGst + registrationFee;
+    const total = planTotals.incl;
     setSubmitting(true);
     try {
       const res = await api.savePaymentPlan(authToken, {
@@ -321,6 +377,7 @@ export function GeneratePaymentLinkDialog({
         installments: plan.map((r) => ({
           label: r.label,
           amount_minor: Math.round(r.amount * 100),
+          gst_percent: r.gstPercent,
           due_date: r.dueDate,
         })),
       });
@@ -340,7 +397,7 @@ export function GeneratePaymentLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(700px,calc(100vw-2rem))] max-w-[min(700px,calc(100vw-2rem))] overflow-hidden">
+      <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Generate Payment Link</DialogTitle>
           <DialogDescription>
@@ -495,52 +552,71 @@ export function GeneratePaymentLinkDialog({
                       <thead className="text-xs text-slate-500">
                         <tr className="border-b border-slate-100">
                           <th className="px-2 py-2 text-left font-medium">Description</th>
-                          <th className="px-2 py-2 text-right font-medium">Amount (INR)</th>
+                          <th className="px-2 py-2 text-right font-medium">Instalment (₹)</th>
+                          <th className="px-2 py-2 text-right font-medium">GST %</th>
+                          <th className="px-2 py-2 text-right font-medium">Instalment Inc. GST</th>
                           <th className="px-2 py-2 text-left font-medium">Due Date</th>
                           <th className="px-2 py-2 font-medium" />
                         </tr>
                       </thead>
                       <tbody>
-                        {plan.map((r, idx) => (
-                          <tr key={idx} className="border-b border-slate-100">
-                            <td className="px-2 py-1.5">
-                              <input
-                                value={r.label}
-                                onChange={(e) => updatePlanRow(idx, { label: e.target.value })}
-                                className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm hover:border-slate-200 focus:border-slate-300"
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                              <input
-                                type="number"
-                                value={r.amount}
-                                onChange={(e) => updatePlanRow(idx, { amount: Number(e.target.value) || 0 })}
-                                className="w-28 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
-                              />
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="date"
-                                value={r.dueDate}
-                                onChange={(e) => updatePlanRow(idx, { dueDate: e.target.value })}
-                                className="rounded-md border border-slate-200 px-2 py-1 text-sm"
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                              <button
-                                type="button"
-                                onClick={() => removePlanRow(idx)}
-                                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                                title="Remove row"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {plan.map((r, idx) => {
+                          const incGst = r.amount + (r.amount * (r.gstPercent || 0)) / 100;
+                          return (
+                            <tr key={idx} className="border-b border-slate-100">
+                              <td className="px-2 py-1.5">
+                                <input
+                                  value={r.label}
+                                  onChange={(e) => updatePlanRow(idx, { label: e.target.value })}
+                                  className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm hover:border-slate-200 focus:border-slate-300"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <input
+                                  type="number"
+                                  value={r.amount}
+                                  onChange={(e) => updatePlanRow(idx, { amount: Number(e.target.value) || 0 })}
+                                  className="w-24 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={r.gstPercent}
+                                  onChange={(e) => updatePlanRow(idx, { gstPercent: Number(e.target.value) || 0 })}
+                                  className="w-16 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-medium text-slate-900">
+                                {fmtInr(incGst)}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="date"
+                                  value={r.dueDate}
+                                  onChange={(e) => updatePlanRow(idx, { dueDate: e.target.value })}
+                                  className="rounded-md border border-slate-200 px-2 py-1 text-sm"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => removePlanRow(idx)}
+                                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                                  title="Remove row"
+                                >
+                                  <Trash2 className="size-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                         <tr className="bg-slate-50">
                           <td className="px-2 py-2 font-semibold text-slate-700">Plan total</td>
-                          <td className="px-2 py-2 text-right font-bold text-emerald-700">{fmtInr(planTotal)}</td>
+                          <td className="px-2 py-2 text-right font-medium text-slate-700">{fmtInr(planTotals.excl)}</td>
+                          <td className="px-2 py-2 text-right text-xs text-slate-500">{fmtInr(planTotals.gst)}</td>
+                          <td className="px-2 py-2 text-right font-bold text-emerald-700">{fmtInr(planTotals.incl)}</td>
                           <td colSpan={2} />
                         </tr>
                       </tbody>
