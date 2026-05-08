@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, $Enums } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
@@ -3812,69 +3813,201 @@ export class OperationsService {
    * (actual payments). Pending = Total − Paid. Overdue = unpaid installments
    * with due_date in the past.
    */
+  // Naji 2026-05-09 — Fee Summary rebuilt as a per-enrollment table.
+  // Columns: Enrollment ID / Student / Course / Offering / Combination /
+  // Course Fee (Inc GST when applicable) / Fee Paid / Balance / Fee Due
+  // (overdue) / Course Status. Pricing comes from offering_certificate_
+  // packages (the same source the Generate Payment Link dialog uses).
+  // The student_payments aggregation runs as raw SQL because legacy
+  // rows have invalid paid_date values (`0000-00-00`) that crash
+  // Prisma's DateTime mapper.
   async listFeeSummary(): Promise<Record<string, unknown>[]> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const enrolments = await this.prisma.enrol.findMany({
+      where: { deleted_at: null },
+      select: {
+        id: true,
+        user_id: true,
+        course_id: true,
+        enrollment_id: true,
+        enrollment_status: true,
+        package_id: true,
+      },
+      orderBy: { id: 'desc' },
+    });
+    if (enrolments.length === 0) return [];
 
-    const [installments, payments] = await Promise.all([
-      this.prisma.student_payments.findMany({
-        where: { deleted_at: null },
-        select: { user_id: true, amount: true, due_date: true, paid_date: true, status: true },
-      }),
-      this.prisma.payment_info.groupBy({
-        by: ['user_id'],
-        where: { deleted_at: null, user_id: { not: null } },
-        _sum: { amount_paid: true },
-        _count: { id: true },
-      }),
+    const userIds = Array.from(new Set(enrolments.map((e) => e.user_id).filter((v): v is number => v !== null)));
+    const courseIds = Array.from(new Set(enrolments.map((e) => e.course_id).filter((v): v is number => v !== null)));
+
+    const [users, courses] = await Promise.all([
+      userIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: userIds }, deleted_at: null },
+            select: { id: true, name: true, student_id: true, user_email: true, email: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; name: string | null; student_id: number | null; user_email: string | null; email: string | null }>),
+      courseIds.length > 0
+        ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : Promise.resolve([] as Array<{ id: number; title: string | null }>),
     ]);
 
-    const userTotals = new Map<number, { total: number; overdue: number }>();
-    for (const inst of installments) {
-      if (!inst.user_id) continue;
-      const entry = userTotals.get(inst.user_id) ?? { total: 0, overdue: 0 };
-      const amount = inst.amount ?? 0;
-      entry.total += amount;
-      const isPaid = Boolean(inst.paid_date) || (inst.status ?? '').toLowerCase() === 'paid';
-      if (!isPaid && inst.due_date && new Date(inst.due_date) < today) {
-        entry.overdue += amount;
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+
+    // Match each enrolment back to its source application via email +
+    // course_id (applications doesn't carry user_id). Pick the most-
+    // recent matching application per (email, course) — that's the
+    // one carrying the offering+combination the student actually
+    // enrolled for.
+    const emails = users
+      .map((u) => (u.user_email ?? u.email ?? '').toLowerCase())
+      .filter((e) => e !== '');
+    const applications = emails.length > 0 && courseIds.length > 0
+      ? await this.prisma.applications.findMany({
+          where: {
+            deleted_at: null,
+            user_email: { in: emails },
+            course_id: { in: courseIds },
+          },
+          select: { id: true, user_email: true, course_id: true, offering_id: true, certificate_combination_id: true },
+          orderBy: { id: 'desc' },
+        })
+      : [];
+
+    const appByEmailCourse = new Map<string, { offering_id: number | null; combination_id: number | null }>();
+    for (const a of applications) {
+      const key = `${(a.user_email ?? '').toLowerCase()}:${a.course_id ?? 0}`;
+      if (!appByEmailCourse.has(key)) {
+        appByEmailCourse.set(key, { offering_id: a.offering_id, combination_id: a.certificate_combination_id });
       }
-      userTotals.set(inst.user_id, entry);
+    }
+    const appByUserCourse = new Map<string, { offering_id: number | null; combination_id: number | null }>();
+    for (const u of users) {
+      const e = (u.user_email ?? u.email ?? '').toLowerCase();
+      if (!e) continue;
+      for (const cid of courseIds) {
+        const matched = appByEmailCourse.get(`${e}:${cid}`);
+        if (matched) appByUserCourse.set(`${u.id}:${cid}`, matched);
+      }
     }
 
-    const paidByUser = new Map<number, number>();
-    for (const p of payments) {
-      if (p.user_id === null || p.user_id === undefined) continue;
-      paidByUser.set(p.user_id, p._sum?.amount_paid ?? 0);
+    // Pull offering + combination titles + packages for the (offering, combination) pairs we'll need.
+    const offeringIdSet = new Set<number>();
+    const combinationIdSet = new Set<number>();
+    for (const v of appByUserCourse.values()) {
+      if (v.offering_id) offeringIdSet.add(v.offering_id);
+      if (v.combination_id) combinationIdSet.add(v.combination_id);
     }
 
-    // Union of all user_ids across both sources
-    const allUserIds = new Set<number>([...userTotals.keys(), ...paidByUser.keys()]);
-    if (allUserIds.size === 0) return [];
+    const [offerings, combinations, packages] = await Promise.all([
+      offeringIdSet.size > 0
+        ? this.prisma.offerings.findMany({
+            where: { id: { in: [...offeringIdSet] } },
+            select: { id: true, title: true, offering_code: true, offered_fee: true, base_fee: true, pricing_amount: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; title: string | null; offering_code: string | null; offered_fee: unknown; base_fee: unknown; pricing_amount: unknown }>),
+      combinationIdSet.size > 0
+        ? this.prisma.certificate_combinations.findMany({
+            where: { id: { in: [...combinationIdSet] } },
+            select: { id: true, combination_code: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; combination_code: string | null }>),
+      offeringIdSet.size > 0 && combinationIdSet.size > 0
+        ? this.prisma.offering_certificate_packages.findMany({
+            where: {
+              deleted_at: null,
+              offering_id: { in: [...offeringIdSet] },
+              combination_id: { in: [...combinationIdSet] },
+            },
+            select: { offering_id: true, combination_id: true, base_fee: true, discount: true, offered_fee: true, registration_fee: true, gst_percent: true },
+          })
+        : Promise.resolve([] as Array<{ offering_id: number; combination_id: number; base_fee: unknown; discount: unknown; offered_fee: unknown; registration_fee: unknown; gst_percent: unknown }>),
+    ]);
 
-    const users = await this.prisma.users.findMany({
-      where: { id: { in: [...allUserIds] }, deleted_at: null },
-      select: { id: true, name: true, student_id: true, user_email: true, email: true, phone: true },
+    const offeringMap = new Map(offerings.map((o) => [o.id, o]));
+    const combinationMap = new Map(combinations.map((c) => [c.id, c.combination_code ?? '']));
+    const packageMap = new Map(packages.map((p) => [`${p.offering_id}:${p.combination_id}`, p]));
+
+    // student_payments aggregation via raw SQL — paid_date is unreadable
+    // through Prisma due to legacy 0000-00-00 values. Use status='Paid'
+    // as the paid signal; fall back to amount-summing.
+    type PayAgg = { user_id: number; course_id: number; total: number; paid: number; overdue: number };
+    const payAggs = userIds.length > 0
+      ? await this.prisma.$queryRaw<PayAgg[]>`
+          SELECT
+            user_id,
+            course_id,
+            COALESCE(SUM(amount), 0) AS total,
+            COALESCE(SUM(CASE WHEN LOWER(status) = 'paid' THEN amount ELSE 0 END), 0) AS paid,
+            COALESCE(SUM(CASE WHEN LOWER(status) <> 'paid' AND due_date IS NOT NULL AND due_date < CURDATE() THEN amount ELSE 0 END), 0) AS overdue
+          FROM student_payments
+          WHERE deleted_at IS NULL
+            AND user_id IN (${Prisma.join(userIds)})
+          GROUP BY user_id, course_id
+        `
+      : [];
+    const payByKey = new Map<string, PayAgg>();
+    for (const r of payAggs) {
+      payByKey.set(`${Number(r.user_id)}:${Number(r.course_id)}`, {
+        user_id: Number(r.user_id),
+        course_id: Number(r.course_id),
+        total: Number(r.total),
+        paid: Number(r.paid),
+        overdue: Number(r.overdue),
+      });
+    }
+
+    return enrolments.map((e) => {
+      const u = e.user_id ? userMap.get(e.user_id) : null;
+      const courseTitle = e.course_id ? courseMap.get(e.course_id) ?? '' : '';
+      const app = appByUserCourse.get(`${e.user_id ?? 0}:${e.course_id ?? 0}`);
+      const offeringId = app?.offering_id ?? null;
+      const combinationId = app?.combination_id ?? null;
+      const offering = offeringId ? offeringMap.get(offeringId) : null;
+      const combinationTitle = combinationId ? combinationMap.get(combinationId) ?? '' : '';
+      const pkg = offeringId && combinationId ? packageMap.get(`${offeringId}:${combinationId}`) : null;
+
+      // Course Fee (Inc GST when applicable) — prefer package, fall back to offering.
+      let courseFee = 0;
+      if (pkg) {
+        const offered = Number(pkg.offered_fee ?? 0);
+        const base = Number(pkg.base_fee ?? 0);
+        const discount = Number(pkg.discount ?? 0);
+        const reg = Number(pkg.registration_fee ?? 0);
+        const exclGst = offered > 0 ? offered : Math.max(0, base - discount);
+        const gstPct = Number(pkg.gst_percent ?? 0);
+        const incGst = exclGst + (exclGst * gstPct) / 100;
+        courseFee = incGst + reg;
+      } else if (offering) {
+        const offered = Number(offering.offered_fee ?? offering.base_fee ?? offering.pricing_amount ?? 0);
+        courseFee = offered;
+      }
+
+      const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
+      const paid = pay?.paid ?? 0;
+      const overdue = pay?.overdue ?? 0;
+      const balance = Math.max(0, courseFee - paid);
+
+      return {
+        enrol_id: e.id,
+        enrollment_id: e.enrollment_id ?? '',
+        user_id: e.user_id,
+        student_id: u?.student_id ?? '',
+        student_name: u?.name ?? '',
+        email: u?.user_email ?? u?.email ?? '',
+        course_id: e.course_id,
+        course_title: courseTitle,
+        offering_id: offeringId,
+        offering_title: offering?.title ?? offering?.offering_code ?? '',
+        combination_id: combinationId,
+        combination_title: combinationTitle,
+        course_fee_inc_gst: courseFee,
+        fee_paid: paid,
+        balance_fee: balance,
+        fee_due: overdue,
+        course_status: e.enrollment_status ?? '',
+      };
     });
-
-    return users
-      .map((u) => {
-        const totals = userTotals.get(u.id) ?? { total: 0, overdue: 0 };
-        const paid = paidByUser.get(u.id) ?? 0;
-        const pending = Math.max(0, totals.total - paid);
-        return {
-          user_id: u.id,
-          student_id: u.student_id ?? '',
-          student_name: u.name ?? '',
-          email: u.user_email ?? u.email ?? '',
-          phone: u.phone ?? '',
-          total_fee: totals.total,
-          paid_amount: paid,
-          pending_amount: pending,
-          overdue_amount: totals.overdue,
-        };
-      })
-      .sort((a, b) => b.pending_amount - a.pending_amount);
   }
 
   async listFeeInstallments(filters: FeeInstallmentFilters & { search?: string; centreId?: string; studentId?: string; paymentStatus?: string }): Promise<Record<string, unknown>> {

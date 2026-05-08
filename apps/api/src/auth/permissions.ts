@@ -241,14 +241,14 @@ export async function listRolesPermissionsOverview(): Promise<{
   users: RolesPermissionsRow[];
   total_permissions: number;
 }> {
+  // Naji 2026-05-09 — only Super Admin + Admin show up here. Counsellor /
+  // Associate / Instructor access is role-based (not per-permission), so
+  // managing them here is misleading. They live under their own sections.
   const ROLE_LABELS: Record<number, string> = {
     1: 'Super Admin',
-    3: 'Instructor',
     8: 'Admin',
-    9: 'Counsellor',
-    10: 'Associate',
   };
-  const SHOW_ROLES = [1, 3, 8, 9, 10];
+  const SHOW_ROLES = [1, 8];
 
   const adminPerms = await prisma.permission.findMany({
     where: { category: { not: null } },

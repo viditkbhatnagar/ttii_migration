@@ -21,10 +21,7 @@ import { AdminDataTable, type DataTableAction, type DataTableColumn } from '../.
 // Color chip per role so the table reads at a glance.
 const ROLE_CHIP_COLORS: Record<number, string> = {
   1: 'bg-purple-100 text-purple-800',  // Super Admin
-  3: 'bg-sky-100 text-sky-800',        // Instructor
   8: 'bg-emerald-100 text-emerald-800', // Admin
-  9: 'bg-blue-100 text-blue-800',      // Counsellor
-  10: 'bg-amber-100 text-amber-800',   // Associate
 };
 
 interface PermissionDef {
@@ -258,21 +255,20 @@ export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
     );
   }
 
+  const superAdminCount = rows.filter((r) => r.role_id === 1).length;
   const adminCount = rows.filter((r) => r.role_id === 8).length;
-  const counsellorCount = rows.filter((r) => r.role_id === 9).length;
-  const assocCount = rows.filter((r) => r.role_id === 10).length;
-  const instCount = rows.filter((r) => r.role_id === 3).length;
 
   return (
     <div className="space-y-4">
       <AdminPageHeader title="Roles & Permissions" />
+      <p className="-mt-1 text-sm text-gray-500">
+        Manage permissions for Admin users. Counsellors, Associates and Instructors are managed under their own sections — their access is role-based, not per-permission.
+      </p>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-3 gap-3">
         <SummaryCard label="Total Permissions" value={totalPermissions} />
+        <SummaryCard label="Super Admins" value={superAdminCount} />
         <SummaryCard label="Admins" value={adminCount} />
-        <SummaryCard label="Counsellors" value={counsellorCount} />
-        <SummaryCard label="Associates" value={assocCount} />
-        <SummaryCard label="Instructors" value={instCount} />
       </div>
 
       <Card>
@@ -291,70 +287,83 @@ export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
               <option value="">All Roles</option>
               <option value="1">Super Admin</option>
               <option value="8">Admin</option>
-              <option value="9">Counsellor</option>
-              <option value="10">Associate</option>
-              <option value="3">Instructor</option>
             </select>
           </div>
           <AdminDataTable columns={columns} rows={filteredRows as unknown as Record<string, unknown>[]} actions={actions} />
         </CardContent>
       </Card>
 
-      {/* Manage Permissions dialog — toggles grouped by category */}
+      {/* Manage Permissions dialog — Naji 2026-05-09: redesigned as a
+          compact table. Rows = sub-modules, columns = Module / Permission /
+          Description / Granted. Module header repeats once per group with
+          a Grant all / Revoke all toggle so the matrix reads at a glance. */}
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))]">
+        <DialogContent className="w-[min(880px,calc(100vw-2rem))] max-w-[min(880px,calc(100vw-2rem))]">
           <DialogHeader>
             <DialogTitle>Manage Permissions</DialogTitle>
             <DialogDescription>
               {manageRow ? (
                 <>
-                  For <strong>{manageRow.name || manageRow.email}</strong> ({manageRow.role_label}). Toggle the permissions this user is allowed to use.
+                  For <strong>{manageRow.name || manageRow.email}</strong> ({manageRow.role_label}). Tick each sub-module the user is allowed to use.
                 </>
               ) : 'Select a user to manage permissions.'}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-            {grouped.length === 0 ? (
-              <p className="py-6 text-center text-sm text-gray-500">No permission catalogue loaded.</p>
-            ) : grouped.map(([category, perms]) => {
-              const grantedHere = perms.filter((p) => pending.has(p.id)).length;
-              const allOn = grantedHere === perms.length;
-              return (
-                <div key={category} className="rounded-lg border border-slate-100 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{category}</p>
-                      <p className="text-xs text-gray-500">{grantedHere} of {perms.length} granted</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-ttii-primary hover:text-ttii-primary"
-                      onClick={() => toggleCategory(perms, !allOn)}
-                    >
-                      {allOn ? 'Revoke all' : 'Grant all'}
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {perms.map((p) => (
-                      <label key={p.id} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-slate-50">
-                        <input
-                          type="checkbox"
-                          checked={pending.has(p.id)}
-                          onChange={() => togglePerm(p.id)}
-                          className="mt-1 size-4 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary"
-                        />
-                        <span className="flex-1">
-                          <span className="block text-sm font-medium text-gray-900">{p.title}</span>
-                          <span className="block font-mono text-xs text-gray-500">{p.slug}</span>
-                          {p.description ? <span className="block text-xs text-gray-500">{p.description}</span> : null}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="w-[28%] px-3 py-2 text-left">Module</th>
+                  <th className="w-[24%] px-3 py-2 text-left">Sub-module</th>
+                  <th className="w-[40%] px-3 py-2 text-left">Description</th>
+                  <th className="w-[8%] px-3 py-2 text-center">Granted</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {grouped.length === 0 ? (
+                  <tr><td colSpan={4} className="py-6 text-center text-sm text-gray-500">No permission catalogue loaded.</td></tr>
+                ) : grouped.map(([category, perms]) => {
+                  const grantedHere = perms.filter((p) => pending.has(p.id)).length;
+                  const allOn = grantedHere === perms.length;
+                  return [
+                    <tr key={`hdr-${category}`} className="bg-slate-50/70">
+                      <td colSpan={3} className="px-3 py-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700">{category}</span>
+                        <span className="ml-2 text-xs text-slate-500">{grantedHere} of {perms.length} granted</span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:border-ttii-primary hover:text-ttii-primary"
+                          onClick={() => toggleCategory(perms, !allOn)}
+                        >
+                          {allOn ? 'Revoke all' : 'Grant all'}
+                        </button>
+                      </td>
+                    </tr>,
+                    ...perms.map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-50/40">
+                        <td className="px-3 py-2 align-top text-xs text-slate-500">{category}</td>
+                        <td className="px-3 py-2 align-top">
+                          <p className="font-medium text-gray-900">{p.title}</p>
+                          <p className="font-mono text-[11px] text-gray-500">{p.slug}</p>
+                        </td>
+                        <td className="px-3 py-2 align-top text-xs text-gray-600">{p.description || '—'}</td>
+                        <td className="px-3 py-2 text-center align-top">
+                          <input
+                            type="checkbox"
+                            checked={pending.has(p.id)}
+                            onChange={() => togglePerm(p.id)}
+                            className="size-4 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary"
+                          />
+                        </td>
+                      </tr>
+                    )),
+                  ];
+                }).flat()}
+              </tbody>
+            </table>
           </div>
 
           <DialogFooter className="border-t border-slate-100 pt-3">
