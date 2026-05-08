@@ -116,6 +116,7 @@ const LanguagePage = lazy(() => import('../pages/language/LanguagePage.js'));
 
 // Phase 6: Additional pages
 const RolesPermissionsPage = lazy(() => import('../pages/roles/RolesPermissionsPage.js'));
+const ManagePermissionsPage = lazy(() => import('../pages/roles/ManagePermissionsPage.js'));
 const StudentPaymentsPage = lazy(() => import('../pages/student_payments/StudentPaymentsPage.js'));
 const EnquiriesPage = lazy(() => import('../pages/enquiries/EnquiriesPage.js'));
 const BooksLibraryPage = lazy(() => import('../pages/books/BooksLibraryPage.js'));
@@ -273,6 +274,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Phase 6: Additional pages
   { path: '/admin/roles/index', aliases: ['/admin/roles'], pageComponent: RolesPermissionsPage, title: 'Roles & Permissions' },
+  { path: '/admin/roles/manage/:id', pageComponent: ManagePermissionsPage, title: 'Manage Permissions' },
   { path: '/admin/student_payments/index', aliases: ['/admin/student_payments'], pageComponent: StudentPaymentsPage, title: 'Student Payments' },
   { path: '/admin/enquiries/index', aliases: ['/admin/enquiries'], pageComponent: EnquiriesPage, title: 'Enquiries' },
   { path: '/admin/books/index', aliases: ['/admin/books'], pageComponent: BooksLibraryPage, title: 'Books Library' },

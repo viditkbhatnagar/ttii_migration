@@ -117,8 +117,11 @@ export default function FeeInstallmentsPage({ api, session, onNavigate }: AdminP
           size="sm"
           className="rounded-full"
           onClick={() => {
-            const studentCourseId = asString(row?.student_course_id) || asString(row?.id);
-            onNavigate(`/admin/fee_management/manage_installmets/${studentCourseId}`);
+            // Naji 2026-05-09 — old href pointed at a route that was
+            // never built. Send the admin to the student detail page,
+            // where the Payment History tab already shows installments.
+            const userId = asString(row?.user_id) || asString(row?.student_course_id) || asString(row?.id);
+            if (userId) onNavigate(`/admin/students/view/${userId}`);
           }}
         >
           View Installments

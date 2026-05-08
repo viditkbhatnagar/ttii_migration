@@ -1,20 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableAction, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 
@@ -23,14 +14,6 @@ const ROLE_CHIP_COLORS: Record<number, string> = {
   1: 'bg-purple-100 text-purple-800',  // Super Admin
   8: 'bg-emerald-100 text-emerald-800', // Admin
 };
-
-interface PermissionDef {
-  id: number;
-  slug: string;
-  title: string;
-  description: string;
-  category: string;
-}
 
 interface OverviewRow {
   user_id: number;
@@ -44,13 +27,9 @@ interface OverviewRow {
   permission_managed: boolean;
 }
 
-export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
-  const { data, loading, error, reload } = useAdminPageData(
+export default function RolesPermissionsPage({ api, session, onNavigate }: AdminPageProps) {
+  const { data, loading, error } = useAdminPageData(
     () => api.loadRolesPermissionsOverview(session.token),
-    [],
-  );
-  const { data: catalogData } = useAdminPageData(
-    () => api.listAdminPermissionsCatalog(session.token),
     [],
   );
 
@@ -73,26 +52,6 @@ export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
 
   const totalPermissions = data?.total_permissions ?? 0;
 
-  const catalog = useMemo<PermissionDef[]>(() => {
-    return toRecords(catalogData ?? []).map((p) => ({
-      id: asNumber(p.id),
-      slug: asString(p.slug),
-      title: asString(p.title),
-      description: asString(p.description),
-      category: asString(p.category) || 'Other',
-    }));
-  }, [catalogData]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, PermissionDef[]>();
-    for (const p of catalog) {
-      const list = map.get(p.category) ?? [];
-      list.push(p);
-      map.set(p.category, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [catalog]);
-
   // Filters
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -107,56 +66,16 @@ export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
     });
   }, [rows, search, roleFilter]);
 
-  // Manage Permissions dialog state
-  const [manageOpen, setManageOpen] = useState(false);
-  const [manageRow, setManageRow] = useState<OverviewRow | null>(null);
-  const [pending, setPending] = useState<Set<number>>(new Set());
-  const [saving, setSaving] = useState(false);
-
+  // Naji 2026-05-09 — Manage Permissions is now a full page (not a
+  // dialog) so the matrix has room to breathe and grow as the
+  // permission catalogue is expanded per sub-module.
   const openManage = useCallback((row: OverviewRow) => {
     if (!row.permission_managed) {
       toast.info(`${row.role_label} access is managed by role, not by individual permissions.`);
       return;
     }
-    setManageRow(row);
-    setPending(new Set(row.granted_permission_ids));
-    setManageOpen(true);
-  }, []);
-
-  const togglePerm = useCallback((id: number) => {
-    setPending((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleCategory = useCallback((perms: PermissionDef[], grant: boolean) => {
-    setPending((prev) => {
-      const next = new Set(prev);
-      for (const p of perms) {
-        if (grant) next.add(p.id);
-        else next.delete(p.id);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (!manageRow) return;
-    setSaving(true);
-    try {
-      await api.setUserAdminPermissions(session.token, String(manageRow.user_id), [...pending]);
-      toast.success('Permissions updated.');
-      setManageOpen(false);
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save permissions.');
-    } finally {
-      setSaving(false);
-    }
-  }, [api, session.token, manageRow, pending, reload]);
+    onNavigate(`/admin/roles/manage/${row.user_id}`);
+  }, [onNavigate]);
 
   const columns: DataTableColumn[] = useMemo(
     () => [
@@ -292,93 +211,6 @@ export default function RolesPermissionsPage({ api, session }: AdminPageProps) {
           <AdminDataTable columns={columns} rows={filteredRows as unknown as Record<string, unknown>[]} actions={actions} />
         </CardContent>
       </Card>
-
-      {/* Manage Permissions dialog — Naji 2026-05-09: redesigned as a
-          compact table. Rows = sub-modules, columns = Module / Permission /
-          Description / Granted. Module header repeats once per group with
-          a Grant all / Revoke all toggle so the matrix reads at a glance. */}
-      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className="w-[min(880px,calc(100vw-2rem))] max-w-[min(880px,calc(100vw-2rem))]">
-          <DialogHeader>
-            <DialogTitle>Manage Permissions</DialogTitle>
-            <DialogDescription>
-              {manageRow ? (
-                <>
-                  For <strong>{manageRow.name || manageRow.email}</strong> ({manageRow.role_label}). Tick each sub-module the user is allowed to use.
-                </>
-              ) : 'Select a user to manage permissions.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="w-[28%] px-3 py-2 text-left">Module</th>
-                  <th className="w-[24%] px-3 py-2 text-left">Sub-module</th>
-                  <th className="w-[40%] px-3 py-2 text-left">Description</th>
-                  <th className="w-[8%] px-3 py-2 text-center">Granted</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {grouped.length === 0 ? (
-                  <tr><td colSpan={4} className="py-6 text-center text-sm text-gray-500">No permission catalogue loaded.</td></tr>
-                ) : grouped.map(([category, perms]) => {
-                  const grantedHere = perms.filter((p) => pending.has(p.id)).length;
-                  const allOn = grantedHere === perms.length;
-                  return [
-                    <tr key={`hdr-${category}`} className="bg-slate-50/70">
-                      <td colSpan={3} className="px-3 py-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700">{category}</span>
-                        <span className="ml-2 text-xs text-slate-500">{grantedHere} of {perms.length} granted</span>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:border-ttii-primary hover:text-ttii-primary"
-                          onClick={() => toggleCategory(perms, !allOn)}
-                        >
-                          {allOn ? 'Revoke all' : 'Grant all'}
-                        </button>
-                      </td>
-                    </tr>,
-                    ...perms.map((p) => (
-                      <tr key={p.id} className="hover:bg-slate-50/40">
-                        <td className="px-3 py-2 align-top text-xs text-slate-500">{category}</td>
-                        <td className="px-3 py-2 align-top">
-                          <p className="font-medium text-gray-900">{p.title}</p>
-                          <p className="font-mono text-[11px] text-gray-500">{p.slug}</p>
-                        </td>
-                        <td className="px-3 py-2 align-top text-xs text-gray-600">{p.description || '—'}</td>
-                        <td className="px-3 py-2 text-center align-top">
-                          <input
-                            type="checkbox"
-                            checked={pending.has(p.id)}
-                            onChange={() => togglePerm(p.id)}
-                            className="size-4 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary"
-                          />
-                        </td>
-                      </tr>
-                    )),
-                  ];
-                }).flat()}
-              </tbody>
-            </table>
-          </div>
-
-          <DialogFooter className="border-t border-slate-100 pt-3">
-            <span className="mr-auto text-sm text-gray-500">{pending.size} permissions selected</span>
-            <Button variant="outline" onClick={() => setManageOpen(false)} disabled={saving}>Cancel</Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => { void handleSave(); }}
-              disabled={saving}
-            >
-              {saving ? 'Saving…' : 'Save Permissions'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
