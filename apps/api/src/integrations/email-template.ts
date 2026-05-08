@@ -1,34 +1,36 @@
-// Shared TTII-branded email wrapper. Naji 2026-05-07: every transactional
-// email (welcome, OTP, application status, payment, etc.) renders inside
-// this template so the look is consistent and unmistakably TTII.
+// Shared TTII-branded email wrapper. Naji 2026-05-09 — redesigned to a
+// cleaner layout: white card on a soft tinted page, full-color wordmark
+// in the header, generous spacing, friendlier footer with the three
+// portal links.
 //
 // Email-client compatibility notes:
 // - Inline styles only (Gmail/Outlook strip <style> blocks).
 // - `<table>` for layout — flexbox/grid don't work in email clients.
 // - PNG logo (broadest support); SVG would fail on Outlook desktop.
-// - Hosted at https://learn.teachersindia.in/logos/ — public, world-readable.
 
 const BRAND = {
   primary: '#8F2774',
   primaryDark: '#6e1d59',
+  primarySoft: '#faf5fb',
   secondary: '#F06543',
   textPrimary: '#1f2937',
   textMuted: '#6b7280',
+  textSubtle: '#9ca3af',
   backgroundPage: '#f5f3f8',
   backgroundCard: '#ffffff',
   divider: '#e5e7eb',
-  highlight: '#faf5fb',
 };
 
-// Naji 2026-05-09 — wordmark + institute name shown side-by-side so the
-// brand reads at a glance, plus teachersindia.in as the primary site
-// URL in the footer. hello@teachersindia.in is the team-facing inbox
-// Naji wants surfaced. (Full-bleed PNG logo is a follow-up — Outlook
-// strips SVGs so we keep the existing icon PNG for now and pair it
-// with the wordmark text.)
-const LOGO_URL = 'https://learn.teachersindia.in/logos/ttii-icon-color.png';
+// Full color wordmark — Naji 2026-05-09 (PNG converted from
+// ttii-full-color.svg, served from the static logos folder).
+const LOGO_URL = 'https://learn.teachersindia.in/logos/ttii-full-color.png';
 const SUPPORT_EMAIL = 'hello@teachersindia.in';
 const SITE_URL = 'https://teachersindia.in';
+const PORTAL_LINKS: Array<{ label: string; href: string }> = [
+  { label: 'Admin', href: 'https://admin.teachersindia.in' },
+  { label: 'Learner', href: 'https://learn.teachersindia.in' },
+  { label: 'Admissions', href: 'https://admissions.teachersindia.in' },
+];
 
 export interface BrandedEmailButton {
   label: string;
@@ -56,13 +58,17 @@ export function renderBrandedEmail(opts: RenderBrandedEmailOpts): string {
   const heading = escapeEmailHtml(opts.heading);
   const preheader = opts.preheader ? escapeEmailHtml(opts.preheader) : '';
   const ctaHtml = opts.cta
-    ? `<tr><td style="padding:24px 32px 8px;">
-        <a href="${escapeAttr(opts.cta.href)}" style="display:inline-block;padding:12px 28px;background:${BRAND.primary};color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;letter-spacing:0.2px;">${escapeEmailHtml(opts.cta.label)}</a>
+    ? `<tr><td align="center" style="padding:8px 40px 24px;">
+        <a href="${escapeAttr(opts.cta.href)}" style="display:inline-block;padding:14px 32px;background:${BRAND.primary};color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;letter-spacing:0.2px;box-shadow:0 4px 12px rgba(143,39,116,0.25);">${escapeEmailHtml(opts.cta.label)}</a>
        </td></tr>`
     : '';
   const footerNoteHtml = opts.footerNote
-    ? `<tr><td style="padding:8px 32px 0;color:${BRAND.textMuted};font-size:12px;line-height:1.5;">${escapeEmailHtml(opts.footerNote)}</td></tr>`
+    ? `<tr><td style="padding:0 40px 8px;color:${BRAND.textMuted};font-size:12px;line-height:1.6;text-align:center;">${escapeEmailHtml(opts.footerNote)}</td></tr>`
     : '';
+
+  const portalLinksHtml = PORTAL_LINKS
+    .map((p) => `<a href="${escapeAttr(p.href)}" style="color:${BRAND.primary};text-decoration:none;font-weight:500;">${escapeEmailHtml(p.label)}</a>`)
+    .join(`<span style="color:${BRAND.divider};margin:0 10px;">·</span>`);
 
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="https://www.w3.org/1999/xhtml" lang="en">
@@ -70,10 +76,11 @@ export function renderBrandedEmail(opts: RenderBrandedEmailOpts): string {
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
 <title>${heading}</title>
 </head>
-<body style="margin:0;padding:0;background:${BRAND.backgroundPage};font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${BRAND.textPrimary};">
-<!-- Hidden preheader (shows in inbox preview) -->
+<body style="margin:0;padding:0;background:${BRAND.backgroundPage};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:${BRAND.textPrimary};">
 ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${preheader}</div>` : ''}
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.backgroundPage};">
@@ -81,43 +88,54 @@ ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${pr
     <td align="center" style="padding:32px 16px;">
 
       <!-- Card -->
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:${BRAND.backgroundCard};border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(143,39,116,0.08);">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:${BRAND.backgroundCard};border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(31,41,55,0.06);">
 
-        <!-- Brand bar -->
+        <!-- Header — full color wordmark on white, with a thin TTII purple accent stripe -->
         <tr>
-          <td style="background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);padding:24px 32px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td style="vertical-align:middle;">
-                  <img src="${LOGO_URL}" alt="TTII" width="48" height="48" style="display:inline-block;vertical-align:middle;border:0;border-radius:10px;background:#ffffff;padding:6px;" />
-                  <span style="display:inline-block;vertical-align:middle;margin-left:14px;font-size:18px;font-weight:700;color:#ffffff;letter-spacing:0.3px;">Teachers' Training Institute of India</span>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <!-- Heading + body -->
-        <tr>
-          <td style="padding:32px 32px 8px;">
-            <h1 style="margin:0;font-size:22px;font-weight:700;color:${BRAND.textPrimary};line-height:1.3;">${heading}</h1>
+          <td align="center" style="padding:36px 40px 24px;background:#ffffff;">
+            <img src="${LOGO_URL}" alt="Teachers' Training Institute of India" width="220" style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:240px;" />
           </td>
         </tr>
         <tr>
-          <td style="padding:8px 32px 16px;color:${BRAND.textPrimary};font-size:15px;line-height:1.6;">
+          <td style="padding:0;">
+            <div style="height:4px;background:linear-gradient(90deg,${BRAND.primary} 0%,${BRAND.primary} 65%,${BRAND.secondary} 100%);"></div>
+          </td>
+        </tr>
+
+        <!-- Heading -->
+        <tr>
+          <td style="padding:32px 40px 4px;">
+            <h1 style="margin:0;font-size:22px;font-weight:700;color:${BRAND.textPrimary};line-height:1.3;letter-spacing:-0.01em;">${heading}</h1>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:12px 40px 20px;color:${BRAND.textPrimary};font-size:15px;line-height:1.7;">
             ${opts.bodyHtml}
           </td>
         </tr>
 
         ${ctaHtml}
 
-        <!-- Footer -->
-        <tr><td style="padding:0 32px;"><div style="height:1px;background:${BRAND.divider};margin:16px 0 0;"></div></td></tr>
+        <!-- Subtle divider -->
+        <tr><td style="padding:0 40px;"><div style="height:1px;background:${BRAND.divider};margin:8px 0 0;"></div></td></tr>
         ${footerNoteHtml}
+
+        <!-- Footer -->
         <tr>
-          <td style="padding:16px 32px 28px;color:${BRAND.textMuted};font-size:12px;line-height:1.6;">
-            <div>Need help? Reach us at <a href="mailto:${SUPPORT_EMAIL}" style="color:${BRAND.primary};text-decoration:none;">${SUPPORT_EMAIL}</a></div>
-            <div style="margin-top:6px;">— Teachers' Training Institute of India · <a href="${SITE_URL}" style="color:${BRAND.textMuted};text-decoration:underline;">${SITE_URL.replace('https://', '')}</a></div>
+          <td align="center" style="padding:20px 40px 12px;color:${BRAND.textMuted};font-size:13px;line-height:1.6;">
+            Need help? Write to <a href="mailto:${SUPPORT_EMAIL}" style="color:${BRAND.primary};text-decoration:none;font-weight:600;">${SUPPORT_EMAIL}</a>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:0 40px 18px;font-size:13px;line-height:1.6;">
+            ${portalLinksHtml}
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:0 40px 28px;color:${BRAND.textSubtle};font-size:11px;line-height:1.6;letter-spacing:0.02em;">
+            © Teachers' Training Institute of India · <a href="${SITE_URL}" style="color:${BRAND.textSubtle};text-decoration:none;">${SITE_URL.replace('https://', '')}</a>
           </td>
         </tr>
 
@@ -131,18 +149,18 @@ ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${pr
 </html>`;
 }
 
-/** Render a key/value table inside the email body (used for credential bundles, payment info, etc.). */
+/** Render a key/value table inside the email body (credentials, payment info, etc.). */
 export function renderEmailFieldTable(rows: Array<{ label: string; value: string; mono?: boolean }>): string {
   const tr = rows
     .map(
       (r) => `<tr>
-        <td style="padding:8px 14px;background:${BRAND.highlight};border-radius:8px 0 0 8px;color:${BRAND.textMuted};font-size:13px;font-weight:600;width:38%;">${escapeEmailHtml(r.label)}</td>
-        <td style="padding:8px 14px;background:${BRAND.highlight};border-radius:0 8px 8px 0;color:${BRAND.textPrimary};font-size:14px;${r.mono ? 'font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;' : ''}">${escapeEmailHtml(r.value)}</td>
+        <td style="padding:10px 14px;background:${BRAND.primarySoft};border-radius:8px 0 0 8px;color:${BRAND.textMuted};font-size:13px;font-weight:600;width:38%;vertical-align:top;">${escapeEmailHtml(r.label)}</td>
+        <td style="padding:10px 14px;background:${BRAND.primarySoft};border-radius:0 8px 8px 0;color:${BRAND.textPrimary};font-size:14px;vertical-align:top;${r.mono ? 'font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;' : ''}">${escapeEmailHtml(r.value)}</td>
       </tr>
-      <tr><td colspan="2" style="height:6px;line-height:6px;">&nbsp;</td></tr>`,
+      <tr><td colspan="2" style="height:8px;line-height:8px;font-size:8px;">&nbsp;</td></tr>`,
     )
     .join('');
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:16px 0;border-collapse:separate;">${tr}</table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:16px 0 8px;border-collapse:separate;">${tr}</table>`;
 }
 
 function escapeEmailHtml(s: string): string {

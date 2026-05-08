@@ -5549,18 +5549,20 @@ export class OperationsService {
     if (app.user_email) {
       try {
         const { createIntegrationRegistry } = await import('../integrations/registry.js');
+        const { renderBrandedEmail } = await import('../integrations/email-template.js');
         const registry = createIntegrationRegistry();
         const url = `https://learn.teachersindia.in/apply/${token}`;
-        const html = `<!DOCTYPE html>
-<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;">
-  <div style="max-width:560px;margin:0 auto;padding:24px;">
-    <h2 style="color:#8F2774;margin:0 0 8px;">Complete your TTII application</h2>
-    <p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>
-    <p>Your registration fee is received. Please complete your application form using the link below.</p>
-    <p><a href="${url}" style="display:inline-block;padding:10px 20px;background:#8F2774;color:#fff;text-decoration:none;border-radius:4px;">Open Application Form</a></p>
-    <p style="color:#6b7280;font-size:13px;">This link expires on ${expiresAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.</p>
-  </div>
-</body></html>`;
+        const html = renderBrandedEmail({
+          heading: 'Complete your application',
+          preheader: 'Your registration is received — finish your application form to continue.',
+          bodyHtml: `
+            <p style="margin:0 0 12px;">Hi ${escapeHtmlText(app.name ?? 'there')},</p>
+            <p style="margin:0 0 12px;">Thank you — your registration fee has been received. The next step is to fill in your full application details so the counsellor can review and confirm your enrolment.</p>
+            <p style="margin:0;">The form takes about 5 minutes and lets you upload supporting documents.</p>
+          `,
+          cta: { label: 'Open Application Form', href: url },
+          footerNote: `This link expires on ${expiresAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`,
+        });
         await registry.email.sendEmail({ to: app.user_email, subject: 'Complete your TTII application', html });
       } catch {
         // ignore; admin can resend
@@ -5868,21 +5870,37 @@ export class OperationsService {
     // its own checkout page when notify.email=true; this one carries
     // the human plan summary.
     try {
-      const planRows = (input.installments ?? []).map(
-        (i) => `<tr><td style="padding:4px 8px;border:1px solid #eee;">${escapeHtmlText(i.label)}</td><td style="padding:4px 8px;border:1px solid #eee;">₹${(i.amountMinor / 100).toLocaleString('en-IN')}</td><td style="padding:4px 8px;border:1px solid #eee;">${escapeHtmlText(i.dueDate)}</td></tr>`,
-      ).join('');
-      const html = `<!DOCTYPE html>
-<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;line-height:1.6;">
-  <div style="max-width:560px;margin:0 auto;padding:24px;">
-    <h2 style="color:#8F2774;margin:0 0 8px;">Your TTII payment link</h2>
-    <p>Hi ${escapeHtmlText(app.name ?? 'there')},</p>
-    <p>Please use the link below to complete your ${input.mode === 'full' ? 'course fee' : 'registration fee'} payment for <strong>${escapeHtmlText(courseTitle)}</strong>.</p>
-    <p><a href="${link.shortUrl}" style="display:inline-block;padding:10px 20px;background:#8F2774;color:#fff;text-decoration:none;border-radius:4px;">Pay ₹${(amountMinor / 100).toLocaleString('en-IN')}</a></p>
-    ${input.mode === 'installment' && planRows ? `<h3 style="margin-top:24px;">Payment Plan</h3><table style="border-collapse:collapse;font-size:14px;"><thead><tr><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Installment</th><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Amount</th><th style="padding:4px 8px;border:1px solid #eee;background:#F3F6F9;">Due</th></tr></thead><tbody>${planRows}</tbody></table>` : ''}
-    <p style="color:#6b7280;font-size:13px;">This link expires on ${new Date(expireBy * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.</p>
-    <p style="color:#6b7280;font-size:13px;margin-top:24px;">— Teachers' Training Institute of India</p>
-  </div>
-</body></html>`;
+      const { renderBrandedEmail } = await import('../integrations/email-template.js');
+      const planTableHtml = input.mode === 'installment' && (input.installments ?? []).length > 0
+        ? `<h3 style="margin:20px 0 8px;font-size:14px;font-weight:600;color:#1f2937;text-transform:uppercase;letter-spacing:0.04em;">Payment Plan</h3>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:8px 0 12px;border-collapse:collapse;font-size:14px;">
+  <thead>
+    <tr>
+      <th align="left" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Instalment</th>
+      <th align="right" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Amount</th>
+      <th align="right" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Due</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${(input.installments ?? []).map((i) => `<tr>
+      <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#1f2937;">${escapeHtmlText(i.label)}</td>
+      <td align="right" style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#1f2937;font-variant-numeric:tabular-nums;">₹${(i.amountMinor / 100).toLocaleString('en-IN')}</td>
+      <td align="right" style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#6b7280;">${escapeHtmlText(i.dueDate)}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>`
+        : '';
+      const html = renderBrandedEmail({
+        heading: input.mode === 'full' ? 'Your TTII payment link' : 'Your TTII registration payment',
+        preheader: `Pay ₹${(amountMinor / 100).toLocaleString('en-IN')} to confirm your seat in ${courseTitle || 'the course'}.`,
+        bodyHtml: `
+          <p style="margin:0 0 12px;">Hi ${escapeHtmlText(app.name ?? 'there')},</p>
+          <p style="margin:0 0 8px;">Please use the link below to complete your ${input.mode === 'full' ? 'course fee' : 'registration fee'} payment for <strong>${escapeHtmlText(courseTitle)}</strong>.</p>
+          ${planTableHtml}
+        `,
+        cta: { label: `Pay ₹${(amountMinor / 100).toLocaleString('en-IN')}`, href: link.shortUrl },
+        footerNote: `This link expires on ${new Date(expireBy * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`,
+      });
       await registry.email.sendEmail({
         to: app.user_email,
         subject: 'Your TTII payment link',
