@@ -89,6 +89,11 @@ export function GeneratePaymentLinkDialog({
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Did the (offering, combination) package lookup match a row? Used to
+  // surface a clear "no pricing set" notice so admins know to enter
+  // the values manually or set them under Course Offerings → Packages.
+  const [packageFound, setPackageFound] = useState<boolean | null>(null);
+
   // Load pricing on open. Real pricing lives in the offering ↔ combination
   // pair (offering_certificate_packages) — base_fee, discount, gst_percent
   // and registration_fee are stored per (offering_id, combination_id).
@@ -103,6 +108,7 @@ export function GeneratePaymentLinkDialog({
       setBaseFee(initialBaseFee ?? 0);
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
+      setPackageFound(null);
       setPricingLoading(true);
       try {
         let pkgMatched = false;
@@ -162,6 +168,7 @@ export function GeneratePaymentLinkDialog({
             }
           } catch { /* keep prop seeds */ }
         }
+        if (offeringId && combinationId) setPackageFound(pkgMatched);
       } finally {
         if (!cancelled) setPricingLoading(false);
       }
@@ -365,6 +372,14 @@ export function GeneratePaymentLinkDialog({
             <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">
               Pricing {pricingLoading ? '(loading…)' : 'based on offering'}
             </p>
+            {packageFound === false ? (
+              <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                No pricing is set for this Offering and Combination pair.
+                Set Base Fee, Discount, GST and Registration Fee under
+                Courses → Course Offerings → Packages, or enter the
+                values manually below.
+              </div>
+            ) : null}
             <table className="w-full text-sm">
               <tbody>
                 <tr className="border-b border-slate-100">

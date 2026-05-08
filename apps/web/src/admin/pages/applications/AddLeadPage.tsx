@@ -170,8 +170,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       .catch(() => setOfferings([]));
   }, [api, session.token, courseId]);
 
-  // Certificate combinations are course-scoped — load once a course
-  // is picked, then filter to active. Combination remains optional.
+  // Certificate combinations — narrow to the ones that have a price
+  // package set for the selected offering. Without an offering picked,
+  // fall back to the full course-scoped active list. Naji 2026-05-09 —
+  // priced combinations are the only ones the payment dialog can
+  // pre-fill from, so showing only those keeps the captured data
+  // consistent with what's payable.
   useEffect(() => {
     if (!courseId) {
       setCombinations([]);
@@ -180,25 +184,38 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     }
     const courseChanged = lastCourseIdRef.current !== courseId;
     if (courseChanged) setCombinationId('');
-    void api
-      .listCertificateCombinations(session.token, { course_id: courseId, status: 'active' })
-      .then(async (rows) => {
-        let list = rows;
+    void (async () => {
+      try {
+        const allActive = await api.listCertificateCombinations(session.token, { course_id: courseId, status: 'active' });
+        let list = allActive;
+        if (offeringId) {
+          try {
+            const packages = await api.listOfferingPackages(session.token, offeringId);
+            const pricedIds = new Set(packages.map((p) => asString(p.combination_id)));
+            const priced = allActive.filter((c) => pricedIds.has(asString(c.id)));
+            // If the offering has at least one priced combination, show
+            // only those. Otherwise (no packages set yet for this
+            // offering) keep the full list so admins aren't blocked.
+            if (priced.length > 0) list = priced;
+          } catch { /* fallback to full list */ }
+        }
         const pendingCombo = pendingCombinationIdRef.current;
         if (pendingCombo && !list.some((r) => asString(r.id) === pendingCombo)) {
           try {
             const allRows = await api.listCertificateCombinations(session.token, { course_id: courseId });
             list = allRows;
-          } catch { /* keep active list */ }
+          } catch { /* keep current list */ }
         }
         setCombinations(list);
         if (pendingCombo && list.some((r) => asString(r.id) === pendingCombo)) {
           setCombinationId(pendingCombo);
           pendingCombinationIdRef.current = '';
         }
-      })
-      .catch(() => setCombinations([]));
-  }, [api, session.token, courseId]);
+      } catch {
+        setCombinations([]);
+      }
+    })();
+  }, [api, session.token, courseId, offeringId]);
 
   const courseOptions = useMemo(
     () => courses.map((c) => ({ label: asString(c.title) || `Course ${asString(c.id)}`, value: asString(c.id) })),
