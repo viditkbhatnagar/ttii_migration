@@ -81,14 +81,14 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     id: 'fee-information',
     label: 'Fee Information',
     icon: 'IndianRupee',
+    // Naji 2026-05-09 — Course Fee Status, Scholarships, Student
+    // Payments hidden from the sidebar. Routes still registered in
+    // admin-routes.ts so deep links and any future re-enable work.
     children: [
       { id: 'course-fee-structure', label: 'Course Fee Structure', href: '/admin/fee_management/course_fee_structure' },
       { id: 'fee-summary', label: 'Fee Summary', href: '/admin/fee_management/fee_summary' },
-      { id: 'course-fee-status', label: 'Course Fee Status', href: '/admin/course_fee/index' },
       { id: 'fee-installments', label: 'Fee Installments', href: '/admin/fee_management/installments' },
       { id: 'payment-status', label: 'Payment Status', href: '/admin/fee_management/payment_status' },
-      { id: 'scholarships', label: 'Scholarships', href: '/admin/scholarships/index' },
-      { id: 'student-payments', label: 'Student Payments', href: '/admin/student_payments/index' },
     ],
   },
   {
