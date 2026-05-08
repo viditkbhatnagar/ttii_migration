@@ -89,67 +89,79 @@ export function GeneratePaymentLinkDialog({
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load offering pricing + combination GST on open. Falls back to
-  // initial* props passed from ViewApplicationPage. Naji 2026-05-08 —
-  // Base Fee is now editable so admins can override / set it when the
-  // offering hasn't had pricing configured yet (production data still
-  // has many offerings with NULL base_fee).
+  // Load pricing on open. Real pricing lives in the offering ↔ combination
+  // pair (offering_certificate_packages) — base_fee, discount, gst_percent
+  // and registration_fee are stored per (offering_id, combination_id).
+  // We pull the package row matching the picked combination first; fall
+  // back to combination GST + offering-level pricing only if the package
+  // row is missing.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void (async () => {
-      // First seed from props.
+      // Seed from props.
       setBaseFee(initialBaseFee ?? 0);
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
       setPricingLoading(true);
       try {
-        const tasks: Promise<unknown>[] = [];
-        // Pull offering pricing if we have one.
-        if (offeringId) {
-          tasks.push(
-            api
-              .listOfferings(authToken, {})
-              .then((offerings) => {
-                if (cancelled) return;
-                const list = Array.isArray(offerings) ? offerings : [];
-                const off = list.find((o) => String((o as { id?: unknown }).id) === String(offeringId)) as
-                  | { base_fee?: unknown; pricing_amount?: unknown; discount?: unknown; offered_fee?: unknown }
-                  | undefined;
-                if (off) {
-                  const base = Number(off.base_fee ?? off.pricing_amount ?? 0);
-                  const disc = Number(off.discount ?? 0);
-                  const offered = Number(off.offered_fee ?? 0);
-                  if (Number.isFinite(base) && base > 0) setBaseFee(base);
-                  if (Number.isFinite(disc) && disc > 0) setDiscount(disc);
-                  if (offered > 0 && base > 0 && disc <= 0) setDiscount(Math.max(0, base - offered));
-                }
-              })
-              .catch(() => undefined),
-          );
+        let pkgMatched = false;
+        // 1) Try the (offering, combination) package — this is where Naji's
+        //    team actually sets pricing.
+        if (offeringId && combinationId) {
+          try {
+            const packages = await api.listOfferingPackages(authToken, offeringId);
+            if (cancelled) return;
+            const pkg = packages.find((p) => String((p as { combination_id?: unknown }).combination_id) === String(combinationId)) as
+              | { base_fee?: unknown; discount?: unknown; offered_fee?: unknown; registration_fee?: unknown; gst_percent?: unknown; gst_applicable?: unknown }
+              | undefined;
+            if (pkg) {
+              pkgMatched = true;
+              const base = Number(pkg.base_fee ?? 0);
+              const disc = Number(pkg.discount ?? 0);
+              const offered = Number(pkg.offered_fee ?? 0);
+              const regFee = Number(pkg.registration_fee ?? 0);
+              const gst = Number(pkg.gst_percent ?? 0);
+              if (Number.isFinite(base) && base > 0) setBaseFee(base);
+              if (Number.isFinite(disc) && disc > 0) setDiscount(disc);
+              else if (offered > 0 && base > 0) setDiscount(Math.max(0, base - offered));
+              if (Number.isFinite(regFee) && regFee > 0) setRegistrationFee(regFee);
+              setGstPercent(Number.isFinite(gst) ? gst : 0);
+            }
+          } catch { /* fall through to combination/offering fallbacks */ }
         }
-        // Pull combination GST if we have one. Combinations carry the
-        // gst_applicable + gst_percent — so the dialog should respect
-        // "no GST" when the combination is non-GST (e.g. TTII + MSU).
-        if (combinationId) {
-          tasks.push(
-            api
-              .getCertificateCombination(authToken, combinationId)
-              .then((combo) => {
-                if (cancelled || !combo) return;
-                const c = combo as { gst_applicable?: unknown; gst_percent?: unknown };
-                const applicable = Boolean(c.gst_applicable);
-                const percent = Number(c.gst_percent ?? 0);
-                if (!applicable) {
-                  setGstPercent(0);
-                } else if (Number.isFinite(percent) && percent > 0) {
-                  setGstPercent(percent);
-                }
-              })
-              .catch(() => undefined),
-          );
+        // 2) Fallback — combination GST only (when no package row exists).
+        if (!pkgMatched && combinationId) {
+          try {
+            const combo = await api.getCertificateCombination(authToken, combinationId);
+            if (!cancelled && combo) {
+              const c = combo as { gst_applicable?: unknown; gst_percent?: unknown };
+              const applicable = Boolean(c.gst_applicable);
+              const percent = Number(c.gst_percent ?? 0);
+              if (!applicable) setGstPercent(0);
+              else if (Number.isFinite(percent) && percent > 0) setGstPercent(percent);
+            }
+          } catch { /* keep current */ }
         }
-        await Promise.all(tasks);
+        // 3) Fallback — offering-level pricing (legacy data without packages).
+        if (!pkgMatched && offeringId) {
+          try {
+            const offerings = await api.listOfferings(authToken, {});
+            if (cancelled) return;
+            const list = Array.isArray(offerings) ? offerings : [];
+            const off = list.find((o) => String((o as { id?: unknown }).id) === String(offeringId)) as
+              | { base_fee?: unknown; pricing_amount?: unknown; discount?: unknown; offered_fee?: unknown }
+              | undefined;
+            if (off) {
+              const base = Number(off.base_fee ?? off.pricing_amount ?? 0);
+              const disc = Number(off.discount ?? 0);
+              const offered = Number(off.offered_fee ?? 0);
+              if (Number.isFinite(base) && base > 0) setBaseFee(base);
+              if (Number.isFinite(disc) && disc > 0) setDiscount(disc);
+              if (offered > 0 && base > 0 && disc <= 0) setDiscount(Math.max(0, base - offered));
+            }
+          } catch { /* keep prop seeds */ }
+        }
       } finally {
         if (!cancelled) setPricingLoading(false);
       }

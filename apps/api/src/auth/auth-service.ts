@@ -490,13 +490,27 @@ export class AuthService {
     // findFirst can target a different role's row than the user is trying
     // to reset (Naji 2026-04-30 — operations@learnerseducation.com hit the
     // Centre row instead of his Super Admin row).
-    const user = await this.prisma.users.findFirst({
+    let user = await this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
         ...(typeof roleId === 'number' ? { role_id: roleId } : {}),
       },
     });
+    // Naji 2026-05-08 — if the role-scoped lookup misses but the email
+    // exists for some other role, fall back to that row. Otherwise the
+    // OTP silently never sends (the route reports "if an account exists,
+    // OTP sent" for security and the user is left waiting). Falling back
+    // is safe because the OTP only resets that specific row's password.
+    if (!user && typeof roleId === 'number') {
+      user = await this.prisma.users.findFirst({
+        where: {
+          deleted_at: null,
+          OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        },
+        orderBy: { id: 'desc' },
+      });
+    }
 
     // Always return the same masked email shape — never reveal whether the
     // account exists. If the user is missing we still pretend success.
@@ -607,13 +621,24 @@ export class AuthService {
       });
     }
 
-    const user = await this.prisma.users.findFirst({
+    let user = await this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
         ...(typeof roleId === 'number' ? { role_id: roleId } : {}),
       },
     });
+    // Match the fallback logic in sendForgotPasswordOtp so verify
+    // succeeds when the OTP was issued against a different role row.
+    if (!user && typeof roleId === 'number') {
+      user = await this.prisma.users.findFirst({
+        where: {
+          deleted_at: null,
+          OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        },
+        orderBy: { id: 'desc' },
+      });
+    }
 
     if (!user || !isTruthyString(user.password)) {
       throw new AuthErrorClass(400, 'OTP is invalid or has expired.', 'INVALID_OTP');
@@ -692,13 +717,25 @@ export class AuthService {
       throw new AuthErrorClass(400, 'Invalid request.', 'VALIDATION_ERROR');
     }
 
-    const user = await this.prisma.users.findFirst({
+    let user = await this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
         ...(typeof input.roleId === 'number' ? { role_id: input.roleId } : {}),
       },
     });
+    // Same fallback as the OTP send/verify path — multi-role emails
+    // sometimes arrive without a matching role row, but we still want
+    // the reset to land on the row the OTP was issued for.
+    if (!user && typeof input.roleId === 'number') {
+      user = await this.prisma.users.findFirst({
+        where: {
+          deleted_at: null,
+          OR: [{ email: normalizedEmail }, { user_email: normalizedEmail }],
+        },
+        orderBy: { id: 'desc' },
+      });
+    }
 
     if (!user) {
       throw toLegacyPasswordResetError();
