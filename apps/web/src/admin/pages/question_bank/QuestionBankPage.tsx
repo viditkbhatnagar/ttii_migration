@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
+import { useConfirm } from '@/components/confirm-dialog';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
@@ -23,6 +24,7 @@ const Q_TYPE_LABELS: Record<number, string> = { 0: 'MCQ', 1: 'Descriptive' };
 //   3) OR Bulk upload — download a CSV template, fill in, upload, review,
 //      then save.
 export default function QuestionBankPage({ api, session }: AdminPageProps) {
+  const confirm = useConfirm();
   // Filters
   const [courseFilter, setCourseFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
@@ -155,12 +157,13 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
       else await api.addQuestion(session.token, payload);
       toast.success(editingId ? 'Question updated.' : 'Question added.');
       setModalOpen(false);
-      window.location.reload();
+      reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save question.');
     } finally {
       setSubmitting(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, session.token, editingId, mCourseId, mSubjectId, mLessonId, mQType, mTitle, mHint, mSolution, mOptions, mCorrect]);
 
   // Bulk upload helpers
@@ -228,7 +231,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
         toast.success(message);
         setBulkOpen(false);
         setBulkRows([]);
-        window.location.reload();
+        reload();
       } else {
         toast.error(message);
       }
@@ -240,7 +243,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
   };
 
   // Data + columns
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadQuestionBank(session.token, {
       ...(courseFilter ? { courseId: courseFilter } : {}),
       ...(subjectFilter ? { subjectId: subjectFilter } : {}),
@@ -248,6 +251,26 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
     }),
     [courseFilter, subjectFilter, lessonFilter],
   );
+
+  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row.id);
+    if (!id) return;
+    const ok = await confirm({
+      title: 'Delete this question?',
+      description: 'This soft-deletes the question. It will no longer appear in the bank.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.deleteQuestion(session.token, id);
+      const status = (res as { status?: number }).status;
+      if (status === 1) { toast.success('Question deleted.'); reload(); }
+      else toast.error(asString((res as { message?: unknown }).message) || 'Could not delete.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete.');
+    }
+  }, [api, session.token, confirm, reload]);
   const questions = useMemo(() => toRecords(data), [data]);
 
   const columns: DataTableColumn[] = useMemo(() => [
@@ -283,7 +306,7 @@ export default function QuestionBankPage({ api, session }: AdminPageProps) {
         rows={questions}
         actions={[
           { label: 'Edit', onClick: (row) => openEditModal(row) },
-          { label: 'Delete', onClick: (row) => { void api.deleteQuestion(session.token, asString(row.id)).then(() => window.location.reload()); }, variant: 'destructive' },
+          { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
         ]}
       />
 
