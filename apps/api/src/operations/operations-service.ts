@@ -3369,6 +3369,316 @@ export class OperationsService {
     };
   }
 
+  // Naji 2026-05-09 — Step 2: scheduling-suggestions returns one row
+  // per UNIQUE subject across the picked courses (subjects shared
+  // across courses run as a single exam — Naji's option 'a').
+  async getExamSchedulingSuggestions(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const links = await this.prisma.exam_courses.findMany({ where: { exam_id: id }, select: { course_id: true } });
+    const courseIds = links.map((l) => l.course_id);
+    if (courseIds.length === 0) return [];
+    const courses = await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } });
+    const courseTitleMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    // Subjects per course via the course_subject pivot.
+    const pivot = await this.prisma.course_subject.findMany({
+      where: { deleted_at: null, course_id: { in: courseIds } },
+      select: { subject_id: true, course_id: true },
+    });
+    const subjectIds = Array.from(new Set(pivot.map((p) => p.subject_id)));
+    const subjects = subjectIds.length > 0
+      ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
+      : [];
+    const subjectTitleMap = new Map(subjects.map((s) => [s.id, s.title ?? '']));
+    const courseIdsBySubject = new Map<number, number[]>();
+    for (const p of pivot) {
+      const arr = courseIdsBySubject.get(p.subject_id) ?? [];
+      arr.push(p.course_id);
+      courseIdsBySubject.set(p.subject_id, arr);
+    }
+    return [...subjectIds].sort().map((sid) => {
+      const courseIdList = courseIdsBySubject.get(sid) ?? [];
+      const courseNames = courseIdList.map((cid) => courseTitleMap.get(cid) ?? '').filter(Boolean).join(', ');
+      return {
+        subject_id: sid,
+        subject_title: subjectTitleMap.get(sid) ?? `Subject ${sid}`,
+        course_ids: courseIdList.join(','),
+        available_courses: courseNames,
+      };
+    });
+  }
+
+  async getExamSchedule(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const rows = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+    if (rows.length === 0) return [];
+    // Resolve available course names from the stored CSV.
+    const allCourseIds = Array.from(new Set(rows.flatMap((r) => (r.course_ids ?? '').split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0))));
+    const courses = allCourseIds.length > 0
+      ? await this.prisma.course.findMany({ where: { id: { in: allCourseIds } }, select: { id: true, title: true } })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    return rows.map((r) => {
+      const ids = (r.course_ids ?? '').split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+      return {
+        id: r.id,
+        subject_id: r.subject_id,
+        subject_title: r.subject_title,
+        course_ids: r.course_ids,
+        available_courses: ids.map((i) => courseMap.get(i) ?? '').filter(Boolean).join(', '),
+        exam_date: r.exam_date,
+        start_time: r.start_time,
+        end_time: r.end_time,
+        duration_minutes: r.duration_minutes,
+        total_marks: r.total_marks,
+        pass_marks: r.pass_marks,
+        position: r.position,
+      };
+    });
+  }
+
+  async saveExamSchedule(
+    actorUserId: string,
+    examId: string,
+    rows: Array<{
+      id?: number | null | undefined;
+      subjectId?: number | null | undefined;
+      subjectTitle: string;
+      courseIds: string;
+      examDate?: string | undefined;
+      startTime?: string | undefined;
+      endTime?: string | undefined;
+      durationMinutes?: number | undefined;
+      totalMarks?: number | undefined;
+      passMarks?: number | undefined;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    void actorUserId;
+    // Replace strategy — delete existing rows then insert the submitted set.
+    await this.prisma.exam_subjects.deleteMany({ where: { exam_id: id } });
+    if (rows.length > 0) {
+      await this.prisma.exam_subjects.createMany({
+        data: rows.map((r, idx) => ({
+          exam_id: id,
+          subject_id: r.subjectId ?? null,
+          subject_title: r.subjectTitle.trim(),
+          course_ids: r.courseIds || null,
+          exam_date: r.examDate ? new Date(r.examDate) : null,
+          start_time: r.startTime ? new Date(`1970-01-01T${r.startTime}:00`) : null,
+          end_time: r.endTime ? new Date(`1970-01-01T${r.endTime}:00`) : null,
+          duration_minutes: r.durationMinutes ?? null,
+          total_marks: r.totalMarks ?? null,
+          pass_marks: r.passMarks ?? null,
+          position: idx,
+        })),
+      });
+    }
+    return { status: 1, message: 'Schedule saved.' };
+  }
+
+  // Naji 2026-05-09 — Step 3: per-subject components (MCQ / Descriptive).
+  async getExamComponents(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const subjects = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { id: true } });
+    const subjectIds = subjects.map((s) => s.id);
+    if (subjectIds.length === 0) return [];
+    const rows = await this.prisma.exam_subject_components.findMany({ where: { exam_subject_id: { in: subjectIds } } });
+    return rows.map((r) => ({
+      id: r.id,
+      exam_subject_id: r.exam_subject_id,
+      component_type: r.component_type,
+      num_questions: r.num_questions,
+      marks_each: r.marks_each === null ? 0 : Number(r.marks_each),
+      negative_marks: r.negative_marks === null ? 0 : Number(r.negative_marks),
+      shuffle_questions: !!r.shuffle_questions,
+      shuffle_options: !!r.shuffle_options,
+      word_limit: r.word_limit,
+    }));
+  }
+
+  async saveExamComponents(
+    examId: string,
+    rows: Array<{
+      examSubjectId: number;
+      componentType: 'mcq' | 'descriptive';
+      numQuestions: number;
+      marksEach: number;
+      negativeMarks?: number | undefined;
+      shuffleQuestions?: boolean | undefined;
+      shuffleOptions?: boolean | undefined;
+      wordLimit?: number | undefined;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    const subjects = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { id: true } });
+    const subjectIds = new Set(subjects.map((s) => s.id));
+    if (subjectIds.size === 0) return { status: 0, message: 'Save the schedule (Step 2) first.' };
+    await this.prisma.exam_subject_components.deleteMany({ where: { exam_subject_id: { in: [...subjectIds] } } });
+    if (rows.length > 0) {
+      await this.prisma.exam_subject_components.createMany({
+        data: rows
+          .filter((r) => subjectIds.has(r.examSubjectId))
+          .map((r) => ({
+            exam_subject_id: r.examSubjectId,
+            component_type: r.componentType,
+            num_questions: r.numQuestions ?? 0,
+            marks_each: r.marksEach ?? 0,
+            negative_marks: r.negativeMarks ?? 0,
+            shuffle_questions: r.shuffleQuestions ? 1 : 0,
+            shuffle_options: r.shuffleOptions ? 1 : 0,
+            word_limit: r.wordLimit ?? null,
+          })),
+      });
+    }
+    return { status: 1, message: 'Components saved.' };
+  }
+
+  // Naji 2026-05-09 — Step 4: eligible students = active enrolments in
+  // the exam's picked courses. Default scoping until the new Student
+  // Eligibility module's rules go live.
+  async getExamEligibleStudents(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const links = await this.prisma.exam_courses.findMany({ where: { exam_id: id }, select: { course_id: true } });
+    const courseIds = links.map((l) => l.course_id);
+    if (courseIds.length === 0) return [];
+    const enrolments = await this.prisma.enrol.findMany({
+      where: { deleted_at: null, course_id: { in: courseIds } },
+      select: { user_id: true, course_id: true, enrollment_status: true },
+    });
+    const userIds = Array.from(new Set(enrolments.map((e) => e.user_id).filter((v): v is number => v !== null)));
+    if (userIds.length === 0) return [];
+    const [users, courses] = await Promise.all([
+      this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, user_email: true, email: true, student_id: true } }),
+      this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    // Build (user, courses) — one row per user with the courses they're enrolled in.
+    const coursesByUser = new Map<number, string[]>();
+    for (const e of enrolments) {
+      if (!e.user_id || !e.course_id) continue;
+      const arr = coursesByUser.get(e.user_id) ?? [];
+      const t = courseMap.get(e.course_id);
+      if (t && !arr.includes(t)) arr.push(t);
+      coursesByUser.set(e.user_id, arr);
+    }
+    return [...coursesByUser.keys()].map((uid) => {
+      const u = userMap.get(uid);
+      return {
+        user_id: uid,
+        student_id: u?.student_id ?? '',
+        name: u?.name ?? '',
+        email: u?.user_email ?? u?.email ?? '',
+        courses: (coursesByUser.get(uid) ?? []).join(', '),
+      };
+    }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
+
+  async getExamAllocations(examId: string): Promise<number[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const rows = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
+    return rows.map((r) => r.user_id);
+  }
+
+  async saveExamAllocations(examId: string, userIds: number[]): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    await this.prisma.exam_student_allocations.deleteMany({ where: { exam_id: id } });
+    if (userIds.length > 0) {
+      await this.prisma.exam_student_allocations.createMany({
+        data: userIds.map((user_id) => ({ exam_id: id, user_id })),
+        skipDuplicates: true,
+      });
+    }
+    return { status: 1, message: 'Allocations saved.' };
+  }
+
+  // Naji 2026-05-09 — Step 5: instruction templates library + publish.
+  async listInstructionTemplates(): Promise<Record<string, unknown>[]> {
+    const rows = await this.prisma.exam_instruction_templates.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } });
+    return rows.map((r) => ({ id: r.id, title: r.title, body: r.body, created_at: r.created_at }));
+  }
+
+  async createInstructionTemplate(actorUserId: string, input: { title: string; body: string }): Promise<Record<string, unknown>> {
+    const title = input.title.trim();
+    if (!title) return { status: 0, message: 'Title is required.' };
+    const created = await this.prisma.exam_instruction_templates.create({
+      data: { title, body: input.body ?? '', created_by: toNullableIntId(actorUserId) },
+    });
+    return { status: 1, message: 'Template saved.', data: { id: created.id } };
+  }
+
+  async deleteInstructionTemplate(id: string): Promise<Record<string, unknown>> {
+    const tid = toNullableIntId(id);
+    if (!tid) return { status: 0, message: 'Invalid template id.' };
+    await this.prisma.exam_instruction_templates.updateMany({ where: { id: tid }, data: { deleted_at: new Date() } });
+    return { status: 1, message: 'Template deleted.' };
+  }
+
+  async publishExam(
+    actorUserId: string,
+    examId: string,
+    input: { instructions?: string | undefined; notifyEmail: boolean; notifyInapp: boolean },
+  ): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const now = new Date();
+    await this.prisma.exam.updateMany({
+      where: { id, deleted_at: null },
+      data: {
+        instructions: input.instructions ?? null,
+        notify_email: input.notifyEmail ? 1 : 0,
+        notify_inapp: input.notifyInapp ? 1 : 0,
+        status: 'published',
+        published_at: now,
+        published_by: actor,
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    // Notify allocated students (best-effort — failures don't block publish).
+    if (input.notifyEmail) {
+      try {
+        const allocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
+        const userIds = allocs.map((a) => a.user_id);
+        if (userIds.length > 0) {
+          const students = await this.prisma.users.findMany({
+            where: { id: { in: userIds }, deleted_at: null },
+            select: { id: true, name: true, user_email: true, email: true },
+          });
+          const exam = await this.prisma.exam.findFirst({ where: { id }, select: { title: true, exam_code: true } });
+          const { createIntegrationRegistry } = await import('../integrations/registry.js');
+          const { renderBrandedEmail } = await import('../integrations/email-template.js');
+          const registry = createIntegrationRegistry();
+          for (const s of students) {
+            const to = s.user_email ?? s.email ?? '';
+            if (!to) continue;
+            try {
+              await registry.email.sendEmail({
+                to,
+                subject: `New exam scheduled — ${exam?.title ?? 'TTII'}`,
+                html: renderBrandedEmail({
+                  heading: 'New Exam Scheduled',
+                  bodyHtml: `<p>Hi ${escapeHtmlText(s.name ?? 'there')},</p><p>You have been allocated to <strong>${escapeHtmlText(exam?.title ?? '')}</strong>${exam?.exam_code ? ` (${escapeHtmlText(exam.exam_code)})` : ''}. Please log in to your portal to view the schedule and instructions.</p>`,
+                  cta: { label: 'Open My Exams', href: 'https://learn.teachersindia.in/exams' },
+                }),
+              });
+            } catch { /* best-effort */ }
+          }
+        }
+      } catch { /* email send phase failure doesn't block publish */ }
+    }
+    return { status: 1, message: 'Exam published.' };
+  }
+
   async addExam(actorUserId: string, input: ExamInput): Promise<Record<string, unknown>> {
     if (!input.title.trim()) {
       return { status: 0, message: 'Exam title is required.' };

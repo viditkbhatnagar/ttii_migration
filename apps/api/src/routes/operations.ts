@@ -1357,6 +1357,145 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-05-09 — Steps 2-5 of the Exam Creation wizard.
+  app.get('/admin/exam/draft/scheduling-suggestions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamSchedulingSuggestions(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/schedule', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamSchedule(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/draft/schedule/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const rowsRaw = Array.isArray(payload.rows) ? payload.rows : [];
+      const rows = rowsRaw
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((r) => ({
+          id: toInteger(r.id) || null,
+          subjectId: toInteger(r.subject_id) || null,
+          subjectTitle: toStringValue(r.subject_title),
+          courseIds: toStringValue(r.course_ids),
+          examDate: toStringValue(r.exam_date) || undefined,
+          startTime: toStringValue(r.start_time) || undefined,
+          endTime: toStringValue(r.end_time) || undefined,
+          durationMinutes: toInteger(r.duration_minutes) || undefined,
+          totalMarks: toInteger(r.total_marks) || undefined,
+          passMarks: toInteger(r.pass_marks) || undefined,
+        }))
+        .filter((v) => v.subjectTitle !== '');
+      const result = await operationsService.saveExamSchedule(requestUserId(request), toStringValue(payload.exam_id), rows);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/components', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamComponents(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/draft/components/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const rowsRaw = Array.isArray(payload.rows) ? payload.rows : [];
+      const rows = rowsRaw
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((r) => {
+          const examSubjectId = toInteger(r.exam_subject_id);
+          const ct = toStringValue(r.component_type) === 'descriptive' ? 'descriptive' as const : 'mcq' as const;
+          return {
+            examSubjectId,
+            componentType: ct,
+            numQuestions: toInteger(r.num_questions),
+            marksEach: toNumber(r.marks_each),
+            negativeMarks: toNumber(r.negative_marks),
+            shuffleQuestions: Boolean(r.shuffle_questions),
+            shuffleOptions: Boolean(r.shuffle_options),
+            wordLimit: toInteger(r.word_limit) || undefined,
+          };
+        })
+        .filter((v) => v.examSubjectId > 0);
+      const result = await operationsService.saveExamComponents(toStringValue(payload.exam_id), rows);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/eligible-students', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamEligibleStudents(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/allocations', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamAllocations(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/draft/allocations/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const idsRaw = Array.isArray(payload.user_ids) ? payload.user_ids : [];
+      const ids = idsRaw.map((v) => toInteger(v)).filter((n): n is number => Number.isInteger(n) && n > 0);
+      const result = await operationsService.saveExamAllocations(toStringValue(payload.exam_id), ids);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/instruction-templates', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listInstructionTemplates();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/instruction-templates/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.createInstructionTemplate(requestUserId(request), {
+        title: toStringValue(payload.title),
+        body: toStringValue(payload.body),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/instruction-templates/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteInstructionTemplate(toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/draft/publish', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.publishExam(requestUserId(request), toStringValue(payload.exam_id), {
+        instructions: toStringValue(payload.instructions) || undefined,
+        notifyEmail: payload.notify_email === undefined ? true : Boolean(payload.notify_email),
+        notifyInapp: payload.notify_inapp === undefined ? true : Boolean(payload.notify_inapp),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/exam/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

@@ -910,6 +910,12 @@ model exam {
   to_time             DateTime? @db.Time(0)
   // draft → goes through wizard; published → visible to allocated students.
   status              String?   @default("draft") @db.VarChar(20)
+  // Step 5 of the wizard.
+  instructions        String?   @db.LongText
+  notify_email        Int?      @default(1) @db.TinyInt
+  notify_inapp        Int?      @default(1) @db.TinyInt
+  published_at        DateTime? @db.DateTime(0)
+  published_by        Int?
   created_by          Int?
   updated_by          Int?
   deleted_by          Int?
@@ -943,6 +949,70 @@ model exam_offerings {
   @@unique([exam_id, offering_id], map: "uniq_exam_offering")
   @@index([exam_id], map: "idx_eo_exam")
   @@index([offering_id], map: "idx_eo_offering")
+}
+
+/// Step 2 of the Exam Creation wizard — one row per subject in the
+/// exam's time-table. Naji 2026-05-09: subjects shared across courses
+/// run as a single exam, so subject_id may map to multiple courses
+/// (we stash them in `course_ids` as a comma list).
+model exam_subjects {
+  id               Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id          Int
+  subject_id       Int?
+  subject_title    String    @db.VarChar(255)
+  course_ids       String?   @db.VarChar(500)
+  exam_date        DateTime? @db.Date
+  start_time       DateTime? @db.Time(0)
+  end_time         DateTime? @db.Time(0)
+  duration_minutes Int?
+  total_marks      Int?
+  pass_marks       Int?
+  position         Int?      @default(0)
+  created_at       DateTime? @default(now()) @db.DateTime(0)
+  updated_at       DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([exam_id], map: "idx_es_exam")
+}
+
+/// Step 3 — per-subject question component (MCQ / Descriptive).
+model exam_subject_components {
+  id                Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_subject_id   Int       @db.UnsignedInt
+  component_type    String    @db.VarChar(20)
+  num_questions     Int?      @default(0)
+  marks_each        Decimal?  @default(0) @db.Decimal(6, 2)
+  negative_marks    Decimal?  @default(0) @db.Decimal(6, 2)
+  shuffle_questions Int?      @default(0) @db.TinyInt
+  shuffle_options   Int?      @default(0) @db.TinyInt
+  word_limit        Int?
+  created_at        DateTime? @default(now()) @db.DateTime(0)
+
+  @@index([exam_subject_id], map: "idx_esc_subject")
+}
+
+/// Step 4 — students allocated to take this exam.
+model exam_student_allocations {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id    Int
+  user_id    Int
+  created_at DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([exam_id, user_id], map: "uniq_esa")
+  @@index([exam_id], map: "idx_esa_exam")
+  @@index([user_id], map: "idx_esa_user")
+}
+
+/// Step 5 — reusable exam instruction templates library.
+model exam_instruction_templates {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  title      String    @db.VarChar(200)
+  body       String?   @db.LongText
+  created_by Int?
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  updated_at DateTime? @default(now()) @db.DateTime(0)
+  deleted_at DateTime? @db.DateTime(0)
+
+  @@index([deleted_at], map: "idx_eit_deleted")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

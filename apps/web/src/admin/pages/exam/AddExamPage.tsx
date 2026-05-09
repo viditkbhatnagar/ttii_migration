@@ -333,9 +333,50 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
             </div>
           </CardContent>
         </Card>
-      ) : (
-        <ComingSoonStep stepLabel={STEPS.find((s) => s.id === activeStep)?.label ?? ''} examCode={draft.exam_code} onBack={() => setActiveStep(1)} />
-      )}
+      ) : null}
+
+      {activeStep === 2 ? (
+        <SchedulingStep
+          api={api}
+          authToken={session.token}
+          examId={draft.id}
+          onSaved={() => setActiveStep(3)}
+          onBack={() => setActiveStep(1)}
+          onClose={() => onNavigate('/admin/exam/index')}
+        />
+      ) : null}
+
+      {activeStep === 3 ? (
+        <ComponentsStep
+          api={api}
+          authToken={session.token}
+          examId={draft.id}
+          onSaved={() => setActiveStep(4)}
+          onBack={() => setActiveStep(2)}
+          onClose={() => onNavigate('/admin/exam/index')}
+        />
+      ) : null}
+
+      {activeStep === 4 ? (
+        <AllocationsStep
+          api={api}
+          authToken={session.token}
+          examId={draft.id}
+          onSaved={() => setActiveStep(5)}
+          onBack={() => setActiveStep(3)}
+          onClose={() => onNavigate('/admin/exam/index')}
+        />
+      ) : null}
+
+      {activeStep === 5 ? (
+        <PublishStep
+          api={api}
+          authToken={session.token}
+          examId={draft.id}
+          onPublished={() => onNavigate('/admin/exam/index')}
+          onBack={() => setActiveStep(4)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -369,16 +410,668 @@ function MultiPickerList({
   );
 }
 
-function ComingSoonStep({ stepLabel, examCode, onBack }: { stepLabel: string; examCode: string; onBack: () => void }) {
+// ─── Step 2: Scheduling ────────────────────────────────────────────
+interface ScheduleRow {
+  id?: number;
+  subject_id: number | null;
+  subject_title: string;
+  course_ids: string;
+  available_courses: string;
+  exam_date: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  total_marks: number;
+  pass_marks: number;
+}
+
+function SchedulingStep({
+  api,
+  authToken,
+  examId,
+  onSaved,
+  onBack,
+  onClose,
+}: {
+  api: AdminPageProps['api'];
+  authToken: string;
+  examId: string;
+  onSaved: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<ScheduleRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!examId) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const existing = await api.getExamSchedule(authToken, examId);
+        if (cancelled) return;
+        if (existing.length > 0) {
+          setRows(existing.map((r) => ({
+            id: asNumber(r.id),
+            subject_id: r.subject_id ? asNumber(r.subject_id) : null,
+            subject_title: asString(r.subject_title),
+            course_ids: asString(r.course_ids),
+            available_courses: asString(r.available_courses),
+            exam_date: asString(r.exam_date).slice(0, 10),
+            start_time: extractTime(asString(r.start_time)),
+            end_time: extractTime(asString(r.end_time)),
+            duration_minutes: asNumber(r.duration_minutes),
+            total_marks: asNumber(r.total_marks),
+            pass_marks: asNumber(r.pass_marks),
+          })));
+        } else {
+          const suggestions = await api.getExamSchedulingSuggestions(authToken, examId);
+          if (cancelled) return;
+          setRows(suggestions.map((s) => ({
+            subject_id: asNumber(s.subject_id),
+            subject_title: asString(s.subject_title),
+            course_ids: asString(s.course_ids),
+            available_courses: asString(s.available_courses),
+            exam_date: '',
+            start_time: '',
+            end_time: '',
+            duration_minutes: 0,
+            total_marks: 100,
+            pass_marks: 40,
+          })));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, authToken, examId]);
+
+  const updateRow = (idx: number, patch: Partial<ScheduleRow>) => {
+    setRows((cur) => cur.map((r, i) => {
+      if (i !== idx) return r;
+      const next = { ...r, ...patch };
+      if (patch.exam_date !== undefined || patch.start_time !== undefined || patch.end_time !== undefined) {
+        if (next.exam_date && next.start_time && next.end_time) {
+          const start = new Date(`${next.exam_date}T${next.start_time}:00`);
+          const end = new Date(`${next.exam_date}T${next.end_time}:00`);
+          if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+            next.duration_minutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+          }
+        }
+      }
+      return next;
+    }));
+  };
+  const removeRow = (idx: number) => setRows((cur) => cur.filter((_, i) => i !== idx));
+
+  const handleSave = async (then: 'next' | 'close') => {
+    setSaving(true);
+    try {
+      const payload = rows.map((r) => ({
+        id: r.id,
+        subject_id: r.subject_id,
+        subject_title: r.subject_title,
+        course_ids: r.course_ids,
+        exam_date: r.exam_date,
+        start_time: r.start_time,
+        end_time: r.end_time,
+        duration_minutes: r.duration_minutes,
+        total_marks: r.total_marks,
+        pass_marks: r.pass_marks,
+      }));
+      const res = await api.saveExamSchedule(authToken, examId, payload);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Saved.';
+      if (status === 1) { toast.success(message); if (then === 'next') onSaved(); else onClose(); }
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save schedule.');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <Card><CardContent className="py-10 text-center text-sm text-slate-500">Loading schedule…</CardContent></Card>;
+  if (rows.length === 0) return (
+    <Card><CardContent className="space-y-2 py-8 text-center text-sm text-slate-600">
+      <p>No subjects found for the picked courses.</p>
+      <p className="text-xs">Add subjects to those courses (Courses → Subjects) and revisit this step.</p>
+      <div className="pt-2"><Button variant="outline" onClick={onBack}>‹ Back to Step 1</Button></div>
+    </CardContent></Card>
+  );
+
   return (
     <Card>
-      <CardContent className="space-y-3 py-12 text-center">
-        <p className="text-base font-semibold text-gray-900">{stepLabel} — coming next</p>
-        <p className="mx-auto max-w-md text-sm text-gray-600">
-          Step 1 (Add Exam) is shipped. {stepLabel} is the next step in the wizard and ships in a follow-up commit. Your draft{examCode ? ` (${examCode})` : ''} is saved and will pre-fill here once this step is live.
-        </p>
-        <div className="pt-2">
-          <Button variant="outline" onClick={onBack}>‹ Back to Step 1</Button>
+      <CardContent className="space-y-4 p-6">
+        <p className="text-sm text-slate-600">One row per Subject across the picked courses. Edit Date / Start / End / Marks per row. A subject shared by multiple courses runs as a single exam.</p>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">Subject</th>
+                <th className="px-3 py-2 text-left">Available Courses</th>
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-left">Start</th>
+                <th className="px-3 py-2 text-left">End</th>
+                <th className="px-3 py-2 text-right">Duration</th>
+                <th className="px-3 py-2 text-right">Total Marks</th>
+                <th className="px-3 py-2 text-right">Pass Marks</th>
+                <th className="px-3 py-2 text-right" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((r, idx) => (
+                <tr key={`${r.subject_id ?? r.subject_title}-${idx}`}>
+                  <td className="px-3 py-2 font-medium text-slate-900">{r.subject_title}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600">{r.available_courses || '—'}</td>
+                  <td className="px-3 py-2"><Input type="date" value={r.exam_date} onChange={(e) => updateRow(idx, { exam_date: e.target.value })} className="h-8" /></td>
+                  <td className="px-3 py-2"><Input type="time" value={r.start_time} onChange={(e) => updateRow(idx, { start_time: e.target.value })} className="h-8" /></td>
+                  <td className="px-3 py-2"><Input type="time" value={r.end_time} onChange={(e) => updateRow(idx, { end_time: e.target.value })} className="h-8" /></td>
+                  <td className="px-3 py-2 text-right text-xs text-slate-600">{r.duration_minutes > 0 ? `${r.duration_minutes} min` : '—'}</td>
+                  <td className="px-3 py-2 text-right"><Input type="number" min={0} value={r.total_marks} onChange={(e) => updateRow(idx, { total_marks: Number(e.target.value) || 0 })} className="h-8 w-20 text-right" /></td>
+                  <td className="px-3 py-2 text-right"><Input type="number" min={0} value={r.pass_marks} onChange={(e) => updateRow(idx, { pass_marks: Number(e.target.value) || 0 })} className="h-8 w-20 text-right" /></td>
+                  <td className="px-3 py-2 text-right"><button type="button" onClick={() => removeRow(idx)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600" title="Delete row">×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { void handleSave('close'); }} disabled={saving}>Save & Close</Button>
+            <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleSave('next'); }} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Continue ›'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Step 3: Question Setup ────────────────────────────────────────
+interface ComponentRow {
+  exam_subject_id: number;
+  subject_title: string;
+  component_type: 'mcq' | 'descriptive';
+  num_questions: number;
+  marks_each: number;
+  negative_marks: number;
+  shuffle_questions: boolean;
+  shuffle_options: boolean;
+  word_limit: number;
+}
+
+function ComponentsStep({
+  api,
+  authToken,
+  examId,
+  onSaved,
+  onBack,
+  onClose,
+}: {
+  api: AdminPageProps['api'];
+  authToken: string;
+  examId: string;
+  onSaved: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<ComponentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!examId) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const [schedule, components] = await Promise.all([
+          api.getExamSchedule(authToken, examId),
+          api.getExamComponents(authToken, examId),
+        ]);
+        if (cancelled) return;
+        const compBySubject = new Map<number, Record<string, unknown>[]>();
+        for (const c of components) {
+          const sid = asNumber(c.exam_subject_id);
+          const arr = compBySubject.get(sid) ?? [];
+          arr.push(c);
+          compBySubject.set(sid, arr);
+        }
+        const next: ComponentRow[] = [];
+        for (const s of schedule) {
+          const sid = asNumber(s.id);
+          const subjectTitle = asString(s.subject_title);
+          const existing = compBySubject.get(sid) ?? [];
+          if (existing.length > 0) {
+            for (const c of existing) {
+              next.push({
+                exam_subject_id: sid,
+                subject_title: subjectTitle,
+                component_type: asString(c.component_type) === 'descriptive' ? 'descriptive' : 'mcq',
+                num_questions: asNumber(c.num_questions),
+                marks_each: Number(c.marks_each ?? 0),
+                negative_marks: Number(c.negative_marks ?? 0),
+                shuffle_questions: Boolean(c.shuffle_questions),
+                shuffle_options: Boolean(c.shuffle_options),
+                word_limit: asNumber(c.word_limit),
+              });
+            }
+          } else {
+            next.push({ exam_subject_id: sid, subject_title: subjectTitle, component_type: 'mcq', num_questions: 10, marks_each: 1, negative_marks: 0, shuffle_questions: false, shuffle_options: false, word_limit: 0 });
+          }
+        }
+        setRows(next);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, authToken, examId]);
+
+  const setRow = (idx: number, patch: Partial<ComponentRow>) =>
+    setRows((cur) => cur.map((r, i) => i === idx ? { ...r, ...patch } : r));
+  const addComponent = (subject_id: number, subject_title: string, type: 'mcq' | 'descriptive') => {
+    setRows((cur) => [...cur, { exam_subject_id: subject_id, subject_title, component_type: type, num_questions: type === 'mcq' ? 10 : 1, marks_each: 1, negative_marks: 0, shuffle_questions: false, shuffle_options: false, word_limit: type === 'descriptive' ? 200 : 0 }]);
+  };
+  const removeRow = (idx: number) => setRows((cur) => cur.filter((_, i) => i !== idx));
+
+  const handleSave = async (then: 'next' | 'close') => {
+    setSaving(true);
+    try {
+      const payload = rows.map((r) => ({
+        exam_subject_id: r.exam_subject_id,
+        component_type: r.component_type,
+        num_questions: r.num_questions,
+        marks_each: r.marks_each,
+        negative_marks: r.negative_marks,
+        shuffle_questions: r.shuffle_questions ? 1 : 0,
+        shuffle_options: r.shuffle_options ? 1 : 0,
+        word_limit: r.word_limit,
+      }));
+      const res = await api.saveExamComponents(authToken, examId, payload);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Saved.';
+      if (status === 1) { toast.success(message); if (then === 'next') onSaved(); else onClose(); }
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save components.');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <Card><CardContent className="py-10 text-center text-sm text-slate-500">Loading components…</CardContent></Card>;
+  if (rows.length === 0) return (
+    <Card><CardContent className="space-y-2 py-8 text-center text-sm text-slate-600">
+      <p>No subjects yet. Save the schedule (Step 2) first.</p>
+      <div className="pt-2"><Button variant="outline" onClick={onBack}>‹ Back to Step 2</Button></div>
+    </CardContent></Card>
+  );
+
+  // Group rows by subject for cleaner UI.
+  const grouped = new Map<number, { title: string; rows: Array<{ row: ComponentRow; idx: number }> }>();
+  rows.forEach((r, idx) => {
+    const g = grouped.get(r.exam_subject_id) ?? { title: r.subject_title, rows: [] };
+    g.rows.push({ row: r, idx });
+    grouped.set(r.exam_subject_id, g);
+  });
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <p className="text-sm text-slate-600">For each subject, configure one or more components (MCQ and/or Descriptive).</p>
+
+        {[...grouped.entries()].map(([sid, g]) => (
+          <div key={sid} className="rounded-lg border border-slate-200 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">{g.title}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => addComponent(sid, g.title, 'mcq')}>+ MCQ</Button>
+                <Button size="sm" variant="outline" onClick={() => addComponent(sid, g.title, 'descriptive')}>+ Descriptive</Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {g.rows.map(({ row, idx }) => (
+                <div key={idx} className="grid grid-cols-2 gap-3 rounded-md border border-slate-100 bg-slate-50/40 p-3 sm:grid-cols-6">
+                  <div>
+                    <Label className="text-xs">Type</Label>
+                    <select value={row.component_type} onChange={(e) => setRow(idx, { component_type: e.target.value as 'mcq' | 'descriptive' })} className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="mcq">MCQ</option>
+                      <option value="descriptive">Descriptive</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">No. of Questions</Label>
+                    <Input type="number" min={0} value={row.num_questions} onChange={(e) => setRow(idx, { num_questions: Number(e.target.value) || 0 })} className="mt-1 h-9" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Marks each</Label>
+                    <Input type="number" step="0.5" min={0} value={row.marks_each} onChange={(e) => setRow(idx, { marks_each: Number(e.target.value) || 0 })} className="mt-1 h-9" />
+                  </div>
+                  {row.component_type === 'mcq' ? (
+                    <>
+                      <div>
+                        <Label className="text-xs">Negative Marks</Label>
+                        <Input type="number" step="0.25" min={0} value={row.negative_marks} onChange={(e) => setRow(idx, { negative_marks: Number(e.target.value) || 0 })} className="mt-1 h-9" />
+                      </div>
+                      <div className="flex items-end gap-3 sm:col-span-2">
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={row.shuffle_questions} onChange={(e) => setRow(idx, { shuffle_questions: e.target.checked })} className="size-4 rounded border-slate-300" />
+                          Shuffle questions
+                        </label>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input type="checkbox" checked={row.shuffle_options} onChange={(e) => setRow(idx, { shuffle_options: e.target.checked })} className="size-4 rounded border-slate-300" />
+                          Shuffle options
+                        </label>
+                        <button type="button" onClick={() => removeRow(idx)} className="ml-auto rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600">×</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <Label className="text-xs">Word Limit</Label>
+                        <Input type="number" min={0} value={row.word_limit} onChange={(e) => setRow(idx, { word_limit: Number(e.target.value) || 0 })} className="mt-1 h-9" />
+                      </div>
+                      <div className="flex items-end justify-end sm:col-span-2">
+                        <button type="button" onClick={() => removeRow(idx)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600">×</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { void handleSave('close'); }} disabled={saving}>Save & Close</Button>
+            <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleSave('next'); }} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Continue ›'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Step 4: Student Allocation ────────────────────────────────────
+interface EligibleStudent {
+  user_id: number;
+  student_id: string;
+  name: string;
+  email: string;
+  courses: string;
+}
+
+function AllocationsStep({
+  api,
+  authToken,
+  examId,
+  onSaved,
+  onBack,
+  onClose,
+}: {
+  api: AdminPageProps['api'];
+  authToken: string;
+  examId: string;
+  onSaved: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const [students, setStudents] = useState<EligibleStudent[]>([]);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!examId) return;
+    let cancelled = false;
+    setLoading(true);
+    void Promise.all([
+      api.getExamEligibleStudents(authToken, examId),
+      api.getExamAllocations(authToken, examId),
+    ])
+      .then(([list, current]) => {
+        if (cancelled) return;
+        setStudents(list.map((r) => ({
+          user_id: asNumber(r.user_id),
+          student_id: asString(r.student_id),
+          name: asString(r.name),
+          email: asString(r.email),
+          courses: asString(r.courses),
+        })));
+        setPicked(new Set(current));
+      })
+      .catch(() => { if (!cancelled) setStudents([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, authToken, examId]);
+
+  const filtered = useMemo(() => {
+    if (!search) return students;
+    const q = search.toLowerCase();
+    return students.filter((s) => s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.student_id.toLowerCase().includes(q) || s.courses.toLowerCase().includes(q));
+  }, [students, search]);
+
+  const togglePick = (uid: number) => setPicked((prev) => { const next = new Set(prev); if (next.has(uid)) next.delete(uid); else next.add(uid); return next; });
+  const allFilteredPicked = filtered.length > 0 && filtered.every((s) => picked.has(s.user_id));
+  const toggleAll = () => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (allFilteredPicked) {
+        filtered.forEach((s) => next.delete(s.user_id));
+      } else {
+        filtered.forEach((s) => next.add(s.user_id));
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async (then: 'next' | 'close') => {
+    setSaving(true);
+    try {
+      const res = await api.saveExamAllocations(authToken, examId, [...picked]);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Saved.';
+      if (status === 1) { toast.success(message); if (then === 'next') onSaved(); else onClose(); }
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save allocations.');
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <Card><CardContent className="py-10 text-center text-sm text-slate-500">Loading eligible students…</CardContent></Card>;
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <p className="text-sm text-slate-600">Pick the students who will sit this exam. The list shows students with an active enrolment in the picked courses.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Input placeholder="Search name / email / student ID / course…" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
+          <span className="text-xs text-slate-500">{picked.size} of {students.length} selected</span>
+          <Button size="sm" variant="outline" onClick={toggleAll} className="ml-auto">
+            {allFilteredPicked ? 'Clear filtered' : 'Select filtered'}
+          </Button>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="w-10 px-3 py-2"></th>
+                <th className="px-3 py-2 text-left">Student</th>
+                <th className="px-3 py-2 text-left">Email</th>
+                <th className="px-3 py-2 text-left">Courses</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-sm text-slate-500">No eligible students for the picked courses.</td></tr>
+              ) : filtered.map((s) => (
+                <tr key={s.user_id} className="hover:bg-slate-50/40">
+                  <td className="px-3 py-2 text-center"><input type="checkbox" checked={picked.has(s.user_id)} onChange={() => togglePick(s.user_id)} className="size-4 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary" /></td>
+                  <td className="px-3 py-2"><p className="font-medium text-gray-900">{s.name}</p><p className="text-xs text-gray-500">{s.student_id}</p></td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{s.email}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{s.courses}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { void handleSave('close'); }} disabled={saving}>Save & Close</Button>
+            <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleSave('next'); }} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Continue ›'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Step 5: Instructions + Notification + Publish ─────────────────
+interface InstructionTemplate { id: number; title: string; body: string }
+
+function PublishStep({
+  api,
+  authToken,
+  examId,
+  onPublished,
+  onBack,
+}: {
+  api: AdminPageProps['api'];
+  authToken: string;
+  examId: string;
+  onPublished: () => void;
+  onBack: () => void;
+}) {
+  const [templates, setTemplates] = useState<InstructionTemplate[]>([]);
+  const [instructions, setInstructions] = useState('');
+  const [notifyEmail, setNotifyEmail] = useState(true);
+  const [notifyInapp, setNotifyInapp] = useState(true);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [showTemplateForm, setShowTemplateForm] = useState(false);
+  const [tplTitle, setTplTitle] = useState('');
+  const [tplBody, setTplBody] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.listExamInstructionTemplates(authToken)
+      .then((rows) => {
+        if (cancelled) return;
+        setTemplates(rows.map((r) => ({ id: asNumber(r.id), title: asString(r.title), body: asString(r.body) })));
+      })
+      .catch(() => { /* leave empty */ });
+    return () => { cancelled = true; };
+  }, [api, authToken]);
+
+  const reuseTemplate = (id: number) => {
+    const t = templates.find((tp) => tp.id === id);
+    if (t) setInstructions(t.body);
+  };
+
+  const saveAsTemplate = async () => {
+    if (!tplTitle.trim()) { toast.error('Template title required.'); return; }
+    setSavingTemplate(true);
+    try {
+      await api.createExamInstructionTemplate(authToken, { title: tplTitle.trim(), body: tplBody });
+      toast.success('Template saved.');
+      setShowTemplateForm(false);
+      setTplTitle('');
+      setTplBody('');
+      const rows = await api.listExamInstructionTemplates(authToken);
+      setTemplates(rows.map((r) => ({ id: asNumber(r.id), title: asString(r.title), body: asString(r.body) })));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save template.');
+    } finally { setSavingTemplate(false); }
+  };
+
+  const handlePublish = async () => {
+    setPublishing(true);
+    try {
+      const res = await api.publishExam(authToken, examId, { instructions, notify_email: notifyEmail, notify_inapp: notifyInapp });
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Done.';
+      if (status === 1) {
+        toast.success(message);
+        onPublished();
+      } else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to publish.');
+    } finally { setPublishing(false); }
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-5 p-6">
+        <div className="space-y-2">
+          <Label htmlFor="ex-instr">Instructions</Label>
+          <textarea id="ex-instr" value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={8}
+            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            placeholder="Write the instructions students will see before starting the exam." />
+        </div>
+
+        <div className="rounded-lg border border-slate-100 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-900">Reusable instruction templates</p>
+            <Button size="sm" variant="outline" onClick={() => setShowTemplateForm((v) => !v)}>
+              {showTemplateForm ? 'Cancel' : '+ Save current as template'}
+            </Button>
+          </div>
+          {showTemplateForm ? (
+            <div className="mb-3 grid grid-cols-1 gap-2 rounded-md bg-slate-50 p-3">
+              <Input placeholder="Template title" value={tplTitle} onChange={(e) => setTplTitle(e.target.value)} />
+              <textarea placeholder="Template body" value={tplBody || instructions} onChange={(e) => setTplBody(e.target.value)} rows={4}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              <div className="flex justify-end">
+                <Button size="sm" className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void saveAsTemplate(); }} disabled={savingTemplate}>
+                  {savingTemplate ? 'Saving…' : 'Save Template'}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {templates.length === 0 ? (
+            <p className="text-xs text-slate-500">No templates yet. Save the current Instructions as a template to reuse later.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {templates.map((t) => (
+                <div key={t.id} className="flex items-center justify-between rounded-md border border-slate-100 px-3 py-2 text-sm">
+                  <span className="truncate text-slate-700">{t.title}</span>
+                  <Button size="sm" variant="outline" onClick={() => reuseTemplate(t.id)}>Use</Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-slate-100 p-4">
+          <p className="mb-2 text-sm font-semibold text-slate-900">Notify allocated students</p>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} className="size-4 rounded border-slate-300" />
+              Email
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={notifyInapp} onChange={(e) => setNotifyInapp(e.target.checked)} className="size-4 rounded border-slate-300" />
+              In-app notification
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <Button className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => { void handlePublish(); }} disabled={publishing}>
+            {publishing ? 'Publishing…' : 'Publish Exam'}
+          </Button>
         </div>
       </CardContent>
     </Card>
