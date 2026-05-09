@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -14,12 +14,16 @@ import { AdminDataTable, type DataTableColumn } from '../../shared/components/Ad
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
-const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const Q_TYPE_LABELS: Record<number, string> = { 0: 'MCQ', 1: 'Descriptive' };
 
-const Q_TYPE_LABELS: Record<number, string> = { 0: 'MCQ', 1: 'Descriptive', 2: 'Range' };
-
-export default function QuestionBankPage({ api, session, onNavigate: _onNavigate }: AdminPageProps) {
+// Naji 2026-05-09 — Question Bank rebuilt to match the new spec:
+//   1) Choose Subject (+ Course) and Type (MCQ / Descriptive).
+//   2) Individual entry — type question + options + mark right answer
+//      (MCQ) or just type question + solution (Descriptive).
+//   3) OR Bulk upload — download a CSV template, fill in, upload, review,
+//      then save.
+export default function QuestionBankPage({ api, session }: AdminPageProps) {
+  // Filters
   const [courseFilter, setCourseFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [lessonFilter, setLessonFilter] = useState('');
@@ -28,117 +32,214 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
   const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
   const [lessons, setLessons] = useState<Record<string, unknown>[]>([]);
 
-  // Modal state
+  // Single-question modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [mCategoryId, setMCategoryId] = useState('');
   const [mCourseId, setMCourseId] = useState('');
+  const [mSubjectId, setMSubjectId] = useState('');
   const [mLessonId, setMLessonId] = useState('');
-  const [mModalLessons, setMModalLessons] = useState<Record<string, unknown>[]>([]);
+  const [mQType, setMQType] = useState<0 | 1>(0); // 0=MCQ, 1=Descriptive
   const [mTitle, setMTitle] = useState('');
-  const [mTitleEquation, setMTitleEquation] = useState('');
   const [mHint, setMHint] = useState('');
-  const [mIsEquation, setMIsEquation] = useState(false);
   const [mSolution, setMSolution] = useState('');
-  const [mSolutionEquation, setMSolutionEquation] = useState('');
-  const [mNumberOfOptions, setMNumberOfOptions] = useState('4');
+  const [mOptions, setMOptions] = useState<string[]>(['', '', '', '']);
+  const [mCorrect, setMCorrect] = useState<number | null>(null);
+  const [mModalSubjects, setMModalSubjects] = useState<Record<string, unknown>[]>([]);
+  const [mModalLessons, setMModalLessons] = useState<Record<string, unknown>[]>([]);
 
-  // Load lessons for modal course selection
+  // Bulk upload state
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCourseId, setBulkCourseId] = useState('');
+  const [bulkSubjectId, setBulkSubjectId] = useState('');
+  const [bulkSubjects, setBulkSubjects] = useState<Record<string, unknown>[]>([]);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Load courses
   useEffect(() => {
-    if (mCourseId) {
-      api.loadLessons(session.token, mCourseId).then(setMModalLessons).catch(() => setMModalLessons([]));
-    } else {
-      setMModalLessons([]);
-    }
+    void api.loadCourses(session.token).then(setCourses).catch(() => undefined);
+  }, [api, session.token]);
+
+  // Cascade subjects/lessons for filters
+  useEffect(() => {
+    if (courseFilter) void api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => setSubjects([]));
+    else setSubjects([]);
+    setSubjectFilter('');
+    setLessonFilter('');
+  }, [api, session.token, courseFilter]);
+  useEffect(() => {
+    if (subjectFilter) void api.loadLessons(session.token, subjectFilter).then(setLessons).catch(() => setLessons([]));
+    else setLessons([]);
+    setLessonFilter('');
+  }, [api, session.token, subjectFilter]);
+
+  // Cascade subjects/lessons for the single-question modal
+  useEffect(() => {
+    if (!mCourseId) { setMModalSubjects([]); return; }
+    void api.loadSubjects(session.token, mCourseId).then(setMModalSubjects).catch(() => setMModalSubjects([]));
   }, [api, session.token, mCourseId]);
+  useEffect(() => {
+    if (!mSubjectId) { setMModalLessons([]); return; }
+    void api.loadLessons(session.token, mSubjectId).then(setMModalLessons).catch(() => setMModalLessons([]));
+  }, [api, session.token, mSubjectId]);
+
+  // Cascade subjects for bulk dialog
+  useEffect(() => {
+    if (!bulkCourseId) { setBulkSubjects([]); return; }
+    void api.loadSubjects(session.token, bulkCourseId).then(setBulkSubjects).catch(() => setBulkSubjects([]));
+  }, [api, session.token, bulkCourseId]);
 
   const openAddModal = useCallback(() => {
     setEditingId(null);
-    setMCategoryId('');
     setMCourseId('');
+    setMSubjectId('');
     setMLessonId('');
+    setMQType(0);
     setMTitle('');
-    setMTitleEquation('');
     setMHint('');
-    setMIsEquation(false);
     setMSolution('');
-    setMSolutionEquation('');
-    setMNumberOfOptions('4');
+    setMOptions(['', '', '', '']);
+    setMCorrect(null);
     setModalOpen(true);
   }, []);
 
   const openEditModal = useCallback((row: Record<string, unknown>) => {
-    setEditingId(asString(row.id) || asString(row._id));
-    setMCategoryId(asString(row.category_id));
+    setEditingId(asString(row.id));
     setMCourseId(asString(row.course_id));
+    setMSubjectId(asString(row.subject_id));
     setMLessonId(asString(row.lesson_id));
+    const qt = asNumber(row.q_type);
+    setMQType(qt === 1 ? 1 : 0);
     setMTitle(asString(row.title));
-    setMTitleEquation(asString(row.title_equation));
     setMHint(asString(row.hint));
-    setMIsEquation(row.is_equation_solution === '1' || row.is_equation_solution === 1);
     setMSolution(asString(row.solution));
-    setMSolutionEquation(asString(row.solution_equation));
-    setMNumberOfOptions(asString(row.number_of_options) || '4');
+    let opts: string[] = [];
+    let correct: number[] = [];
+    try { const raw = JSON.parse(asString(row.options) || '[]') as unknown; if (Array.isArray(raw)) opts = raw.map((v) => asString(v)); } catch { /* leave empty */ }
+    try { const raw = JSON.parse(asString(row.correct_answers) || '[]') as unknown; if (Array.isArray(raw)) correct = raw.map((v) => asNumber(v)); } catch { /* leave empty */ }
+    setMOptions(opts.length > 0 ? opts : ['', '', '', '']);
+    setMCorrect(correct.length > 0 ? (correct[0] ?? null) : null);
     setModalOpen(true);
   }, []);
 
-  const handleSaveQuestion = useCallback(async () => {
-    if (!mTitle.trim()) { toast.error('Question Title is required.'); return; }
-    if (!mCourseId) { toast.error('Course is required.'); return; }
+  const setOption = (idx: number, val: string) => setMOptions((cur) => cur.map((o, i) => i === idx ? val : o));
+  const addOption = () => setMOptions((cur) => cur.length < 6 ? [...cur, ''] : cur);
+  const removeOption = (idx: number) => setMOptions((cur) => cur.length > 2 ? cur.filter((_, i) => i !== idx) : cur);
 
+  const handleSave = useCallback(async () => {
+    if (!mCourseId) { toast.error('Course is required.'); return; }
+    if (!mSubjectId) { toast.error('Subject is required.'); return; }
+    if (!mTitle.trim()) { toast.error('Question text is required.'); return; }
+    if (mQType === 0) {
+      const filled = mOptions.filter((o) => o.trim().length > 0);
+      if (filled.length < 2) { toast.error('At least 2 options for MCQ.'); return; }
+      if (mCorrect === null) { toast.error('Mark the correct answer.'); return; }
+    }
     setSubmitting(true);
     try {
       const payload = {
         courseId: mCourseId,
-        subjectId: '',
+        subjectId: mSubjectId,
         lessonId: mLessonId,
-        qType: 0,
+        qType: mQType,
         title: mTitle.trim(),
-        numberOfOptions: Number(mNumberOfOptions) || 4,
-        options: '[]',
-        correctAnswers: '[]',
+        numberOfOptions: mQType === 0 ? mOptions.filter((o) => o.trim().length > 0).length : 0,
+        options: mQType === 0 ? JSON.stringify(mOptions.filter((o) => o.trim().length > 0)) : '[]',
+        correctAnswers: mQType === 0 && mCorrect !== null ? JSON.stringify([mCorrect]) : '[]',
         hint: mHint.trim(),
         solution: mSolution.trim(),
       };
-      if (editingId) {
-        await api.editQuestion(session.token, editingId, payload);
-      } else {
-        await api.addQuestion(session.token, payload);
-      }
+      if (editingId) await api.editQuestion(session.token, editingId, payload);
+      else await api.addQuestion(session.token, payload);
+      toast.success(editingId ? 'Question updated.' : 'Question added.');
       setModalOpen(false);
-      // Reload happens via useAdminPageData reload
       window.location.reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save question');
+      toast.error(err instanceof Error ? err.message : 'Failed to save question.');
     } finally {
       setSubmitting(false);
     }
-  }, [mTitle, mCourseId, mLessonId, mHint, mSolution, mNumberOfOptions, editingId, api, session.token]);
+  }, [api, session.token, editingId, mCourseId, mSubjectId, mLessonId, mQType, mTitle, mHint, mSolution, mOptions, mCorrect]);
 
-  useEffect(() => {
-    api.loadCourses(session.token).then(setCourses).catch(() => {});
-  }, [api, session.token]);
+  // Bulk upload helpers
+  const downloadTemplate = () => {
+    const headers = ['type (MCQ or Descriptive)', 'question_title', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_option (A/B/C/D)', 'hint', 'solution'];
+    const sample1 = ['MCQ', 'What is 2 + 2?', '3', '4', '5', '6', 'B', '', 'Basic addition'];
+    const sample2 = ['Descriptive', 'Explain the principle of separation of powers in 200 words.', '', '', '', '', '', '', ''];
+    const csv = [headers, sample1, sample2].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'question-bank-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
-  useEffect(() => {
-    if (courseFilter) {
-      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
-    } else {
-      setSubjects([]);
+  const handleFile = async (file: File) => {
+    const text = await file.text();
+    const rows = parseCsv(text);
+    if (rows.length < 2) { toast.error('CSV is empty.'); return; }
+    const parsed: BulkRow[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      const type = (r[0] ?? '').toLowerCase().trim();
+      const title = (r[1] ?? '').trim();
+      if (!title) continue;
+      if (type === 'mcq') {
+        const opts = [r[2], r[3], r[4], r[5]].map((v) => (v ?? '').trim()).filter((v) => v.length > 0);
+        const correctLetter = (r[6] ?? '').trim().toUpperCase();
+        const correctIdx = correctLetter ? correctLetter.charCodeAt(0) - 65 : -1;
+        parsed.push({ qType: 0, title, options: opts, correctAnswers: correctIdx >= 0 && correctIdx < opts.length ? [correctIdx] : [], hint: (r[7] ?? '').trim(), solution: (r[8] ?? '').trim() });
+      } else if (type === 'descriptive') {
+        parsed.push({ qType: 1, title, options: [], correctAnswers: [], hint: (r[7] ?? '').trim(), solution: (r[8] ?? '').trim() });
+      }
     }
-    setSubjectFilter('');
-    setLessonFilter('');
-  }, [api, session.token, courseFilter]);
+    if (parsed.length === 0) { toast.error('No valid rows in CSV.'); return; }
+    setBulkRows(parsed);
+  };
 
-  useEffect(() => {
-    if (subjectFilter) {
-      api.loadLessons(session.token, subjectFilter).then(setLessons).catch(() => {});
-    } else {
-      setLessons([]);
+  const removeBulkRow = (idx: number) => setBulkRows((cur) => cur.filter((_, i) => i !== idx));
+
+  const handleBulkUpload = async () => {
+    if (!bulkCourseId || !bulkSubjectId) { toast.error('Pick course + subject for the upload.'); return; }
+    if (bulkRows.length === 0) { toast.error('Nothing to upload.'); return; }
+    setBulkUploading(true);
+    try {
+      const rows = bulkRows.map((r) => ({
+        course_id: bulkCourseId,
+        subject_id: bulkSubjectId,
+        q_type: r.qType,
+        title: r.title,
+        options: r.options,
+        correct_answers: r.correctAnswers,
+        hint: r.hint,
+        solution: r.solution,
+      }));
+      const res = await api.bulkAddQuestions(session.token, rows as unknown as Record<string, unknown>[]);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Uploaded.';
+      if (status === 1) {
+        toast.success(message);
+        setBulkOpen(false);
+        setBulkRows([]);
+        window.location.reload();
+      } else {
+        toast.error(message);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk upload failed.');
+    } finally {
+      setBulkUploading(false);
     }
-    setLessonFilter('');
-  }, [api, session.token, subjectFilter]);
+  };
 
+  // Data + columns
   const { data, loading, error } = useAdminPageData(
     () => api.loadQuestionBank(session.token, {
       ...(courseFilter ? { courseId: courseFilter } : {}),
@@ -147,222 +248,234 @@ export default function QuestionBankPage({ api, session, onNavigate: _onNavigate
     }),
     [courseFilter, subjectFilter, lessonFilter],
   );
-
   const questions = useMemo(() => toRecords(data), [data]);
 
   const columns: DataTableColumn[] = useMemo(() => [
-    // AdminDataTable renders its own '#' index column; do not add another here.
-    {
-      key: 'title',
-      label: 'Question',
-      sortable: true,
-      render: (value) => {
-        const text = asString(value);
-        return text.length > 80 ? `${text.slice(0, 80)}...` : text;
-      },
-    },
+    { key: 'title', label: 'Question', sortable: true, render: (v) => { const t = asString(v); return t.length > 80 ? `${t.slice(0, 80)}…` : t; } },
     { key: 'course_title', label: 'Course' },
     { key: 'subject_title', label: 'Subject' },
-    { key: 'lesson_title', label: 'Lesson' },
-    {
-      key: 'q_type',
-      label: 'Type',
-      render: (value) => (
-        <AdminStatusBadge status={Q_TYPE_LABELS[asNumber(value)] ?? 'MCQ'} />
-      ),
-    },
+    { key: 'q_type', label: 'Type', render: (v) => <AdminStatusBadge status={Q_TYPE_LABELS[asNumber(v)] ?? 'MCQ'} /> },
     { key: 'number_of_options', label: 'Options' },
-    {
-      key: 'created_at',
-      label: 'Created',
-      render: (value) => formatDate(value),
-    },
+    { key: 'created_at', label: 'Created', render: (v) => formatDate(v) },
   ], []);
 
   const filters: FilterField[] = useMemo(() => [
-    {
-      key: 'course',
-      label: 'Course',
-      type: 'select' as const,
-      value: courseFilter,
-      placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-      onChange: setCourseFilter,
-    },
-    {
-      key: 'subject',
-      label: 'Subject',
-      type: 'select' as const,
-      value: subjectFilter,
-      placeholder: 'All Subjects',
-      options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
-      onChange: setSubjectFilter,
-    },
-    {
-      key: 'lesson',
-      label: 'Lesson',
-      type: 'select' as const,
-      value: lessonFilter,
-      placeholder: 'All Lessons',
-      options: lessons.map((l) => ({ label: asString(l.title), value: asString(l.id) })),
-      onChange: setLessonFilter,
-    },
+    { key: 'course', label: 'Course', type: 'select', value: courseFilter, placeholder: 'All Courses', options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })), onChange: setCourseFilter },
+    { key: 'subject', label: 'Subject', type: 'select', value: subjectFilter, placeholder: 'All Subjects', options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })), onChange: setSubjectFilter },
+    { key: 'lesson', label: 'Lesson', type: 'select', value: lessonFilter, placeholder: 'All Lessons', options: lessons.map((l) => ({ label: asString(l.title), value: asString(l.id) })), onChange: setLessonFilter },
   ], [courseFilter, subjectFilter, lessonFilter, courses, subjects, lessons]);
 
-  if (loading) {
-    return <PageLoader label="Loading question bank..." />;
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
-      </Card>
-    );
-  }
+  if (loading) return <PageLoader label="Loading question bank…" />;
+  if (error) return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Question Bank" addLabel="+ Add Question Bank" onAdd={openAddModal} />
+      <AdminPageHeader title="Question Bank" addLabel="+ Add Question" onAdd={openAddModal}>
+        <Button variant="outline" onClick={() => { setBulkRows([]); setBulkCourseId(''); setBulkSubjectId(''); setBulkOpen(true); }}>
+          Bulk Upload
+        </Button>
+      </AdminPageHeader>
 
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={() => { setCourseFilter(''); setSubjectFilter(''); setLessonFilter(''); }}
-      />
+      <AdminFilterBar filters={filters} onApply={() => {}} onClear={() => { setCourseFilter(''); setSubjectFilter(''); setLessonFilter(''); }} />
 
       <AdminDataTable
         columns={columns}
         rows={questions}
         actions={[
           { label: 'Edit', onClick: (row) => openEditModal(row) },
-          { label: 'Delete', onClick: (row) => { void api.deleteQuestion(session.token, asString(row.id)); }, variant: 'destructive' },
+          { label: 'Delete', onClick: (row) => { void api.deleteQuestion(session.token, asString(row.id)).then(() => window.location.reload()); }, variant: 'destructive' },
         ]}
       />
 
-      {/* ── Add/Edit Question Modal ──────────────────────────────── */}
+      {/* Single-question Add/Edit modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSaveQuestion();
-            }}
-          >
+        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))]">
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Question' : 'Add Question'}</DialogTitle>
+            <DialogDescription>Pick the Subject and Type. For MCQ, add the choices and tick the correct answer.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>Category *</Label>
-                <select className={selectClass} value={mCategoryId} onChange={(e) => setMCategoryId(e.target.value)}>
-                  <option value="">Choose Category</option>
-                </select>
-              </div>
-              <div className="grid gap-2">
+          <form onSubmit={(e) => { e.preventDefault(); void handleSave(); }} className="w-full min-w-0 space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
                 <Label>Course *</Label>
-                <select className={selectClass} value={mCourseId} onChange={(e) => { setMCourseId(e.target.value); setMLessonId(''); }}>
+                <select value={mCourseId} onChange={(e) => { setMCourseId(e.target.value); setMSubjectId(''); setMLessonId(''); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                   <option value="">Choose Course</option>
-                  {courses.map((c) => (
-                    <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>
-                  ))}
+                  {courses.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>)}
                 </select>
               </div>
-              <div className="grid gap-2 md:col-span-2">
-                <Label>Lesson *</Label>
-                <select className={selectClass} value={mLessonId} onChange={(e) => setMLessonId(e.target.value)} disabled={!mCourseId}>
-                  <option value="">Choose Lesson</option>
-                  {mModalLessons.map((l) => (
-                    <option key={asString(l.id)} value={asString(l.id)}>{asString(l.title)}</option>
-                  ))}
+              <div className="space-y-1">
+                <Label>Subject *</Label>
+                <select value={mSubjectId} onChange={(e) => { setMSubjectId(e.target.value); setMLessonId(''); }} disabled={!mCourseId} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="">{mCourseId ? 'Choose Subject' : 'Pick a course first'}</option>
+                  {mModalSubjects.map((s) => <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Lesson (optional)</Label>
+                <select value={mLessonId} onChange={(e) => setMLessonId(e.target.value)} disabled={!mSubjectId} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="">{mSubjectId ? 'No lesson' : 'Pick a subject first'}</option>
+                  {mModalLessons.map((l) => <option key={asString(l.id)} value={asString(l.id)}>{asString(l.title)}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Type *</Label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setMQType(0)} className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium ${mQType === 0 ? 'border-ttii-primary bg-ttii-primary/5 text-ttii-primary' : 'border-slate-200 text-slate-600'}`}>MCQ</button>
+                  <button type="button" onClick={() => setMQType(1)} className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium ${mQType === 1 ? 'border-ttii-primary bg-ttii-primary/5 text-ttii-primary' : 'border-slate-200 text-slate-600'}`}>Descriptive</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Question *</Label>
+              <textarea value={mTitle} onChange={(e) => setMTitle(e.target.value)} rows={3} className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Type the question here." />
+            </div>
+
+            {mQType === 0 ? (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+                <div className="flex items-center justify-between">
+                  <Label>Options *</Label>
+                  <Button type="button" size="sm" variant="outline" onClick={addOption} disabled={mOptions.length >= 6}>+ Add option</Button>
+                </div>
+                <p className="text-xs text-slate-500">Tick the radio next to the correct answer.</p>
+                {mOptions.map((opt, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input type="radio" name="correct" checked={mCorrect === idx} onChange={() => setMCorrect(idx)} className="size-4" />
+                    <span className="w-6 text-xs font-semibold text-slate-500">{String.fromCharCode(65 + idx)}.</span>
+                    <Input value={opt} onChange={(e) => setOption(idx, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + idx)}`} className="flex-1" />
+                    {mOptions.length > 2 ? <button type="button" onClick={() => removeOption(idx)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600">×</button> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Hint (optional)</Label>
+                <textarea value={mHint} onChange={(e) => setMHint(e.target.value)} rows={2} className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label>{mQType === 1 ? 'Model Answer (optional)' : 'Solution (optional)'}</Label>
+                <textarea value={mSolution} onChange={(e) => setMSolution(e.target.value)} rows={2} className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={submitting}>Cancel</Button>
+              <Button type="submit" className="bg-ttii-primary hover:bg-ttii-primary/90" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk upload dialog */}
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload Questions</DialogTitle>
+            <DialogDescription>Pick course + subject, download the template, fill it in, then upload to review before saving.</DialogDescription>
+          </DialogHeader>
+          <div className="w-full min-w-0 space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Course *</Label>
+                <select value={bulkCourseId} onChange={(e) => { setBulkCourseId(e.target.value); setBulkSubjectId(''); }} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="">Choose Course</option>
+                  {courses.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>Subject *</Label>
+                <select value={bulkSubjectId} onChange={(e) => setBulkSubjectId(e.target.value)} disabled={!bulkCourseId} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="">{bulkCourseId ? 'Choose Subject' : 'Pick a course first'}</option>
+                  {bulkSubjects.map((s) => <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label>Question Title *</Label>
-              <textarea
-                className={textareaClass}
-                value={mTitle}
-                onChange={(e) => setMTitle(e.target.value)}
-                placeholder="Enter your question text (supports HTML)"
-              />
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <Button type="button" variant="outline" onClick={downloadTemplate}>Download CSV Template</Button>
+              <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }} />
+              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>Choose CSV File</Button>
+              <span className="text-xs text-slate-500">{bulkRows.length > 0 ? `${bulkRows.length} row(s) parsed.` : 'Use the template — first row is headers; one question per row.'}</span>
             </div>
 
-            <div className="grid gap-2">
-              <Label>Question equation</Label>
-              <Input
-                value={mTitleEquation}
-                onChange={(e) => setMTitleEquation(e.target.value)}
-                placeholder="LaTeX equation (optional)"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Hint</Label>
-              <textarea
-                className={textareaClass}
-                value={mHint}
-                onChange={(e) => setMHint(e.target.value)}
-                placeholder="Optional hint text"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={mIsEquation}
-                onChange={(e) => setMIsEquation(e.target.checked)}
-                className="size-4"
-              />
-              Is Equation Type?
-            </label>
-
-            <div className="grid gap-2">
-              <Label>Solution</Label>
-              <textarea
-                className={textareaClass}
-                value={mSolution}
-                onChange={(e) => setMSolution(e.target.value)}
-                placeholder="Solution explanation"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Solution equation</Label>
-              <Input
-                value={mSolutionEquation}
-                onChange={(e) => setMSolutionEquation(e.target.value)}
-                placeholder="LaTeX solution (optional)"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Number of options</Label>
-              <Input
-                type="number"
-                min="2"
-                max="6"
-                value={mNumberOfOptions}
-                onChange={(e) => setMNumberOfOptions(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">Determines how many answer option fields appear after saving.</p>
-            </div>
+            {bulkRows.length > 0 ? (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Type</th>
+                      <th className="px-3 py-2 text-left">Question</th>
+                      <th className="px-3 py-2 text-left">Options</th>
+                      <th className="px-3 py-2 text-left">Correct</th>
+                      <th className="px-3 py-2 text-right" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {bulkRows.map((r, idx) => (
+                      <tr key={idx}>
+                        <td className="px-3 py-2"><span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${r.qType === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>{r.qType === 0 ? 'MCQ' : 'Descriptive'}</span></td>
+                        <td className="px-3 py-2"><p className="text-sm text-gray-900">{r.title.length > 80 ? r.title.slice(0, 80) + '…' : r.title}</p></td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{r.options.length > 0 ? r.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join(' · ') : '—'}</td>
+                        <td className="px-3 py-2 text-xs text-emerald-700">{r.qType === 0 && r.correctAnswers.length > 0 && r.correctAnswers[0] !== undefined ? String.fromCharCode(65 + r.correctAnswers[0]) : '—'}</td>
+                        <td className="px-3 py-2 text-right"><button type="button" onClick={() => removeBulkRow(idx)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600">×</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={submitting}
-            >
-              {submitting ? 'Saving...' : 'Save'}
+            <Button type="button" variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkUploading}>Cancel</Button>
+            <Button type="button" className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleBulkUpload(); }} disabled={bulkUploading || bulkRows.length === 0 || !bulkCourseId || !bulkSubjectId}>
+              {bulkUploading ? 'Uploading…' : `Upload ${bulkRows.length} Question(s)`}
             </Button>
           </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
     </div>
   );
+}
+
+interface BulkRow {
+  qType: 0 | 1;
+  title: string;
+  options: string[];
+  correctAnswers: number[];
+  hint: string;
+  solution: string;
+}
+
+// Minimal RFC-4180-ish CSV parser for our template (handles quoted fields with commas / newlines).
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let cur: string[] = [];
+  let field = '';
+  let i = 0;
+  let inQuotes = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i += 2; continue; }
+      if (c === '"') { inQuotes = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQuotes = true; i++; continue; }
+    if (c === ',') { cur.push(field); field = ''; i++; continue; }
+    if (c === '\n' || c === '\r') {
+      // Skip CRLF
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      cur.push(field); field = '';
+      rows.push(cur); cur = [];
+      i++;
+      continue;
+    }
+    field += c; i++;
+  }
+  if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
+  return rows;
 }

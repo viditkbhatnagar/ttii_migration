@@ -1195,6 +1195,17 @@ export class AdminPortalApi {
     return payload.data ?? {};
   }
 
+  // Naji 2026-05-09 — Student Eligibility table.
+  async listStudentEligibility(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/eligibility', authToken);
+    return toRecords(payload.data);
+  }
+
+  // Naji 2026-05-09 — Question Bank bulk upload.
+  async bulkAddQuestions(authToken: string, rows: Record<string, unknown>[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/bulk-add', authToken, { rows });
+  }
+
   // Step 2 — scheduling.
   async getExamSchedulingSuggestions(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/scheduling-suggestions', authToken, { exam_id: examId });

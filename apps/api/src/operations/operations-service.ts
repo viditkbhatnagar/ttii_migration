@@ -3369,6 +3369,211 @@ export class OperationsService {
     };
   }
 
+  // Naji 2026-05-09 — Student Eligibility table.
+  // Per-enrollment rows tagged Eligible / Completed / Not Eligible.
+  //
+  // Eligible: fee fully paid AND every assignment for the enrolment's
+  //   course has at least one submission with marks (evaluated). Course
+  //   duration check is TBD until we add a duration field on course.
+  // Completed: every exam allocated to this student has an exam_attempt
+  //   (any status — submitted counts as completed).
+  // Not Eligible: every enrolment that's neither Eligible nor Completed.
+  async listStudentEligibility(): Promise<Record<string, unknown>[]> {
+    const enrolments = await this.prisma.enrol.findMany({
+      where: { deleted_at: null },
+      select: { id: true, user_id: true, course_id: true, enrollment_id: true, enrollment_date: true, enrollment_status: true },
+      orderBy: { id: 'desc' },
+    });
+    if (enrolments.length === 0) return [];
+
+    const userIds = Array.from(new Set(enrolments.map((e) => e.user_id).filter((v): v is number => v !== null)));
+    const courseIds = Array.from(new Set(enrolments.map((e) => e.course_id).filter((v): v is number => v !== null)));
+
+    const [users, courses, assignments] = await Promise.all([
+      userIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: userIds }, deleted_at: null },
+            select: { id: true, name: true, user_email: true, email: true, student_id: true },
+          })
+        : Promise.resolve([] as Array<{ id: number; name: string | null; user_email: string | null; email: string | null; student_id: number | null }>),
+      courseIds.length > 0
+        ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : Promise.resolve([] as Array<{ id: number; title: string | null }>),
+      // Pull all assignments scoped to the involved courses (assignment.course_id).
+      // assignment table doesn't have course_id directly — it ties through cohort.
+      // We'll fetch via a left join; here use raw SQL because cohort→course is loose.
+      courseIds.length > 0
+        ? this.prisma.$queryRaw<Array<{ id: number; course_id: number }>>`
+            SELECT a.id, COALESCE(a.cohort_id, 0) AS cohort_id, c.course_id
+            FROM assignment a
+            LEFT JOIN cohorts c ON c.id = a.cohort_id
+            WHERE c.course_id IN (${Prisma.join(courseIds)})
+              AND (a.deleted_at IS NULL)
+          `.catch(() => [])
+        : Promise.resolve([] as Array<{ id: number; course_id: number }>),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    const assignmentsByCourse = new Map<number, number[]>();
+    for (const a of assignments) {
+      const arr = assignmentsByCourse.get(a.course_id) ?? [];
+      arr.push(a.id);
+      assignmentsByCourse.set(a.course_id, arr);
+    }
+
+    // All submission rows for these users — status = has marks.
+    const submissions = userIds.length > 0
+      ? await this.prisma.assignment_submissions.findMany({
+          where: { deleted_at: null, user_id: { in: userIds }, assignment_id: { not: null } },
+          select: { user_id: true, assignment_id: true, marks: true },
+        })
+      : [];
+    // Set of (user_id|assignment_id) where marks is non-empty.
+    const evaluatedKeys = new Set<string>();
+    for (const s of submissions) {
+      if (s.user_id === null || s.assignment_id === null) continue;
+      if (s.marks !== null && s.marks !== undefined && String(s.marks).trim() !== '') {
+        evaluatedKeys.add(`${s.user_id}:${s.assignment_id}`);
+      }
+    }
+
+    // Fee paid per (user_id, course_id) — reuses the same raw-SQL aggregation
+    // pattern as Fee Summary so legacy 0000-00-00 paid_date doesn't crash.
+    type PayAgg = { user_id: number; course_id: number; total: number; paid: number };
+    const payAggs = userIds.length > 0
+      ? await this.prisma.$queryRaw<PayAgg[]>`
+          SELECT user_id, course_id,
+            COALESCE(SUM(amount), 0) AS total,
+            COALESCE(SUM(CASE WHEN LOWER(status) = 'paid' THEN amount ELSE 0 END), 0) AS paid
+          FROM student_payments
+          WHERE deleted_at IS NULL AND user_id IN (${Prisma.join(userIds)})
+          GROUP BY user_id, course_id
+        `
+      : [];
+    const payByKey = new Map<string, PayAgg>();
+    for (const r of payAggs) payByKey.set(`${Number(r.user_id)}:${Number(r.course_id)}`, { user_id: Number(r.user_id), course_id: Number(r.course_id), total: Number(r.total), paid: Number(r.paid) });
+
+    // Exam allocations + attempts per user (Completed determination).
+    const allocByUser = new Map<number, number[]>();
+    if (userIds.length > 0) {
+      const allocs = await this.prisma.exam_student_allocations.findMany({ where: { user_id: { in: userIds } }, select: { user_id: true, exam_id: true } });
+      for (const a of allocs) {
+        const arr = allocByUser.get(a.user_id) ?? [];
+        arr.push(a.exam_id);
+        allocByUser.set(a.user_id, arr);
+      }
+    }
+    const attemptsByUser = new Map<number, Set<number>>();
+    if (userIds.length > 0) {
+      const attempts = await this.prisma.exam_attempt.findMany({ where: { user_id: { in: userIds } }, select: { user_id: true, exam_id: true } });
+      for (const a of attempts) {
+        if (a.user_id === null || a.exam_id === null) continue;
+        const set = attemptsByUser.get(a.user_id) ?? new Set<number>();
+        set.add(a.exam_id);
+        attemptsByUser.set(a.user_id, set);
+      }
+    }
+
+    return enrolments.map((e) => {
+      const u = e.user_id ? userMap.get(e.user_id) : null;
+      const courseTitle = e.course_id ? courseMap.get(e.course_id) ?? '' : '';
+      const reasons: string[] = [];
+
+      // Fee
+      const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
+      const feeOk = pay ? pay.paid >= pay.total && pay.total > 0 : false;
+      if (!feeOk) reasons.push('Fee not fully paid');
+
+      // Assignments
+      const assignmentIds = e.course_id ? assignmentsByCourse.get(e.course_id) ?? [] : [];
+      const totalAssignments = assignmentIds.length;
+      const evaluatedCount = e.user_id ? assignmentIds.filter((aid) => evaluatedKeys.has(`${e.user_id}:${aid}`)).length : 0;
+      const assignmentsOk = totalAssignments === 0 || evaluatedCount === totalAssignments;
+      if (totalAssignments > 0 && evaluatedCount < totalAssignments) {
+        reasons.push(`${totalAssignments - evaluatedCount} assignment(s) pending evaluation`);
+      }
+
+      // Completed = all allocated exams have an attempt
+      const allocated = e.user_id ? allocByUser.get(e.user_id) ?? [] : [];
+      const attempted = e.user_id ? attemptsByUser.get(e.user_id) ?? new Set<number>() : new Set<number>();
+      const allCompleted = allocated.length > 0 && allocated.every((eid) => attempted.has(eid));
+
+      let status: 'eligible' | 'completed' | 'not_eligible';
+      if (allCompleted) status = 'completed';
+      else if (feeOk && assignmentsOk) status = 'eligible';
+      else status = 'not_eligible';
+
+      return {
+        enrol_id: e.id,
+        enrollment_id: e.enrollment_id ?? '',
+        user_id: e.user_id,
+        student_id: u?.student_id ?? '',
+        student_name: u?.name ?? '',
+        email: u?.user_email ?? u?.email ?? '',
+        course_id: e.course_id,
+        course_title: courseTitle,
+        enrollment_date: e.enrollment_date ?? '',
+        enrollment_status: e.enrollment_status ?? '',
+        status,
+        fee_paid: pay?.paid ?? 0,
+        fee_total: pay?.total ?? 0,
+        assignments_total: totalAssignments,
+        assignments_evaluated: evaluatedCount,
+        exams_allocated: allocated.length,
+        exams_attempted: attempted.size,
+        reasons: reasons.join(' · '),
+      };
+    });
+  }
+
+  // Naji 2026-05-09 — bulk Question Bank upload. Validates each row,
+  // saves all in one transaction. Used by the new "Bulk Upload"
+  // dialog on the Question Bank page (CSV template + review + save).
+  async bulkAddQuestions(
+    actorUserId: string,
+    rows: Array<{
+      courseId?: string | undefined;
+      subjectId?: string | undefined;
+      lessonId?: string | undefined;
+      qType: number; // 0 = MCQ, 1 = Descriptive
+      title: string;
+      options?: string[] | undefined;
+      correctAnswers?: number[] | undefined; // indexes into options
+      hint?: string | undefined;
+      solution?: string | undefined;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    const actor = toNullableIntId(actorUserId);
+    const valid = rows.filter((r) => r.title.trim().length > 0);
+    if (valid.length === 0) return { status: 0, message: 'No valid rows to upload.' };
+    const now = new Date();
+    let created = 0;
+    for (const r of valid) {
+      try {
+        await this.prisma.question_bank.create({
+          data: {
+            course_id: toNullableIntId(r.courseId),
+            subject_id: toNullableIntId(r.subjectId),
+            lesson_id: toNullableIntId(r.lessonId),
+            q_type: r.qType ?? 0,
+            title: r.title.trim(),
+            number_of_options: r.options?.length ?? 0,
+            options: r.options ? JSON.stringify(r.options) : '[]',
+            correct_answers: r.correctAnswers ? JSON.stringify(r.correctAnswers) : '[]',
+            hint: r.hint ?? null,
+            solution: r.solution ?? null,
+            created_by: actor,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+        created += 1;
+      } catch { /* skip individual failures */ }
+    }
+    return { status: 1, message: `${created} question(s) uploaded.`, data: { created } };
+  }
+
   // Naji 2026-05-09 — Step 2: scheduling-suggestions returns one row
   // per UNIQUE subject across the picked courses (subjects shared
   // across courses run as a single exam — Naji's option 'a').

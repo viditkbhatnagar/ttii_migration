@@ -1357,6 +1357,37 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-05-09 — Student Eligibility table.
+  app.get('/admin/exam/eligibility', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listStudentEligibility();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Naji 2026-05-09 — Question Bank bulk upload.
+  app.post('/admin/question_bank/bulk-add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const rowsRaw = Array.isArray(payload.rows) ? payload.rows : [];
+      const rows = rowsRaw
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((r) => ({
+          courseId: toStringValue(r.course_id) || undefined,
+          subjectId: toStringValue(r.subject_id) || undefined,
+          lessonId: toStringValue(r.lesson_id) || undefined,
+          qType: toInteger(r.q_type),
+          title: toStringValue(r.title),
+          options: Array.isArray(r.options) ? r.options.map((v) => toStringValue(v)) : undefined,
+          correctAnswers: Array.isArray(r.correct_answers) ? r.correct_answers.map((v) => toInteger(v)).filter((n) => Number.isFinite(n)) : undefined,
+          hint: toStringValue(r.hint) || undefined,
+          solution: toStringValue(r.solution) || undefined,
+        }));
+      const result = await operationsService.bulkAddQuestions(requestUserId(request), rows);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji 2026-05-09 — Steps 2-5 of the Exam Creation wizard.
   app.get('/admin/exam/draft/scheduling-suggestions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
