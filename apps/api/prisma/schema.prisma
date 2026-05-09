@@ -888,6 +888,9 @@ model events {
 
 model exam {
   id                  Int       @id @default(autoincrement())
+  // Naji 2026-05-09 — auto-generated identifier (e.g. TTIIEXM2600001)
+  // surfaced to admins as "Exam ID" in the new wizard.
+  exam_code           String?   @db.VarChar(50)
   title               String?   @db.VarChar(200)
   description         String?   @db.Text
   course_id           Int?
@@ -905,6 +908,8 @@ model exam {
   from_time           DateTime? @db.Time(0)
   to_date             DateTime? @db.Date
   to_time             DateTime? @db.Time(0)
+  // draft → goes through wizard; published → visible to allocated students.
+  status              String?   @default("draft") @db.VarChar(20)
   created_by          Int?
   updated_by          Int?
   deleted_by          Int?
@@ -912,6 +917,32 @@ model exam {
   created_at          DateTime? @db.DateTime(0)
   updated_at          DateTime? @db.DateTime(0)
   deleted_at          DateTime? @db.DateTime(0)
+}
+
+/// Pivot — exam ↔ many courses. Naji 2026-05-09 the new exam wizard
+/// supports multi-course/multi-offering exams (a subject shared across
+/// two courses runs as a single exam).
+model exam_courses {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id    Int
+  course_id  Int
+  created_at DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([exam_id, course_id], map: "uniq_exam_course")
+  @@index([exam_id], map: "idx_ec_exam")
+  @@index([course_id], map: "idx_ec_course")
+}
+
+/// Pivot — exam ↔ many offerings.
+model exam_offerings {
+  id          Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id     Int
+  offering_id Int
+  created_at  DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([exam_id, offering_id], map: "uniq_exam_offering")
+  @@index([exam_id], map: "idx_eo_exam")
+  @@index([offering_id], map: "idx_eo_offering")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

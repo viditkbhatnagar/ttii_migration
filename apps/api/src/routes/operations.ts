@@ -1324,6 +1324,39 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji 2026-05-09 — Exam Creation wizard. Step 1 saves the basic
+  // exam details + multi-course/offering links as a Draft. Subsequent
+  // steps (scheduling, question setup, allocation, instructions) ship
+  // in their own commits — this endpoint stays the entry point.
+  app.post('/admin/exam/draft/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseIdsRaw = Array.isArray(payload.course_ids) ? payload.course_ids : [];
+      const offeringIdsRaw = Array.isArray(payload.offering_ids) ? payload.offering_ids : [];
+      const result = await operationsService.saveExamDraft(requestUserId(request), {
+        id: toStringValue(payload.id) || null,
+        title: toStringValue(payload.title),
+        courseIds: courseIdsRaw.map((v) => toStringValue(v)).filter((s) => s !== ''),
+        offeringIds: offeringIdsRaw.map((v) => toStringValue(v)).filter((s) => s !== ''),
+        fromDate: toStringValue(payload.from_date),
+        toDate: toStringValue(payload.to_date),
+        fromTime: toStringValue(payload.from_time),
+        toTime: toStringValue(payload.to_time),
+        durationMinutes: toInteger(payload.duration_minutes),
+        description: toStringValue(payload.description) || undefined,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/get', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.getExamDraft(toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/exam/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

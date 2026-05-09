@@ -1170,6 +1170,31 @@ export class AdminPortalApi {
     };
   }
 
+  // Naji 2026-05-09 — Exam Creation wizard. Step 1 saves the basic
+  // fields + multi-course/offering as a Draft.
+  async saveExamDraft(
+    authToken: string,
+    input: {
+      id?: string;
+      title: string;
+      course_ids: string[];
+      offering_ids: string[];
+      from_date: string;
+      to_date: string;
+      from_time: string;
+      to_time: string;
+      duration_minutes?: number;
+      description?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/draft/save', authToken, input);
+  }
+
+  async getExamDraft(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/exam/draft/get', authToken, { id });
+    return payload.data ?? {};
+  }
+
   async addExam(authToken: string, input: AddExamInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/add', authToken, {
       title: input.title,

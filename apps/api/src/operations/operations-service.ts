@@ -3227,6 +3227,148 @@ export class OperationsService {
     return { exams, summary: { total: exams.length, upcoming, expired, practice } };
   }
 
+  // Naji 2026-05-09 — new Exam Creation wizard. Step 1 saves a Draft
+  // row with multi-course / multi-offering links and auto-generates an
+  // exam_code on first save (TTIIEXM{YY}{####}). Subsequent steps will
+  // attach scheduling rows, question setup, student allocation, and
+  // instructions/notification — each via their own endpoint.
+  private async nextExamCode(): Promise<string> {
+    const yy = new Date().getFullYear() % 100;
+    const prefix = `TTIIEXM${String(yy).padStart(2, '0')}`;
+    const recent = await this.prisma.exam.findMany({
+      where: { exam_code: { startsWith: prefix } },
+      select: { exam_code: true },
+      orderBy: { id: 'desc' },
+      take: 500,
+    });
+    let maxSeq = 0;
+    for (const row of recent) {
+      const code = row.exam_code ?? '';
+      if (!code.startsWith(prefix)) continue;
+      const n = Number.parseInt(code.slice(prefix.length), 10);
+      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`;
+  }
+
+  async saveExamDraft(
+    actorUserId: string,
+    input: {
+      id?: string | null | undefined;
+      title: string;
+      courseIds: string[];
+      offeringIds: string[];
+      fromDate: string;
+      toDate: string;
+      fromTime: string;
+      toTime: string;
+      durationMinutes?: number | undefined;
+      description?: string | undefined;
+    },
+  ): Promise<Record<string, unknown>> {
+    const title = input.title.trim();
+    if (!title) return { status: 0, message: 'Exam title is required.' };
+    const courseIdsInt = input.courseIds.map((id) => toNullableIntId(id)).filter((v): v is number => v !== null);
+    const offeringIdsInt = input.offeringIds.map((id) => toNullableIntId(id)).filter((v): v is number => v !== null);
+    if (courseIdsInt.length === 0) return { status: 0, message: 'Pick at least one course.' };
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    const existingId = input.id ? toNullableIntId(input.id) : null;
+
+    const data = {
+      title,
+      description: input.description ?? null,
+      from_date: input.fromDate ? new Date(input.fromDate) : null,
+      to_date: input.toDate ? new Date(input.toDate) : null,
+      // Times are stored as a Date in the DB time-only column; we use a
+      // synthetic 1970 date so Prisma accepts the value.
+      from_time: input.fromTime ? new Date(`1970-01-01T${input.fromTime}:00`) : null,
+      to_time: input.toTime ? new Date(`1970-01-01T${input.toTime}:00`) : null,
+      duration: input.durationMinutes !== undefined && input.durationMinutes > 0 ? `${input.durationMinutes}` : null,
+      // First picked course goes into the legacy single-course column so
+      // existing list/edit pages keep working until they migrate.
+      course_id: courseIdsInt[0] ?? null,
+      status: 'draft',
+      updated_at: now,
+      updated_by: actor,
+    } as const;
+
+    let examId: number;
+    if (existingId) {
+      await this.prisma.exam.updateMany({
+        where: { id: existingId, deleted_at: null },
+        data,
+      });
+      examId = existingId;
+    } else {
+      const examCode = await this.nextExamCode();
+      const created = await this.prisma.exam.create({
+        data: {
+          ...data,
+          exam_code: examCode,
+          created_at: now,
+          created_by: actor,
+        },
+      });
+      examId = created.id;
+    }
+
+    // Replace pivot rows so the multi-selects always reflect the current state.
+    await this.prisma.exam_courses.deleteMany({ where: { exam_id: examId } });
+    if (courseIdsInt.length > 0) {
+      await this.prisma.exam_courses.createMany({
+        data: courseIdsInt.map((course_id) => ({ exam_id: examId, course_id })),
+        skipDuplicates: true,
+      });
+    }
+    await this.prisma.exam_offerings.deleteMany({ where: { exam_id: examId } });
+    if (offeringIdsInt.length > 0) {
+      await this.prisma.exam_offerings.createMany({
+        data: offeringIdsInt.map((offering_id) => ({ exam_id: examId, offering_id })),
+        skipDuplicates: true,
+      });
+    }
+
+    const row = await this.prisma.exam.findFirst({ where: { id: examId } });
+    return {
+      status: 1,
+      message: existingId ? 'Draft updated.' : 'Draft saved.',
+      data: {
+        id: examId,
+        exam_code: row?.exam_code ?? null,
+        status: row?.status ?? 'draft',
+      },
+    };
+  }
+
+  async getExamDraft(id: string): Promise<Record<string, unknown>> {
+    const examIdInt = toNullableIntId(id);
+    if (!examIdInt) return { status: 0, message: 'Invalid exam id.' };
+    const row = await this.prisma.exam.findFirst({ where: { id: examIdInt, deleted_at: null } });
+    if (!row) return { status: 0, message: 'Exam not found.' };
+    const [courseLinks, offeringLinks] = await Promise.all([
+      this.prisma.exam_courses.findMany({ where: { exam_id: examIdInt }, select: { course_id: true } }),
+      this.prisma.exam_offerings.findMany({ where: { exam_id: examIdInt }, select: { offering_id: true } }),
+    ]);
+    return {
+      status: 1,
+      data: {
+        id: row.id,
+        exam_code: row.exam_code,
+        title: row.title,
+        description: row.description,
+        from_date: row.from_date,
+        to_date: row.to_date,
+        from_time: row.from_time,
+        to_time: row.to_time,
+        duration: row.duration,
+        status: row.status,
+        course_ids: courseLinks.map((c) => c.course_id),
+        offering_ids: offeringLinks.map((o) => o.offering_id),
+      },
+    };
+  }
+
   async addExam(actorUserId: string, input: ExamInput): Promise<Record<string, unknown>> {
     if (!input.title.trim()) {
       return { status: 0, message: 'Exam title is required.' };
