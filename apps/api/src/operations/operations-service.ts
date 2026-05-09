@@ -3369,6 +3369,270 @@ export class OperationsService {
     };
   }
 
+  // Naji 2026-05-09 — Re-Examination overview + reschedule.
+  // List exams with allocated students who don't have an attempt.
+  async listReExaminationOverview(): Promise<Record<string, unknown>[]> {
+    const exams = await this.prisma.exam.findMany({
+      where: { deleted_at: null, status: 'published' },
+      select: { id: true, exam_code: true, title: true, from_date: true },
+      orderBy: { id: 'desc' },
+    });
+    if (exams.length === 0) return [];
+    const examIds = exams.map((e) => e.id);
+    const [allocs, attempts] = await Promise.all([
+      this.prisma.exam_student_allocations.findMany({ where: { exam_id: { in: examIds } }, select: { exam_id: true, user_id: true } }),
+      this.prisma.exam_attempt.findMany({ where: { exam_id: { in: examIds } }, select: { exam_id: true, user_id: true } }),
+    ]);
+    const allocByExam = new Map<number, Set<number>>();
+    for (const a of allocs) {
+      const set = allocByExam.get(a.exam_id) ?? new Set<number>();
+      set.add(a.user_id);
+      allocByExam.set(a.exam_id, set);
+    }
+    const attemptByExam = new Map<number, Set<number>>();
+    for (const t of attempts) {
+      if (t.exam_id === null || t.user_id === null) continue;
+      const set = attemptByExam.get(t.exam_id) ?? new Set<number>();
+      set.add(t.user_id);
+      attemptByExam.set(t.exam_id, set);
+    }
+    return exams.map((e) => {
+      const allocated = allocByExam.get(e.id) ?? new Set<number>();
+      const attempted = attemptByExam.get(e.id) ?? new Set<number>();
+      let missed = 0;
+      for (const uid of allocated) if (!attempted.has(uid)) missed += 1;
+      return {
+        exam_id: e.id,
+        exam_code: e.exam_code,
+        title: e.title,
+        from_date: e.from_date,
+        allocated: allocated.size,
+        attempted: attempted.size,
+        missed,
+      };
+    }).filter((r) => r.missed > 0 || r.allocated > 0);
+  }
+
+  async getReExaminationDetail(examId: string): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    const [exam, subjects, allocs, attempts, reExams] = await Promise.all([
+      this.prisma.exam.findFirst({ where: { id }, select: { id: true, exam_code: true, title: true } }),
+      this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { id: true, subject_title: true, exam_date: true, start_time: true, end_time: true } }),
+      this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } }),
+      this.prisma.exam_attempt.findMany({ where: { exam_id: id }, select: { user_id: true } }),
+      this.prisma.exam_re_examinations.findMany({ where: { exam_id: id }, select: { exam_subject_id: true, user_id: true, new_date: true, new_start_time: true, new_end_time: true, status: true } }),
+    ]);
+    if (!exam) return { status: 0, message: 'Exam not found.' };
+    const allocatedIds = allocs.map((a) => a.user_id);
+    const attemptedSet = new Set(attempts.map((t) => t.user_id).filter((v): v is number => v !== null));
+    const missedIds = allocatedIds.filter((uid) => !attemptedSet.has(uid));
+    const users = missedIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: missedIds } }, select: { id: true, name: true, user_email: true, email: true, student_id: true } })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    return {
+      status: 1,
+      data: {
+        exam,
+        subjects: subjects.map((s) => ({ ...s })),
+        missed_students: missedIds.map((uid) => {
+          const u = userMap.get(uid);
+          return {
+            user_id: uid,
+            student_id: u?.student_id ?? '',
+            name: u?.name ?? '',
+            email: u?.user_email ?? u?.email ?? '',
+          };
+        }),
+        scheduled: reExams.map((r) => ({ ...r })),
+      },
+    };
+  }
+
+  async scheduleReExamination(
+    actorUserId: string,
+    input: { examId: string; examSubjectId?: number | null | undefined; userId: number; newDate: string; newStartTime: string; newEndTime: string; notes?: string | undefined },
+  ): Promise<Record<string, unknown>> {
+    const examIdInt = toNullableIntId(input.examId);
+    if (!examIdInt) return { status: 0, message: 'Invalid exam id.' };
+    if (!input.userId) return { status: 0, message: 'Student is required.' };
+    if (!input.newDate || !input.newStartTime || !input.newEndTime) return { status: 0, message: 'Date and times are required.' };
+    await this.prisma.exam_re_examinations.create({
+      data: {
+        exam_id: examIdInt,
+        exam_subject_id: input.examSubjectId ?? null,
+        user_id: input.userId,
+        new_date: new Date(input.newDate),
+        new_start_time: new Date(`1970-01-01T${input.newStartTime}:00`),
+        new_end_time: new Date(`1970-01-01T${input.newEndTime}:00`),
+        notes: input.notes ?? null,
+        status: 'scheduled',
+        created_by: toNullableIntId(actorUserId),
+      },
+    });
+    return { status: 1, message: 'Re-exam scheduled.' };
+  }
+
+  // Naji 2026-05-09 — Evaluation drill-down (Exams → Subjects → Students)
+  // + manual descriptive grading + exam-wise result publishing.
+  async listEvaluationExams(): Promise<Record<string, unknown>[]> {
+    const exams = await this.prisma.exam.findMany({
+      where: { deleted_at: null, status: 'published' },
+      select: { id: true, exam_code: true, title: true, from_date: true, result_published_at: true },
+      orderBy: { id: 'desc' },
+    });
+    if (exams.length === 0) return [];
+    const examIds = exams.map((e) => e.id);
+    const [allocs, attempts] = await Promise.all([
+      this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds } }, _count: { user_id: true } }),
+      this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds } }, _count: { id: true } }),
+    ]);
+    const allocByExam = new Map(allocs.map((a) => [a.exam_id, a._count.user_id]));
+    const attemptByExam = new Map(attempts.map((a) => [a.exam_id ?? 0, a._count.id]));
+    return exams.map((e) => ({
+      exam_id: e.id,
+      exam_code: e.exam_code,
+      title: e.title,
+      from_date: e.from_date,
+      allocated: allocByExam.get(e.id) ?? 0,
+      attempted: attemptByExam.get(e.id) ?? 0,
+      result_published: !!e.result_published_at,
+      result_published_at: e.result_published_at,
+    }));
+  }
+
+  async listEvaluationSubjects(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const subjects = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+    if (subjects.length === 0) return [];
+    // Count components for each subject (gives a rough "how much manual evaluation").
+    const components = await this.prisma.exam_subject_components.findMany({ where: { exam_subject_id: { in: subjects.map((s) => s.id) } } });
+    const compsBySubject = new Map<number, Array<{ component_type: string; num_questions: number | null }>>();
+    for (const c of components) {
+      const arr = compsBySubject.get(c.exam_subject_id) ?? [];
+      arr.push({ component_type: c.component_type, num_questions: c.num_questions });
+      compsBySubject.set(c.exam_subject_id, arr);
+    }
+    return subjects.map((s) => {
+      const cs = compsBySubject.get(s.id) ?? [];
+      const mcq = cs.filter((c) => c.component_type === 'mcq').reduce((acc, c) => acc + (c.num_questions ?? 0), 0);
+      const desc = cs.filter((c) => c.component_type === 'descriptive').reduce((acc, c) => acc + (c.num_questions ?? 0), 0);
+      return {
+        exam_subject_id: s.id,
+        subject_title: s.subject_title,
+        exam_date: s.exam_date,
+        total_marks: s.total_marks,
+        pass_marks: s.pass_marks,
+        mcq_questions: mcq,
+        descriptive_questions: desc,
+      };
+    });
+  }
+
+  async listEvaluationStudents(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const allocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
+    const userIds = allocs.map((a) => a.user_id);
+    if (userIds.length === 0) return [];
+    const [users, attempts] = await Promise.all([
+      this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, user_email: true, email: true, student_id: true } }),
+      this.prisma.exam_attempt.findMany({ where: { exam_id: id, user_id: { in: userIds } }, select: { id: true, user_id: true, score: true, correct: true, incorrect: true, skip: true, submit_status: true } }),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const attemptByUser = new Map(attempts.map((t) => [t.user_id ?? 0, t]));
+    // Pull descriptive grade counts per attempt (best-effort — schema has the table).
+    const attemptIds = attempts.map((t) => t.id);
+    const grades = attemptIds.length > 0
+      ? await this.prisma.exam_descriptive_grades.findMany({ where: { attempt_id: { in: attemptIds } }, select: { attempt_id: true, score: true } })
+      : [];
+    const gradesByAttempt = new Map<number, number>();
+    for (const g of grades) gradesByAttempt.set(g.attempt_id, (gradesByAttempt.get(g.attempt_id) ?? 0) + 1);
+    return userIds.map((uid) => {
+      const u = userMap.get(uid);
+      const a = attemptByUser.get(uid) ?? null;
+      return {
+        user_id: uid,
+        student_id: u?.student_id ?? '',
+        name: u?.name ?? '',
+        email: u?.user_email ?? u?.email ?? '',
+        attempt_id: a?.id ?? null,
+        attempted: !!a,
+        submit_status: a?.submit_status ?? false,
+        mcq_score: a?.score ?? 0,
+        correct: a?.correct ?? 0,
+        incorrect: a?.incorrect ?? 0,
+        skip: a?.skip ?? 0,
+        descriptive_graded: a ? gradesByAttempt.get(a.id) ?? 0 : 0,
+      };
+    });
+  }
+
+  async submitDescriptiveGrade(
+    actorUserId: string,
+    input: { attemptId: number; questionId: number; score: number; remarks?: string | undefined },
+  ): Promise<Record<string, unknown>> {
+    if (!input.attemptId || !input.questionId) return { status: 0, message: 'Invalid input.' };
+    await this.prisma.exam_descriptive_grades.upsert({
+      where: { attempt_id_question_id: { attempt_id: input.attemptId, question_id: input.questionId } },
+      create: {
+        attempt_id: input.attemptId,
+        question_id: input.questionId,
+        score: input.score,
+        remarks: input.remarks ?? null,
+        graded_by: toNullableIntId(actorUserId),
+      },
+      update: {
+        score: input.score,
+        remarks: input.remarks ?? null,
+        graded_by: toNullableIntId(actorUserId),
+        graded_at: new Date(),
+      },
+    });
+    return { status: 1, message: 'Score saved.' };
+  }
+
+  async publishExamResults(actorUserId: string, examId: string): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    await this.prisma.exam.updateMany({
+      where: { id, deleted_at: null },
+      data: { result_published_at: now, result_published_by: actor, updated_at: now, updated_by: actor },
+    });
+    // Best-effort: notify all allocated students by email.
+    try {
+      const allocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
+      const userIds = allocs.map((a) => a.user_id);
+      if (userIds.length > 0) {
+        const students = await this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, user_email: true, email: true } });
+        const exam = await this.prisma.exam.findFirst({ where: { id }, select: { title: true, exam_code: true } });
+        const { createIntegrationRegistry } = await import('../integrations/registry.js');
+        const { renderBrandedEmail } = await import('../integrations/email-template.js');
+        const registry = createIntegrationRegistry();
+        for (const s of students) {
+          const to = s.user_email ?? s.email ?? '';
+          if (!to) continue;
+          try {
+            await registry.email.sendEmail({
+              to,
+              subject: `Results published — ${exam?.title ?? 'TTII'}`,
+              html: renderBrandedEmail({
+                heading: 'Your Exam Results Are Out',
+                bodyHtml: `<p>Hi ${escapeHtmlText(s.name ?? 'there')},</p><p>Results for <strong>${escapeHtmlText(exam?.title ?? '')}</strong>${exam?.exam_code ? ` (${escapeHtmlText(exam.exam_code)})` : ''} have been published. Log in to your portal to see your score and feedback.</p>`,
+                cta: { label: 'View My Results', href: 'https://learn.teachersindia.in/exams' },
+              }),
+            });
+          } catch { /* best-effort */ }
+        }
+      }
+    } catch { /* email phase swallowed */ }
+    return { status: 1, message: 'Results published.' };
+  }
+
   // Naji 2026-05-09 — Student Eligibility table.
   // Per-enrollment rows tagged Eligible / Completed / Not Eligible.
   //

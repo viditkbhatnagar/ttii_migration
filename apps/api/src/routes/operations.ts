@@ -1357,6 +1357,83 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-05-09 — Re-Examination
+  app.get('/admin/re_exam/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listReExaminationOverview();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/re_exam/detail', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getReExaminationDetail(toStringValue(payload.exam_id));
+      reply.code(200).send(data);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/re_exam/schedule', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.scheduleReExamination(requestUserId(request), {
+        examId: toStringValue(payload.exam_id),
+        examSubjectId: toInteger(payload.exam_subject_id) || null,
+        userId: toInteger(payload.user_id),
+        newDate: toStringValue(payload.new_date),
+        newStartTime: toStringValue(payload.new_start_time),
+        newEndTime: toStringValue(payload.new_end_time),
+        notes: toStringValue(payload.notes) || undefined,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Naji 2026-05-09 — Evaluation drill-down + descriptive grading + publish.
+  app.get('/admin/exam_evaluation/exams', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listEvaluationExams();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_evaluation/subjects', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listEvaluationSubjects(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_evaluation/students', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listEvaluationStudents(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam_evaluation/grade', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.submitDescriptiveGrade(requestUserId(request), {
+        attemptId: toInteger(payload.attempt_id),
+        questionId: toInteger(payload.question_id),
+        score: toNumber(payload.score),
+        remarks: toStringValue(payload.remarks) || undefined,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam_evaluation/publish', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.publishExamResults(requestUserId(request), toStringValue(payload.exam_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji 2026-05-09 — Student Eligibility table.
   app.get('/admin/exam/eligibility', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {

@@ -916,6 +916,9 @@ model exam {
   notify_inapp        Int?      @default(1) @db.TinyInt
   published_at        DateTime? @db.DateTime(0)
   published_by        Int?
+  // Naji 2026-05-09 — exam-wise result publishing.
+  result_published_at DateTime? @db.DateTime(0)
+  result_published_by Int?
   created_by          Int?
   updated_by          Int?
   deleted_by          Int?
@@ -1000,6 +1003,40 @@ model exam_student_allocations {
   @@unique([exam_id, user_id], map: "uniq_esa")
   @@index([exam_id], map: "idx_esa_exam")
   @@index([user_id], map: "idx_esa_user")
+}
+
+/// Naji 2026-05-09 — re-examination scheduling for students who
+/// missed an allocated exam.
+model exam_re_examinations {
+  id              Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id         Int
+  exam_subject_id Int?      @db.UnsignedInt
+  user_id         Int
+  new_date        DateTime? @db.Date
+  new_start_time  DateTime? @db.Time(0)
+  new_end_time    DateTime? @db.Time(0)
+  status          String?   @default("scheduled") @db.VarChar(20)
+  notes           String?   @db.VarChar(500)
+  created_at      DateTime? @default(now()) @db.DateTime(0)
+  created_by      Int?
+
+  @@index([exam_id], map: "idx_re_exam")
+  @@index([user_id], map: "idx_re_user")
+}
+
+/// Naji 2026-05-09 — manual grades for descriptive answers in the
+/// Evaluation flow.
+model exam_descriptive_grades {
+  id          Int       @id @default(autoincrement()) @db.UnsignedInt
+  attempt_id  Int
+  question_id Int
+  score       Decimal?  @db.Decimal(6, 2)
+  remarks     String?   @db.VarChar(500)
+  graded_by   Int?
+  graded_at   DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([attempt_id, question_id], map: "uniq_desc_grade")
+  @@index([attempt_id], map: "idx_desc_attempt")
 }
 
 /// Step 5 — reusable exam instruction templates library.

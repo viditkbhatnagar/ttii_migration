@@ -1206,6 +1206,39 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/question_bank/bulk-add', authToken, { rows });
   }
 
+  // Naji 2026-05-09 — Re-Examination
+  async listReExaminations(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/re_exam/index', authToken);
+    return toRecords(payload.data);
+  }
+  async getReExaminationDetail(authToken: string, examId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/re_exam/detail', authToken, { exam_id: examId });
+    return payload.data ?? {};
+  }
+  async scheduleReExamination(authToken: string, input: { exam_id: string; exam_subject_id?: number; user_id: number; new_date: string; new_start_time: string; new_end_time: string; notes?: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/re_exam/schedule', authToken, input);
+  }
+
+  // Naji 2026-05-09 — Evaluation
+  async listEvaluationExams(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_evaluation/exams', authToken);
+    return toRecords(payload.data);
+  }
+  async listEvaluationSubjects(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_evaluation/subjects', authToken, { exam_id: examId });
+    return toRecords(payload.data);
+  }
+  async listEvaluationStudents(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_evaluation/students', authToken, { exam_id: examId });
+    return toRecords(payload.data);
+  }
+  async submitDescriptiveGrade(authToken: string, input: { attempt_id: number; question_id: number; score: number; remarks?: string }): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam_evaluation/grade', authToken, input);
+  }
+  async publishExamResults(authToken: string, examId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam_evaluation/publish', authToken, { exam_id: examId });
+  }
+
   // Step 2 — scheduling.
   async getExamSchedulingSuggestions(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/scheduling-suggestions', authToken, { exam_id: examId });
