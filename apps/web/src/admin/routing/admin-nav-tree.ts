@@ -147,6 +147,8 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'evaluation', label: 'Evaluation', href: '/admin/Exam_evaluation/index' },
       { id: 'result', label: 'Result', href: '/admin/Exam_result/index' },
       { id: 'question-bank', label: 'Question Bank', href: '/admin/question_bank/index' },
+      // Naji 2026-05-09 — Student Eligibility scaffolded; spec pending.
+      { id: 'student-eligibility', label: 'Student Eligibility', href: '/admin/exam/eligibility/index' },
     ],
   },
   {

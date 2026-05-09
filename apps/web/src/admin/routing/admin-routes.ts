@@ -25,6 +25,7 @@ const AddExamPage = lazy(() => import('../pages/exam/AddExamPage.js'));
 const AssignmentsPage = lazy(() => import('../pages/assignment/AssignmentsPage.js'));
 const ExamResultPage = lazy(() => import('../pages/exam_result/ExamResultPage.js'));
 const ExamEvaluationPage = lazy(() => import('../pages/exam_evaluation/ExamEvaluationPage.js'));
+const StudentEligibilityPage = lazy(() => import('../pages/exam_eligibility/StudentEligibilityPage.js'));
 const ReExamPage = lazy(() => import('../pages/re_exam/ReExamPage.js'));
 const EntranceExamsPage = lazy(() => import('../pages/entrance_exam/EntranceExamsPage.js'));
 const AddEntranceExamPage = lazy(() => import('../pages/entrance_exam/AddEntranceExamPage.js'));
@@ -232,6 +233,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/exam/edit/:id', pageComponent: AddExamPage, title: 'Edit Exam' },
   { path: '/admin/Re_exam/index', pageComponent: ReExamPage, title: 'Re-Examination' },
   { path: '/admin/Exam_evaluation/index', pageComponent: ExamEvaluationPage, title: 'Evaluation' },
+  // Naji 2026-05-09 — Student Eligibility scaffolded; spec pending.
+  { path: '/admin/exam/eligibility/index', aliases: ['/admin/exam/eligibility'], pageComponent: StudentEligibilityPage, title: 'Student Eligibility' },
   { path: '/admin/Exam_result/index', pageComponent: ExamResultPage, title: 'Exam Result' },
   { path: '/admin/question_bank/index', pageComponent: QuestionBankPage, title: 'Question Bank' },
 
