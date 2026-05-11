@@ -7782,7 +7782,12 @@ export class OperationsService {
       profile_picture: photo,
       date_of_birth: user.dob ?? application?.date_of_birth ?? null,
       age: application?.age ?? null,
-      gender: normalizeGender(user.gender ?? application?.gender),
+      // Naji 2026-05-11 — users.gender is NOT NULL in the legacy schema and
+      // defaults to ''. `??` only short-circuits on null/undefined, not empty
+      // string, so the wrong branch was being taken for any student whose
+      // user row pre-dated the gender column being populated. Use truthy
+      // check so empty string falls through to the application value.
+      gender: normalizeGender((user.gender && user.gender.trim()) || application?.gender),
       biography: application?.biography ?? null,
       learning_disabilities: application?.learning_disabilities ?? null,
       accessibility_needs: application?.accessibility_needs ?? null,

@@ -48,18 +48,52 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
   useEffect(() => {
     if (!student) return;
     const dob = student.date_of_birth;
-    // Naji 2026-05-11 — the dropdown options are Title Case ("Male",
-    // "Married") but legacy DB rows can be lowercase ("male", "married") or
-    // legacy ints ("1"). Title-case the value on prefill so the <option>
-    // match succeeds and the saved value renders as the selected item.
-    const titleCase = (raw: string): string => {
+    // Naji 2026-05-11 — Resolve a raw legacy value to the canonical option:
+    // 1) Exact match wins.
+    // 2) Case-insensitive match against option labels.
+    // 3) Known legacy aliases (DB has "associates" / "Bachelor's" /
+    //    "not_married" / "referral" etc — map to the closest dropdown option).
+    // 4) Otherwise return the raw value unchanged so SelectRow can preserve
+    //    it as a custom option (Naji sees what's stored, can change if he
+    //    wants but data isn't silently lost).
+    const ALIASES: Record<string, string> = {
+      // Gender (legacy int-as-string also handled by backend normalizeGender)
+      '1': 'Male', '2': 'Female', '3': 'Other',
+      male: 'Male', female: 'Female', other: 'Other',
+      // Marital status
+      married: 'Married', single: 'Single', divorced: 'Divorced', widowed: 'Widowed',
+      not_married: 'Single', unmarried: 'Single',
+      // Pipeline (Add-Application stores e.g. "associates" plural lowercase)
+      admin: 'Admin', counsellor: 'Counsellor', counselor: 'Counsellor',
+      associate: 'Associate', associates: 'Associate', centre: 'Centre', center: 'Centre',
+      // Lead source / marketing
+      facebook: 'Facebook', whatsapp: 'WhatsApp', email: 'Email', website: 'Website',
+      'walk-in': 'Walk-in', 'walkin': 'Walk-in', 'call-in': 'Call-in', 'callin': 'Call-in',
+      reference: 'Reference', referral: 'Reference', referred: 'Reference',
+      // Highest qualification
+      "bachelor's": "Bachelor's Degree", 'bachelors': "Bachelor's Degree", bachelor: "Bachelor's Degree",
+      "master's": "Master's Degree", masters: "Master's Degree", master: "Master's Degree",
+      'high school': 'Secondary School', 'senior secondary': 'Higher Secondary',
+      'intermediate': 'Higher Secondary', 'plus two': 'Higher Secondary', '+2': 'Higher Secondary',
+      // Mode of study
+      online: 'Online', offline: 'Offline', hybrid: 'Hybrid',
+      // Employment status
+      employed: 'Employed', 'self-employed': 'Self-Employed', selfemployed: 'Self-Employed',
+      unemployed: 'Unemployed', student: 'Student', homemaker: 'Homemaker', retired: 'Retired',
+    };
+    const resolveOption = (raw: string, options: string[]): string => {
       const v = raw.trim();
       if (!v) return '';
-      // Legacy gender ints — already normalized by the backend but be safe.
-      if (v === '1') return 'Male';
-      if (v === '2') return 'Female';
-      if (v === '3') return 'Other';
-      return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+      // 1) Exact match
+      if (options.includes(v)) return v;
+      // 2) Case-insensitive match against option labels
+      const lower = v.toLowerCase();
+      const ci = options.find((o) => o.toLowerCase() === lower);
+      if (ci) return ci;
+      // 3) Known alias
+      if (ALIASES[lower]) return ALIASES[lower];
+      // 4) Fall through — preserved as a "(current)" option by SelectRow
+      return v;
     };
     setForm({
       name: asString(student.name),
@@ -70,9 +104,11 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       whatsapp_no: asString(student.whatsapp_no),
       date_of_birth: dob ? new Date(dob as string).toISOString().split('T')[0] ?? '' : '',
       age: asString(student.age),
-      gender: titleCase(asString(student.gender)),
-      nationality: asString(student.nationality),
-      marital_status: titleCase(asString(student.marital_status)),
+      gender: resolveOption(asString(student.gender), ['Male', 'Female', 'Other']),
+      // Country / Nationality are free-text columns; show the resolved name
+      // (from country lookup) for clarity. Save path takes the field as-is.
+      nationality: asString(student.nationality_name) || asString(student.nationality),
+      marital_status: resolveOption(asString(student.marital_status), ['Single', 'Married', 'Divorced', 'Widowed']),
       father_name: asString(student.father_name),
       mother_name: asString(student.mother_name),
       guardian_name: asString(student.guardian_name),
@@ -84,29 +120,35 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       biography: asString(student.biography),
       learning_disabilities: asString(student.learning_disabilities),
       accessibility_needs: asString(student.accessibility_needs),
-      country: asString(student.country),
+      country: asString(student.country_name) || asString(student.country),
       state: asString(student.state),
       city: asString(student.city),
       address: asString(student.address),
       native_address: asString(student.native_address),
       status: asString(student.status) || '1',
-      highest_qualification: asString(student.highest_qualification),
+      highest_qualification: resolveOption(asString(student.highest_qualification), QUALIFICATIONS),
       specialization: asString(student.specialization),
       institution_name: asString(student.institution_name) || asString(student.previous_school),
       year_of_passing: asString(student.year_of_passing),
       percentage_or_grade: asString(student.percentage_or_grade),
-      employment_status: asString(student.employment_status),
+      employment_status: resolveOption(
+        asString(student.employment_status),
+        ['Employed', 'Self-Employed', 'Unemployed', 'Student', 'Homemaker', 'Retired'],
+      ),
       current_occupation: asString(student.current_occupation),
-      experience_years: asString(student.work_experience) || asString(student.experience_years),
+      experience_years: resolveOption(
+        asString(student.work_experience) || asString(student.experience_years),
+        EXPERIENCE_BUCKETS,
+      ),
       // Enrolment + fee fields (carried on the linked application).
       course_id: asString(student.course_id),
       offering_id: asString(student.offering_id),
       certificate_combination_id: asString(student.certificate_combination_id),
-      mode_of_study: asString(student.mode_of_study),
+      mode_of_study: resolveOption(asString(student.mode_of_study), MODE_OF_STUDY),
       preferred_language: asString(student.preferred_language),
-      pipeline: asString(student.pipeline),
+      pipeline: resolveOption(asString(student.pipeline), ['Admin', 'Counsellor', 'Associate', 'Centre']),
       pipeline_user: asString(student.pipeline_user),
-      lead_source: asString(student.lead_source),
+      lead_source: resolveOption(asString(student.lead_source), LEAD_SOURCES),
       reference_student_id: asString(student.reference_student_id),
       discount: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount) || '',
       discount_type: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount_type) || 'percent',
@@ -378,8 +420,13 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
               <select className={selectClass} value={form.preferred_language ?? ''} onChange={(e) => set('preferred_language', e.target.value)}>
                 <option value="">Select Language</option>
                 {languages.map((l) => {
+                  const id = asString(l.id);
                   const title = asString(l.title) || asString(l.name);
-                  return <option key={asString(l.id) || title} value={title}>{title}</option>;
+                  // Naji 2026-05-11 — legacy data stores numeric language IDs
+                  // ("1" = Malayalam). Option value MUST be the ID so prefill
+                  // matches. Save path also stores the ID (column is text but
+                  // backend resolves it via the languages table).
+                  return <option key={id || title} value={id || title}>{title}</option>;
                 })}
               </select>
             </div>
@@ -475,11 +522,20 @@ function FieldRow({ label, value, onChange, type }: { label: string; value: stri
 }
 
 function SelectRow({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  // Naji 2026-05-11 — If the saved value isn't one of the canonical options
+  // (e.g. a legacy spelling resolveOption couldn't alias), append it as a
+  // "(current)" entry so the dropdown shows what's stored instead of falling
+  // back to the first option. Admin can then pick a canonical option to
+  // normalize the data, or leave it alone.
+  const hasMatch = options.some((o) => o.value === value);
+  const effectiveOptions = !hasMatch && value
+    ? [...options, { value, label: `${value} (current)` }]
+    : options;
   return (
     <div>
       <Label className="mb-1 text-xs">{label}</Label>
       <select className={selectClass} value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {effectiveOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
   );
