@@ -7690,6 +7690,41 @@ export class OperationsService {
       };
     });
 
+    // Naji 2026-05-12 — enrich assignment_submissions with the parent
+    // assignment row (title, total_marks, due_date) and the subject the
+    // assignment belongs to via its course. Assignment table doesn't have
+    // subject_id directly; cohort → subject via cohort_subjects is the
+    // path, but a simpler proxy is course_id → first subject. For now
+    // we look up assignment.title + total_marks + due_date and leave
+    // Subject as the assignment's cohort or course title.
+    const submissionAssignmentIds = [...new Set(assignmentSubs.map((s) => s.assignment_id).filter((x): x is number => x != null))];
+    const submissionAssignmentRows = submissionAssignmentIds.length > 0
+      ? await this.prisma.assignment.findMany({
+          where: { id: { in: submissionAssignmentIds } },
+          select: { id: true, title: true, total_marks: true, due_date: true, course_id: true, cohort_id: true },
+        })
+      : [];
+    const submissionCourseIds = [...new Set(submissionAssignmentRows.map((a) => a.course_id).filter((x): x is number => x != null))];
+    const submissionCourseRows = submissionCourseIds.length > 0
+      ? await this.prisma.course.findMany({
+          where: { id: { in: submissionCourseIds } },
+          select: { id: true, title: true },
+        })
+      : [];
+    const submissionAssignmentMap = new Map(submissionAssignmentRows.map((a) => [a.id, a]));
+    const submissionCourseMap = new Map(submissionCourseRows.map((c) => [c.id, c.title]));
+    const enrichedAssignmentSubs = assignmentSubs.map((s) => {
+      const assignment = s.assignment_id != null ? submissionAssignmentMap.get(s.assignment_id) : undefined;
+      const subjectTitle = assignment?.course_id != null ? submissionCourseMap.get(assignment.course_id) ?? null : null;
+      return {
+        ...s,
+        assignment_title: assignment?.title ?? null,
+        total_marks: assignment?.total_marks ?? null,
+        due_date: assignment?.due_date ?? null,
+        subject_title: subjectTitle,
+      };
+    });
+
     // Offering lookup — applications carry the chosen offering_id; the
     // enrol row doesn't, so we surface the application's offering for all
     // enrolments under that course.
@@ -7722,6 +7757,57 @@ export class OperationsService {
       videoTotalByCourse.set(vp.course_id, cur);
     }
 
+    // Naji 2026-05-12 — enrich video progress with the subject + lesson
+    // titles so the Learning Progress sub-tab can group lessons by subject
+    // instead of showing a flat "Lesson 1, Lesson 2…" list.
+    // video_progress_status.lesson_file_id → lesson_files.lesson_id →
+    // lesson.subject_id → subject.title.
+    const lessonFileIds = [...new Set(videoProgress.map((v) => v.lesson_file_id).filter((x): x is number => x != null))];
+    const lessonFileRows = lessonFileIds.length > 0
+      ? await this.prisma.lesson_files.findMany({
+          where: { id: { in: lessonFileIds } },
+          select: { id: true, lesson_id: true, title: true },
+        })
+      : [];
+    const lessonIdsForProgress = [...new Set(lessonFileRows.map((lf) => lf.lesson_id))];
+    const lessonRows = lessonIdsForProgress.length > 0
+      ? await this.prisma.lesson.findMany({
+          where: { id: { in: lessonIdsForProgress } },
+          select: { id: true, title: true, subject_id: true },
+        })
+      : [];
+    const subjectIdsForProgress = [...new Set(lessonRows.map((l) => l.subject_id).filter((x): x is number => x != null))];
+    const subjectRowsForProgress = subjectIdsForProgress.length > 0
+      ? await this.prisma.subject.findMany({
+          where: { id: { in: subjectIdsForProgress } },
+          select: { id: true, title: true, order: true },
+        })
+      : [];
+    const lessonFileMap = new Map(lessonFileRows.map((lf) => [lf.id, lf]));
+    const lessonMapForProgress = new Map(lessonRows.map((l) => [l.id, l]));
+    const subjectMapForProgress = new Map(subjectRowsForProgress.map((s) => [s.id, s]));
+    const enrichedVideoProgress = videoProgress.map((vp) => {
+      const lf = vp.lesson_file_id != null ? lessonFileMap.get(vp.lesson_file_id) : undefined;
+      const lesson = lf ? lessonMapForProgress.get(lf.lesson_id) : undefined;
+      const subject = lesson?.subject_id != null ? subjectMapForProgress.get(lesson.subject_id) : undefined;
+      return {
+        ...vp,
+        lesson_id: lesson?.id ?? null,
+        lesson_title: lesson?.title ?? lf?.title ?? null,
+        subject_id: subject?.id ?? null,
+        subject_title: subject?.title ?? null,
+        subject_order: subject?.order ?? null,
+      };
+    });
+
+    // Resolve certificate combination once for the enrolment table column.
+    const enrolmentCombination = application?.certificate_combination_id
+      ? await this.prisma.certificate_combinations.findFirst({
+          where: { id: application.certificate_combination_id },
+          select: { id: true, combination_code: true },
+        })
+      : null;
+
     const enrichedEnrolments = enrolments.map(e => {
       const course = e.course_id ? courseMap.get(e.course_id) : null;
       const fee = e.course_id ? courseFeeMap.get(e.course_id) : null;
@@ -7734,6 +7820,10 @@ export class OperationsService {
         ...e,
         course_title: course?.title ?? null,
         offering_title: offering?.title ?? offering?.offering_code ?? null,
+        // Naji 2026-05-12 — Certificate Combination column on the
+        // enrolment table. Pulled from the application row since enrol
+        // doesn't carry the combination itself.
+        certificate_combination_code: enrolmentCombination?.combination_code ?? null,
         batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
         course_fee: Math.round(courseFee),
         progress,
@@ -8031,9 +8121,9 @@ export class OperationsService {
       payments,
       studentPaymentSchedule,
       studentFees,
-      videoProgress,
+      videoProgress: enrichedVideoProgress,
       materialProgress: [],
-      assignmentSubmissions: assignmentSubs,
+      assignmentSubmissions: enrichedAssignmentSubs,
       quizAttempts: enrichedQuizAttempts,
       examAttempts: enrichedExamAttempts,
       liveClassAttendance: enrichedAttendance,

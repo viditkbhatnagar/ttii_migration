@@ -145,6 +145,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       { key: 'enrollment_date', label: 'Date of Enrollment', render: (v, row) => formatDate(v || row.created_at) },
       { key: 'course_title', label: 'Course Name', render: (v) => asString(v) || '-' },
       { key: 'offering_title', label: 'Course Offering', render: (v) => asString(v) || '-' },
+      { key: 'certificate_combination_code', label: 'Certificate Combination', render: (v) => asString(v) || '-' },
       {
         key: 'course_fee',
         label: 'Course Fee',
@@ -190,23 +191,19 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     [],
   );
 
-  // Payment columns for enrollment drill-down
-  const paymentColumns: DataTableColumn[] = useMemo(
-    () => [
-      { key: 'payment_date', label: 'Date', render: (v) => formatDate(v) },
-      { key: 'amount_paid', label: 'Amount', render: (v) => `₹${asNumber(v).toLocaleString()}` },
-      { key: 'razorpay_payment_id', label: 'Payment ID' },
-      { key: 'code', label: 'Receipt' },
-    ],
-    [],
-  );
-
+  // Naji 2026-05-12 — Assignment table now shows the assignment metadata
+  // (subject + title + total marks + due date) alongside submission detail
+  // (submitted at + marks received + feedback). Backend enriches each
+  // submission with assignment + course title.
   const assignmentColumns: DataTableColumn[] = useMemo(
     () => [
-      { key: 'assignment_id', label: 'Assignment ID' },
-      { key: 'marks', label: 'Score' },
-      { key: 'remarks', label: 'Remarks' },
+      { key: 'subject_title', label: 'Subject', render: (v) => asString(v) || '-' },
+      { key: 'assignment_title', label: 'Title', render: (v, row) => asString(v) || asString(row.assignment_id) || '-' },
+      { key: 'total_marks', label: 'Total Marks', render: (v) => asString(v) || '-' },
+      { key: 'due_date', label: 'Due Date', render: (v) => formatDate(v) },
       { key: 'created_at', label: 'Submitted', render: (v) => formatDate(v) },
+      { key: 'marks', label: 'Marks Received', render: (v) => asString(v) || '-' },
+      { key: 'remarks', label: 'Feedback', render: (v) => asString(v) || '-' },
     ],
     [],
   );
@@ -815,36 +812,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       {/* Tab 2: Enrollments */}
       {activeTab === 1 && (
         <div className="space-y-4">
-          {/* Naji 2026-05-11 — Application Details lives here (was on the
-              Student Profile tab). It's application/enrolment-level info
-              so it belongs with the Enrollment view. */}
-          {/* Naji 2026-05-11 — Application Details + All Enrollments now
-              ALWAYS visible at the top of the Enrollments tab, even when
-              an enrollment is selected for drill-down. Naji wanted the
-              same context in both views. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Application Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Application ID" value={asString(student.application_id)} />
-                  <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
-                  <InfoRow label="Application Status" value={asString(student.application_status)} />
-                  <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
-                  <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
-                </div>
-                <div>
-                  <InfoRow label="Pipeline" value={asString(student.pipeline)} />
-                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
-                  <InfoRow label="Lead Source" value={asString(student.lead_source)} />
-                  <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
-                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Naji 2026-05-12 — All Enrollments table stays at the top.
+              Application Details moved INSIDE the drill-down (shows only
+              when a specific enrollment is opened). */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">All Enrollments</CardTitle>
@@ -874,6 +844,32 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   Enrollment: {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)} — {asString(selectedEnrollment?.course_title)}
                 </span>
               </div>
+
+              {/* Application Details — application/enrolment metadata that
+                  belongs to the active enrollment context. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Application Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-x-8 md:grid-cols-2">
+                    <div>
+                      <InfoRow label="Application ID" value={asString(student.application_id)} />
+                      <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
+                      <InfoRow label="Application Status" value={asString(student.application_status)} />
+                      <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
+                      <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
+                    </div>
+                    <div>
+                      <InfoRow label="Pipeline" value={asString(student.pipeline)} />
+                      <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
+                      <InfoRow label="Lead Source" value={asString(student.lead_source)} />
+                      <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
+                      <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Sub-tab navigation */}
               <div className="flex flex-wrap gap-1 border-b border-gray-200">
@@ -923,23 +919,69 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                         <CardTitle className="text-base">Subject Progress</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-3">
-                          {videoProgress.map((vp, idx) => {
-                            const title = asString(vp.subject_title) || asString(vp.lesson_title) || `Lesson ${idx + 1}`;
-                            const pct = asNumber(vp.progress) || asNumber(vp.completion_percentage) || 0;
-                            return (
-                              <div key={idx}>
-                                <div className="flex items-center justify-between text-sm mb-1">
-                                  <span className="text-gray-700">{title}</span>
-                                  <span className="text-gray-500">{pct}%</span>
-                                </div>
-                                <div className="h-2 w-full rounded-full bg-gray-200">
-                                  <div className="h-2 rounded-full bg-ttii-primary" style={{ width: `${Math.min(pct, 100)}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        {/* Naji 2026-05-12 — lessons grouped under their
+                            parent Subject (backend now joins lesson_files
+                            → lesson → subject). Lessons with no subject
+                            (legacy data quirk) fall into "Other". */}
+                        {(() => {
+                          type SubjectBucket = {
+                            id: string;
+                            title: string;
+                            order: number;
+                            lessons: Record<string, unknown>[];
+                          };
+                          const buckets = new Map<string, SubjectBucket>();
+                          for (const vp of videoProgress) {
+                            const sid = asString(vp.subject_id) || 'none';
+                            const stitle = asString(vp.subject_title) || 'Other';
+                            const order = asNumber(vp.subject_order);
+                            if (!buckets.has(sid)) {
+                              buckets.set(sid, { id: sid, title: stitle, order, lessons: [] });
+                            }
+                            buckets.get(sid)?.lessons.push(vp);
+                          }
+                          const ordered = [...buckets.values()].sort((a, b) => {
+                            if (a.id === 'none') return 1;
+                            if (b.id === 'none') return -1;
+                            return a.order - b.order;
+                          });
+                          return (
+                            <div className="space-y-5">
+                              {ordered.map((subject) => {
+                                const totalLessons = subject.lessons.length;
+                                const completed = subject.lessons.filter((l) => asNumber(l.status) === 1).length;
+                                const subjectPct = totalLessons > 0 ? Math.round((completed / totalLessons) * 100) : 0;
+                                return (
+                                  <div key={subject.id}>
+                                    <div className="mb-2 flex items-center justify-between">
+                                      <h4 className="text-sm font-semibold text-gray-900">{subject.title}</h4>
+                                      <span className="text-xs text-gray-500">
+                                        {completed}/{totalLessons} lessons • {subjectPct}%
+                                      </span>
+                                    </div>
+                                    <div className="space-y-2 border-l-2 border-ttii-primary/20 pl-4">
+                                      {subject.lessons.map((vp, idx) => {
+                                        const title = asString(vp.lesson_title) || `Lesson ${idx + 1}`;
+                                        const lessonPct = asNumber(vp.status) === 1 ? 100 : (asNumber(vp.progress) || 0);
+                                        return (
+                                          <div key={idx}>
+                                            <div className="mb-1 flex items-center justify-between text-sm">
+                                              <span className="text-gray-700">{title}</span>
+                                              <span className="text-gray-500">{lessonPct}%</span>
+                                            </div>
+                                            <div className="h-1.5 w-full rounded-full bg-gray-200">
+                                              <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(lessonPct, 100)}%` }} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   )}
@@ -1105,13 +1147,23 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     </Card>
                   )}
 
+                  {/* Naji 2026-05-12 — Payment History was showing blank
+                      because it was reading from `payment_info` which is
+                      razorpay-only. The proper installment schedule lives
+                      in `student_payments` (= studentPaymentSchedule).
+                      Same table the Course Fee tab uses. */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base">Payment History</CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      {payments.length > 0 ? (
-                        <AdminDataTable columns={paymentColumns} rows={payments} searchable={false} exportable={false} />
+                      {studentPaymentSchedule.length > 0 ? (
+                        <AdminDataTable
+                          columns={paymentScheduleColumns}
+                          rows={studentPaymentSchedule}
+                          searchable={false}
+                          exportable={false}
+                        />
                       ) : (
                         <p className="py-6 text-center text-sm text-gray-400">No payment records found.</p>
                       )}
