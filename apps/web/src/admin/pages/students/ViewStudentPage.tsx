@@ -478,30 +478,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             </Card>
           ) : null}
 
-          {/* Application metadata — what was captured on the application form. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Application Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Application ID" value={asString(student.application_id)} />
-                  <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
-                  <InfoRow label="Application Status" value={asString(student.application_status)} />
-                  <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
-                  <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
-                </div>
-                <div>
-                  <InfoRow label="Pipeline" value={asString(student.pipeline)} />
-                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
-                  <InfoRow label="Lead Source" value={asString(student.lead_source)} />
-                  <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
-                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       )}
 
@@ -874,6 +850,34 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       {/* Tab 2: Enrollments */}
       {activeTab === 1 && (
         <div className="space-y-4">
+          {/* Naji 2026-05-11 — Application Details lives here (was on the
+              Student Profile tab). It's application/enrolment-level info
+              so it belongs with the Enrollment view. */}
+          {selectedEnrollment === null && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Application Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow label="Application ID" value={asString(student.application_id)} />
+                    <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
+                    <InfoRow label="Application Status" value={asString(student.application_status)} />
+                    <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
+                    <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
+                  </div>
+                  <div>
+                    <InfoRow label="Pipeline" value={asString(student.pipeline)} />
+                    <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
+                    <InfoRow label="Lead Source" value={asString(student.lead_source)} />
+                    <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
+                    <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {selectedEnrollment === null ? (
             /* Enrollment List */
             <Card>
