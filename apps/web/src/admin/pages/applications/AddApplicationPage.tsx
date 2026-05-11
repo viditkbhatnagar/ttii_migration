@@ -1150,7 +1150,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 <Label>Course *</Label>
                 <select className={selectClass} value={form.courseId} onChange={(e) => set('courseId', e.target.value)}>
                   <option value="">Select Course</option>
-                  {courses.map((c) => <option key={String(c.id)} value={String(c.id)}>{String(c.title ?? '')}</option>)}
+                  {courses.map((c) => {
+                    const id = typeof c.id === 'string' || typeof c.id === 'number' ? String(c.id) : '';
+                    const title = typeof c.title === 'string' ? c.title : '';
+                    return <option key={id} value={id}>{title}</option>;
+                  })}
                 </select>
               </div>
               <div className="grid gap-2">
