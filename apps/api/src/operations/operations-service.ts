@@ -7905,27 +7905,13 @@ export class OperationsService {
         ? String(application.whatsapp_no)
         : null);
 
-    // Naji 2026-05-11 — for every personal field, fall through:
-    // applications value first, then user_details (legacy PHP profile
-    // store) as a fallback. Most legacy students like DIVYA only have
-    // their data in user_details. The PHP LMS's old Student Details
-    // page reads from this same table.
-    const pickPersonal = <K extends keyof typeof application & keyof typeof userDetails>(
-      key: K,
-    ): unknown => {
-      const fromApp = application ? (application as Record<string, unknown>)[key as string] : null;
-      if (fromApp !== null && fromApp !== undefined && fromApp !== '') return fromApp;
-      const fromDetails = userDetails ? (userDetails as Record<string, unknown>)[key as string] : null;
-      return fromDetails ?? null;
-    };
-    void pickPersonal; // satisfies tsc when the generic helper isn't used inline
-
-    // Country name resolution with user_details fallback for the raw ID.
-    const ud = userDetails as Record<string, unknown> | null;
-    const countryRaw = (application?.country_id ?? (ud?.country_id as string | null) ?? null);
-    const nationalityRaw = (application?.nationality ?? (ud?.nationality as string | null) ?? null);
-    const countryRawIdInt = parseLooseInt(countryRaw as string | null);
-    const nationalityRawIdInt = parseLooseInt(nationalityRaw as string | null);
+    // Naji 2026-05-11 — country / nationality name resolution with
+    // user_details fallback for the raw ID. Personal-field fallback (DOB,
+    // address, etc.) is done inline in the studentWithPhoto block below.
+    const countryRaw = application?.country_id ?? userDetails?.country_id ?? null;
+    const nationalityRaw = application?.nationality ?? userDetails?.nationality ?? null;
+    const countryRawIdInt = parseLooseInt(countryRaw);
+    const nationalityRawIdInt = parseLooseInt(nationalityRaw);
     let countryNameResolved = countryName;
     let nationalityNameResolved = nationalityName;
     if (!countryNameResolved && countryRawIdInt !== null) {
