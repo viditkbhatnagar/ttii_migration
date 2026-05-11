@@ -80,7 +80,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   useEffect(() => {
     void api
       .loadCourses(session.token)
-      .then((rows) => setCourses(rows))
+      // Naji 2026-05-12 — only published courses in the Lead dropdown.
+      // Drafts were leaking into Add Lead / Add Application everywhere.
+      .then((rows) => setCourses(rows.filter((r) => {
+        const status = r.status;
+        return typeof status === 'string' && status.toLowerCase() === 'published';
+      })))
       .catch(() => setCourses([]));
   }, [api, session.token]);
 
@@ -170,14 +175,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       .catch(() => setOfferings([]));
   }, [api, session.token, courseId]);
 
-  // Certificate combinations — narrow to the ones that have a price
-  // package set for the selected offering. Without an offering picked,
-  // fall back to the full course-scoped active list. Naji 2026-05-09 —
-  // priced combinations are the only ones the payment dialog can
-  // pre-fill from, so showing only those keeps the captured data
-  // consistent with what's payable.
+  // Certificate combinations — Naji 2026-05-12: only show combinations
+  // after an Offering is picked. Previously the dropdown was populated
+  // with course-scoped combinations even when offering was blank, which
+  // let admins pick a combination that had no price package set up.
   useEffect(() => {
-    if (!courseId) {
+    if (!courseId || !offeringId) {
       setCombinations([]);
       setCombinationId('');
       return;
@@ -188,17 +191,15 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       try {
         const allActive = await api.listCertificateCombinations(session.token, { course_id: courseId, status: 'active' });
         let list = allActive;
-        if (offeringId) {
-          try {
-            const packages = await api.listOfferingPackages(session.token, offeringId);
-            const pricedIds = new Set(packages.map((p) => asString(p.combination_id)));
-            const priced = allActive.filter((c) => pricedIds.has(asString(c.id)));
-            // If the offering has at least one priced combination, show
-            // only those. Otherwise (no packages set yet for this
-            // offering) keep the full list so admins aren't blocked.
-            if (priced.length > 0) list = priced;
-          } catch { /* fallback to full list */ }
-        }
+        try {
+          const packages = await api.listOfferingPackages(session.token, offeringId);
+          const pricedIds = new Set(packages.map((p) => asString(p.combination_id)));
+          const priced = allActive.filter((c) => pricedIds.has(asString(c.id)));
+          // If the offering has at least one priced combination, show
+          // only those. Otherwise (no packages set yet for this
+          // offering) keep the full list so admins aren't blocked.
+          if (priced.length > 0) list = priced;
+        } catch { /* fallback to full list */ }
         const pendingCombo = pendingCombinationIdRef.current;
         if (pendingCombo && !list.some((r) => asString(r.id) === pendingCombo)) {
           try {

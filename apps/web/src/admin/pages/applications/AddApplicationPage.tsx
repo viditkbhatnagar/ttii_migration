@@ -293,7 +293,15 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
     [],
   );
 
-  const courses = useMemo(() => refData?.courses ?? [], [refData]);
+  // Naji 2026-05-12 — only Published courses in the Application dropdown.
+  // Drafts were leaking in.
+  const courses = useMemo(() => {
+    const all = (refData?.courses ?? []) as Array<Record<string, unknown>>;
+    return all.filter((c) => {
+      const status = c.status;
+      return typeof status === 'string' && status.toLowerCase() === 'published';
+    });
+  }, [refData]);
 
   // Load offerings for selected course
   const { data: offeringsData } = useAdminPageData(
@@ -1142,7 +1150,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 <Label>Course *</Label>
                 <select className={selectClass} value={form.courseId} onChange={(e) => set('courseId', e.target.value)}>
                   <option value="">Select Course</option>
-                  {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  {courses.map((c) => <option key={String(c.id)} value={String(c.id)}>{String(c.title ?? '')}</option>)}
                 </select>
               </div>
               <div className="grid gap-2">

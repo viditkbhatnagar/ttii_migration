@@ -186,7 +186,21 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         },
       },
       { key: 'phone', label: 'Phone', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
-      { key: 'email', label: 'E-mail', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
+      {
+        key: 'user_email',
+        label: 'E-mail',
+        sortable: true,
+        // Naji 2026-05-12 — legacy `users.email` column was repurposed to
+        // store phone-with-country-code in the old PHP LMS. Actual email
+        // lives in `user_email`. Render that with `email` as a last-resort
+        // fallback only if it looks like an email (contains @).
+        render: (_value, row) => {
+          const userEmail = asString(row.user_email);
+          if (userEmail) return userEmail;
+          const legacyEmail = asString(row.email);
+          return legacyEmail.includes('@') ? legacyEmail : 'N/A';
+        },
+      },
       { key: 'course_title', label: 'Courses', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
       {
         key: 'enrollment_count',
