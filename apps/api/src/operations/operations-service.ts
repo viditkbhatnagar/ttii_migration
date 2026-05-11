@@ -7752,7 +7752,14 @@ export class OperationsService {
       catch { return null; }
     })();
     const installmentPlan = biographyParsed?.installment_plan ?? [];
-    const applicationDocuments = (biographyParsed?.documents ?? []) as Array<{ name?: string; url?: string; document_type_id?: string }>;
+    // Naji 2026-05-11 — application documents are stored in biography JSON
+    // with relative URLs from the legacy form. Rewrite to the live host so
+    // the "View" link actually opens the file.
+    const applicationDocuments = ((biographyParsed?.documents ?? []) as Array<{ name?: string; url?: string; document_type_id?: string }>)
+      .map((d) => ({
+        ...d,
+        url: d.url ? toLegacyFileUrl(d.url) : '',
+      }));
     const applicationFee = application
       ? {
           discount: application.application_discount != null ? Number(application.application_discount) : null,
@@ -8038,7 +8045,11 @@ export class OperationsService {
       documents: documents.map((d) => ({
         id: String(d.student_document_id),
         label: d.label ?? '',
-        file: d.file ?? '',
+        // Naji 2026-05-11 — student_document.file stores relative paths
+        // like "uploads/students_file/.../foo.pdf". Without rewriting, the
+        // browser tries to fetch `admin.teachersindia.in/uploads/...`
+        // which 404s. Resolve against the real legacy host.
+        file: toLegacyFileUrl(d.file),
         uploaded_at: d.created_at,
       })),
       performance: {
