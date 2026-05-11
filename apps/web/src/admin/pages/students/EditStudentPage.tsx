@@ -10,6 +10,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
+import { SearchableSelect } from '../../shared/components/SearchableSelect.js';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 
@@ -323,11 +324,10 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
               options={[{ value: '', label: 'Select' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} />
             <SelectRow label="Marital Status" value={form.marital_status ?? ''} onChange={(v) => set('marital_status', v)}
               options={[{ value: '', label: 'Select' }, { value: 'Single', label: 'Single' }, { value: 'Married', label: 'Married' }, { value: 'Divorced', label: 'Divorced' }, { value: 'Widowed', label: 'Widowed' }]} />
-            <DatalistField
+            <SearchableSelect
               label="Nationality"
               value={form.nationality ?? ''}
               onChange={(v) => set('nationality', v)}
-              listId="ccp-nationality-list"
               options={countryNames}
               placeholder="Type to search countries…"
             />
@@ -336,21 +336,19 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <FieldRow label="Father Name" value={form.father_name ?? ''} onChange={(v) => set('father_name', v)} />
             <FieldRow label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => set('mother_name', v)} />
             <FieldRow label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => set('guardian_name', v)} />
-            <DatalistField
+            <SearchableSelect
               label="Country"
               value={form.country ?? ''}
               onChange={(v) => set('country', v)}
-              listId="ccp-country-list"
               options={countryNames}
               placeholder="Type to search countries…"
             />
-            <DatalistField
+            <SearchableSelect
               label="State"
               value={form.state ?? ''}
               onChange={(v) => set('state', v)}
-              listId="ccp-state-list"
               options={INDIAN_STATES}
-              placeholder="Type to search states…"
+              placeholder="Type to search Indian states…"
             />
             <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} />
             <SelectRow label="Status" value={form.status ?? '1'} onChange={(v) => set('status', v)}
@@ -591,37 +589,6 @@ function FieldRow({
         className={readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : undefined}
       />
       {hint ? <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p> : null}
-    </div>
-  );
-}
-
-// Naji 2026-05-11 — searchable input backed by a native <datalist>. Gives
-// instant filter-as-you-type plus free-text fallback for values not in the
-// list. Each instance points to a <datalist id> rendered once in a shared
-// pool below the form so we don't duplicate the option markup.
-function DatalistField({
-  label, value, onChange, listId, options, placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  listId: string;
-  options: string[];
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <Label className="mb-1 text-xs">{label}</Label>
-      <Input
-        type="text"
-        list={listId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-      <datalist id={listId}>
-        {options.map((opt) => <option key={opt} value={opt} />)}
-      </datalist>
     </div>
   );
 }
