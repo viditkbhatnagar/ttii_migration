@@ -21,9 +21,9 @@ const QUALIFICATIONS = [
 ];
 
 const EXPERIENCE_BUCKETS = ['Fresher', '0-1 Years', '1-3 Years', '3-5 Years', '5-10 Years', '10+ Years'];
-const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
-const LEAD_SOURCES = ['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference'];
-const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
+// Naji 2026-05-12 — MODE_OF_STUDY / LEAD_SOURCES / PIPELINE_ROLE_MAP were
+// dropped along with the Enrolment Details section that was removed from
+// this form. Lives on the Enrollments tab edit now.
 
 // Naji 2026-05-11 — TTII is India-focused so we ship a built-in list of
 // Indian states + UTs for the State datalist. Free-text still works for
@@ -39,6 +39,17 @@ const INDIAN_STATES = [
   'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
   'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
 ];
+
+// Naji 2026-05-12 — districts per state. Kerala first since the majority
+// of TTII students are from there; other states will fall through to free
+// text until we expand the dataset.
+const DISTRICTS_BY_STATE: Record<string, string[]> = {
+  Kerala: [
+    'Alappuzha', 'Ernakulam', 'Idukki', 'Kannur', 'Kasaragod', 'Kollam',
+    'Kottayam', 'Kozhikode', 'Malappuram', 'Palakkad', 'Pathanamthitta',
+    'Thiruvananthapuram', 'Thrissur', 'Wayanad',
+  ],
+};
 
 export default function EditStudentPage({ api, session, onNavigate }: AdminPageProps) {
   const studentId = useMemo(() => {
@@ -156,15 +167,16 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
         asString(student.work_experience) || asString(student.experience_years),
         EXPERIENCE_BUCKETS,
       ),
-      // Enrolment + fee fields (carried on the linked application).
+      // Enrolment fields persisted on the application but no longer edited
+      // from this form — round-trip as-is so save doesn't clobber them.
       course_id: asString(student.course_id),
       offering_id: asString(student.offering_id),
       certificate_combination_id: asString(student.certificate_combination_id),
-      mode_of_study: resolveOption(asString(student.mode_of_study), MODE_OF_STUDY),
+      mode_of_study: asString(student.mode_of_study),
       preferred_language: asString(student.preferred_language),
-      pipeline: resolveOption(asString(student.pipeline), ['Admin', 'Counsellor', 'Associate', 'Centre']),
+      pipeline: asString(student.pipeline),
       pipeline_user: asString(student.pipeline_user),
-      lead_source: resolveOption(asString(student.lead_source), LEAD_SOURCES),
+      lead_source: asString(student.lead_source),
       reference_student_id: asString(student.reference_student_id),
       discount: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount) || '',
       discount_type: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount_type) || 'percent',
@@ -180,52 +192,16 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // Dropdown sources for Enrolment / Fee section.
-  const { data: refData } = useAdminPageData(() => api.loadApplications(session.token), []);
-  const courses = useMemo(() => {
-    const list = (refData?.courses ?? []) as Array<{ id: string; title: string }>;
-    return list;
-  }, [refData]);
-  const { data: offeringsData } = useAdminPageData(
-    () => form.course_id ? api.listOfferings(session.token, { course_id: form.course_id }) : Promise.resolve([]),
-    [form.course_id],
-  );
-  const offerings = useMemo(() => toRecords(offeringsData), [offeringsData]);
-  const { data: combinationsData } = useAdminPageData(
-    () => api.listCertificateCombinations(session.token),
-    [],
-  );
-  const combinations = useMemo(() => {
-    const all = toRecords(combinationsData);
-    if (!form.course_id) return all;
-    return all.filter((c) => asString(c.course_id) === form.course_id);
-  }, [combinationsData, form.course_id]);
-  const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
-  const languages = useMemo(() => toRecords(languagesData), [languagesData]);
-  // Naji 2026-05-11 — Country list for searchable Country / Nationality
-  // datalist autocompletes. Loaded once per page mount.
+  // Naji 2026-05-12 — Country list for searchable Country / Nationality
+  // SearchableSelect. Other dropdown data sources (courses, offerings,
+  // combinations, languages, pipeline users, reference students) were
+  // dropped along with the Enrolment Details section.
   const { data: countriesData } = useAdminPageData(() => api.loadCountries(session.token), []);
   const countries = useMemo(() => toRecords(countriesData), [countriesData]);
   const countryNames = useMemo(
     () => countries.map((c) => asString(c.name)).filter(Boolean).sort(),
     [countries],
   );
-  const { data: pipelineUsersData } = useAdminPageData(
-    () => {
-      const pipeline = form.pipeline ?? '';
-      if (pipeline === 'Centre') return api.loadCentres(session.token);
-      const roleId = PIPELINE_ROLE_MAP[pipeline];
-      if (!roleId) return Promise.resolve([]);
-      return api.loadPipelineUsers(session.token, roleId);
-    },
-    [form.pipeline],
-  );
-  const pipelineUsers = useMemo(() => toRecords(pipelineUsersData), [pipelineUsersData]);
-  const { data: studentsData } = useAdminPageData(
-    () => form.lead_source === 'Reference' ? api.loadStudents(session.token, {}) : Promise.resolve([]),
-    [form.lead_source],
-  );
-  const students = useMemo(() => toRecords(studentsData), [studentsData]);
 
   // Naji 2026-05-11 — Age is derived from DOB, not editable. Recompute
   // whenever DOB changes so the displayed age stays in sync.
@@ -350,7 +326,21 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
               options={INDIAN_STATES}
               placeholder="Type to search Indian states…"
             />
-            <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} />
+            {/* Naji 2026-05-12 — District is a searchable dropdown if the
+                state has a curated list (currently only Kerala); falls back
+                to plain text otherwise so legacy / non-Indian rows still
+                round-trip. */}
+            {DISTRICTS_BY_STATE[form.state ?? ''] ? (
+              <SearchableSelect
+                label="City / District"
+                value={form.city ?? ''}
+                onChange={(v) => set('city', v)}
+                options={DISTRICTS_BY_STATE[form.state ?? ''] ?? []}
+                placeholder={`Type to search ${form.state} districts…`}
+              />
+            ) : (
+              <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} />
+            )}
             <SelectRow label="Status" value={form.status ?? '1'} onChange={(v) => set('status', v)}
               options={[{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive' }, { value: '2', label: 'Graduated' }, { value: '3', label: 'Dropped' }]} />
           </div>
@@ -370,35 +360,9 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
         </CardContent>
       </Card>
 
-      {/* Emergency contact + health (Naji 2026-05-05): captured by the
-          application form but never editable on the student profile. */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Emergency Contact &amp; Health</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label="Emergency Contact Name" value={form.emergency_name ?? ''} onChange={(v) => set('emergency_name', v)} />
-            <FieldRow label="Relation" value={form.emergency_relation ?? ''} onChange={(v) => set('emergency_relation', v)} />
-            <FieldRow label="Emergency Phone" value={form.emergency_phone ?? ''} onChange={(v) => set('emergency_phone', v)} />
-          </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div>
-              <Label className="mb-1 text-xs">Learning Disabilities</Label>
-              <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                rows={2} value={form.learning_disabilities ?? ''} onChange={(e) => set('learning_disabilities', e.target.value)} />
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">Accessibility Needs</Label>
-              <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                rows={2} value={form.accessibility_needs ?? ''} onChange={(e) => set('accessibility_needs', e.target.value)} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <Label className="mb-1 text-xs">Biography</Label>
-            <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              rows={3} value={form.biography ?? ''} onChange={(e) => set('biography', e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Naji 2026-05-12 — Emergency Contact / Enrolment Details cards
+          removed from Edit form. Emergency mirrors the View change; Enrolment
+          details belong on the Enrollments tab edit, not Student Profile. */}
 
       <Card>
         <CardHeader><CardTitle className="text-base">Qualification & Employment</CardTitle></CardHeader>
@@ -423,98 +387,6 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <FieldRow label="Current Occupation" value={form.current_occupation ?? ''} onChange={(v) => set('current_occupation', v)} />
             <SelectRow label="Experience" value={form.experience_years ?? ''} onChange={(v) => set('experience_years', v)}
               options={[{ value: '', label: 'Select' }, ...EXPERIENCE_BUCKETS.map((b) => ({ value: b, label: b }))]} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Enrolment Details</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <Label className="mb-1 text-xs">Course</Label>
-              <select className={selectClass} value={form.course_id ?? ''} onChange={(e) => set('course_id', e.target.value)}>
-                <option value="">Select Course</option>
-                {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">Course Offering</Label>
-              <select
-                className={selectClass}
-                value={form.offering_id ?? ''}
-                onChange={(e) => set('offering_id', e.target.value)}
-                disabled={!form.course_id}
-              >
-                <option value="">{form.course_id ? 'Select Offering' : 'Pick a course first'}</option>
-                {offerings.map((o) => <option key={asString(o.id)} value={asString(o.id)}>{asString(o.title) || asString(o.offering_code) || 'Untitled'}</option>)}
-              </select>
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">Certificate Combination</Label>
-              <select
-                className={selectClass}
-                value={form.certificate_combination_id ?? ''}
-                onChange={(e) => set('certificate_combination_id', e.target.value)}
-                disabled={!form.course_id}
-              >
-                <option value="">{form.course_id ? 'Select Combination' : 'Pick a course first'}</option>
-                {combinations.map((c) => {
-                  const id = asString(c.id);
-                  const code = asString(c.combination_code);
-                  const courseTitle = asString(c.course_title);
-                  return (
-                    <option key={id} value={id}>{code}{courseTitle ? ` — ${courseTitle}` : ''}</option>
-                  );
-                })}
-              </select>
-            </div>
-            <SelectRow label="Mode of Study" value={form.mode_of_study ?? ''} onChange={(v) => set('mode_of_study', v)}
-              options={[{ value: '', label: 'Select Mode' }, ...MODE_OF_STUDY.map((m) => ({ value: m, label: m }))]} />
-            <div>
-              <Label className="mb-1 text-xs">Language</Label>
-              <select className={selectClass} value={form.preferred_language ?? ''} onChange={(e) => set('preferred_language', e.target.value)}>
-                <option value="">Select Language</option>
-                {languages.map((l) => {
-                  const id = asString(l.id);
-                  const title = asString(l.title) || asString(l.name);
-                  // Naji 2026-05-11 — legacy data stores numeric language IDs
-                  // ("1" = Malayalam). Option value MUST be the ID so prefill
-                  // matches. Save path also stores the ID (column is text but
-                  // backend resolves it via the languages table).
-                  return <option key={id || title} value={id || title}>{title}</option>;
-                })}
-              </select>
-            </div>
-            <SelectRow label="Pipeline" value={form.pipeline ?? ''} onChange={(v) => set('pipeline', v)}
-              options={[{ value: '', label: 'Select' }, { value: 'Admin', label: 'Admin' }, { value: 'Counsellor', label: 'Counsellor' }, { value: 'Associate', label: 'Associate' }, { value: 'Centre', label: 'Centre' }]} />
-            <div>
-              <Label className="mb-1 text-xs">Pipeline User</Label>
-              <select className={selectClass} value={form.pipeline_user ?? ''} onChange={(e) => set('pipeline_user', e.target.value)} disabled={!form.pipeline}>
-                <option value="">{form.pipeline ? 'Select User' : 'Pick a pipeline first'}</option>
-                {pipelineUsers.map((u) => {
-                  const id = asString(u.id);
-                  const label = asString(u.name) || asString(u.centre_name) || asString(u.title) || `#${id}`;
-                  return <option key={id} value={id}>{label}</option>;
-                })}
-              </select>
-            </div>
-            <SelectRow label="Lead Source" value={form.lead_source ?? ''} onChange={(v) => set('lead_source', v)}
-              options={[{ value: '', label: 'Select' }, ...LEAD_SOURCES.map((s) => ({ value: s, label: s }))]} />
-            {form.lead_source === 'Reference' ? (
-              <div>
-                <Label className="mb-1 text-xs">Referred By (Student)</Label>
-                <select className={selectClass} value={form.reference_student_id ?? ''} onChange={(e) => set('reference_student_id', e.target.value)}>
-                  <option value="">Select Student</option>
-                  {students.map((s) => {
-                    const id = asString(s.id);
-                    const name = asString(s.name);
-                    const sid = asString(s.student_id);
-                    return <option key={id} value={id}>{name}{sid ? ` (${sid})` : ''}</option>;
-                  })}
-                </select>
-              </div>
-            ) : null}
           </div>
         </CardContent>
       </Card>
