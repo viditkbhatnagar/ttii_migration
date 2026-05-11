@@ -821,18 +821,23 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               <p className="text-sm text-gray-500">No activity recorded yet.</p>
             ) : (
               <ul className="space-y-2 border-l border-gray-200 pl-4">
-                {activityRows.slice(0, 100).map((a, idx) => {
+                {activityRows.slice(0, 200).map((a, idx) => {
                   const event = asString(a.event);
+                  const description = asString(a.description);
                   const success = Boolean(a.success);
                   const variant: 'default' | 'secondary' | 'destructive' =
-                    event.includes('FAIL') || event.includes('REJECT') ? 'destructive' : success ? 'default' : 'secondary';
+                    event.includes('FAIL') || event.includes('REJECT') || event.includes('DENIED') ? 'destructive' : success ? 'default' : 'secondary';
                   const ua = asString(a.user_agent);
+                  const ip = asString(a.ip_address);
                   return (
                     <li key={idx} className="relative">
                       <span className={`absolute -left-[17px] top-1.5 h-2 w-2 rounded-full ${success ? 'bg-green-500' : 'bg-red-500'}`} />
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={variant} className="text-[10px] uppercase">{event}</Badge>
-                        <span className="text-xs text-gray-500">{asString(a.ip_address) || '—'}</span>
+                        {description ? (
+                          <span className="text-sm text-gray-700 first-letter:uppercase">{description}</span>
+                        ) : null}
+                        {ip ? <span className="text-xs text-gray-500">{ip}</span> : null}
                       </div>
                       {ua ? (
                         <div className="text-[11px] text-gray-400 truncate max-w-[600px]">{ua}</div>
@@ -853,57 +858,57 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* Naji 2026-05-11 — Application Details lives here (was on the
               Student Profile tab). It's application/enrolment-level info
               so it belongs with the Enrollment view. */}
-          {selectedEnrollment === null && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Application Details</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-x-8 md:grid-cols-2">
-                  <div>
-                    <InfoRow label="Application ID" value={asString(student.application_id)} />
-                    <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
-                    <InfoRow label="Application Status" value={asString(student.application_status)} />
-                    <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
-                    <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
-                  </div>
-                  <div>
-                    <InfoRow label="Pipeline" value={asString(student.pipeline)} />
-                    <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
-                    <InfoRow label="Lead Source" value={asString(student.lead_source)} />
-                    <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
-                    <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
-                  </div>
+          {/* Naji 2026-05-11 — Application Details + All Enrollments now
+              ALWAYS visible at the top of the Enrollments tab, even when
+              an enrollment is selected for drill-down. Naji wanted the
+              same context in both views. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Application Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Application ID" value={asString(student.application_id)} />
+                  <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
+                  <InfoRow label="Application Status" value={asString(student.application_status)} />
+                  <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
+                  <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
                 </div>
-              </CardContent>
-            </Card>
-          )}
-          {selectedEnrollment === null ? (
-            /* Enrollment List */
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">All Enrollments</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {enrolments.length > 0 ? (
-                  <AdminDataTable
-                    columns={enrollmentColumns}
-                    rows={enrolments}
-                    actions={enrollmentActions}
-                    searchable={false}
-                    exportable={false}
-                  />
-                ) : (
-                  <p className="py-6 text-center text-sm text-gray-400">No enrollment records found.</p>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
+                <div>
+                  <InfoRow label="Pipeline" value={asString(student.pipeline)} />
+                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
+                  <InfoRow label="Lead Source" value={asString(student.lead_source)} />
+                  <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
+                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">All Enrollments</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {enrolments.length > 0 ? (
+                <AdminDataTable
+                  columns={enrollmentColumns}
+                  rows={enrolments}
+                  actions={enrollmentActions}
+                  searchable={false}
+                  exportable={false}
+                />
+              ) : (
+                <p className="py-6 text-center text-sm text-gray-400">No enrollment records found.</p>
+              )}
+            </CardContent>
+          </Card>
+          {selectedEnrollment !== null && (
             /* Enrollment Detail Drill-down */
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="sm" onClick={() => setSelectedEnrollmentIdx(null)}>
-                  ← Back to Enrollments
+                  ← Close Drill-down
                 </Button>
                 <span className="text-sm font-medium text-gray-600">
                   Enrollment: {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)} — {asString(selectedEnrollment?.course_title)}

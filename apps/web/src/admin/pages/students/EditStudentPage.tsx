@@ -226,6 +226,20 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
   );
   const students = useMemo(() => toRecords(studentsData), [studentsData]);
 
+  // Naji 2026-05-11 — Age is derived from DOB, not editable. Recompute
+  // whenever DOB changes so the displayed age stays in sync.
+  useEffect(() => {
+    if (!form.date_of_birth) return;
+    const dob = new Date(form.date_of_birth);
+    if (Number.isNaN(dob.getTime())) return;
+    const now = new Date();
+    let age = now.getFullYear() - dob.getFullYear();
+    const m = now.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age -= 1;
+    if (age < 0 || age > 130) return;
+    setForm((prev) => (prev.age === String(age) ? prev : { ...prev, age: String(age) }));
+  }, [form.date_of_birth]);
+
   // Auto-recompute Final Course Fee when pricing inputs change.
   useEffect(() => {
     const fee = parseFloat(form.final_course_fee || '') || 0;
@@ -304,7 +318,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <FieldRow label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => set('alternate_phone', v)} />
             <FieldRow label="WhatsApp" value={form.whatsapp_no ?? ''} onChange={(v) => set('whatsapp_no', v)} />
             <FieldRow label="Date of Birth" type="date" value={form.date_of_birth ?? ''} onChange={(v) => set('date_of_birth', v)} />
-            <FieldRow label="Age" value={form.age ?? ''} onChange={(v) => set('age', v)} />
+            <FieldRow label="Age" value={form.age ?? ''} onChange={() => undefined} readOnly hint="Auto-calculated from Date of Birth" />
             <SelectRow label="Gender" value={form.gender ?? ''} onChange={(v) => set('gender', v)}
               options={[{ value: '', label: 'Select' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} />
             <SelectRow label="Marital Status" value={form.marital_status ?? ''} onChange={(v) => set('marital_status', v)}
@@ -556,11 +570,27 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
   );
 }
 
-function FieldRow({ label, value, onChange, type }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+function FieldRow({
+  label, value, onChange, type, readOnly, hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  readOnly?: boolean;
+  hint?: string;
+}) {
   return (
     <div>
       <Label className="mb-1 text-xs">{label}</Label>
-      <Input type={type ?? 'text'} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input
+        type={type ?? 'text'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        className={readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : undefined}
+      />
+      {hint ? <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p> : null}
     </div>
   );
 }

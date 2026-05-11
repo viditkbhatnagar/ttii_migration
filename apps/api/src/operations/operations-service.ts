@@ -7617,6 +7617,19 @@ export class OperationsService {
       }),
     ]);
 
+    // Naji 2026-05-11 — legacy student profile fields (DOB, gender, address,
+    // father/mother, marital_status, aadhar, country_id, etc.) live in
+    // `user_details` for the imported PHP-era students. The new
+    // `applications` table didn't exist when these were created, so the
+    // View was showing "-" for every personal field on those students.
+    // Treat user_details as a secondary source — applications wins for
+    // students who have both, user_details fills the gaps for everyone
+    // else.
+    const userDetails = await this.prisma.user_details.findFirst({
+      where: { user_id: uid, deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+
     // Enrich attempts with parent-table titles so the Student View tables
     // show a human-readable label instead of just numeric IDs.
     const examIdsForAttempts = [...new Set(examAttempts.map((a) => a.exam_id).filter((x): x is number => x !== null && x !== undefined))];
@@ -7840,6 +7853,16 @@ export class OperationsService {
     const pipelineUserName = pipelineUserRow?.name ?? null;
     const combinationCode = combinationRow?.combination_code ?? null;
 
+    // If pipeline_user wasn't resolved from application, try from user_details.
+    let pipelineUserNameResolved: string | null = pipelineUserName;
+    if (!pipelineUserNameResolved && userDetails?.pipeline_user) {
+      const row = await this.prisma.users.findFirst({
+        where: { id: userDetails.pipeline_user },
+        select: { name: true },
+      });
+      pipelineUserNameResolved = row?.name ?? null;
+    }
+
     // Naji 2026-05-11 — Payment Plan + payment-link metadata captured on
     // the application during the Lead → Enrolment workflow. Mirrors the
     // Application View's "Payment Plan" card so admins can see the same
@@ -7882,61 +7905,90 @@ export class OperationsService {
         ? String(application.whatsapp_no)
         : null);
 
+    // Naji 2026-05-11 — for every personal field, fall through:
+    // applications value first, then user_details (legacy PHP profile
+    // store) as a fallback. Most legacy students like DIVYA only have
+    // their data in user_details. The PHP LMS's old Student Details
+    // page reads from this same table.
+    const pickPersonal = <K extends keyof typeof application & keyof typeof userDetails>(
+      key: K,
+    ): unknown => {
+      const fromApp = application ? (application as Record<string, unknown>)[key as string] : null;
+      if (fromApp !== null && fromApp !== undefined && fromApp !== '') return fromApp;
+      const fromDetails = userDetails ? (userDetails as Record<string, unknown>)[key as string] : null;
+      return fromDetails ?? null;
+    };
+    void pickPersonal; // satisfies tsc when the generic helper isn't used inline
+
+    // Country name resolution with user_details fallback for the raw ID.
+    const ud = userDetails as Record<string, unknown> | null;
+    const countryRaw = (application?.country_id ?? (ud?.country_id as string | null) ?? null);
+    const nationalityRaw = (application?.nationality ?? (ud?.nationality as string | null) ?? null);
+    const countryRawIdInt = parseLooseInt(countryRaw as string | null);
+    const nationalityRawIdInt = parseLooseInt(nationalityRaw as string | null);
+    let countryNameResolved = countryName;
+    let nationalityNameResolved = nationalityName;
+    if (!countryNameResolved && countryRawIdInt !== null) {
+      const row = await this.prisma.country.findFirst({ where: { id: countryRawIdInt }, select: { name: true } });
+      countryNameResolved = row?.name ?? toStringValue(countryRaw);
+    }
+    if (!nationalityNameResolved && nationalityRawIdInt !== null) {
+      const row = await this.prisma.country.findFirst({ where: { id: nationalityRawIdInt }, select: { name: true } });
+      nationalityNameResolved = row?.name ?? toStringValue(nationalityRaw);
+    }
+
     const studentWithPhoto = {
       ...user,
       image: photo,
       profile_picture: photo,
-      date_of_birth: user.dob ?? application?.date_of_birth ?? null,
-      age: application?.age ?? null,
+      date_of_birth: user.dob ?? application?.date_of_birth ?? userDetails?.date_of_birth ?? null,
+      age: application?.age ?? userDetails?.age ?? null,
       // Naji 2026-05-11 — users.gender is NOT NULL in the legacy schema and
       // defaults to ''. `??` only short-circuits on null/undefined, not empty
       // string, so the wrong branch was being taken for any student whose
       // user row pre-dated the gender column being populated. Use truthy
-      // check so empty string falls through to the application value.
-      gender: normalizeGender((user.gender && user.gender.trim()) || application?.gender),
+      // check so empty string falls through.
+      gender: normalizeGender((user.gender && user.gender.trim()) || application?.gender || userDetails?.gender),
       // Naji 2026-05-11 — applications.biography is hijacked by the Lead
       // workflow as a JSON stash (registration_fee / discount_type /
       // installment_plan / documents / specialization). Don't surface a
       // pure-stash JSON object as "Biography" — only show actual prose.
       biography: biographyParsed && typeof biographyParsed === 'object' ? null : (application?.biography ?? null),
-      learning_disabilities: application?.learning_disabilities ?? null,
-      accessibility_needs: application?.accessibility_needs ?? null,
-      emergency_name: application?.emergency_name ?? null,
-      emergency_relation: application?.emergency_relation ?? null,
-      emergency_phone: application?.emergency_phone ?? null,
-      second_phone: application?.second_phone ?? null,
-      second_code: application?.second_code ?? null,
+      learning_disabilities: application?.learning_disabilities ?? userDetails?.learning_disabilities ?? null,
+      accessibility_needs: application?.accessibility_needs ?? userDetails?.accessibility_needs ?? null,
+      emergency_name: application?.emergency_name ?? userDetails?.emergency_name ?? null,
+      emergency_relation: application?.emergency_relation ?? userDetails?.emergency_relation ?? null,
+      emergency_phone: application?.emergency_phone ?? userDetails?.emergency_phone ?? null,
+      second_phone: application?.second_phone || userDetails?.second_phone || null,
+      second_code: application?.second_code ?? userDetails?.second_code ?? null,
       signature_data: application?.signature_data ?? null,
-      address: application?.address ?? null,
-      father_name: application?.father_name ?? null,
-      mother_name: application?.mother_name ?? null,
-      guardian_name: application?.guardian_name ?? null,
-      aadhar_no: application?.aadhar_no ?? null,
-      passport_no: application?.passport_no ?? null,
-      // Naji 2026-05-11 — keep RAW values in the original fields so the Edit
-      // form can round-trip them back to the DB unchanged. Resolved
-      // human-readable names live alongside under `*_name` for the View page
-      // to render. Same split the Application View uses (country_name etc).
-      country: application?.country_id ? String(application.country_id) : null,
-      country_name: countryName,
-      state: application?.state ?? null,
-      city: application?.district ?? null,
-      whatsapp_no: resolvedWhatsapp,
-      nationality: application?.nationality ?? null,
-      nationality_name: nationalityName,
-      marital_status: application?.marital_status ?? null,
+      address: application?.address ?? userDetails?.address ?? null,
+      native_address: application?.native_address ?? userDetails?.native_address ?? null,
+      father_name: application?.father_name ?? userDetails?.father_name ?? null,
+      mother_name: application?.mother_name ?? userDetails?.mother_name ?? null,
+      guardian_name: application?.guardian_name ?? userDetails?.guardian_name ?? null,
+      aadhar_no: application?.aadhar_no ?? userDetails?.aadhar_no ?? null,
+      passport_no: application?.passport_no ?? userDetails?.passport_no ?? null,
+      country: countryRaw ? String(countryRaw) : null,
+      country_name: countryNameResolved,
+      state: application?.state ?? userDetails?.state ?? null,
+      city: application?.district ?? userDetails?.district ?? null,
+      whatsapp_no: resolvedWhatsapp ?? (userDetails?.whatsapp_no != null && userDetails.whatsapp_no !== 0 ? String(userDetails.whatsapp_no) : null),
+      nationality: nationalityRaw ?? null,
+      nationality_name: nationalityNameResolved,
+      marital_status: application?.marital_status ?? userDetails?.marital_status ?? null,
       // Raw users.status int-as-string for the Edit dropdown ('1'/'0'/'2'/'3');
       // status_label is the badge-friendly version for the View page.
       status: user.status != null ? String(user.status) : null,
       status_label: user.status === 1 ? 'Active' : user.status === 0 ? 'Inactive' : user.status === 2 ? 'Graduated' : user.status === 3 ? 'Dropped' : null,
-      // Qualification fields live on applications.
-      highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? null,
-      institution_name: application?.previous_school ?? null,
-      year_of_passing: application?.year_of_passing ?? null,
-      percentage_or_grade: application?.percentage_or_grade ?? null,
-      employment_status: application?.employment_status ?? null,
+      // Qualification fields live on applications OR user_details (legacy).
+      highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? userDetails?.highest_qualification ?? null,
+      institution_name: application?.previous_school ?? userDetails?.previous_school ?? null,
+      year_of_passing: application?.year_of_passing ?? userDetails?.year_of_passing ?? null,
+      percentage_or_grade: application?.percentage_or_grade ?? userDetails?.percentage_or_grade ?? null,
+      employment_status: application?.employment_status ?? userDetails?.employment_status ?? null,
       current_occupation: application?.current_occupation ?? null,
-      work_experience: application?.experience_years ?? application?.teaching_experience ?? null,
+      work_experience: application?.experience_years ?? application?.teaching_experience ?? userDetails?.experience_years ?? userDetails?.teaching_experience ?? null,
       // Naji 2026-05-07: specialization is stashed in biography JSON
       // (no top-level column on applications). Surface it here so View
       // and Edit can read it without parsing biography themselves.
@@ -7953,10 +8005,10 @@ export class OperationsService {
       mode_of_study: application?.mode_of_study ?? null,
       preferred_language: application?.preferred_language ?? null,
       language_name: languageName,
-      pipeline: application?.pipeline ?? null,
-      pipeline_user: application?.pipeline_user ?? null,
+      pipeline: application?.pipeline ?? userDetails?.pipeline ?? null,
+      pipeline_user: application?.pipeline_user ?? userDetails?.pipeline_user ?? null,
       // Resolved Pipeline User name (was showing as raw int id, e.g. "193").
-      pipeline_user_name: pipelineUserName,
+      pipeline_user_name: pipelineUserNameResolved,
       lead_source: leadSource,
       reference_student_id: referenceStudentId,
     };
@@ -7999,6 +8051,15 @@ export class OperationsService {
       videoProgress,
       notificationReads,
       activityRows,
+      // Naji 2026-05-11 — Activity Log now aggregates everything the
+      // student does into a single chronological feed: auth events,
+      // quiz / exam attempts, assignment submissions, videos watched,
+      // live class attendance.
+      activityQuizzes,
+      activityExams,
+      activityAssignmentSubs,
+      activityVideos,
+      activityLiveClasses,
     ] = await Promise.all([
       this.prisma.student_document.findMany({
         where: { student_id: uid, deleted_at: null },
@@ -8030,9 +8091,58 @@ export class OperationsService {
       this.prisma.auth_audit_log.findMany({
         where: { user_id: uid },
         orderBy: { created_at: 'desc' },
+        take: 100,
+      }),
+      this.prisma.practice_attempt.findMany({
+        where: { user_id: uid, deleted_at: null },
+        select: { id: true, lesson_file_id: true, score: true, submit_status: true, created_at: true, end_time: true },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.exam_attempt.findMany({
+        where: { user_id: uid, deleted_at: null },
+        select: { id: true, exam_id: true, score: true, submit_status: true, created_at: true, end_time: true },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.assignment_submissions.findMany({
+        where: { user_id: uid, deleted_at: null },
+        select: { id: true, assignment_id: true, course_id: true, marks: true, created_at: true },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.video_progress_status.findMany({
+        where: { user_id: uid, deleted_at: null, status: 1 },
+        select: { id: true, lesson_file_id: true, course_id: true, updated_at: true, created_at: true },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.live_class_attendance.findMany({
+        where: { user_id: uid },
+        select: { id: true, live_class_id: true, total_seconds: true, percent_attended: true, first_joined_at: true },
+        orderBy: { id: 'desc' },
         take: 50,
       }),
     ]);
+
+    // Resolve parent-table titles for the activity feed entries.
+    const actExamIds = [...new Set(activityExams.map((e) => e.exam_id).filter((x): x is number => x != null))];
+    const actAssignmentIds = [...new Set(activityAssignmentSubs.map((a) => a.assignment_id).filter((x): x is number => x != null))];
+    const actLiveClassIds = [...new Set(activityLiveClasses.map((a) => a.live_class_id))];
+    const [actExamRows, actAssignmentRows, actLiveClassRows] = await Promise.all([
+      actExamIds.length > 0
+        ? this.prisma.exam.findMany({ where: { id: { in: actExamIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+      actAssignmentIds.length > 0
+        ? this.prisma.assignment.findMany({ where: { id: { in: actAssignmentIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+      actLiveClassIds.length > 0
+        ? this.prisma.live_class.findMany({ where: { id: { in: actLiveClassIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+    ]);
+    const actExamMap = new Map(actExamRows.map((r) => [r.id, r.title]));
+    const actAssignmentMap = new Map(actAssignmentRows.map((r) => [r.id, r.title]));
+    const actLiveClassMap = new Map(actLiveClassRows.map((r) => [r.id, r.title]));
 
     // Assignment average
     const assignmentScores: number[] = [];
@@ -8103,15 +8213,125 @@ export class OperationsService {
         email_log: [],
         whatsapp_log: [],
       },
-      activity: activityRows.map((a) => ({
-        id: String(a.id),
-        event: a.event,
-        identifier: a.identifier ?? '',
-        success: Boolean(a.success),
-        ip_address: a.ip_address ?? '',
-        user_agent: a.user_agent ?? '',
-        created_at: a.created_at,
-      })),
+      // Naji 2026-05-11 — Unified activity feed: every student action we
+      // can capture from the DB, merged into one chronological list so
+      // the Activity Log tab actually shows what a student does.
+      activity: (() => {
+        type Entry = {
+          id: string;
+          event: string;
+          description: string;
+          identifier: string;
+          success: boolean;
+          ip_address: string;
+          user_agent: string;
+          created_at: Date | null;
+        };
+        const merged: Entry[] = [];
+
+        // 1. Auth events (login / logout / SSO / password resets).
+        for (const a of activityRows) {
+          merged.push({
+            id: `auth-${a.id}`,
+            event: a.event,
+            description: a.event.replace(/_/g, ' ').toLowerCase(),
+            identifier: a.identifier ?? '',
+            success: Boolean(a.success),
+            ip_address: a.ip_address ?? '',
+            user_agent: a.user_agent ?? '',
+            created_at: a.created_at,
+          });
+        }
+
+        // 2. Quiz attempts.
+        for (const q of activityQuizzes) {
+          const submitted = Boolean(q.submit_status);
+          merged.push({
+            id: `quiz-${q.id}`,
+            event: submitted ? 'QUIZ_COMPLETED' : 'QUIZ_STARTED',
+            description: submitted
+              ? `Completed practice quiz${q.score != null ? ` (score ${Number(q.score)})` : ''}`
+              : 'Started practice quiz',
+            identifier: q.lesson_file_id ?? '',
+            success: submitted,
+            ip_address: '',
+            user_agent: '',
+            created_at: q.end_time ?? q.created_at ?? null,
+          });
+        }
+
+        // 3. Exam attempts.
+        for (const e of activityExams) {
+          const submitted = Boolean(e.submit_status);
+          const title = e.exam_id != null ? actExamMap.get(e.exam_id) : null;
+          merged.push({
+            id: `exam-${e.id}`,
+            event: submitted ? 'EXAM_SUBMITTED' : 'EXAM_STARTED',
+            description: submitted
+              ? `Submitted exam${title ? `: ${title}` : ''}${e.score != null ? ` (score ${e.score})` : ''}`
+              : `Started exam${title ? `: ${title}` : ''}`,
+            identifier: title ?? (e.exam_id != null ? String(e.exam_id) : ''),
+            success: submitted,
+            ip_address: '',
+            user_agent: '',
+            created_at: e.end_time ?? e.created_at ?? null,
+          });
+        }
+
+        // 4. Assignment submissions.
+        for (const a of activityAssignmentSubs) {
+          const title = a.assignment_id != null ? actAssignmentMap.get(a.assignment_id) : null;
+          merged.push({
+            id: `assignment-${a.id}`,
+            event: 'ASSIGNMENT_SUBMITTED',
+            description: `Submitted assignment${title ? `: ${title}` : ''}${a.marks ? ` (marks ${a.marks})` : ''}`,
+            identifier: title ?? (a.assignment_id != null ? String(a.assignment_id) : ''),
+            success: true,
+            ip_address: '',
+            user_agent: '',
+            created_at: a.created_at ?? null,
+          });
+        }
+
+        // 5. Videos completed.
+        for (const v of activityVideos) {
+          merged.push({
+            id: `video-${v.id}`,
+            event: 'VIDEO_COMPLETED',
+            description: `Completed video lesson${v.lesson_file_id != null ? ` #${v.lesson_file_id}` : ''}`,
+            identifier: v.lesson_file_id != null ? String(v.lesson_file_id) : '',
+            success: true,
+            ip_address: '',
+            user_agent: '',
+            created_at: v.updated_at ?? v.created_at ?? null,
+          });
+        }
+
+        // 6. Live class attendance.
+        for (const l of activityLiveClasses) {
+          const title = actLiveClassMap.get(l.live_class_id);
+          const mins = l.total_seconds ? Math.round(l.total_seconds / 60) : 0;
+          merged.push({
+            id: `liveclass-${l.id}`,
+            event: 'LIVE_CLASS_ATTENDED',
+            description: `Attended live class${title ? `: ${title}` : ''}${mins > 0 ? ` (${mins}m)` : ''}`,
+            identifier: title ?? String(l.live_class_id),
+            success: true,
+            ip_address: '',
+            user_agent: '',
+            created_at: l.first_joined_at ?? null,
+          });
+        }
+
+        // Sort newest first; entries without a date sink to the bottom.
+        merged.sort((a, b) => {
+          const at = a.created_at instanceof Date ? a.created_at.getTime() : 0;
+          const bt = b.created_at instanceof Date ? b.created_at.getTime() : 0;
+          return bt - at;
+        });
+
+        return merged;
+      })(),
     };
   }
 
