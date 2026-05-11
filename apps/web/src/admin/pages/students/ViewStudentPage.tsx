@@ -281,7 +281,14 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <div>
                     <InfoRow label="Student ID" value={asString(student.student_id)} />
                     <InfoRow label="Name" value={asString(student.name)} />
-                    <InfoRow label="Login Username" value={asString(student.username)} />
+                    {/* Naji 2026-05-11 — only show username when it differs
+                        from the email. New students log in with their email so
+                        username == user_email and showing both is duplicative.
+                        Legacy / SSO accounts still have a distinct username,
+                        so keep the row visible in those cases. */}
+                    {asString(student.username) && asString(student.username).toLowerCase() !== asString(student.user_email).toLowerCase() ? (
+                      <InfoRow label="Login Username" value={asString(student.username)} />
+                    ) : null}
                     <InfoRow label="Email" value={asString(student.user_email)} />
                     <InfoRow label="Phone" value={asString(student.phone)} />
                     <InfoRow label="Alternate Phone" value={asString(student.second_phone) || asString(student.alternate_phone) || '-'} />

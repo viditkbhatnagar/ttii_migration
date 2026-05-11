@@ -7546,6 +7546,22 @@ export class OperationsService {
           })
         : Promise.resolve(null);
 
+    // Legacy student_payments rows store '0000-00-00' in due_date / paid_date,
+    // which Prisma's MySQL driver refuses to hydrate. Read via $queryRaw with
+    // NULLIF (same fix as listPaymentStatus, line 5074+).
+    type RawStudentPayment = {
+      id: number;
+      user_id: number;
+      course_id: number;
+      installment_details: string | null;
+      amount: number | null;
+      payment_mode: string | null;
+      payment_to: string | null;
+      status: string | null;
+      due_date: Date | null;
+      paid_date: Date | null;
+    };
+
     const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application, studentPaymentSchedule] = await Promise.all([
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true, fee_structure: true } })
@@ -7567,11 +7583,13 @@ export class OperationsService {
         where: { user_id: uid, deleted_at: null },
       }),
       applicationLookup,
-      // Same installment schedule the Application View uses for "Payment History".
-      this.prisma.student_payments.findMany({
-        where: { user_id: uid, deleted_at: null },
-        orderBy: { id: 'asc' },
-      }),
+      this.prisma.$queryRaw<RawStudentPayment[]>`
+        SELECT id, user_id, course_id, installment_details, amount, payment_mode, payment_to, status,
+               NULLIF(due_date, '0000-00-00') AS due_date,
+               NULLIF(paid_date, '0000-00-00') AS paid_date
+        FROM student_payments
+        WHERE deleted_at IS NULL AND user_id = ${uid}
+        ORDER BY id ASC`,
     ]);
 
     // Offering lookup — applications carry the chosen offering_id; the
