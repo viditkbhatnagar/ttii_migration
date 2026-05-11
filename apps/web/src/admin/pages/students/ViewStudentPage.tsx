@@ -296,80 +296,159 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         ))}
       </div>
 
-      {/* Tab 1: Student Profile */}
+      {/* Tab 1: Student Profile — Naji 2026-05-11 reorganised into 4
+          named sections matching the Application View shape: Personal
+          Information, Contact Information, Qualification, Education
+          Pathway. Application Details + Emergency cards retained below. */}
       {activeTab === 0 && (
         <div className="space-y-4">
+          {/* 1. Personal Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Basic Information</CardTitle>
+              <CardTitle className="text-base">Personal Information</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-8">
-                {/* Profile picture */}
-                <div className="flex-shrink-0">
-                  {profilePicture ? (
-                    <img
-                      src={profilePicture}
-                      alt={asString(student.name)}
-                      className="h-28 w-28 rounded-full border border-gray-200 object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-28 w-28 items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-2xl font-semibold text-gray-400">
-                      {asString(student.name).charAt(0).toUpperCase() || '?'}
-                    </div>
-                  )}
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Student ID" value={asString(student.student_id)} />
+                  <InfoRow label="Name" value={asString(student.name)} />
+                  {asString(student.username) && asString(student.username).toLowerCase() !== asString(student.user_email).toLowerCase() ? (
+                    <InfoRow label="Login Username" value={asString(student.username)} />
+                  ) : null}
+                  <InfoRow label="Date of Birth" value={formatDate(student.date_of_birth) || '-'} />
+                  <InfoRow label="Age" value={asString(student.age) || '-'} />
+                  <InfoRow label="Gender" value={asString(student.gender) || '-'} />
+                  <InfoRow label="Marital Status" value={asString(student.marital_status) || '-'} />
+                  <InfoRow label="Nationality" value={asString(student.nationality_name) || asString(student.nationality) || '-'} />
                 </div>
-
-                <div className="flex-1 grid gap-x-8 md:grid-cols-2">
-                  <div>
-                    <InfoRow label="Student ID" value={asString(student.student_id)} />
-                    <InfoRow label="Name" value={asString(student.name)} />
-                    {/* Naji 2026-05-11 — only show username when it differs
-                        from the email. New students log in with their email so
-                        username == user_email and showing both is duplicative.
-                        Legacy / SSO accounts still have a distinct username,
-                        so keep the row visible in those cases. */}
-                    {asString(student.username) && asString(student.username).toLowerCase() !== asString(student.user_email).toLowerCase() ? (
-                      <InfoRow label="Login Username" value={asString(student.username)} />
-                    ) : null}
-                    <InfoRow label="Email" value={asString(student.user_email)} />
-                    <InfoRow label="Phone" value={asString(student.phone)} />
-                    <InfoRow label="Alternate Phone" value={asString(student.second_phone) || asString(student.alternate_phone) || '-'} />
-                    <InfoRow label="WhatsApp" value={asString(student.whatsapp_no) || '-'} />
-                    <InfoRow label="Date of Birth" value={formatDate(student.date_of_birth) || '-'} />
-                    <InfoRow label="Age" value={asString(student.age) || '-'} />
-                    <InfoRow label="Gender" value={asString(student.gender) || '-'} />
-                    <InfoRow label="Marital Status" value={asString(student.marital_status) || '-'} />
-                    <InfoRow label="Nationality" value={asString(student.nationality_name) || asString(student.nationality) || '-'} />
-                  </div>
-                  <div>
-                    <InfoRow label="Aadhaar No" value={asString(student.aadhar_no) || '-'} />
-                    <InfoRow label="Passport No" value={asString(student.passport_no) || '-'} />
-                    <InfoRow label="Father's Name" value={asString(student.father_name) || '-'} />
-                    <InfoRow label="Mother's Name" value={asString(student.mother_name) || '-'} />
-                    <InfoRow label="Guardian's Name" value={asString(student.guardian_name) || '-'} />
-                    <InfoRow label="Country" value={asString(student.country_name) || asString(student.country) || '-'} />
-                    <InfoRow label="State" value={asString(student.state) || '-'} />
-                    <InfoRow label="City / District" value={asString(student.city) || '-'} />
-                    <InfoRow label="Permanent Address" value={asString(student.address) || '-'} />
-                    <InfoRow label="Native Address" value={asString(student.native_address) || '-'} />
-                    <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
-                      <span className="text-sm font-medium text-gray-500">Status</span>
-                      <span className="col-span-2">
-                        <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
-                      </span>
-                    </div>
+                <div>
+                  <InfoRow label="Aadhaar No" value={asString(student.aadhar_no) || '-'} />
+                  <InfoRow label="Passport No" value={asString(student.passport_no) || '-'} />
+                  <InfoRow label="Father's Name" value={asString(student.father_name) || '-'} />
+                  <InfoRow label="Mother's Name" value={asString(student.mother_name) || '-'} />
+                  <InfoRow label="Guardian's Name" value={asString(student.guardian_name) || '-'} />
+                  <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
+                    <span className="text-sm font-medium text-gray-500">Status</span>
+                    <span className="col-span-2">
+                      <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Emergency contact + health (Naji 2026-05-05) — these
-                  were captured by the application but never surfaced on
-                  the student profile. */}
-              {(asString(student.emergency_name) || asString(student.emergency_phone) || asString(student.emergency_relation)
-                || asString(student.learning_disabilities) || asString(student.accessibility_needs)
-                || asString(student.biography) || asString(student.signature_data)) ? (
-                <div className="mt-6 grid gap-x-8 md:grid-cols-2">
+              {/* Profile completion bar */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between text-sm mb-1.5">
+                  <span className="font-medium text-gray-600">Profile Completion</span>
+                  <span className="font-semibold text-gray-900">{profileCompletion}%</span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-gray-200">
+                  <div
+                    className="h-2.5 rounded-full bg-ttii-primary transition-all"
+                    style={{ width: `${Math.min(profileCompletion, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 2. Contact Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Contact Information</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Email" value={asString(student.user_email)} />
+                  <InfoRow label="Phone" value={asString(student.phone)} />
+                  <InfoRow label="Alternate Phone" value={asString(student.second_phone) || asString(student.alternate_phone) || '-'} />
+                  <InfoRow label="WhatsApp" value={asString(student.whatsapp_no) || '-'} />
+                </div>
+                <div>
+                  <InfoRow label="Country" value={asString(student.country_name) || asString(student.country) || '-'} />
+                  <InfoRow label="State" value={asString(student.state) || '-'} />
+                  <InfoRow label="City / District" value={asString(student.city) || '-'} />
+                  <InfoRow label="Permanent Address" value={asString(student.address) || '-'} />
+                  <InfoRow label="Native Address" value={asString(student.native_address) || '-'} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 3. Qualification */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Qualification</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-x-8 md:grid-cols-2">
+                <div>
+                  <InfoRow label="Highest Qualification" value={asString(student.highest_qualification)} />
+                  <InfoRow label="Specialization" value={asString(student.specialization)} />
+                  <InfoRow label="School / College" value={asString(student.institution_name)} />
+                  <InfoRow label="Year of Passing" value={asString(student.year_of_passing)} />
+                </div>
+                <div>
+                  <InfoRow label="Percentage / Grade" value={asString(student.percentage_or_grade)} />
+                  <InfoRow label="Employment Status" value={asString(student.employment_status)} />
+                  <InfoRow label="Current Occupation" value={asString(student.current_occupation)} />
+                  <InfoRow label="Experience" value={asString(student.work_experience)} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 4. Education Pathway */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Education Pathway</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {educationPathway.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Qualification</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Specialization</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Institution</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Board</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Year</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">Marks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {educationPathway.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 text-gray-900">{asString(row.qualification) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.specialization) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.institution) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.board) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.year_passed) || '-'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{asString(row.marks) || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="px-4 py-6 text-sm text-gray-400">No education pathway entries recorded.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Emergency contact + health — kept as a secondary card so it
+              doesn't break the canonical 4-section structure. */}
+          {(asString(student.emergency_name) || asString(student.emergency_phone) || asString(student.emergency_relation)
+            || asString(student.learning_disabilities) || asString(student.accessibility_needs)
+            || asString(student.biography) || asString(student.signature_data)) ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Emergency Contact &amp; Health</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-x-8 md:grid-cols-2">
                   <div>
                     <InfoRow label="Emergency Contact Name" value={asString(student.emergency_name) || '-'} />
                     <InfoRow label="Emergency Relation" value={asString(student.emergency_relation) || '-'} />
@@ -395,78 +474,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-
-              {/* Profile completion bar */}
-              <div className="mt-6">
-                <div className="flex items-center justify-between text-sm mb-1.5">
-                  <span className="font-medium text-gray-600">Profile Completion</span>
-                  <span className="font-semibold text-gray-900">{profileCompletion}%</span>
-                </div>
-                <div className="h-2.5 w-full rounded-full bg-gray-200">
-                  <div
-                    className="h-2.5 rounded-full bg-ttii-primary transition-all"
-                    style={{ width: `${Math.min(profileCompletion, 100)}%` }}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Qualification section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Qualification & Employment</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Highest Qualification" value={asString(student.highest_qualification)} />
-                  <InfoRow label="Specialization" value={asString(student.specialization)} />
-                  <InfoRow label="School / College" value={asString(student.institution_name)} />
-                  <InfoRow label="Year of Passing" value={asString(student.year_of_passing)} />
-                </div>
-                <div>
-                  <InfoRow label="Percentage / Grade" value={asString(student.percentage_or_grade)} />
-                  <InfoRow label="Employment Status" value={asString(student.employment_status)} />
-                  <InfoRow label="Current Occupation" value={asString(student.current_occupation)} />
-                  <InfoRow label="Experience" value={asString(student.work_experience)} />
-                </div>
-              </div>
-
-              {educationPathway.length > 0 && (
-                <div className="mt-6">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Education Pathway</p>
-                  <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Qualification</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Specialization</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Institution</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Board</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Year</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-600">Marks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {educationPathway.map((row, idx) => (
-                          <tr key={idx} className="border-t">
-                            <td className="px-3 py-1.5">{asString(row.qualification) || '-'}</td>
-                            <td className="px-3 py-1.5">{asString(row.specialization) || '-'}</td>
-                            <td className="px-3 py-1.5">{asString(row.institution) || '-'}</td>
-                            <td className="px-3 py-1.5">{asString(row.board) || '-'}</td>
-                            <td className="px-3 py-1.5">{asString(row.year_passed) || '-'}</td>
-                            <td className="px-3 py-1.5">{asString(row.marks) || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Application metadata — what was captured on the application form. */}
           <Card>
@@ -484,10 +494,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </div>
                 <div>
                   <InfoRow label="Pipeline" value={asString(student.pipeline)} />
-                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user)} />
+                  <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
                   <InfoRow label="Lead Source" value={asString(student.lead_source)} />
                   <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
-                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_id)} />
+                  <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
                 </div>
               </div>
             </CardContent>

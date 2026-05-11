@@ -5614,6 +5614,17 @@ export class OperationsService {
     return languages as unknown as SqlRow[];
   }
 
+  // Naji 2026-05-11 — Country list for the searchable Country / Nationality
+  // dropdowns on Edit Student / Add Application. Source is the legacy
+  // `country` table seeded with ISO names.
+  async listCountries(): Promise<SqlRow[]> {
+    const countries = await this.prisma.country.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, sortname: true },
+    });
+    return countries as unknown as SqlRow[];
+  }
+
   // ─── Phase A: CRUD for Instructors, Users, Counsellors, Associates, Targets ──
 
   async addInstructor(actorUserId: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
@@ -7800,7 +7811,7 @@ export class OperationsService {
     const countryIdInt = parseLooseInt(application?.country_id);
     const nationalityIdInt = parseLooseInt(application?.nationality);
     const languageIdInt = parseLooseInt(application?.preferred_language);
-    const [countryRow, nationalityRow, languageRow] = await Promise.all([
+    const [countryRow, nationalityRow, languageRow, pipelineUserRow, combinationRow] = await Promise.all([
       countryIdInt !== null
         ? this.prisma.country.findFirst({ where: { id: countryIdInt }, select: { id: true, name: true } })
         : null,
@@ -7810,10 +7821,24 @@ export class OperationsService {
       languageIdInt !== null
         ? this.prisma.languages.findFirst({ where: { id: languageIdInt }, select: { id: true, title: true } })
         : null,
+      // Naji 2026-05-11 — View was showing Pipeline User as the raw int id
+      // (e.g. "193") instead of the user's name. Resolve like getApplication.
+      application?.pipeline_user
+        ? this.prisma.users.findFirst({ where: { id: application.pipeline_user }, select: { id: true, name: true } })
+        : null,
+      // Same for Certificate Combination — was showing "1" instead of code.
+      application?.certificate_combination_id
+        ? this.prisma.certificate_combinations.findFirst({
+            where: { id: application.certificate_combination_id },
+            select: { id: true, combination_code: true },
+          })
+        : null,
     ]);
     const countryName = countryRow?.name ?? (countryIdInt === null ? toStringValue(application?.country_id) : null);
     const nationalityName = nationalityRow?.name ?? (nationalityIdInt === null ? toStringValue(application?.nationality) : null);
     const languageName = languageRow?.title ?? (languageIdInt === null ? toStringValue(application?.preferred_language) : null);
+    const pipelineUserName = pipelineUserRow?.name ?? null;
+    const combinationCode = combinationRow?.combination_code ?? null;
 
     // Naji 2026-05-11 — Payment Plan + payment-link metadata captured on
     // the application during the Lead → Enrolment workflow. Mirrors the
@@ -7869,7 +7894,11 @@ export class OperationsService {
       // user row pre-dated the gender column being populated. Use truthy
       // check so empty string falls through to the application value.
       gender: normalizeGender((user.gender && user.gender.trim()) || application?.gender),
-      biography: application?.biography ?? null,
+      // Naji 2026-05-11 — applications.biography is hijacked by the Lead
+      // workflow as a JSON stash (registration_fee / discount_type /
+      // installment_plan / documents / specialization). Don't surface a
+      // pure-stash JSON object as "Biography" — only show actual prose.
+      biography: biographyParsed && typeof biographyParsed === 'object' ? null : (application?.biography ?? null),
       learning_disabilities: application?.learning_disabilities ?? null,
       accessibility_needs: application?.accessibility_needs ?? null,
       emergency_name: application?.emergency_name ?? null,
@@ -7917,12 +7946,17 @@ export class OperationsService {
       application_date: application?.created_at ?? null,
       application_status: application?.status ?? null,
       certificate_combination_id: application?.certificate_combination_id ?? null,
+      // Naji 2026-05-11 — resolved combination_code so View shows the label
+      // ("MTT-D" etc.) instead of the raw int id ("1").
+      certificate_combination_code: combinationCode,
       offering_id: application?.offering_id ?? null,
       mode_of_study: application?.mode_of_study ?? null,
       preferred_language: application?.preferred_language ?? null,
       language_name: languageName,
       pipeline: application?.pipeline ?? null,
       pipeline_user: application?.pipeline_user ?? null,
+      // Resolved Pipeline User name (was showing as raw int id, e.g. "193").
+      pipeline_user_name: pipelineUserName,
       lead_source: leadSource,
       reference_student_id: referenceStudentId,
     };
@@ -8313,22 +8347,6 @@ export class OperationsService {
       return { status: 0, message: 'No fields to update.' };
     }
 
-    // Naji 2026-05-11 — diagnostic to confirm whether Naji's edit reaches
-    // the applications.updateMany. Remove once root cause confirmed.
-    if (typeof input !== 'string') {
-      console.warn('[editStudentInfo:debug]', {
-        studentId,
-        userFieldKeys: Object.keys(userFields),
-        appFieldKeys: Object.keys(appFields),
-        offering_id_in_appFields: appFields.offering_id,
-        course_id_in_appFields: appFields.course_id,
-        certificate_combination_id_in_appFields: appFields.certificate_combination_id,
-        inputCourseId: input.courseId,
-        inputOfferingId: input.offeringId,
-        inputCertCombinationId: input.certificateCombinationId,
-      });
-    }
-
     const now = new Date();
     const actor = toIntId(actorUserId);
 
@@ -8373,7 +8391,7 @@ export class OperationsService {
         });
       } else if (user?.user_email) {
         // Seeded user without a linked application — pick the most recent
-        // application by email, if any. Skip silently otherwise.
+        // application by email, if any.
         const fallback = await this.prisma.applications.findFirst({
           where: { user_email: user.user_email, deleted_at: null },
           orderBy: { created_at: 'desc' },
@@ -8386,6 +8404,58 @@ export class OperationsService {
             where: { id: fallback.id, deleted_at: null },
             data: appFields,
           });
+          // Backfill the link so subsequent edits find the row directly.
+          await this.prisma.users.updateMany({
+            where: { id: toIntId(studentId), deleted_at: null },
+            data: { application_id: fallback.id, updated_at: now, updated_by: actor },
+          });
+        } else {
+          // Naji 2026-05-11 — most legacy students (DIVYA, SARANYA, etc.)
+          // were imported with users.application_id=0 and no matching
+          // application row. Previously every edit to address / father /
+          // mother / aadhar / etc. silently vanished because there was
+          // nowhere to write them. Auto-create the applications row from
+          // the user's basic info + the edited fields, mark it enrolled
+          // (the user already has an enrol row), and link it back so the
+          // next edit finds it directly.
+          const fullUser = await this.prisma.users.findFirst({
+            where: { id: toIntId(studentId), deleted_at: null },
+            select: { name: true, phone: true, user_email: true, country_code: true, image: true, profile_picture: true },
+          });
+          if (fullUser) {
+            // Generate a TTII-format application_id (matches the format used
+            // by the Lead workflow's nextApplicationId — best-effort here:
+            // a recognisable prefix that admins won't confuse with leads).
+            const yy = String(now.getFullYear()).slice(-2);
+            const placeholderAppId = `TTII${yy}LEG${toIntId(studentId)}`;
+            const created = await this.prisma.applications.create({
+              data: {
+                application_id: placeholderAppId,
+                name: fullUser.name ?? '',
+                phone: fullUser.phone ?? '',
+                country_code: fullUser.country_code ?? null,
+                user_email: fullUser.user_email ?? '',
+                image: fullUser.image || fullUser.profile_picture || '',
+                second_code: 0,
+                second_phone: '',
+                whatsapp_no: 0,
+                stage: 'enrolled',
+                is_converted: 1,
+                converted_at: now,
+                converted_by: actor,
+                created_at: now,
+                updated_at: now,
+                created_by: actor,
+                updated_by: actor,
+                ...appFields,
+              },
+              select: { id: true },
+            });
+            await this.prisma.users.updateMany({
+              where: { id: toIntId(studentId), deleted_at: null },
+              data: { application_id: created.id, updated_at: now, updated_by: actor },
+            });
+          }
         }
       }
     }

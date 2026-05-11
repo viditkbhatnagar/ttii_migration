@@ -2270,6 +2270,16 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji 2026-05-11 — Country list for searchable dropdowns.
+  app.get('/admin/country/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listCountries();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   // ─── Phase A: CRUD routes ─────────────────────────────────────────────────
 
   app.post('/admin/instructor/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {

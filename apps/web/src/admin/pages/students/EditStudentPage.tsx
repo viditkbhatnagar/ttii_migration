@@ -24,6 +24,21 @@ const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
 const LEAD_SOURCES = ['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference'];
 const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
 
+// Naji 2026-05-11 — TTII is India-focused so we ship a built-in list of
+// Indian states + UTs for the State datalist. Free-text still works for
+// international students; admins typing a non-Indian state value just
+// won't match a suggestion.
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana',
+  'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+  // Union Territories
+  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+];
+
 export default function EditStudentPage({ api, session, onNavigate }: AdminPageProps) {
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -186,6 +201,14 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
   }, [combinationsData, form.course_id]);
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+  // Naji 2026-05-11 — Country list for searchable Country / Nationality
+  // datalist autocompletes. Loaded once per page mount.
+  const { data: countriesData } = useAdminPageData(() => api.loadCountries(session.token), []);
+  const countries = useMemo(() => toRecords(countriesData), [countriesData]);
+  const countryNames = useMemo(
+    () => countries.map((c) => asString(c.name)).filter(Boolean).sort(),
+    [countries],
+  );
   const { data: pipelineUsersData } = useAdminPageData(
     () => {
       const pipeline = form.pipeline ?? '';
@@ -286,14 +309,35 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
               options={[{ value: '', label: 'Select' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} />
             <SelectRow label="Marital Status" value={form.marital_status ?? ''} onChange={(v) => set('marital_status', v)}
               options={[{ value: '', label: 'Select' }, { value: 'Single', label: 'Single' }, { value: 'Married', label: 'Married' }, { value: 'Divorced', label: 'Divorced' }, { value: 'Widowed', label: 'Widowed' }]} />
-            <FieldRow label="Nationality" value={form.nationality ?? ''} onChange={(v) => set('nationality', v)} />
+            <DatalistField
+              label="Nationality"
+              value={form.nationality ?? ''}
+              onChange={(v) => set('nationality', v)}
+              listId="ccp-nationality-list"
+              options={countryNames}
+              placeholder="Type to search countries…"
+            />
             <FieldRow label="Aadhar No" value={form.aadhar_no ?? ''} onChange={(v) => set('aadhar_no', v)} />
             <FieldRow label="Passport No" value={form.passport_no ?? ''} onChange={(v) => set('passport_no', v)} />
             <FieldRow label="Father Name" value={form.father_name ?? ''} onChange={(v) => set('father_name', v)} />
             <FieldRow label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => set('mother_name', v)} />
             <FieldRow label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => set('guardian_name', v)} />
-            <FieldRow label="Country" value={form.country ?? ''} onChange={(v) => set('country', v)} />
-            <FieldRow label="State" value={form.state ?? ''} onChange={(v) => set('state', v)} />
+            <DatalistField
+              label="Country"
+              value={form.country ?? ''}
+              onChange={(v) => set('country', v)}
+              listId="ccp-country-list"
+              options={countryNames}
+              placeholder="Type to search countries…"
+            />
+            <DatalistField
+              label="State"
+              value={form.state ?? ''}
+              onChange={(v) => set('state', v)}
+              listId="ccp-state-list"
+              options={INDIAN_STATES}
+              placeholder="Type to search states…"
+            />
             <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} />
             <SelectRow label="Status" value={form.status ?? '1'} onChange={(v) => set('status', v)}
               options={[{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive' }, { value: '2', label: 'Graduated' }, { value: '3', label: 'Dropped' }]} />
@@ -517,6 +561,37 @@ function FieldRow({ label, value, onChange, type }: { label: string; value: stri
     <div>
       <Label className="mb-1 text-xs">{label}</Label>
       <Input type={type ?? 'text'} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+// Naji 2026-05-11 — searchable input backed by a native <datalist>. Gives
+// instant filter-as-you-type plus free-text fallback for values not in the
+// list. Each instance points to a <datalist id> rendered once in a shared
+// pool below the form so we don't duplicate the option markup.
+function DatalistField({
+  label, value, onChange, listId, options, placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  listId: string;
+  options: string[];
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <Label className="mb-1 text-xs">{label}</Label>
+      <Input
+        type="text"
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      <datalist id={listId}>
+        {options.map((opt) => <option key={opt} value={opt} />)}
+      </datalist>
     </div>
   );
 }

@@ -1816,6 +1816,11 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  async loadCountries(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/country/index', authToken);
+    return toRecords(payload.data);
+  }
+
   async addLanguage(authToken: string, title: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/language/add', authToken, { title });
   }
