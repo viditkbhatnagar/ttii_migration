@@ -7546,7 +7546,7 @@ export class OperationsService {
           })
         : Promise.resolve(null);
 
-    const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application] = await Promise.all([
+    const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application, studentPaymentSchedule] = await Promise.all([
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true, fee_structure: true } })
         : Promise.resolve([]),
@@ -7567,6 +7567,11 @@ export class OperationsService {
         where: { user_id: uid, deleted_at: null },
       }),
       applicationLookup,
+      // Same installment schedule the Application View uses for "Payment History".
+      this.prisma.student_payments.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { id: 'asc' },
+      }),
     ]);
 
     // Offering lookup — applications carry the chosen offering_id; the
@@ -7689,6 +7694,39 @@ export class OperationsService {
         })
       : [];
 
+    // Naji 2026-05-11 — resolve country / nationality / language IDs to
+    // human-readable names. Same pattern as getApplication (line 5948+).
+    // The legacy form stores numeric IDs in mediumtext columns, so we
+    // fall through to raw text when the value isn't a digit string.
+    const countryIdInt = parseLooseInt(application?.country_id);
+    const nationalityIdInt = parseLooseInt(application?.nationality);
+    const languageIdInt = parseLooseInt(application?.preferred_language);
+    const [countryRow, nationalityRow, languageRow] = await Promise.all([
+      countryIdInt !== null
+        ? this.prisma.country.findFirst({ where: { id: countryIdInt }, select: { id: true, name: true } })
+        : null,
+      nationalityIdInt !== null
+        ? this.prisma.country.findFirst({ where: { id: nationalityIdInt }, select: { id: true, name: true } })
+        : null,
+      languageIdInt !== null
+        ? this.prisma.languages.findFirst({ where: { id: languageIdInt }, select: { id: true, title: true } })
+        : null,
+    ]);
+    const countryName = countryRow?.name ?? (countryIdInt === null ? toStringValue(application?.country_id) : null);
+    const nationalityName = nationalityRow?.name ?? (nationalityIdInt === null ? toStringValue(application?.nationality) : null);
+    const languageName = languageRow?.title ?? (languageIdInt === null ? toStringValue(application?.preferred_language) : null);
+
+    // Naji 2026-05-11 — Payment Plan + payment-link metadata captured on
+    // the application during the Lead → Enrolment workflow. Mirrors the
+    // Application View's "Payment Plan" card so admins can see the same
+    // breakdown on the Student View.
+    const applicationPaymentPlan = (() => {
+      const raw = application?.payment_plan;
+      if (!raw) return null;
+      try { return JSON.parse(raw) as Record<string, unknown>; }
+      catch { return null; }
+    })();
+
     // Naji 2026-05-05: Bugs X1+X2 — surface ALL application-captured
     // fields on the student profile so View and Edit are consistent
     // and "age" / address / second-phone / emergency / biography
@@ -7742,12 +7780,16 @@ export class OperationsService {
       guardian_name: application?.guardian_name ?? null,
       aadhar_no: application?.aadhar_no ?? null,
       passport_no: application?.passport_no ?? null,
-      country: application?.country_id ? String(application.country_id) : null,
+      country: countryName,
       state: application?.state ?? null,
       city: application?.district ?? null,
       whatsapp_no: resolvedWhatsapp,
-      nationality: application?.nationality ?? null,
+      nationality: nationalityName,
       marital_status: application?.marital_status ?? null,
+      // Naji 2026-05-11 — users.status is 1/0 in the legacy schema; the
+      // View page passes whatever is here to AdminStatusBadge, so map to
+      // text labels so the badge shows "Active"/"Inactive" not "1"/"0".
+      status: user.status === 1 ? 'Active' : user.status === 0 ? 'Inactive' : (user.status != null ? String(user.status) : null),
       // Qualification fields live on applications.
       highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? null,
       institution_name: application?.previous_school ?? null,
@@ -7767,7 +7809,7 @@ export class OperationsService {
       certificate_combination_id: application?.certificate_combination_id ?? null,
       offering_id: application?.offering_id ?? null,
       mode_of_study: application?.mode_of_study ?? null,
-      preferred_language: application?.preferred_language ?? null,
+      preferred_language: languageName,
       pipeline: application?.pipeline ?? null,
       pipeline_user: application?.pipeline_user ?? null,
       lead_source: leadSource,
@@ -7780,6 +7822,7 @@ export class OperationsService {
       student: studentWithPhoto,
       enrolments: enrichedEnrolments,
       payments,
+      studentPaymentSchedule,
       studentFees,
       videoProgress,
       materialProgress: [],
@@ -7789,6 +7832,10 @@ export class OperationsService {
       applicationFee,
       applicationInstallments: installmentPlan,
       applicationDocuments,
+      applicationPaymentPlan,
+      paymentLinkUrl: application?.payment_link_url ?? null,
+      paymentStatus: application?.payment_status ?? null,
+      paymentLinkExpiresAt: application?.payment_link_expires_at ?? null,
     };
   }
 

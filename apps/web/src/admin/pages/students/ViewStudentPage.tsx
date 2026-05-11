@@ -85,6 +85,52 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const applicationInstallments = useMemo(() => toRecords(data?.applicationInstallments), [data]);
   const applicationDocuments = useMemo(() => toRecords(data?.applicationDocuments), [data]);
 
+  // Naji 2026-05-11 — Payment Plan card + proper Payment History table
+  // were missing from the Student View even though the data was already
+  // captured during the Lead → Enrolment workflow. Mirror what
+  // ViewApplicationPage renders so the Student View shows the same.
+  type SavedPlan = {
+    mode?: string;
+    total_amount_minor?: number;
+    registration_fee_minor?: number | null;
+    installments?: Array<{
+      label?: string;
+      amountMinor?: number;
+      amount_minor?: number;
+      dueDate?: string;
+      due_date?: string;
+      gstPercent?: number;
+      gst_percent?: number;
+    }>;
+  };
+  const applicationPaymentPlan = useMemo<SavedPlan | null>(() => {
+    const raw = data?.applicationPaymentPlan;
+    if (!raw || typeof raw !== 'object') return null;
+    return raw as SavedPlan;
+  }, [data]);
+  const paymentLinkUrl = useMemo(() => asString(data?.paymentLinkUrl), [data]);
+  const paymentStatus = useMemo(() => asString(data?.paymentStatus), [data]);
+  const studentPaymentSchedule = useMemo(() => toRecords(data?.studentPaymentSchedule), [data]);
+  const hasPaymentPlan = applicationPaymentPlan !== null || paymentLinkUrl !== '';
+
+  // Same column shape as ViewApplicationPage so Naji sees the same table
+  // for "Payment History" on both views.
+  const paymentScheduleColumns: DataTableColumn[] = useMemo(
+    () => [
+      { key: 'installment_details', label: 'Installment' },
+      { key: 'amount', label: 'Amount', render: (v) => `₹${asNumber(v).toLocaleString('en-IN')}` },
+      { key: 'due_date', label: 'Due Date', render: (v) => formatDate(v) },
+      { key: 'paid_date', label: 'Paid Date', render: (v) => formatDate(v) },
+      { key: 'payment_mode', label: 'Mode', render: (v) => asString(v) || '-' },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (v) => <AdminStatusBadge status={asString(v) || 'Pending'} />,
+      },
+    ],
+    [],
+  );
+
   // Selected enrollment for drill-down
   const selectedEnrollment = selectedEnrollmentIdx !== null ? enrolments[selectedEnrollmentIdx] : null;
 
@@ -235,7 +281,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <div>
                     <InfoRow label="Student ID" value={asString(student.student_id)} />
                     <InfoRow label="Name" value={asString(student.name)} />
-                    <InfoRow label="Username" value={asString(student.username)} />
+                    <InfoRow label="Login Username" value={asString(student.username)} />
                     <InfoRow label="Email" value={asString(student.user_email)} />
                     <InfoRow label="Phone" value={asString(student.phone)} />
                     <InfoRow label="Alternate Phone" value={asString(student.second_phone) || asString(student.alternate_phone) || '-'} />
@@ -341,12 +387,14 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               {educationPathway.length > 0 && (
                 <div className="mt-6">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Education Pathway</p>
-                  <div className="overflow-hidden rounded-md border">
+                  <div className="overflow-x-auto rounded-md border">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Qualification</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Specialization</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Institution</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Board</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Year</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Marks</th>
                         </tr>
@@ -355,7 +403,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                         {educationPathway.map((row, idx) => (
                           <tr key={idx} className="border-t">
                             <td className="px-3 py-1.5">{asString(row.qualification) || '-'}</td>
+                            <td className="px-3 py-1.5">{asString(row.specialization) || '-'}</td>
                             <td className="px-3 py-1.5">{asString(row.institution) || '-'}</td>
+                            <td className="px-3 py-1.5">{asString(row.board) || '-'}</td>
                             <td className="px-3 py-1.5">{asString(row.year_passed) || '-'}</td>
                             <td className="px-3 py-1.5">{asString(row.marks) || '-'}</td>
                           </tr>
@@ -487,6 +537,107 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               </CardContent>
             </Card>
           )}
+
+          {/* Naji 2026-05-11 — Payment Plan card. Mirrors what
+              ViewApplicationPage shows so the Student View carries the
+              same payment-plan summary the counsellor saved during the
+              Lead → Enrolment workflow. */}
+          {hasPaymentPlan && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span>Payment Plan</span>
+                  {paymentStatus ? (
+                    <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
+                      {paymentStatus}
+                    </span>
+                  ) : null}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-x-8 md:grid-cols-2">
+                  <div>
+                    <InfoRow
+                      label="Mode"
+                      value={applicationPaymentPlan?.mode === 'installment' ? 'Installment Plan' : 'Full Payment'}
+                    />
+                    <InfoRow
+                      label="Total"
+                      value={
+                        applicationPaymentPlan?.total_amount_minor
+                          ? `₹${(Number(applicationPaymentPlan.total_amount_minor) / 100).toLocaleString('en-IN')}`
+                          : '-'
+                      }
+                    />
+                  </div>
+                  <div>
+                    {paymentLinkUrl ? (
+                      <>
+                        <InfoRow label="Payment Link" value={paymentLinkUrl} />
+                        <InfoRow label="Expires" value={formatDate(data?.paymentLinkExpiresAt)} />
+                      </>
+                    ) : (
+                      <InfoRow label="Payment Link" value="Not sent yet (saved as draft)" />
+                    )}
+                  </div>
+                </div>
+                {applicationPaymentPlan?.installments && applicationPaymentPlan.installments.length > 0 && (
+                  <div className="mt-6">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Installments</p>
+                    <div className="overflow-hidden rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Label</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Due Date</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">GST %</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-600">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {applicationPaymentPlan.installments.map((row, idx) => {
+                            const minor = row.amountMinor ?? row.amount_minor ?? 0;
+                            const due = row.dueDate ?? row.due_date ?? '';
+                            const gst = row.gstPercent ?? row.gst_percent ?? '';
+                            return (
+                              <tr key={idx} className="border-t">
+                                <td className="px-3 py-1.5">{idx + 1}</td>
+                                <td className="px-3 py-1.5">{asString(row.label) || '-'}</td>
+                                <td className="px-3 py-1.5">{due ? formatDate(due) : '-'}</td>
+                                <td className="px-3 py-1.5">{gst !== '' ? `${gst}%` : '-'}</td>
+                                <td className="px-3 py-1.5 font-medium">{`₹${(Number(minor) / 100).toLocaleString('en-IN')}`}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Naji 2026-05-11 — Payment History table. Same columns as the
+              Application View's Payment History tab. Sourced from the
+              `student_payments` installment table (not `payment_info`,
+              which is razorpay-only). */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Payment History</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              {studentPaymentSchedule.length > 0 ? (
+                <AdminDataTable
+                  columns={paymentScheduleColumns}
+                  rows={studentPaymentSchedule}
+                  searchable={false}
+                  exportable={false}
+                />
+              ) : (
+                <p className="py-6 text-center text-sm text-gray-400">No payment records found.</p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
