@@ -440,10 +440,10 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
             </DialogTitle>
           </DialogHeader>
           <CreditCardForm
-            defaultHolder="John Doe"
             {...(payDialogAmount > 0 ? { amountDisplay: formatCurrency(payDialogAmount) } : {})}
             merchantLabel="TTII LMS"
-            submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} securely`}
+            {...(payDialogCourseTitle ? { itemDescription: payDialogCourseTitle } : {})}
+            submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} with Razorpay`}
             submitting={payingCourseId !== null}
             onSubmit={handleCardFormSubmit}
           />
