@@ -7798,16 +7798,22 @@ export class OperationsService {
       guardian_name: application?.guardian_name ?? null,
       aadhar_no: application?.aadhar_no ?? null,
       passport_no: application?.passport_no ?? null,
-      country: countryName,
+      // Naji 2026-05-11 — keep RAW values in the original fields so the Edit
+      // form can round-trip them back to the DB unchanged. Resolved
+      // human-readable names live alongside under `*_name` for the View page
+      // to render. Same split the Application View uses (country_name etc).
+      country: application?.country_id ? String(application.country_id) : null,
+      country_name: countryName,
       state: application?.state ?? null,
       city: application?.district ?? null,
       whatsapp_no: resolvedWhatsapp,
-      nationality: nationalityName,
+      nationality: application?.nationality ?? null,
+      nationality_name: nationalityName,
       marital_status: application?.marital_status ?? null,
-      // Naji 2026-05-11 — users.status is 1/0 in the legacy schema; the
-      // View page passes whatever is here to AdminStatusBadge, so map to
-      // text labels so the badge shows "Active"/"Inactive" not "1"/"0".
-      status: user.status === 1 ? 'Active' : user.status === 0 ? 'Inactive' : (user.status != null ? String(user.status) : null),
+      // Raw users.status int-as-string for the Edit dropdown ('1'/'0'/'2'/'3');
+      // status_label is the badge-friendly version for the View page.
+      status: user.status != null ? String(user.status) : null,
+      status_label: user.status === 1 ? 'Active' : user.status === 0 ? 'Inactive' : user.status === 2 ? 'Graduated' : user.status === 3 ? 'Dropped' : null,
       // Qualification fields live on applications.
       highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? null,
       institution_name: application?.previous_school ?? null,
@@ -7827,7 +7833,8 @@ export class OperationsService {
       certificate_combination_id: application?.certificate_combination_id ?? null,
       offering_id: application?.offering_id ?? null,
       mode_of_study: application?.mode_of_study ?? null,
-      preferred_language: languageName,
+      preferred_language: application?.preferred_language ?? null,
+      language_name: languageName,
       pipeline: application?.pipeline ?? null,
       pipeline_user: application?.pipeline_user ?? null,
       lead_source: leadSource,

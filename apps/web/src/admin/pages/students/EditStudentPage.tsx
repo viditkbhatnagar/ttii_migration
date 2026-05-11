@@ -48,6 +48,19 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
   useEffect(() => {
     if (!student) return;
     const dob = student.date_of_birth;
+    // Naji 2026-05-11 — the dropdown options are Title Case ("Male",
+    // "Married") but legacy DB rows can be lowercase ("male", "married") or
+    // legacy ints ("1"). Title-case the value on prefill so the <option>
+    // match succeeds and the saved value renders as the selected item.
+    const titleCase = (raw: string): string => {
+      const v = raw.trim();
+      if (!v) return '';
+      // Legacy gender ints — already normalized by the backend but be safe.
+      if (v === '1') return 'Male';
+      if (v === '2') return 'Female';
+      if (v === '3') return 'Other';
+      return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+    };
     setForm({
       name: asString(student.name),
       user_email: asString(student.user_email),
@@ -57,9 +70,9 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       whatsapp_no: asString(student.whatsapp_no),
       date_of_birth: dob ? new Date(dob as string).toISOString().split('T')[0] ?? '' : '',
       age: asString(student.age),
-      gender: asString(student.gender),
+      gender: titleCase(asString(student.gender)),
       nationality: asString(student.nationality),
-      marital_status: asString(student.marital_status),
+      marital_status: titleCase(asString(student.marital_status)),
       father_name: asString(student.father_name),
       mother_name: asString(student.mother_name),
       guardian_name: asString(student.guardian_name),

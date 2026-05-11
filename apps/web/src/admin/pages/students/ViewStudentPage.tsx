@@ -297,7 +297,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     <InfoRow label="Age" value={asString(student.age) || '-'} />
                     <InfoRow label="Gender" value={asString(student.gender) || '-'} />
                     <InfoRow label="Marital Status" value={asString(student.marital_status) || '-'} />
-                    <InfoRow label="Nationality" value={asString(student.nationality) || '-'} />
+                    <InfoRow label="Nationality" value={asString(student.nationality_name) || asString(student.nationality) || '-'} />
                   </div>
                   <div>
                     <InfoRow label="Aadhaar No" value={asString(student.aadhar_no) || '-'} />
@@ -305,7 +305,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     <InfoRow label="Father's Name" value={asString(student.father_name) || '-'} />
                     <InfoRow label="Mother's Name" value={asString(student.mother_name) || '-'} />
                     <InfoRow label="Guardian's Name" value={asString(student.guardian_name) || '-'} />
-                    <InfoRow label="Country" value={asString(student.country) || '-'} />
+                    <InfoRow label="Country" value={asString(student.country_name) || asString(student.country) || '-'} />
                     <InfoRow label="State" value={asString(student.state) || '-'} />
                     <InfoRow label="City / District" value={asString(student.city) || '-'} />
                     <InfoRow label="Permanent Address" value={asString(student.address) || '-'} />
@@ -313,7 +313,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
                       <span className="text-sm font-medium text-gray-500">Status</span>
                       <span className="col-span-2">
-                        <AdminStatusBadge status={asString(student.status) || 'active'} />
+                        <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
                       </span>
                     </div>
                   </div>
@@ -437,7 +437,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
                   <InfoRow label="Application Status" value={asString(student.application_status)} />
                   <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
-                  <InfoRow label="Preferred Language" value={asString(student.preferred_language)} />
+                  <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
                 </div>
                 <div>
                   <InfoRow label="Pipeline" value={asString(student.pipeline)} />
