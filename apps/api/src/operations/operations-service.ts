@@ -8313,6 +8313,22 @@ export class OperationsService {
       return { status: 0, message: 'No fields to update.' };
     }
 
+    // Naji 2026-05-11 — diagnostic to confirm whether Naji's edit reaches
+    // the applications.updateMany. Remove once root cause confirmed.
+    if (typeof input !== 'string') {
+      console.warn('[editStudentInfo:debug]', {
+        studentId,
+        userFieldKeys: Object.keys(userFields),
+        appFieldKeys: Object.keys(appFields),
+        offering_id_in_appFields: appFields.offering_id,
+        course_id_in_appFields: appFields.course_id,
+        certificate_combination_id_in_appFields: appFields.certificate_combination_id,
+        inputCourseId: input.courseId,
+        inputOfferingId: input.offeringId,
+        inputCertCombinationId: input.certificateCombinationId,
+      });
+    }
+
     const now = new Date();
     const actor = toIntId(actorUserId);
 

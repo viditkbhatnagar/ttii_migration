@@ -2160,6 +2160,27 @@ export class AdminPortalApi {
       biography: string;
       learning_disabilities: string;
       accessibility_needs: string;
+      // Naji 2026-05-11 — enrolment / pipeline / fee fields the Edit form
+      // also exposes. Listing them explicitly so the contract matches the
+      // route handler's destructured payload and TS doesn't quietly drop
+      // any of them via excess-property checks.
+      course_id: string;
+      offering_id: string;
+      certificate_combination_id: string;
+      mode_of_study: string;
+      preferred_language: string;
+      pipeline: string;
+      pipeline_user: string;
+      lead_source: string;
+      reference_student_id: string;
+      registration_fee: string;
+      gst_percent: string;
+      gst_applicability: string;
+      final_course_fee: string;
+      discount: string;
+      discount_type: string;
+      installment_plan: string;
+      documents: string;
     }>,
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, ...fields });
