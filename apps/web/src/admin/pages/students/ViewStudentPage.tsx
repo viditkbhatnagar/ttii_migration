@@ -234,6 +234,45 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         </Button>
       </AdminPageHeader>
 
+      {/* Naji 2026-05-11 — Student identity card. Sits above the tabs and
+          stays visible on every tab so the admin can tell at a glance which
+          student they're viewing without having to go back to the list. */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-4 py-4">
+          {profilePicture ? (
+            <img
+              src={profilePicture}
+              alt={asString(student.name)}
+              className="h-16 w-16 shrink-0 rounded-full border border-gray-200 object-cover"
+            />
+          ) : (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-xl font-semibold text-gray-400">
+              {asString(student.name).charAt(0).toUpperCase() || '?'}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-lg font-semibold text-gray-900">{asString(student.name) || 'Unnamed Student'}</h2>
+              <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
+              {asString(student.student_id) ? (
+                <span><span className="font-medium text-gray-500">ID:</span> {asString(student.student_id)}</span>
+              ) : null}
+              {asString(student.user_email) ? (
+                <span><span className="font-medium text-gray-500">Email:</span> {asString(student.user_email)}</span>
+              ) : null}
+              {asString(student.phone) ? (
+                <span><span className="font-medium text-gray-500">Phone:</span> {asString(student.phone)}</span>
+              ) : null}
+              {enrolments.length > 0 ? (
+                <span><span className="font-medium text-gray-500">Enrolments:</span> {enrolments.length}</span>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Main tab navigation */}
       <div className="flex gap-1 border-b border-gray-200">
         {MAIN_TABS.map((label, idx) => (
