@@ -7562,7 +7562,7 @@ export class OperationsService {
       paid_date: Date | null;
     };
 
-    const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application, studentPaymentSchedule] = await Promise.all([
+    const [courses, batches, courseFees, payments, videoProgress, assignmentSubs, application, studentPaymentSchedule, practiceAttempts, examAttempts, liveClassAttendance] = await Promise.all([
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true, fee_structure: true } })
         : Promise.resolve([]),
@@ -7590,7 +7590,81 @@ export class OperationsService {
         FROM student_payments
         WHERE deleted_at IS NULL AND user_id = ${uid}
         ORDER BY id ASC`,
+      // Naji 2026-05-11 — Enrollment drill-down sub-tabs (Quiz / Examination
+      // / Live Class) were placeholder text. Now wire to real tables.
+      this.prisma.practice_attempt.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.exam_attempt.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.live_class_attendance.findMany({
+        where: { user_id: uid },
+        orderBy: { id: 'desc' },
+      }),
     ]);
+
+    // Enrich attempts with parent-table titles so the Student View tables
+    // show a human-readable label instead of just numeric IDs.
+    const examIdsForAttempts = [...new Set(examAttempts.map((a) => a.exam_id).filter((x): x is number => x !== null && x !== undefined))];
+    const liveClassIdsForAttendance = [...new Set(liveClassAttendance.map((a) => a.live_class_id))];
+    const [examsForAttempts, liveClassesForAttendance] = await Promise.all([
+      examIdsForAttempts.length > 0
+        ? this.prisma.exam.findMany({
+            where: { id: { in: examIdsForAttempts } },
+            select: { id: true, title: true, exam_code: true, course_id: true, mark: true },
+          })
+        : Promise.resolve([]),
+      liveClassIdsForAttendance.length > 0
+        ? this.prisma.live_class.findMany({
+            where: { id: { in: liveClassIdsForAttendance } },
+            select: { id: true, title: true, date: true, fromTime: true, course_id: true, platform: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const examTitleMap = new Map(examsForAttempts.map((e) => [e.id, e]));
+    const liveClassMap = new Map(liveClassesForAttendance.map((l) => [l.id, l]));
+    const enrichedExamAttempts = examAttempts.map((a) => {
+      const exam = a.exam_id != null ? examTitleMap.get(a.exam_id) : null;
+      return {
+        ...a,
+        exam_title: exam?.title ?? null,
+        exam_code: exam?.exam_code ?? null,
+        max_marks: exam?.mark != null ? Number(exam.mark) : null,
+      };
+    });
+    const enrichedAttendance = liveClassAttendance.map((a) => {
+      const lc = liveClassMap.get(a.live_class_id);
+      return {
+        ...a,
+        live_class_title: lc?.title ?? null,
+        live_class_date: lc?.date ?? null,
+        live_class_from_time: lc?.fromTime ?? null,
+        platform: lc?.platform ?? null,
+        // Prisma serialises Decimal as string — surface as number for UI.
+        percent_attended: a.percent_attended != null ? Number(a.percent_attended) : null,
+      };
+    });
+    // Practice attempts: lesson_id is a JSON-encoded array string. Decode to
+    // first lesson ID so the UI can show something useful (full join with
+    // the lesson table is overkill for now — show ID + score + status).
+    const enrichedQuizAttempts = practiceAttempts.map((a) => {
+      let lessonIdLabel: string | null = null;
+      if (a.lesson_id) {
+        try {
+          const parsed = JSON.parse(a.lesson_id) as unknown;
+          if (Array.isArray(parsed) && parsed.length > 0) lessonIdLabel = String(parsed[0]);
+          else lessonIdLabel = a.lesson_id;
+        } catch { lessonIdLabel = a.lesson_id; }
+      }
+      return {
+        ...a,
+        lesson_label: lessonIdLabel,
+        completed: Boolean(a.submit_status),
+      };
+    });
 
     // Offering lookup — applications carry the chosen offering_id; the
     // enrol row doesn't, so we surface the application's offering for all
@@ -7857,6 +7931,9 @@ export class OperationsService {
       videoProgress,
       materialProgress: [],
       assignmentSubmissions: assignmentSubs,
+      quizAttempts: enrichedQuizAttempts,
+      examAttempts: enrichedExamAttempts,
+      liveClassAttendance: enrichedAttendance,
       profileCompletion,
       educationPathway,
       applicationFee,

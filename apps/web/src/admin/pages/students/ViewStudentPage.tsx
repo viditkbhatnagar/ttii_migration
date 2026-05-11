@@ -76,6 +76,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const videoProgress = useMemo(() => toRecords(data?.videoProgress), [data]);
   const materialProgress = useMemo(() => toRecords(data?.materialProgress), [data]);
   const assignmentSubmissions = useMemo(() => toRecords(data?.assignmentSubmissions), [data]);
+  // Naji 2026-05-11 — enrollment drill-down sub-tabs wired to real tables.
+  const quizAttempts = useMemo(() => toRecords(data?.quizAttempts), [data]);
+  const examAttempts = useMemo(() => toRecords(data?.examAttempts), [data]);
+  const liveClassAttendance = useMemo(() => toRecords(data?.liveClassAttendance), [data]);
   const profileCompletion = useMemo(() => asNumber(data?.profileCompletion), [data]);
   const educationPathway = useMemo(() => toRecords(data?.educationPathway), [data]);
   const applicationFee = useMemo(() => {
@@ -963,26 +967,80 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </div>
               )}
 
-              {/* Sub-tab: Quiz */}
+              {/* Sub-tab: Quiz — Naji 2026-05-11 wired to practice_attempt */}
               {enrollmentSubTab === 1 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Quiz History</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <p className="py-4 text-center text-sm text-gray-400">No quiz records available for this enrollment.</p>
+                  <CardContent className="p-0">
+                    {quizAttempts.length > 0 ? (
+                      <AdminDataTable
+                        columns={[
+                          { key: 'lesson_label', label: 'Lesson', render: (v) => asString(v) || '-' },
+                          { key: 'lesson_file_id', label: 'Quiz File ID', render: (v) => asString(v) || '-' },
+                          { key: 'score', label: 'Score', render: (v) => asString(v) || '-' },
+                          { key: 'correct', label: 'Correct', render: (v) => asString(v) || '-' },
+                          { key: 'incorrect', label: 'Incorrect', render: (v) => asString(v) || '-' },
+                          { key: 'skip', label: 'Skipped', render: (v) => asString(v) || '-' },
+                          {
+                            key: 'completed',
+                            label: 'Status',
+                            render: (v) => <AdminStatusBadge status={v ? 'Completed' : 'In Progress'} />,
+                          },
+                          { key: 'created_at', label: 'Attempted', render: (v) => formatDate(v) },
+                        ]}
+                        rows={quizAttempts}
+                        searchable={false}
+                        exportable={false}
+                      />
+                    ) : (
+                      <p className="py-6 text-center text-sm text-gray-400">No quiz attempts found.</p>
+                    )}
                   </CardContent>
                 </Card>
               )}
 
-              {/* Sub-tab: Live Class */}
+              {/* Sub-tab: Live Class — Naji 2026-05-11 wired to live_class_attendance */}
               {enrollmentSubTab === 2 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Live Class Attendance</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <p className="py-4 text-center text-sm text-gray-400">No live class records available for this enrollment.</p>
+                  <CardContent className="p-0">
+                    {liveClassAttendance.length > 0 ? (
+                      <AdminDataTable
+                        columns={[
+                          { key: 'live_class_title', label: 'Session', render: (v) => asString(v) || '-' },
+                          { key: 'live_class_date', label: 'Date', render: (v) => formatDate(v) },
+                          { key: 'platform', label: 'Platform', render: (v) => asString(v) || '-' },
+                          {
+                            key: 'total_seconds',
+                            label: 'Duration',
+                            render: (v) => {
+                              const secs = asNumber(v);
+                              if (!secs) return '-';
+                              const mins = Math.round(secs / 60);
+                              return mins > 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+                            },
+                          },
+                          {
+                            key: 'percent_attended',
+                            label: 'Attendance',
+                            render: (v) => {
+                              const pct = asNumber(v);
+                              return pct ? `${pct}%` : '-';
+                            },
+                          },
+                          { key: 'first_joined_at', label: 'Joined', render: (v) => formatDate(v) },
+                        ]}
+                        rows={liveClassAttendance}
+                        searchable={false}
+                        exportable={false}
+                      />
+                    ) : (
+                      <p className="py-6 text-center text-sm text-gray-400">No live class attendance recorded.</p>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -1003,14 +1061,45 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </Card>
               )}
 
-              {/* Sub-tab: Examination */}
+              {/* Sub-tab: Examination — Naji 2026-05-11 wired to exam_attempt */}
               {enrollmentSubTab === 4 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Examination</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <p className="py-4 text-center text-sm text-gray-400">No examination records available for this enrollment.</p>
+                  <CardContent className="p-0">
+                    {examAttempts.length > 0 ? (
+                      <AdminDataTable
+                        columns={[
+                          { key: 'exam_code', label: 'Exam Code', render: (v) => asString(v) || '-' },
+                          { key: 'exam_title', label: 'Exam', render: (v) => asString(v) || '-' },
+                          { key: 'attempt_count', label: 'Attempt', render: (v) => asString(v) || '-' },
+                          {
+                            key: 'score',
+                            label: 'Score',
+                            render: (v, row) => {
+                              const score = asNumber(v);
+                              const max = asNumber(row.max_marks);
+                              if (!score && !max) return '-';
+                              return max ? `${score} / ${max}` : String(score);
+                            },
+                          },
+                          { key: 'correct', label: 'Correct', render: (v) => asString(v) || '-' },
+                          { key: 'incorrect', label: 'Incorrect', render: (v) => asString(v) || '-' },
+                          {
+                            key: 'submit_status',
+                            label: 'Status',
+                            render: (v) => <AdminStatusBadge status={v ? 'Submitted' : 'In Progress'} />,
+                          },
+                          { key: 'end_time', label: 'Submitted', render: (v) => formatDate(v) },
+                        ]}
+                        rows={examAttempts}
+                        searchable={false}
+                        exportable={false}
+                      />
+                    ) : (
+                      <p className="py-6 text-center text-sm text-gray-400">No examination attempts found.</p>
+                    )}
                   </CardContent>
                 </Card>
               )}
