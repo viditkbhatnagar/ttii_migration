@@ -438,46 +438,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             </CardContent>
           </Card>
 
-          {/* Emergency contact + health — kept as a secondary card so it
-              doesn't break the canonical 4-section structure. */}
-          {(asString(student.emergency_name) || asString(student.emergency_phone) || asString(student.emergency_relation)
-            || asString(student.learning_disabilities) || asString(student.accessibility_needs)
-            || asString(student.biography) || asString(student.signature_data)) ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Emergency Contact &amp; Health</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-x-8 md:grid-cols-2">
-                  <div>
-                    <InfoRow label="Emergency Contact Name" value={asString(student.emergency_name) || '-'} />
-                    <InfoRow label="Emergency Relation" value={asString(student.emergency_relation) || '-'} />
-                    <InfoRow label="Emergency Phone" value={asString(student.emergency_phone) || '-'} />
-                  </div>
-                  <div>
-                    <InfoRow label="Learning Disabilities" value={asString(student.learning_disabilities) || '-'} />
-                    <InfoRow label="Accessibility Needs" value={asString(student.accessibility_needs) || '-'} />
-                  </div>
-                  {asString(student.biography) ? (
-                    <div className="md:col-span-2">
-                      <InfoRow label="Biography" value={asString(student.biography)} />
-                    </div>
-                  ) : null}
-                  {asString(student.signature_data) ? (
-                    <div className="md:col-span-2 mt-3">
-                      <p className="text-sm font-medium text-gray-500 mb-1">Signature</p>
-                      {asString(student.signature_data).startsWith('data:image') ? (
-                        <img src={asString(student.signature_data)} alt="Signature" className="h-20 rounded border border-gray-200 bg-white p-2" />
-                      ) : (
-                        <p className="text-sm italic text-gray-700">{asString(student.signature_data)}</p>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
         </div>
       )}
 

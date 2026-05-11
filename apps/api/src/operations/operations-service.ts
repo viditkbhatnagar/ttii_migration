@@ -7809,13 +7809,37 @@ export class OperationsService {
       }
     }
 
-    // Education pathway entries live on a separate table.
-    const educationPathway = application
+    // Education pathway entries live on `application_education_pathway`
+    // for new students. Legacy students (no application row) have their
+    // qualifications in the older `qualification` table — fall back to
+    // that. Naji 2026-05-12.
+    let educationPathway = application
       ? await this.prisma.application_education_pathway.findMany({
           where: { application_id: application.id },
           orderBy: [{ position: 'asc' }, { id: 'asc' }],
         })
       : [];
+    if (educationPathway.length === 0) {
+      const legacyQuals = await this.prisma.qualification.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { id: 'asc' },
+      });
+      educationPathway = legacyQuals.map((q, idx) => ({
+        id: q.id,
+        application_id: application?.id ?? 0,
+        qualification: q.qualification ?? '',
+        specialization: null,
+        institution: null,
+        year_passed: null,
+        marks: q.percentage != null ? String(q.percentage) : null,
+        board: q.board ?? null,
+        position: idx,
+        created_at: q.created_at,
+        updated_at: q.updated_at,
+        created_by: q.created_by,
+        updated_by: q.updated_by,
+      })) as typeof educationPathway;
+    }
 
     // Naji 2026-05-11 — resolve country / nationality / language IDs to
     // human-readable names. Same pattern as getApplication (line 5948+).
