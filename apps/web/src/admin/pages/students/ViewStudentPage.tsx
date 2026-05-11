@@ -21,7 +21,11 @@ const MAIN_TABS = [
   'Communication',
   'Activity Log',
 ];
-const ENROLLMENT_SUB_TABS = ['Learning Progress', 'Quiz', 'Live Class', 'Assignment', 'Examination', 'Payments'];
+// Naji 2026-05-12 — Application Details is now a tab inside the drill-down
+// (it was a card at the top). Tab indices: 0 Application Details,
+// 1 Learning Progress, 2 Quiz, 3 Live Class, 4 Assignment, 5 Examination,
+// 6 Payments.
+const ENROLLMENT_SUB_TABS = ['Application Details', 'Learning Progress', 'Quiz', 'Live Class', 'Assignment', 'Examination', 'Payments'];
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -36,6 +40,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [activeTab, setActiveTab] = useState(0);
   const [selectedEnrollmentIdx, setSelectedEnrollmentIdx] = useState<number | null>(null);
   const [enrollmentSubTab, setEnrollmentSubTab] = useState(0);
+  // Naji 2026-05-12 — Subject Progress accordion: only one node (subject
+  // or lesson) is expanded at a time. Key format: `subject:<id>` or
+  // `lesson:<subjectId>:<lessonId>`.
+  const [expandedNode, setExpandedNode] = useState<string | null>(null);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -845,32 +853,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </span>
               </div>
 
-              {/* Application Details — application/enrolment metadata that
-                  belongs to the active enrollment context. */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Application Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-x-8 md:grid-cols-2">
-                    <div>
-                      <InfoRow label="Application ID" value={asString(student.application_id)} />
-                      <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
-                      <InfoRow label="Application Status" value={asString(student.application_status)} />
-                      <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
-                      <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
-                    </div>
-                    <div>
-                      <InfoRow label="Pipeline" value={asString(student.pipeline)} />
-                      <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
-                      <InfoRow label="Lead Source" value={asString(student.lead_source)} />
-                      <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
-                      <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Sub-tab navigation */}
               <div className="flex flex-wrap gap-1 border-b border-gray-200">
                 {ENROLLMENT_SUB_TABS.map((label, idx) => (
@@ -890,8 +872,36 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 ))}
               </div>
 
-              {/* Sub-tab: Learning Progress */}
+              {/* Sub-tab: Application Details — Naji 2026-05-12 promoted to a
+                  tab alongside the other enrollment-context tabs. */}
               {enrollmentSubTab === 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Application Details</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-x-8 md:grid-cols-2">
+                      <div>
+                        <InfoRow label="Application ID" value={asString(student.application_id)} />
+                        <InfoRow label="Application Date" value={formatDate(student.application_date) || '-'} />
+                        <InfoRow label="Application Status" value={asString(student.application_status)} />
+                        <InfoRow label="Mode of Study" value={asString(student.mode_of_study)} />
+                        <InfoRow label="Preferred Language" value={asString(student.language_name) || asString(student.preferred_language)} />
+                      </div>
+                      <div>
+                        <InfoRow label="Pipeline" value={asString(student.pipeline)} />
+                        <InfoRow label="Pipeline User" value={asString(student.pipeline_user_name) || asString(student.pipeline_user)} />
+                        <InfoRow label="Lead Source" value={asString(student.lead_source)} />
+                        <InfoRow label="Referred By (Student)" value={asString(student.reference_student_id)} />
+                        <InfoRow label="Certificate Combination" value={asString(student.certificate_combination_code) || asString(student.certificate_combination_id)} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Sub-tab: Learning Progress */}
+              {enrollmentSubTab === 1 && (
                 <div className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-3">
                     <Card>
@@ -919,63 +929,125 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                         <CardTitle className="text-base">Subject Progress</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        {/* Naji 2026-05-12 — lessons grouped under their
-                            parent Subject (backend now joins lesson_files
-                            → lesson → subject). Lessons with no subject
-                            (legacy data quirk) fall into "Other". */}
+                        {/* Naji 2026-05-12 — Subject → Lesson accordion.
+                            Each video_progress_status row is a
+                            lesson_file (sub-content), not a lesson. We
+                            dedup by lesson_id so the lesson name shows
+                            once with all its files inside. Subject and
+                            lesson are expandable; only one node expanded
+                            at a time. */}
                         {(() => {
+                          type LessonBucket = {
+                            id: string;
+                            title: string;
+                            files: Record<string, unknown>[];
+                          };
                           type SubjectBucket = {
                             id: string;
                             title: string;
                             order: number;
-                            lessons: Record<string, unknown>[];
+                            lessons: Map<string, LessonBucket>;
                           };
-                          const buckets = new Map<string, SubjectBucket>();
+                          const subjects = new Map<string, SubjectBucket>();
                           for (const vp of videoProgress) {
                             const sid = asString(vp.subject_id) || 'none';
                             const stitle = asString(vp.subject_title) || 'Other';
                             const order = asNumber(vp.subject_order);
-                            if (!buckets.has(sid)) {
-                              buckets.set(sid, { id: sid, title: stitle, order, lessons: [] });
+                            if (!subjects.has(sid)) {
+                              subjects.set(sid, { id: sid, title: stitle, order, lessons: new Map() });
                             }
-                            buckets.get(sid)?.lessons.push(vp);
+                            const subj = subjects.get(sid);
+                            if (!subj) continue;
+                            const lid = asString(vp.lesson_id) || `lf-${asString(vp.lesson_file_id)}`;
+                            const ltitle = asString(vp.lesson_title) || 'Lesson';
+                            if (!subj.lessons.has(lid)) {
+                              subj.lessons.set(lid, { id: lid, title: ltitle, files: [] });
+                            }
+                            subj.lessons.get(lid)?.files.push(vp);
                           }
-                          const ordered = [...buckets.values()].sort((a, b) => {
+                          const orderedSubjects = [...subjects.values()].sort((a, b) => {
                             if (a.id === 'none') return 1;
                             if (b.id === 'none') return -1;
                             return a.order - b.order;
                           });
                           return (
-                            <div className="space-y-5">
-                              {ordered.map((subject) => {
-                                const totalLessons = subject.lessons.length;
-                                const completed = subject.lessons.filter((l) => asNumber(l.status) === 1).length;
-                                const subjectPct = totalLessons > 0 ? Math.round((completed / totalLessons) * 100) : 0;
+                            <div className="space-y-2">
+                              {orderedSubjects.map((subject) => {
+                                const lessons = [...subject.lessons.values()];
+                                const allFiles = lessons.flatMap((l) => l.files);
+                                const totalFiles = allFiles.length;
+                                const completedFiles = allFiles.filter((f) => asNumber(f.status) === 1).length;
+                                const subjectPct = totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0;
+                                const subjectKey = `subject:${subject.id}`;
+                                const subjectOpen = expandedNode === subjectKey || expandedNode?.startsWith(`lesson:${subject.id}:`);
                                 return (
-                                  <div key={subject.id}>
-                                    <div className="mb-2 flex items-center justify-between">
-                                      <h4 className="text-sm font-semibold text-gray-900">{subject.title}</h4>
-                                      <span className="text-xs text-gray-500">
-                                        {completed}/{totalLessons} lessons • {subjectPct}%
-                                      </span>
-                                    </div>
-                                    <div className="space-y-2 border-l-2 border-ttii-primary/20 pl-4">
-                                      {subject.lessons.map((vp, idx) => {
-                                        const title = asString(vp.lesson_title) || `Lesson ${idx + 1}`;
-                                        const lessonPct = asNumber(vp.status) === 1 ? 100 : (asNumber(vp.progress) || 0);
-                                        return (
-                                          <div key={idx}>
-                                            <div className="mb-1 flex items-center justify-between text-sm">
-                                              <span className="text-gray-700">{title}</span>
-                                              <span className="text-gray-500">{lessonPct}%</span>
+                                  <div key={subject.id} className="rounded-md border border-gray-200">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedNode(subjectOpen && expandedNode === subjectKey ? null : subjectKey)}
+                                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className={`text-gray-400 transition-transform ${subjectOpen ? 'rotate-90' : ''}`}>▶</span>
+                                        <h4 className="text-sm font-semibold text-gray-900">{subject.title}</h4>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <div className="h-1.5 w-32 rounded-full bg-gray-200">
+                                          <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(subjectPct, 100)}%` }} />
+                                        </div>
+                                        <span className="whitespace-nowrap text-xs text-gray-500">
+                                          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} • {subjectPct}%
+                                        </span>
+                                      </div>
+                                    </button>
+                                    {subjectOpen ? (
+                                      <div className="space-y-1 border-t border-gray-100 bg-gray-50/50 px-3 py-2">
+                                        {lessons.map((lesson) => {
+                                          const lessonKey = `lesson:${subject.id}:${lesson.id}`;
+                                          const lessonOpen = expandedNode === lessonKey;
+                                          const lessonCompleted = lesson.files.filter((f) => asNumber(f.status) === 1).length;
+                                          const lessonPct = lesson.files.length > 0 ? Math.round((lessonCompleted / lesson.files.length) * 100) : 0;
+                                          return (
+                                            <div key={lesson.id} className="rounded-md border border-gray-200 bg-white">
+                                              <button
+                                                type="button"
+                                                onClick={() => setExpandedNode(lessonOpen ? subjectKey : lessonKey)}
+                                                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  <span className={`text-gray-400 transition-transform ${lessonOpen ? 'rotate-90' : ''}`}>▶</span>
+                                                  <span className="text-sm text-gray-800">{lesson.title}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                  <div className="h-1.5 w-24 rounded-full bg-gray-200">
+                                                    <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(lessonPct, 100)}%` }} />
+                                                  </div>
+                                                  <span className="whitespace-nowrap text-xs text-gray-500">
+                                                    {lessonCompleted}/{lesson.files.length} • {lessonPct}%
+                                                  </span>
+                                                </div>
+                                              </button>
+                                              {lessonOpen ? (
+                                                <ul className="space-y-1 border-t border-gray-100 px-3 py-2 text-sm text-gray-700">
+                                                  {lesson.files.map((f, idx) => {
+                                                    const done = asNumber(f.status) === 1;
+                                                    return (
+                                                      <li key={idx} className="flex items-center justify-between gap-2">
+                                                        <span className="truncate">
+                                                          <span className={`mr-2 inline-block size-2 rounded-full ${done ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                                          Content #{asString(f.lesson_file_id) || idx + 1}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500">{done ? 'Completed' : 'Pending'}</span>
+                                                      </li>
+                                                    );
+                                                  })}
+                                                </ul>
+                                              ) : null}
                                             </div>
-                                            <div className="h-1.5 w-full rounded-full bg-gray-200">
-                                              <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(lessonPct, 100)}%` }} />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               })}
@@ -989,7 +1061,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Quiz — Naji 2026-05-11 wired to practice_attempt */}
-              {enrollmentSubTab === 1 && (
+              {enrollmentSubTab === 2 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Quiz History</CardTitle>
@@ -1023,7 +1095,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Live Class — Naji 2026-05-11 wired to live_class_attendance */}
-              {enrollmentSubTab === 2 && (
+              {enrollmentSubTab === 3 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Live Class Attendance</CardTitle>
@@ -1067,7 +1139,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Assignment */}
-              {enrollmentSubTab === 3 && (
+              {enrollmentSubTab === 4 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Assignments</CardTitle>
@@ -1083,7 +1155,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Examination — Naji 2026-05-11 wired to exam_attempt */}
-              {enrollmentSubTab === 4 && (
+              {enrollmentSubTab === 5 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Examination</CardTitle>
@@ -1126,7 +1198,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Payments */}
-              {enrollmentSubTab === 5 && (
+              {enrollmentSubTab === 6 && (
                 <div className="space-y-4">
                   {studentFees.length > 0 && (
                     <Card>

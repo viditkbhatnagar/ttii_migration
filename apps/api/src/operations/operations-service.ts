@@ -7705,17 +7705,57 @@ export class OperationsService {
         })
       : [];
     const submissionCourseIds = [...new Set(submissionAssignmentRows.map((a) => a.course_id).filter((x): x is number => x != null))];
-    const submissionCourseRows = submissionCourseIds.length > 0
-      ? await this.prisma.course.findMany({
-          where: { id: { in: submissionCourseIds } },
+    // Naji 2026-05-12 — Assignment table has no subject_id. Look up
+    // subjects for the assignment's course (via course_subject pivot)
+    // and pick the subject whose title is a substring of the assignment
+    // title. Falls back to the first course subject when no match —
+    // assignment titles like "Child Psychology Assignment" map cleanly
+    // to subject "Child Psychology".
+    const [submissionCourseRows, submissionCourseSubjects] = await Promise.all([
+      submissionCourseIds.length > 0
+        ? this.prisma.course.findMany({
+            where: { id: { in: submissionCourseIds } },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      submissionCourseIds.length > 0
+        ? this.prisma.course_subject.findMany({
+            where: { course_id: { in: submissionCourseIds }, deleted_at: null },
+            select: { course_id: true, subject_id: true, position: true },
+            orderBy: [{ course_id: 'asc' }, { position: 'asc' }],
+          })
+        : Promise.resolve([]),
+    ]);
+    const submissionSubjectIds = [...new Set(submissionCourseSubjects.map((cs) => cs.subject_id))];
+    const submissionSubjectRows = submissionSubjectIds.length > 0
+      ? await this.prisma.subject.findMany({
+          where: { id: { in: submissionSubjectIds } },
           select: { id: true, title: true },
         })
       : [];
-    const submissionAssignmentMap = new Map(submissionAssignmentRows.map((a) => [a.id, a]));
+    const submissionSubjectMap = new Map(submissionSubjectRows.map((s) => [s.id, s.title ?? '']));
+    const subjectsByCourse = new Map<number, { id: number; title: string }[]>();
+    for (const cs of submissionCourseSubjects) {
+      const title = submissionSubjectMap.get(cs.subject_id) ?? '';
+      if (!title) continue;
+      if (!subjectsByCourse.has(cs.course_id)) subjectsByCourse.set(cs.course_id, []);
+      subjectsByCourse.get(cs.course_id)?.push({ id: cs.subject_id, title });
+    }
     const submissionCourseMap = new Map(submissionCourseRows.map((c) => [c.id, c.title]));
+    const submissionAssignmentMap = new Map(submissionAssignmentRows.map((a) => [a.id, a]));
     const enrichedAssignmentSubs = assignmentSubs.map((s) => {
       const assignment = s.assignment_id != null ? submissionAssignmentMap.get(s.assignment_id) : undefined;
-      const subjectTitle = assignment?.course_id != null ? submissionCourseMap.get(assignment.course_id) ?? null : null;
+      const courseSubjects = assignment?.course_id != null ? subjectsByCourse.get(assignment.course_id) ?? [] : [];
+      let subjectTitle: string | null = null;
+      if (assignment?.title && courseSubjects.length > 0) {
+        const title = assignment.title.toLowerCase();
+        const match = courseSubjects.find((sub) => sub.title && title.includes(sub.title.toLowerCase()));
+        subjectTitle = match?.title ?? null;
+      }
+      // Fall back to course title when no subject match found.
+      if (!subjectTitle && assignment?.course_id != null) {
+        subjectTitle = submissionCourseMap.get(assignment.course_id) ?? null;
+      }
       return {
         ...s,
         assignment_title: assignment?.title ?? null,

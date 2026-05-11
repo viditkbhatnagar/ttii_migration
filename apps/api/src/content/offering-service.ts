@@ -87,7 +87,7 @@ export class OfferingService {
     );
     const offeringIds = rows.map((r) => r.id);
 
-    const [courses, policies, templates, languages, cohortCounts] = await Promise.all([
+    const [courses, policies, templates, languages, cohortCounts, enrollmentCounts] = await Promise.all([
       courseIds.length
         ? this.prisma.course.findMany({
             where: { id: { in: courseIds } },
@@ -119,6 +119,21 @@ export class OfferingService {
             _count: { offering_id: true },
           })
         : Promise.resolve([] as { offering_id: number; _count: { offering_id: number } }[]),
+      // Naji 2026-05-12 — Enrollment count per offering. Counts
+      // applications that have the offering set and are at the enrolled
+      // stage (or were converted in legacy data). Was previously
+      // hard-coded to 0 in serialize().
+      offeringIds.length
+        ? this.prisma.applications.groupBy({
+            by: ['offering_id'],
+            where: {
+              offering_id: { in: offeringIds },
+              deleted_at: null,
+              OR: [{ stage: 'enrolled' }, { is_converted: 1 }],
+            },
+            _count: { offering_id: true },
+          })
+        : Promise.resolve([] as { offering_id: number | null; _count: { offering_id: number } }[]),
     ]);
 
     const courseMap = new Map<number, string>();
@@ -131,6 +146,10 @@ export class OfferingService {
     for (const l of languages) languageMap.set(l.id, l.title ?? '');
     const cohortCountMap = new Map<number, number>();
     for (const c of cohortCounts) cohortCountMap.set(c.offering_id, c._count.offering_id);
+    const enrollmentCountMap = new Map<number, number>();
+    for (const e of enrollmentCounts) {
+      if (e.offering_id != null) enrollmentCountMap.set(e.offering_id, e._count.offering_id);
+    }
 
     return rows.map((r) => this.serialize(r, {
       course_title: courseMap.get(r.course_id) ?? '',
@@ -138,12 +157,13 @@ export class OfferingService {
       certificate_template_title: r.certificate_template_id ? templateMap.get(r.certificate_template_id) ?? '' : '',
       language_title: r.language_id ? languageMap.get(r.language_id) ?? '' : '',
       cohort_count: cohortCountMap.get(r.id) ?? 0,
+      enrolled_count: enrollmentCountMap.get(r.id) ?? 0,
     }));
   }
 
   private serialize(
     row: offerings,
-    joined: { course_title: string; completion_policy_title: string; certificate_template_title: string; language_title: string; cohort_count: number },
+    joined: { course_title: string; completion_policy_title: string; certificate_template_title: string; language_title: string; cohort_count: number; enrolled_count: number },
   ): Record<string, unknown> {
     return {
       id: String(row.id),
@@ -173,7 +193,7 @@ export class OfferingService {
       certificate_template_id: row.certificate_template_id ? String(row.certificate_template_id) : '',
       certificate_template_title: joined.certificate_template_title,
       publish_type: row.publish_type ?? 'public',
-      enrolled_count: 0,
+      enrolled_count: joined.enrolled_count,
       cohort_count: joined.cohort_count,
       created_at: row.created_at,
     };
