@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CreditCardForm, type CardConfirmState } from '@/components/payments/CreditCardForm';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { openRazorpayCheckout } from '@/lib/razorpay-checkout';
@@ -55,16 +57,23 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
   const [couponResult, setCouponResult] = useState<{ success: boolean; message: string } | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [payingCourseId, setPayingCourseId] = useState<string | null>(null);
+  // Naji 2026-05-11 — flip-card payment dialog with the 21st.dev design.
+  // The dialog captures only Card Holder Name + Expiry (non-sensitive). Card
+  // number and CVV are entered inside Razorpay Checkout's PCI-compliant
+  // iframe — they never touch our React state or our backend.
+  const [payDialogCourseId, setPayDialogCourseId] = useState<string | null>(null);
+  const [payDialogCourseTitle, setPayDialogCourseTitle] = useState<string>('');
+  const [payDialogAmount, setPayDialogAmount] = useState<number>(0);
 
   /**
    * Razorpay payment flow:
    *   1. POST our backend to create a Razorpay order (returns order_id + key + amount)
-   *   2. Open Razorpay Checkout popup with those params
+   *   2. Open Razorpay Checkout popup with those params + cardholder prefill
    *   3. On success, send the signed response back so the server can verify
    *      the HMAC signature and mark the fee_installment paid.
    *   4. Reload the payments view either way so the UI reflects state.
    */
-  const handlePay = useCallback(async (courseId: string, courseTitle: string) => {
+  const launchRazorpay = useCallback(async (courseId: string, courseTitle: string, holderName: string) => {
     if (!courseId || payingCourseId) return;
     setPayingCourseId(courseId);
     try {
@@ -84,8 +93,9 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         amount,
         currency,
         keyId: key,
-        name: 'Teachers’ Training Institute of India',
+        name: "Teachers' Training Institute of India",
         description: courseTitle,
+        ...(holderName ? { prefill: { name: holderName } } : {}),
       });
 
       if (result.status === 'cancelled') {
@@ -116,6 +126,23 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
       setPayingCourseId(null);
     }
   }, [api, payingCourseId, reload, session.token]);
+
+  // Pay Now button → open dialog with the card-form preview.
+  const openPayDialog = useCallback((courseId: string, courseTitle: string, balance: number) => {
+    setPayDialogCourseId(courseId);
+    setPayDialogCourseTitle(courseTitle);
+    setPayDialogAmount(balance);
+  }, []);
+
+  const handleCardFormSubmit = useCallback((state: CardConfirmState) => {
+    if (!payDialogCourseId) return;
+    const courseId = payDialogCourseId;
+    const title = payDialogCourseTitle;
+    // Close the dialog before opening Razorpay so the Razorpay modal sits
+    // on top of the regular page, not stacked over the dialog.
+    setPayDialogCourseId(null);
+    void launchRazorpay(courseId, title, state.holder);
+  }, [payDialogCourseId, payDialogCourseTitle, launchRazorpay]);
 
   const handleApplyCoupon = useCallback(async () => {
     if (!couponCode.trim() || !data?.selectedCourseId || !data?.selectedPackageId) return;
@@ -347,7 +374,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
                         <Button
                           size="sm"
                           className="bg-student-primary text-white hover:bg-student-primary/90"
-                          onClick={() => void handlePay(courseId, title)}
+                          onClick={() => openPayDialog(courseId, title, balance)}
                           disabled={isPaying || payingCourseId !== null}
                         >
                           {isPaying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -398,6 +425,30 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
           </div>
         </div>
       ) : null}
+
+      {/* Payment Dialog — Naji 2026-05-11 flip-card preview. Cardholder
+          Name + Expiry captured here; PAN/CVV happens inside Razorpay. */}
+      <Dialog
+        open={payDialogCourseId !== null}
+        onOpenChange={(open) => { if (!open) setPayDialogCourseId(null); }}
+      >
+        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] p-6">
+          <DialogHeader>
+            <DialogTitle>
+              Pay {payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''}
+              {payDialogCourseTitle ? ` for ${payDialogCourseTitle}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <CreditCardForm
+            defaultHolder="John Doe"
+            {...(payDialogAmount > 0 ? { amountDisplay: formatCurrency(payDialogAmount) } : {})}
+            merchantLabel="TTII LMS"
+            submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} securely`}
+            submitting={payingCourseId !== null}
+            onSubmit={handleCardFormSubmit}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Coupon */}
       <Card className="rounded-xl border-slate-200 bg-white shadow-none">

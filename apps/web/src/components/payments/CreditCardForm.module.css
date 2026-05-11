@@ -1,0 +1,358 @@
+/* Adapted from 21st.dev / rahil1202/credit-card-form. Naji 2026-05-11 —
+   we ship the gorgeous flip-card visual + form on the student payments
+   page, but card number + CVV inputs are intentionally NOT captured on
+   our server. Razorpay Checkout (PCI-DSS Level 1) handles the actual
+   card entry inside its hosted iframe. */
+
+.ccp {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  color: #0d0c22;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 920px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 920px) {
+  .wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.highlight {
+  position: absolute;
+  border: 1px solid #fff;
+  border-radius: 12px;
+  z-index: 1;
+  width: 0;
+  height: 0;
+  top: 0;
+  left: 0;
+  box-shadow: 0 0 5px #fff;
+  transition: 0.3s;
+}
+.highlightNumber {
+  width: 346px;
+  height: 40px;
+  top: 92px;
+  left: 18px;
+}
+.highlightHolder {
+  width: 264px;
+  height: 56px;
+  top: 156px;
+  left: 18px;
+}
+.highlightExpire {
+  width: 86px;
+  height: 56px;
+  top: 156px;
+  left: 323px;
+}
+.highlightCvv {
+  width: 381px;
+  height: 91px;
+  top: 83px;
+  left: 18px;
+}
+.highlightHidden {
+  display: none;
+}
+
+.card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  transform-style: preserve-3d;
+  transition: 0.8s;
+  perspective: 1000px;
+}
+.cardFlip {
+  transform: rotateY(180deg);
+}
+
+.cardFront,
+.cardBack {
+  width: 100%;
+  max-width: 420px;
+  height: 233px;
+  border-radius: 20px;
+  padding: 24px 30px 30px;
+  background: linear-gradient(to right bottom, #323941, #061018);
+  box-shadow: 0 33px 50px -15px rgba(50, 55, 63, 0.66);
+  color: #fff;
+  overflow: hidden;
+  margin: 0 auto;
+  backface-visibility: hidden;
+  position: relative;
+}
+
+@media (max-width: 450px) {
+  .cardFront,
+  .cardBack {
+    padding: 12px 14px 16px;
+    height: 206px;
+  }
+  .highlightNumber {
+    width: 300px;
+    left: 14px;
+  }
+  .highlightHolder {
+    width: 220px;
+    left: 14px;
+  }
+  .highlightExpire {
+    left: 280px;
+  }
+  .highlightCvv {
+    width: 330px;
+    left: 14px;
+  }
+}
+
+.cardBack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: rotateY(180deg);
+  padding: 24px 0 0;
+}
+
+.cardFront::before,
+.cardBack::before {
+  content: '';
+  position: absolute;
+  border: 16px solid var(--ccp-ring1, #ff6be7);
+  border-radius: 100%;
+  left: -17%;
+  top: -45px;
+  height: 300px;
+  width: 300px;
+  filter: blur(13px);
+}
+
+.cardFront::after,
+.cardBack::after {
+  content: '';
+  position: absolute;
+  border: 16px solid var(--ccp-ring2, #7288ff);
+  border-radius: 100%;
+  width: 300px;
+  top: 55%;
+  left: -200px;
+  height: 300px;
+  filter: blur(13px);
+}
+
+.cardHideLine {
+  height: 40px;
+  width: 100%;
+  background-color: #6b7280;
+  position: relative;
+  z-index: 1;
+}
+
+.cardCvv {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  padding: 0 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.cardCvvField {
+  margin-top: 6px;
+  background-color: #fff;
+  border-radius: 12px;
+  height: 44px;
+  width: 100%;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  padding: 0 12px;
+  font-size: 25px;
+  line-height: 21px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.cardNumber {
+  font-size: 22px;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 33px;
+  overflow: hidden;
+  color: #fff;
+}
+
+.slot {
+  display: inline-flex;
+  margin-right: 0;
+}
+
+.slot:nth-child(4n) {
+  margin-right: 10px;
+}
+
+.digit {
+  display: flex;
+  flex-direction: column;
+  height: 33px;
+  line-height: 33px;
+  transition: transform 0.2s;
+}
+
+.digitFiled {
+  transform: translateY(-33px);
+}
+
+.row {
+  height: 33px;
+  display: block;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+.cardHolder {
+  text-transform: uppercase;
+}
+.cardSectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.form {
+  border-radius: 12px;
+  background: #fff;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px solid #f1f1f1;
+  box-shadow: 0 0 40px rgba(50, 55, 63, 0.16);
+  display: grid;
+  gap: 12px;
+  color: #0d0c22;
+}
+
+.form label {
+  display: block;
+  margin: 6px 0 4px;
+  color: #0d0c22;
+  font-weight: 500;
+}
+
+.form input,
+.form select {
+  height: 52px;
+  display: block;
+  width: 100%;
+  border: 1px solid #6b7280;
+  padding: 18px 20px;
+  transition: outline 200ms ease, box-shadow 200ms ease;
+  border-radius: 12px;
+  outline: none;
+  background-color: #fff;
+  color: #0d0c22;
+  font-size: 16px;
+}
+
+.form input:focus,
+.form select:focus {
+  border: 1px solid #000;
+  outline: 4px solid rgba(0, 0, 0, 0.1);
+}
+
+.form input:disabled {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.form select {
+  padding: 0 20px;
+}
+
+.filedGroup {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 560px) {
+  .filedGroup {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filedDate {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.helper {
+  color: #6b7280;
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.helperLock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #047857;
+  font-weight: 600;
+}
+
+.submit {
+  margin-top: 8px;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: #8f2774;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.submit:not(:disabled):hover {
+  background: #7b2163;
+}
