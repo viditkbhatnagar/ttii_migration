@@ -2142,6 +2142,22 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Naji UAT 2026-05-13 — admin edit on a payment-schedule row.
+  async updateInstallment(
+    authToken: string,
+    installmentId: string,
+    fields: Partial<{
+      installment_details: string;
+      amount: string;
+      payment_mode: string;
+      status: string;
+      due_date: string;
+      paid_date: string;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/student-payments/update', authToken, { installment_id: installmentId, ...fields });
+  }
+
   async editStudentInfo(authToken: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
   }

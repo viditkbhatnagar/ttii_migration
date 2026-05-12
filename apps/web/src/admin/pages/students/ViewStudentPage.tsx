@@ -13,7 +13,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 
 const MAIN_TABS = [
   'Student Profile',
@@ -68,6 +68,19 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [combinationOptions, setCombinationOptions] = useState<{ label: string; value: string }[]>([]);
   const [languageOptions, setLanguageOptions] = useState<{ label: string; value: string }[]>([]);
   const [pipelineUserOptions, setPipelineUserOptions] = useState<{ label: string; value: string }[]>([]);
+
+  // Edit Installment dialog (Naji UAT 2026-05-13)
+  const [editInstOpen, setEditInstOpen] = useState(false);
+  const [editInstRow, setEditInstRow] = useState<Record<string, unknown> | null>(null);
+  const [instForm, setInstForm] = useState({
+    installment_details: '',
+    amount: '',
+    due_date: '',
+    paid_date: '',
+    payment_mode: '',
+    status: '',
+  });
+  const [instSubmitting, setInstSubmitting] = useState(false);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -164,6 +177,55 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         render: (v) => <AdminStatusBadge status={asString(v) || 'Pending'} />,
       },
     ],
+    [],
+  );
+
+  // Naji UAT 2026-05-13 — admin can edit any installment row directly.
+  const openEditInstallment = (row: Record<string, unknown>) => {
+    const toIsoDate = (v: unknown): string => {
+      const s = asString(v);
+      if (!s) return '';
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toISOString().slice(0, 10);
+    };
+    setEditInstRow(row);
+    setInstForm({
+      installment_details: asString(row.installment_details),
+      amount: asString(row.amount),
+      due_date: toIsoDate(row.due_date),
+      paid_date: toIsoDate(row.paid_date),
+      payment_mode: asString(row.payment_mode),
+      status: asString(row.status),
+    });
+    setEditInstOpen(true);
+  };
+  const closeEditInstallment = () => {
+    setEditInstOpen(false);
+    setEditInstRow(null);
+  };
+  const submitEditInstallment = async () => {
+    if (!editInstRow) return;
+    const id = asString(editInstRow.id);
+    if (!id) { toast.error('Installment id missing'); return; }
+    setInstSubmitting(true);
+    try {
+      const res = await api.updateInstallment(session.token, id, instForm);
+      if ((res as { status?: number }).status === 1) {
+        toast.success('Installment updated');
+        closeEditInstallment();
+        window.location.reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Update failed');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setInstSubmitting(false);
+    }
+  };
+  const paymentScheduleActions: DataTableAction[] = useMemo(
+    () => [{ label: 'Edit', onClick: (row: Record<string, unknown>) => openEditInstallment(row) }],
     [],
   );
 
@@ -1355,7 +1417,12 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </Card>
               )}
 
-              {/* Sub-tab: Payments */}
+              {/* Sub-tab: Payments — Naji UAT 2026-05-13. Full Fee Summary
+                  card (offering + combination + base/discount/course-fee
+                  /GST/inc-GST + paid/balance) sourced from
+                  offering_certificate_packages on the backend. Payment
+                  History rows are editable via the new
+                  /admin/student-payments/update endpoint. */}
               {enrollmentSubTab === 6 && (
                 <div className="space-y-4">
                   {studentFees.length > 0 && (
@@ -1364,24 +1431,38 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                         <CardTitle className="text-base">Fee Summary</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid gap-x-8 md:grid-cols-3">
-                          {studentFees.map((fee, idx) => (
-                            <div key={idx}>
-                              <InfoRow label="Total Fee" value={`₹${asNumber(fee.total_fee).toLocaleString()}`} />
-                              <InfoRow label="Amount Paid" value={`₹${asNumber(fee.amount_paid).toLocaleString()}`} />
-                              <InfoRow label="Balance" value={`₹${asNumber(fee.balance).toLocaleString()}`} />
+                        {studentFees.map((fee, idx) => {
+                          const baseFee = asNumber(fee.base_fee);
+                          const discount = asNumber(fee.discount);
+                          const courseFee = asNumber(fee.course_fee);
+                          const gstPercent = asNumber(fee.gst_percent);
+                          const gstAmount = asNumber(fee.gst_amount);
+                          const courseFeeIncGst = asNumber(fee.course_fee_inc_gst) || asNumber(fee.total_fee);
+                          const paid = asNumber(fee.paid_amount);
+                          const balance = asNumber(fee.pending_amount);
+                          const rupees = (n: number): string => `₹${n.toLocaleString('en-IN')}`;
+                          return (
+                            <div key={idx} className="grid gap-x-8 md:grid-cols-2">
+                              <div>
+                                <InfoRow label="Course Offering" value={asString(fee.offering_title) || '-'} />
+                                <InfoRow label="Certificate Combination" value={asString(fee.combination_title) || '-'} />
+                                <InfoRow label="Base Fee" value={rupees(baseFee)} />
+                                <InfoRow label="Discount" value={discount > 0 ? `- ${rupees(discount)}` : rupees(0)} />
+                                <InfoRow label="Course Fee" value={rupees(courseFee)} />
+                              </div>
+                              <div>
+                                <InfoRow label={`GST (${gstPercent || 0}%)`} value={gstAmount > 0 ? `+ ${rupees(gstAmount)}` : rupees(0)} />
+                                <InfoRow label="Course Fee Inc GST" value={rupees(courseFeeIncGst)} />
+                                <InfoRow label="Fee Paid" value={rupees(paid)} />
+                                <InfoRow label="Balance" value={rupees(balance)} />
+                              </div>
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })}
                       </CardContent>
                     </Card>
                   )}
 
-                  {/* Naji 2026-05-12 — Payment History was showing blank
-                      because it was reading from `payment_info` which is
-                      razorpay-only. The proper installment schedule lives
-                      in `student_payments` (= studentPaymentSchedule).
-                      Same table the Course Fee tab uses. */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base">Payment History</CardTitle>
@@ -1391,6 +1472,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                         <AdminDataTable
                           columns={paymentScheduleColumns}
                           rows={studentPaymentSchedule}
+                          actions={paymentScheduleActions}
                           searchable={false}
                           exportable={false}
                         />
@@ -1405,6 +1487,93 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           )}
         </div>
       )}
+
+      {/* Edit Installment Dialog — Naji UAT 2026-05-13 */}
+      <Dialog open={editInstOpen} onOpenChange={(open) => { if (!open) closeEditInstallment(); }}>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
+          <form
+            className="w-full min-w-0"
+            onSubmit={(e) => { e.preventDefault(); void submitEditInstallment(); }}
+          >
+            <DialogHeader>
+              <DialogTitle>Edit Installment</DialogTitle>
+            </DialogHeader>
+            <div className="w-full min-w-0 space-y-4 py-2">
+              <div>
+                <Label className="mb-1 text-sm">Installment</Label>
+                <Input
+                  value={instForm.installment_details}
+                  onChange={(e) => setInstForm((f) => ({ ...f, installment_details: e.target.value }))}
+                  placeholder="e.g. Installment 1"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Amount (INR)</Label>
+                  <Input
+                    type="number"
+                    value={instForm.amount}
+                    onChange={(e) => setInstForm((f) => ({ ...f, amount: e.target.value }))}
+                    placeholder="e.g. 4000"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Mode</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={instForm.payment_mode}
+                    onChange={(e) => setInstForm((f) => ({ ...f, payment_mode: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    <option value="Online">Online</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="UPI">UPI</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Razorpay">Razorpay</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Due Date</Label>
+                  <Input
+                    type="date"
+                    value={instForm.due_date}
+                    onChange={(e) => setInstForm((f) => ({ ...f, due_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Paid Date</Label>
+                  <Input
+                    type="date"
+                    value={instForm.paid_date}
+                    onChange={(e) => setInstForm((f) => ({ ...f, paid_date: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1 text-sm">Status</Label>
+                <select
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  value={instForm.status}
+                  onChange={(e) => setInstForm((f) => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="">- Select -</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Overdue">Overdue</option>
+                  <option value="Waived">Waived</option>
+                </select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeEditInstallment} disabled={instSubmitting}>Cancel</Button>
+              <Button type="submit" disabled={instSubmitting}>{instSubmitting ? 'Saving...' : 'Save'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Enrolment Dialog — Naji UAT 2026-05-12 */}
       <Dialog open={editEnrolOpen} onOpenChange={(open) => { if (!open) closeEditEnrol(); }}>
