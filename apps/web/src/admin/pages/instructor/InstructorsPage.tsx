@@ -205,6 +205,30 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
       { label: 'View', onClick: (row) => openEdit(row) },
       { label: 'Edit', onClick: (row) => openEdit(row) },
       { label: 'Resend Login Email', onClick: (row) => { void handleResendCredentials(row); } },
+      {
+        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
+        onClick: (row) => {
+          void (async () => {
+            const id = asString(row._id) || asString(row.id);
+            if (!id) return;
+            const isDisabled = !!row.disabled_at;
+            const name = asString(row.name) || 'this instructor';
+            if (!isDisabled && !(await confirm({
+              title: `Disable ${name}?`,
+              description: 'They will be blocked from logging in until you re-enable them.',
+              confirmText: 'Disable',
+              variant: 'destructive',
+            }))) return;
+            try {
+              await api.toggleUserStatus(session.token, id, isDisabled);
+              toast.success(isDisabled ? 'Instructor enabled.' : 'Instructor disabled.');
+              reload();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : 'Failed to update status');
+            }
+          })();
+        },
+      },
       { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
       {
         label: 'Change Device',
@@ -220,7 +244,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
         },
       },
     ],
-    [openEdit, handleDelete, handleResendCredentials, confirm],
+    [openEdit, handleDelete, handleResendCredentials, confirm, api, session.token, reload],
   );
 
   if (loading) {

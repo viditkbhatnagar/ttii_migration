@@ -1775,6 +1775,15 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.post('/admin/users/toggle-status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const enabled = payload.enabled === true || payload.enabled === 'true' || payload.enabled === 1 || payload.enabled === '1';
+      const result = await operationsService.toggleUserStatus(requestUserId(request), toStringValue(payload.user_id), enabled);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/assignment/evaluations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listAdminAssignmentEvaluations();

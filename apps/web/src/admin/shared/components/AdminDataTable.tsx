@@ -41,9 +41,11 @@ export interface DataTableColumn<T = Record<string, unknown>> {
 }
 
 export interface DataTableAction {
-  label: string;
+  // Per-row dynamic labels (e.g. "Enable" / "Disable") use the function
+  // form; otherwise pass a plain string.
+  label: string | ((row: Record<string, unknown>) => string);
   onClick: (row: Record<string, unknown>, index: number) => void;
-  variant?: 'default' | 'destructive';
+  variant?: 'default' | 'destructive' | ((row: Record<string, unknown>) => 'default' | 'destructive');
 }
 
 interface AdminDataTableProps {
@@ -246,15 +248,19 @@ export function AdminDataTable({
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {actions.map((action) => (
-                                <DropdownMenuItem
-                                  key={action.label}
-                                  onClick={(e) => { e.stopPropagation(); action.onClick(row, globalIdx); }}
-                                  className={action.variant === 'destructive' ? 'text-destructive' : ''}
-                                >
-                                  {action.label}
-                                </DropdownMenuItem>
-                              ))}
+                              {actions.map((action, ai) => {
+                                const label = typeof action.label === 'function' ? action.label(row) : action.label;
+                                const variant = typeof action.variant === 'function' ? action.variant(row) : action.variant;
+                                return (
+                                  <DropdownMenuItem
+                                    key={`${ai}-${label}`}
+                                    onClick={(e) => { e.stopPropagation(); action.onClick(row, globalIdx); }}
+                                    className={variant === 'destructive' ? 'text-destructive' : ''}
+                                  >
+                                    {label}
+                                  </DropdownMenuItem>
+                                );
+                              })}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

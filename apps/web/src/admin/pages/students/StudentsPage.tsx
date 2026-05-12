@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
+import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -224,22 +225,50 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
     [onNavigate],
   );
 
-  /* ── Actions (View + Edit only) ─────────────────────────────────────────── */
-  const actions = useMemo(
+  const confirm = useConfirm();
+  const handleToggleStatus = useCallback(
+    async (row: Record<string, unknown>) => {
+      const id = asString(row._id) || asString(row.id);
+      if (!id) return;
+      const isDisabled = !!row.disabled_at;
+      const name = asString(row.name) || 'this student';
+      if (!isDisabled && !(await confirm({
+        title: `Disable ${name}?`,
+        description: 'They will be blocked from logging in until you re-enable them.',
+        confirmText: 'Disable',
+        variant: 'destructive',
+      }))) return;
+      try {
+        await api.toggleUserStatus(session.token, id, isDisabled);
+        toast.success(isDisabled ? 'Student enabled.' : 'Student disabled.');
+        reload();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Toggle failed');
+      }
+    },
+    [api, session.token, confirm, reload],
+  );
+
+  /* ── Actions (View + Edit + Enable/Disable) ─────────────────────────────── */
+  const actions: DataTableAction[] = useMemo(
     () => [
       {
         label: 'View',
-        onClick: (row: Record<string, unknown>) => {
+        onClick: (row) => {
           const id = asString(row._id) || asString(row.id);
           onNavigate(`/admin/students/view/${id}`);
         },
       },
       {
         label: 'Edit',
-        onClick: (row: Record<string, unknown>) => openEditDialog(row),
+        onClick: (row) => openEditDialog(row),
+      },
+      {
+        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
+        onClick: (row) => { void handleToggleStatus(row); },
       },
     ],
-    [onNavigate, openEditDialog],
+    [onNavigate, openEditDialog, handleToggleStatus],
   );
 
   /* ── Export handler ──────────────────────────────────────────────────────── */

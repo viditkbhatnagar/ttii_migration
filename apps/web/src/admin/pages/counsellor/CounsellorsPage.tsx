@@ -279,16 +279,22 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
       { label: 'Delete', onClick: (row) => handleDelete(row), variant: 'destructive' as const },
       { label: 'Change Username/Password', onClick: (row) => openEditDialog(row) },
       {
-        label: 'Make Inactive',
+        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
         onClick: (row) => {
           void (async () => {
-            if (!(await confirm({
-              title: 'Make this counsellor inactive?',
-              confirmText: 'Make inactive',
-              variant: 'default',
+            const id = asString(row.id) || asString(row._id);
+            if (!id) return;
+            const isDisabled = !!row.disabled_at;
+            const name = asString(row.name) || 'this counsellor';
+            if (!isDisabled && !(await confirm({
+              title: `Disable ${name}?`,
+              description: 'They will be blocked from logging in until you re-enable them.',
+              confirmText: 'Disable',
+              variant: 'destructive',
             }))) return;
             try {
-              await api.editCounsellor(session.token, asString(row.id) || asString(row._id), { status: 0 } as Parameters<typeof api.editCounsellor>[2]);
+              await api.toggleUserStatus(session.token, id, isDisabled);
+              toast.success(isDisabled ? 'Counsellor enabled.' : 'Counsellor disabled.');
               reload();
             } catch (err) {
               toast.error(err instanceof Error ? err.message : 'Failed to update status');

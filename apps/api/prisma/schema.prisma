@@ -2327,6 +2327,13 @@ model users {
   created_at            DateTime? @db.DateTime(0)
   updated_at            DateTime? @db.DateTime(0)
   deleted_at            DateTime? @db.DateTime(0)
+  // Naji UAT 2026-05-13 — admin-level enable/disable toggle. Independent
+  // of `status` (which doubles as a new-student onboarding marker).
+  // Login is blocked whenever disabled_at IS NOT NULL.
+  disabled_at           DateTime? @db.DateTime(0)
+  disabled_by           Int?
+
+  @@index([disabled_at], map: "idx_users_disabled_at")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

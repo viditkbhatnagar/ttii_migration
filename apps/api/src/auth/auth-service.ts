@@ -209,6 +209,26 @@ export class AuthService {
       throw toLegacyInvalidCredentialsError();
     }
 
+    // Naji UAT 2026-05-13 — admin can toggle any user (Student / Admin /
+    // Counsellor / Associate / Instructor / Centre) on or off. Disabled
+    // accounts set users.disabled_at; the gate below blocks login
+    // regardless of role. Separately, status=0 for non-students remains
+    // a pre-existing "deactivated" flag (kept for backwards-compat).
+    if (user.disabled_at) {
+      await this.writeAuditLog({
+        event: 'LOGIN_BLOCKED_DISABLED',
+        success: false,
+        identifier,
+        userId: user.id,
+        requestMeta: input,
+      });
+      throw new AuthErrorClass(
+        403,
+        'Your account has been disabled. Please contact your administrator.',
+        'ACCOUNT_DISABLED',
+      );
+    }
+
     // Block sign-in for admin-side users explicitly deactivated (status=0)
     // by an admin via the user-management toggle (Naji 2026-04-30). Students
     // (role 2) keep the legacy "auto-activate on first login" semantics

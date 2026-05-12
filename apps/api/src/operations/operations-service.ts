@@ -1358,6 +1358,7 @@ export class OperationsService {
         id: true, student_id: true, name: true, user_email: true, phone: true,
         course_id: true, added_under_centre: true, status: true,
         image: true, profile_picture: true, email: true,
+        disabled_at: true,
       },
       orderBy: { id: 'desc' },
     });
@@ -4787,7 +4788,7 @@ export class OperationsService {
     const instructors = await this.prisma.users.findMany({
       where: { role_id: 3, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, image: true, profile_picture: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, image: true, profile_picture: true, created_at: true, disabled_at: true },
     });
 
     const instructorIds = instructors.map(i => i.id);
@@ -4845,6 +4846,7 @@ export class OperationsService {
         profile_picture: true,
         created_at: true,
         updated_at: true,
+        disabled_at: true,
       },
     });
     return users as unknown as SqlRow[];
@@ -5503,7 +5505,7 @@ export class OperationsService {
     const counsellors = await this.prisma.users.findMany({
       where: { role_id: 9, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true, disabled_at: true },
     });
 
     const counsellorIds = counsellors.map(c => c.id);
@@ -5598,7 +5600,7 @@ export class OperationsService {
     const associates = await this.prisma.users.findMany({
       where: { role_id: 10, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true, disabled_at: true },
     });
 
     const associateIds = associates.map(a => a.id);
@@ -8990,6 +8992,34 @@ export class OperationsService {
     });
 
     return { status: 1, message: 'Password updated successfully.' };
+  }
+
+  // Naji UAT 2026-05-13 — universal enable/disable toggle for any user
+  // (Student, Admin, Counsellor, Associate, Instructor, Centre user).
+  // Writes users.disabled_at so the change is reversible and the login
+  // gate in AuthService blocks all roles consistently.
+  async toggleUserStatus(actorUserId: string, userId: string, enabled: boolean): Promise<Record<string, unknown>> {
+    if (!userId) return { status: 0, message: 'User ID is required.' };
+    const id = toIntId(userId);
+    if (!id) return { status: 0, message: 'Invalid user id.' };
+    const actor = toIntId(actorUserId);
+    if (id === actor) return { status: 0, message: 'You cannot disable your own account.' };
+
+    const user = await this.prisma.users.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, name: true, disabled_at: true },
+    });
+    if (!user) return { status: 0, message: 'User not found.' };
+
+    const now = new Date();
+    await this.prisma.users.updateMany({
+      where: { id, deleted_at: null },
+      data: enabled
+        ? { disabled_at: null, disabled_by: null, updated_by: actor, updated_at: now }
+        : { disabled_at: now, disabled_by: actor, updated_by: actor, updated_at: now },
+    });
+
+    return { status: 1, message: enabled ? 'User enabled.' : 'User disabled.' };
   }
 
   async editStudentEnrollmentId(actorUserId: string, studentId: string, newEnrollmentId: string): Promise<Record<string, unknown>> {

@@ -252,14 +252,17 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
   const handleToggleStatus = async (row: Record<string, unknown>) => {
     const id = asString(row._id || row.id);
     if (!id) return;
-    const current = asNumber(row.status);
-    const next = current === 1 ? 0 : 1;
+    const isDisabled = !!row.disabled_at;
+    const name = asString(row.name) || 'this user';
+    if (!isDisabled && !(await confirm({
+      title: `Disable ${name}?`,
+      description: 'They will be blocked from logging in until you re-enable them.',
+      confirmText: 'Disable',
+      variant: 'destructive',
+    }))) return;
     try {
-      await api.editUser(session.token, id, {
-        name: asString(row.name),
-        phone: asString(row.phone) || undefined,
-        status: next,
-      });
+      await api.toggleUserStatus(session.token, id, isDisabled);
+      toast.success(isDisabled ? 'User enabled.' : 'User disabled.');
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update status');
@@ -271,7 +274,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
       { label: 'View', onClick: (row) => { void openEditDialog(row); } },
       { label: 'Edit', onClick: (row) => { void openEditDialog(row); } },
       {
-        label: 'Toggle Active',
+        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
         onClick: (row) => { void handleToggleStatus(row); },
       },
       { label: 'Resend Login Email', onClick: (row) => { void handleResendCredentials(row); } },
