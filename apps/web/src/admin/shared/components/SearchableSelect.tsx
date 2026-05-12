@@ -101,25 +101,45 @@ export function SearchableSelect({
   return (
     <div ref={containerRef} className="relative">
       <Label className="mb-1 text-xs">{label}</Label>
-      <Input
-        ref={inputRef}
-        type="text"
-        value={query}
-        placeholder={placeholder}
-        disabled={disabled}
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={open}
-        aria-autocomplete="list"
-        onFocus={() => setOpen(true)}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          onChange(e.target.value);
-          setOpen(true);
-          setHighlightIdx(0);
-        }}
-        onKeyDown={onKeyDown}
-      />
+      <div className="relative">
+        <Input
+          ref={inputRef}
+          type="text"
+          value={query}
+          placeholder={placeholder}
+          disabled={disabled}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          className="pr-9"
+          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onChange(e.target.value);
+            setOpen(true);
+            setHighlightIdx(0);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={open ? 'Close suggestions' : 'Open suggestions'}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setOpen((v) => !v);
+            inputRef.current?.focus();
+          }}
+          className="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-400 hover:text-gray-600"
+          disabled={disabled}
+        >
+          <svg className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.24 4.38a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
       {hint ? <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p> : null}
       {open && filtered.length > 0 ? (
         <ul

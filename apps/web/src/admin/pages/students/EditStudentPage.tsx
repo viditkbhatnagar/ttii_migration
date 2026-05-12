@@ -178,12 +178,6 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
       pipeline_user: asString(student.pipeline_user),
       lead_source: asString(student.lead_source),
       reference_student_id: asString(student.reference_student_id),
-      discount: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount) || '',
-      discount_type: asString((data?.applicationFee as Record<string, unknown> | undefined)?.discount_type) || 'percent',
-      registration_fee: asString((data?.applicationFee as Record<string, unknown> | undefined)?.registration_fee) || '',
-      gst_percent: asString((data?.applicationFee as Record<string, unknown> | undefined)?.gst_percent) || '18',
-      gst_applicability: ((data?.applicationFee as Record<string, unknown> | undefined)?.gst_percent ? 'Yes' : 'No'),
-      final_course_fee: asString((data?.applicationFee as Record<string, unknown> | undefined)?.final_fee) || '',
     });
     setPhoto(asString(student.profile_picture) || asString(student.image));
   }, [student, data]);
@@ -216,22 +210,6 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
     if (age < 0 || age > 130) return;
     setForm((prev) => (prev.age === String(age) ? prev : { ...prev, age: String(age) }));
   }, [form.date_of_birth]);
-
-  // Auto-recompute Final Course Fee when pricing inputs change.
-  useEffect(() => {
-    const fee = parseFloat(form.final_course_fee || '') || 0;
-    const baseStr = form.final_course_fee || '';
-    // If admin hasn't typed final fee, derive: take Offered Fee from chosen
-    // package, apply discount, apply GST.
-    const pkgFee = (() => {
-      // Heuristic: if final_course_fee is empty, look up the package and
-      // recompute. Otherwise leave the user's manual entry alone.
-      if (baseStr) return null;
-      return null; // explicit no-op; admin types manually for now.
-    })();
-    void pkgFee;
-    void fee;
-  }, [form.final_course_fee, form.discount, form.discount_type, form.gst_percent, form.gst_applicability]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -388,41 +366,6 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <SelectRow label="Experience" value={form.experience_years ?? ''} onChange={(v) => set('experience_years', v)}
               options={[{ value: '', label: 'Select' }, ...EXPERIENCE_BUCKETS.map((b) => ({ value: b, label: b }))]} />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Application Fee</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label="Registration Fee (INR)" value={form.registration_fee ?? ''} onChange={(v) => set('registration_fee', v)} />
-            <div>
-              <Label className="mb-1 text-xs">Discount</Label>
-              <div className="flex gap-2">
-                <select className={`${selectClass} w-32`} value={form.discount_type ?? 'percent'} onChange={(e) => set('discount_type', e.target.value)}>
-                  <option value="percent">Percentage</option>
-                  <option value="flat">Flat (INR)</option>
-                </select>
-                <Input value={form.discount ?? ''} onChange={(e) => set('discount', e.target.value)} placeholder={form.discount_type === 'flat' ? 'e.g. 5000' : 'e.g. 10'} />
-              </div>
-            </div>
-            <div>
-              <Label className="mb-1 text-xs">GST</Label>
-              <div className="flex gap-2">
-                <select className={`${selectClass} w-32`} value={form.gst_applicability ?? 'No'} onChange={(e) => set('gst_applicability', e.target.value)}>
-                  <option value="No">Not applicable</option>
-                  <option value="Yes">Applicable</option>
-                </select>
-                <Input type="number" value={form.gst_percent ?? '18'} onChange={(e) => set('gst_percent', e.target.value)} disabled={form.gst_applicability !== 'Yes'} />
-              </div>
-            </div>
-            <FieldRow label="Final Course Fee (INR)" value={form.final_course_fee ?? ''} onChange={(v) => set('final_course_fee', v)} />
-          </div>
-          <p className="mt-3 text-xs text-gray-500">
-            Editing course / offering / fee on an enrolled student updates the application record. Existing
-            enrolment, paid instalments and certificates are not retroactively changed — coordinate with the
-            student / counsellor before changing.
-          </p>
         </CardContent>
       </Card>
 
