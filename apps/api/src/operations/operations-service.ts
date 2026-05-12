@@ -4351,6 +4351,83 @@ export class OperationsService {
     })) as unknown as SqlRow[];
   }
 
+  // Naji UAT 2026-05-13 — Cohort Edit page calls this from the
+  // Assignments side-panel; the route was missing on the backend so the
+  // Submissions tab always rendered "No submissions yet". Returns the
+  // submitted rows plus the still-pending students (cohort roster minus
+  // submitters), so the Unsubmitted Students tab also works.
+  async getCohortAssignmentSubmissions(assignmentId: string): Promise<{ submissions: SqlRow[]; unsubmitted: SqlRow[] }> {
+    const aId = toIntId(assignmentId);
+    if (!aId) return { submissions: [], unsubmitted: [] };
+    const assignment = await this.prisma.assignment.findFirst({
+      where: { id: aId, deleted_at: null },
+      select: { id: true, cohort_id: true },
+    });
+    if (!assignment) return { submissions: [], unsubmitted: [] };
+
+    const subs = await this.prisma.assignment_submissions.findMany({
+      where: { assignment_id: aId, deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+    const submittedUserIds = new Set(subs.map((s) => s.user_id).filter((x): x is number => x != null));
+
+    // Cohort roster — cohort_students.cohort_id is a TEXT column that
+    // can hold either the numeric id or the legacy text code; match both.
+    let rosterUserIds: number[] = [];
+    if (assignment.cohort_id != null) {
+      const cohort = await this.prisma.cohorts.findFirst({
+        where: { id: assignment.cohort_id, deleted_at: null },
+        select: { id: true, cohort_id: true },
+      });
+      const lookups: string[] = [];
+      lookups.push(String(assignment.cohort_id));
+      if (cohort?.cohort_id) lookups.push(cohort.cohort_id);
+      const roster = await this.prisma.cohort_students.findMany({
+        where: { cohort_id: { in: lookups }, deleted_at: null },
+        select: { user_id: true },
+      });
+      rosterUserIds = [...new Set(roster.map((r) => r.user_id).filter((x): x is number => x != null))];
+    }
+
+    const allUserIds = [...new Set([...submittedUserIds, ...rosterUserIds])];
+    const users = allUserIds.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: allUserIds } },
+          select: { id: true, name: true, student_id: true, user_email: true, image: true, profile_picture: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const submissions = subs.map((s) => {
+      const u = s.user_id ? userMap.get(s.user_id) : null;
+      return {
+        ...s,
+        student_name: u?.name ?? null,
+        student_id: u?.student_id ?? null,
+        user_email: u?.user_email ?? null,
+        image: toLegacyFileUrl(u?.profile_picture) || toLegacyFileUrl(u?.image),
+        submitted_at: s.created_at,
+      };
+    }) as unknown as SqlRow[];
+
+    const unsubmitted = rosterUserIds
+      .filter((uid) => !submittedUserIds.has(uid))
+      .map((uid) => {
+        const u = userMap.get(uid);
+        if (!u) return null;
+        return {
+          user_id: u.id,
+          student_id: u.student_id,
+          student_name: u.name,
+          user_email: u.user_email,
+          image: toLegacyFileUrl(u.profile_picture) || toLegacyFileUrl(u.image),
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null) as unknown as SqlRow[];
+
+    return { submissions, unsubmitted };
+  }
+
   async evaluateSubmission(
     actorUserId: string,
     submissionId: string,

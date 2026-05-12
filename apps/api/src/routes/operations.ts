@@ -1775,6 +1775,29 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji UAT 2026-05-13 — Cohort Edit page calls these from the
+  // Assignments side-panel. Routes existed only on the legacy PHP LMS
+  // until now; the new admin shell was 404-ing.
+  app.get('/admin/cohorts/assignment_submissions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getCohortAssignmentSubmissions(toStringValue(payload.assignment_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+  app.post('/admin/cohorts/grade_submission', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.evaluateSubmission(
+        requestUserId(request),
+        toStringValue(payload.submission_id),
+        toStringValue(payload.marks),
+        toStringValue(payload.remarks),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // ─── Phase 2: Exam Results ──────────────────────────────────────────────
 
   app.get('/admin/Exam_result/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
