@@ -1775,6 +1775,13 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.get('/admin/assignment/evaluations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listAdminAssignmentEvaluations();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji UAT 2026-05-13 — Cohort Edit page calls these from the
   // Assignments side-panel. Routes existed only on the legacy PHP LMS
   // until now; the new admin shell was 404-ing.

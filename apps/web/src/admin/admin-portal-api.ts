@@ -2158,6 +2158,11 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/student-payments/update', authToken, { installment_id: installmentId, ...fields });
   }
 
+  async loadAssignmentEvaluations(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/evaluations', authToken);
+    return toRecords(payload.data);
+  }
+
   async editStudentInfo(authToken: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
   }

@@ -23,6 +23,7 @@ const QuestionBankPage = lazy(() => import('../pages/question_bank/QuestionBankP
 const ExamsPage = lazy(() => import('../pages/exam/ExamsPage.js'));
 const AddExamPage = lazy(() => import('../pages/exam/AddExamPage.js'));
 const AssignmentsPage = lazy(() => import('../pages/assignment/AssignmentsPage.js'));
+const AssignmentEvaluationPage = lazy(() => import('../pages/assignment/AssignmentEvaluationPage.js'));
 const ExamResultPage = lazy(() => import('../pages/exam_result/ExamResultPage.js'));
 const ExamEvaluationPage = lazy(() => import('../pages/exam_evaluation/ExamEvaluationPage.js'));
 const StudentEligibilityPage = lazy(() => import('../pages/exam_eligibility/StudentEligibilityPage.js'));
@@ -143,7 +144,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/students/index', aliases: ['/admin/students'], pageComponent: StudentsPage, title: 'Students' },
   { path: '/admin/students/view/:id', pageComponent: ViewStudentPage, title: 'View Student' },
   { path: '/admin/students/edit/:id', pageComponent: EditStudentPage, title: 'Edit Student' },
-  { path: '/admin/assignment/index', aliases: ['/admin/assignment'], pageComponent: AssignmentsPage, title: 'Assignments' },
+  { path: '/admin/assignment/index', aliases: ['/admin/assignment'], pageComponent: AssignmentsPage, title: 'Assignment Summary' },
+  { path: '/admin/assignment/evaluation', pageComponent: AssignmentEvaluationPage, title: 'Assignment Evaluation' },
   { path: '/admin/assignment/submissions/:id', pageComponent: ViewSubmissionsPage, title: 'Assignment Submissions' },
   { path: '/admin/batch/index', aliases: ['/admin/batch'], pageComponent: IntakePage, title: 'Intake' },
   { path: '/admin/payments/index', aliases: ['/admin/payments'], pageComponent: PaymentsPage, title: 'Payments' },

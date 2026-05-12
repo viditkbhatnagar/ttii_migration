@@ -4442,6 +4442,188 @@ export class OperationsService {
     return { status: 1, message: 'Submission evaluated successfully.' };
   }
 
+  // Naji UAT 2026-05-13 — Assignment Evaluation page. Pulls every
+  // submission with the enrichments needed by the four-tab table:
+  // student, course, offering, subject, cohort, instructor, submitted-on,
+  // marks, evaluated-on. Verification + return states are not yet
+  // tracked on assignment_submissions, so for now: marks IS NULL =>
+  // Pending Evaluation; marks IS NOT NULL => Result Published. The
+  // Pending Verification / Returned tabs render empty until the
+  // workflow is built (frontend renders the structure already).
+  async listAdminAssignmentEvaluations(): Promise<SqlRow[]> {
+    const subs = await this.prisma.assignment_submissions.findMany({
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+    if (subs.length === 0) return [];
+
+    const userIds = [...new Set(subs.map((s) => s.user_id).filter((x): x is number => x != null))];
+    const assignmentIds = [...new Set(subs.map((s) => s.assignment_id).filter((x): x is number => x != null))];
+    const [users, assignments] = await Promise.all([
+      userIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, student_id: true, user_email: true, image: true, profile_picture: true },
+          })
+        : Promise.resolve([]),
+      assignmentIds.length > 0
+        ? this.prisma.assignment.findMany({
+            where: { id: { in: assignmentIds } },
+            select: { id: true, title: true, total_marks: true, due_date: true, course_id: true, cohort_id: true, file: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const assignmentMap = new Map(assignments.map((a) => [a.id, a]));
+
+    const cohortIds = [...new Set(assignments.map((a) => a.cohort_id).filter((x): x is number => x != null))];
+    const courseIdsFromAssignment = [...new Set(assignments.map((a) => a.course_id).filter((x): x is number => x != null && x > 0))];
+    const cohorts = cohortIds.length > 0
+      ? await this.prisma.cohorts.findMany({
+          where: { id: { in: cohortIds } },
+          select: { id: true, title: true, cohort_id: true, course_id: true, instructor_id: true },
+        })
+      : [];
+    const cohortMap = new Map(cohorts.map((c) => [c.id, c]));
+    const cohortCourseIds = cohorts.map((c) => c.course_id).filter((x): x is number => x != null && x > 0);
+    const allCourseIds = [...new Set([...courseIdsFromAssignment, ...cohortCourseIds])];
+
+    const [courses, instructors, courseSubjects] = await Promise.all([
+      allCourseIds.length > 0
+        ? this.prisma.course.findMany({ where: { id: { in: allCourseIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+      cohorts.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: cohorts.map((c) => c.instructor_id).filter((x): x is number => x != null && x > 0) } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      allCourseIds.length > 0
+        ? this.prisma.course_subject.findMany({
+            where: { course_id: { in: allCourseIds }, deleted_at: null },
+            select: { course_id: true, subject_id: true, position: true },
+            orderBy: [{ course_id: 'asc' }, { position: 'asc' }],
+          })
+        : Promise.resolve([]),
+    ]);
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    const instructorMap = new Map(instructors.map((i) => [i.id, i.name ?? '']));
+
+    const subjectIds = [...new Set(courseSubjects.map((cs) => cs.subject_id))];
+    const subjects = subjectIds.length > 0
+      ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
+      : [];
+    const subjectMap = new Map(subjects.map((s) => [s.id, s.title ?? '']));
+    const subjectsByCourse = new Map<number, { id: number; title: string }[]>();
+    for (const cs of courseSubjects) {
+      const t = subjectMap.get(cs.subject_id) ?? '';
+      if (!t) continue;
+      if (!subjectsByCourse.has(cs.course_id)) subjectsByCourse.set(cs.course_id, []);
+      subjectsByCourse.get(cs.course_id)?.push({ id: cs.subject_id, title: t });
+    }
+
+    // Reuse the assignment-title -> subject matcher from getStudentDetail.
+    const STOP = new Set(['and','or','the','of','in','a','an','to','for','with','on','at','assignment','assessment','test','exam']);
+    const tokenize = (s: string): string[] => s.toLowerCase().replace(/&/g, ' and ').replace(/[''`]/g, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w));
+    const tokensMatch = (a: string, b: string): boolean => { if (a === b) return true; const n = Math.min(a.length, b.length, 5); return a.slice(0, n) === b.slice(0, n); };
+    const pickSubject = (title: string, list: { title: string }[]): string | null => {
+      const aTok = tokenize(title);
+      if (aTok.length === 0) return null;
+      let best: { title: string; score: number } | null = null;
+      for (const sub of list) {
+        const sTok = tokenize(sub.title);
+        if (sTok.length === 0) continue;
+        let hits = 0;
+        for (const st of sTok) if (aTok.some((at) => tokensMatch(at, st))) hits += 1;
+        const score = hits / sTok.length;
+        if (score > 0 && (!best || score > best.score)) best = { title: sub.title, score };
+      }
+      return best && best.score >= 0.4 ? best.title : null;
+    };
+
+    // Offering lookup: applications carry offering_id; pull each
+    // submitter's application offering name (best-effort) by joining
+    // user -> application_id -> applications.offering_id -> offerings.
+    const userIdsForOffering = [...new Set(subs.map((s) => s.user_id).filter((x): x is number => x != null))];
+    const usersForApp = userIdsForOffering.length > 0
+      ? await this.prisma.users.findMany({
+          where: { id: { in: userIdsForOffering } },
+          select: { id: true, application_id: true },
+        })
+      : [];
+    const appIds = [...new Set(usersForApp.map((u) => u.application_id).filter((x): x is number => !!x && x > 0))];
+    const applicationRows = appIds.length > 0
+      ? await this.prisma.applications.findMany({
+          where: { id: { in: appIds } },
+          select: { id: true, offering_id: true },
+        })
+      : [];
+    const offeringIds = [...new Set(applicationRows.map((a) => a.offering_id).filter((x): x is number => !!x && x > 0))];
+    const offeringRows = offeringIds.length > 0
+      ? await this.prisma.offerings.findMany({ where: { id: { in: offeringIds } }, select: { id: true, title: true, offering_code: true } })
+      : [];
+    const offeringMap = new Map(offeringRows.map((o) => [o.id, o.title ?? o.offering_code ?? '']));
+    const userAppMap = new Map(usersForApp.map((u) => [u.id, u.application_id ?? 0]));
+    const appOfferingMap = new Map(applicationRows.map((a) => [a.id, a.offering_id ?? 0]));
+
+    return subs.map((s): SqlRow => {
+      const user = s.user_id ? userMap.get(s.user_id) : undefined;
+      const assignment = s.assignment_id ? assignmentMap.get(s.assignment_id) : undefined;
+      const cohort = assignment?.cohort_id ? cohortMap.get(assignment.cohort_id) : undefined;
+      const resolvedCourseId = (assignment?.course_id && assignment.course_id > 0)
+        ? assignment.course_id
+        : cohort?.course_id ?? null;
+      const courseTitle = resolvedCourseId ? courseMap.get(resolvedCourseId) ?? null : null;
+      const courseSubjectsForThis = resolvedCourseId ? subjectsByCourse.get(resolvedCourseId) ?? [] : [];
+      const subjectTitle = assignment?.title ? pickSubject(assignment.title, courseSubjectsForThis) : null;
+      const instructorName = cohort?.instructor_id ? instructorMap.get(cohort.instructor_id) ?? null : null;
+      const appId = s.user_id ? userAppMap.get(s.user_id) ?? 0 : 0;
+      const offId = appId ? appOfferingMap.get(appId) ?? 0 : 0;
+      const offeringTitle = offId ? offeringMap.get(offId) ?? null : null;
+
+      const marksStr = String(s.marks ?? '').trim();
+      const evaluated = marksStr !== '';
+      // Without verification/return columns on assignment_submissions, we
+      // only differentiate Pending Evaluation vs Result Published.
+      const status: 'pending_evaluation' | 'pending_verification' | 'result_published' | 'returned' = evaluated ? 'result_published' : 'pending_evaluation';
+
+      return {
+        id: s.id,
+        status,
+        student_id: user?.student_id ?? null,
+        student_name: user?.name ?? null,
+        user_email: user?.user_email ?? null,
+        image: toLegacyFileUrl(user?.profile_picture) || toLegacyFileUrl(user?.image),
+        assignment_id: s.assignment_id,
+        assignment_title: assignment?.title ?? null,
+        assignment_file: toLegacyFileUrl(assignment?.file),
+        submission_file: (() => {
+          if (!s.assignment_files) return null;
+          try {
+            const arr = JSON.parse(s.assignment_files) as unknown;
+            if (Array.isArray(arr) && arr.length > 0) return toLegacyFileUrl(String(arr[0]));
+          } catch { /* not json */ }
+          return toLegacyFileUrl(s.assignment_files);
+        })(),
+        course_id: resolvedCourseId,
+        course_title: courseTitle,
+        offering_title: offeringTitle,
+        subject_title: subjectTitle,
+        cohort_id: cohort?.id ?? null,
+        cohort_code: cohort?.cohort_id ?? null,
+        cohort_title: cohort?.title ?? null,
+        instructor_name: instructorName,
+        submitted_at: s.created_at,
+        marks: s.marks,
+        remarks: s.remarks,
+        evaluated_at: evaluated ? s.updated_at : null,
+        total_marks: assignment?.total_marks ?? null,
+        due_date: assignment?.due_date ?? null,
+      } as SqlRow;
+    });
+  }
+
   // ─── Phase 2: Exam Results ─────────────────────────────────────────────────
 
   async listAdminExamResults(filters: AdminExamResultFilters = {}): Promise<{ exams: SqlRow[]; results: SqlRow[] }> {
