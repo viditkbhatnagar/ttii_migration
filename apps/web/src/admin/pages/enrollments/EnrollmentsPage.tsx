@@ -66,6 +66,7 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
       { key: 'student_name', label: 'Student', sortable: true },
       { key: 'course_title', label: 'Course Name' },
       { key: 'course_offering', label: 'Course Offering', render: (v) => asString(v) || '-' },
+      { key: 'combination_title', label: 'Combination', render: (v) => asString(v) || '-' },
       { key: 'course_fee', label: 'Course Fee', render: (v) => {
         const n = Number(v);
         return Number.isFinite(n) && n > 0 ? `₹${n.toLocaleString('en-IN')}` : '-';

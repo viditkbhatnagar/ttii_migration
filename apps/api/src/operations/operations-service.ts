@@ -5496,21 +5496,142 @@ export class OperationsService {
     const batchIds = [...new Set(enrollments.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
 
     const [users, courses, batches] = await Promise.all([
-      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } }) : [],
-      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+      userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true, application_id: true } }) : [],
+      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, total_amount: true } }) : [],
       batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
     ]);
     const userMap = new Map(users.map(u => [u.id, u]));
-    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+    const courseMap = new Map(courses.map(c => [c.id, c]));
     const batchMap = new Map(batches.map(b => [b.id, b.title]));
 
-    return enrollments.map(e => ({
-      ...e,
-      student_name: e.user_id ? (userMap.get(e.user_id)?.name ?? null) : null,
-      student_email: e.user_id ? (userMap.get(e.user_id)?.user_email ?? null) : null,
-      course_title: e.course_id ? (courseMap.get(e.course_id) ?? null) : null,
-      batch_title: e.batch_id ? (batchMap.get(e.batch_id) ?? null) : null,
-    })) as unknown as SqlRow[];
+    // Enrich offering / combination / fee from the linked application row,
+    // and progress from video_progress_status. Without this the columns
+    // render as "-" / 0% (Naji UAT 2026-05-12).
+    const applicationIds = [...new Set(users.map(u => u.application_id).filter((x): x is number => !!x && x > 0))];
+    const applications = applicationIds.length > 0
+      ? await this.prisma.applications.findMany({
+          where: { id: { in: applicationIds } },
+          select: {
+            id: true,
+            course_id: true,
+            offering_id: true,
+            certificate_combination_id: true,
+            application_final_fee: true,
+            payment_plan: true,
+          },
+        })
+      : [];
+    const appMap = new Map(applications.map(a => [a.id, a]));
+
+    const offeringIds = [...new Set(applications.map(a => a.offering_id).filter((x): x is number => !!x && x > 0))];
+    const combinationIds = [...new Set(applications.map(a => a.certificate_combination_id).filter((x): x is number => !!x && x > 0))];
+    const [offerings, combinations, packages] = await Promise.all([
+      offeringIds.length > 0
+        ? this.prisma.offerings.findMany({
+            where: { id: { in: offeringIds } },
+            select: { id: true, title: true, offering_code: true, pricing_amount: true },
+          })
+        : Promise.resolve([]),
+      combinationIds.length > 0
+        ? this.prisma.certificate_combinations.findMany({
+            where: { id: { in: combinationIds } },
+            select: { id: true, combination_code: true },
+          })
+        : Promise.resolve([]),
+      offeringIds.length > 0 && combinationIds.length > 0
+        ? this.prisma.offering_certificate_packages.findMany({
+            where: { offering_id: { in: offeringIds }, combination_id: { in: combinationIds }, deleted_at: null },
+            select: { offering_id: true, combination_id: true, offered_fee: true, base_fee: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const offeringMap = new Map(offerings.map(o => [o.id, o]));
+    const combinationMap = new Map(combinations.map(c => [c.id, c.combination_code]));
+    const packageMap = new Map(packages.map(p => [`${p.offering_id}:${p.combination_id}`, p]));
+
+    // Progress %: count completed lesson_files (status=1) over total for the
+    // student's course. Keeps the loader to one groupBy call.
+    const progressRows = userIds.length > 0 && courseIds.length > 0
+      ? await this.prisma.video_progress_status.groupBy({
+          by: ['user_id', 'course_id', 'status'],
+          where: { user_id: { in: userIds }, course_id: { in: courseIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const courseLessonCounts = new Map<number, number>();
+    if (courseIds.length > 0) {
+      const lessonRows = await this.prisma.lesson.findMany({
+        where: { course_id: { in: courseIds }, deleted_at: null },
+        select: { id: true, course_id: true },
+      });
+      const lessonIdsByCourse = new Map<number, number[]>();
+      for (const l of lessonRows) {
+        if (l.course_id == null) continue;
+        if (!lessonIdsByCourse.has(l.course_id)) lessonIdsByCourse.set(l.course_id, []);
+        lessonIdsByCourse.get(l.course_id)?.push(l.id);
+      }
+      const allLessonIds = lessonRows.map(l => l.id);
+      const filesPerLesson = allLessonIds.length > 0
+        ? await this.prisma.lesson_files.groupBy({
+            by: ['lesson_id'],
+            where: { lesson_id: { in: allLessonIds }, deleted_at: null },
+            _count: { id: true },
+          })
+        : [];
+      const filesByLesson = new Map(filesPerLesson.map(f => [f.lesson_id, f._count?.id ?? 0]));
+      for (const [courseId, lessonIds] of lessonIdsByCourse) {
+        let total = 0;
+        for (const lid of lessonIds) total += filesByLesson.get(lid) ?? 0;
+        courseLessonCounts.set(courseId, total);
+      }
+    }
+
+    const completedByUserCourse = new Map<string, number>();
+    for (const row of progressRows) {
+      if (row.user_id == null || row.course_id == null) continue;
+      if (row.status !== 1) continue;
+      const key = `${row.user_id}:${row.course_id}`;
+      completedByUserCourse.set(key, (completedByUserCourse.get(key) ?? 0) + (row._count?.id ?? 0));
+    }
+
+    return enrollments.map(e => {
+      const user = e.user_id ? userMap.get(e.user_id) : undefined;
+      const application = user?.application_id ? appMap.get(user.application_id) : undefined;
+      const offering = application?.offering_id ? offeringMap.get(application.offering_id) : undefined;
+      const combinationCode = application?.certificate_combination_id
+        ? combinationMap.get(application.certificate_combination_id) ?? null
+        : null;
+      const pkg = application?.offering_id && application?.certificate_combination_id
+        ? packageMap.get(`${application.offering_id}:${application.certificate_combination_id}`)
+        : undefined;
+      const course = e.course_id ? courseMap.get(e.course_id) : undefined;
+      const fee = pkg?.offered_fee != null
+        ? Number(pkg.offered_fee)
+        : application?.application_final_fee != null
+          ? Number(application.application_final_fee)
+          : offering?.pricing_amount != null
+            ? Number(offering.pricing_amount)
+            : course?.total_amount != null ? Number(course.total_amount) : 0;
+      const totalFiles = e.course_id ? courseLessonCounts.get(e.course_id) ?? 0 : 0;
+      const completedFiles = e.user_id && e.course_id
+        ? completedByUserCourse.get(`${e.user_id}:${e.course_id}`) ?? 0
+        : 0;
+      const progressPercent = totalFiles > 0
+        ? Math.min(100, Math.round((completedFiles / totalFiles) * 100))
+        : 0;
+      return {
+        ...e,
+        student_id: e.user_id ?? null,
+        student_name: user?.name ?? null,
+        student_email: user?.user_email ?? null,
+        course_title: course?.title ?? null,
+        batch_title: e.batch_id ? (batchMap.get(e.batch_id) ?? null) : null,
+        course_offering: offering?.title ?? offering?.offering_code ?? null,
+        combination_title: combinationCode,
+        course_fee: Number.isFinite(fee) && fee > 0 ? Math.round(fee) : null,
+        progress_percent: progressPercent,
+      };
+    }) as unknown as SqlRow[];
   }
 
   async listAdminFeeds(): Promise<SqlRow[]> {
@@ -7704,13 +7825,27 @@ export class OperationsService {
           select: { id: true, title: true, total_marks: true, due_date: true, course_id: true, cohort_id: true },
         })
       : [];
-    const submissionCourseIds = [...new Set(submissionAssignmentRows.map((a) => a.course_id).filter((x): x is number => x != null))];
-    // Naji 2026-05-12 — Assignment table has no subject_id. Look up
-    // subjects for the assignment's course (via course_subject pivot)
-    // and pick the subject whose title is a substring of the assignment
-    // title. Falls back to the first course subject when no match —
-    // assignment titles like "Child Psychology Assignment" map cleanly
-    // to subject "Child Psychology".
+    // Legacy assignments often have course_id=0; resolve via cohort.course_id
+    // as a fallback so the subject lookup still works.
+    const submissionCohortIds = [...new Set(submissionAssignmentRows
+      .filter((a) => !a.course_id)
+      .map((a) => a.cohort_id)
+      .filter((x): x is number => x != null))];
+    const submissionCohortRows = submissionCohortIds.length > 0
+      ? await this.prisma.cohorts.findMany({
+          where: { id: { in: submissionCohortIds } },
+          select: { id: true, course_id: true },
+        })
+      : [];
+    const cohortCourseMap = new Map(submissionCohortRows.map((c) => [c.id, c.course_id]));
+    const resolvedCourseIdFor = (a: { course_id: number | null; cohort_id: number | null }): number | null => {
+      if (a.course_id && a.course_id > 0) return a.course_id;
+      if (a.cohort_id != null) return cohortCourseMap.get(a.cohort_id) ?? null;
+      return null;
+    };
+    const submissionCourseIds = [...new Set(submissionAssignmentRows
+      .map((a) => resolvedCourseIdFor(a))
+      .filter((x): x is number => x != null && x > 0))];
     const [submissionCourseRows, submissionCourseSubjects] = await Promise.all([
       submissionCourseIds.length > 0
         ? this.prisma.course.findMany({
@@ -7743,18 +7878,49 @@ export class OperationsService {
     }
     const submissionCourseMap = new Map(submissionCourseRows.map((c) => [c.id, c.title]));
     const submissionAssignmentMap = new Map(submissionAssignmentRows.map((a) => [a.id, a]));
+    // Token-overlap matcher: tolerates "&" vs "and", z/s spelling variants
+    // ("organization" vs "organisation"), trailing words like "Assignment",
+    // and apostrophes ("Practical's"). Picks the subject with the highest
+    // share of significant tokens present in the assignment title.
+    const STOP = new Set(['and','or','the','of','in','a','an','to','for','with','on','at','assignment','assessment','test','exam']);
+    const tokenize = (s: string): string[] => s
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[''`]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STOP.has(w));
+    const tokensMatch = (a: string, b: string): boolean => {
+      if (a === b) return true;
+      const n = Math.min(a.length, b.length, 5);
+      return a.slice(0, n) === b.slice(0, n);
+    };
+    const pickSubject = (assignmentTitle: string, subjects: { title: string }[]): string | null => {
+      const aTokens = tokenize(assignmentTitle);
+      if (aTokens.length === 0) return null;
+      let best: { title: string; score: number } | null = null;
+      for (const sub of subjects) {
+        const sTokens = tokenize(sub.title);
+        if (sTokens.length === 0) continue;
+        let hits = 0;
+        for (const st of sTokens) {
+          if (aTokens.some((at) => tokensMatch(at, st))) hits += 1;
+        }
+        const score = hits / sTokens.length;
+        if (score > 0 && (!best || score > best.score)) best = { title: sub.title, score };
+      }
+      return best && best.score >= 0.4 ? best.title : null;
+    };
     const enrichedAssignmentSubs = assignmentSubs.map((s) => {
       const assignment = s.assignment_id != null ? submissionAssignmentMap.get(s.assignment_id) : undefined;
-      const courseSubjects = assignment?.course_id != null ? subjectsByCourse.get(assignment.course_id) ?? [] : [];
+      const resolvedCourseId = assignment ? resolvedCourseIdFor(assignment) : null;
+      const courseSubjects = resolvedCourseId != null ? subjectsByCourse.get(resolvedCourseId) ?? [] : [];
       let subjectTitle: string | null = null;
       if (assignment?.title && courseSubjects.length > 0) {
-        const title = assignment.title.toLowerCase();
-        const match = courseSubjects.find((sub) => sub.title && title.includes(sub.title.toLowerCase()));
-        subjectTitle = match?.title ?? null;
+        subjectTitle = pickSubject(assignment.title, courseSubjects);
       }
-      // Fall back to course title when no subject match found.
-      if (!subjectTitle && assignment?.course_id != null) {
-        subjectTitle = submissionCourseMap.get(assignment.course_id) ?? null;
+      if (!subjectTitle && resolvedCourseId != null) {
+        subjectTitle = submissionCourseMap.get(resolvedCourseId) ?? null;
       }
       return {
         ...s,
