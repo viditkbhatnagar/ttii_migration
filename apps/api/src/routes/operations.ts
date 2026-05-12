@@ -2234,6 +2234,33 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.post('/admin/enrol/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const args: {
+        enrolId: string;
+        enrollmentId?: string;
+        enrollmentStatus?: string;
+        modeOfStudy?: string;
+        preferredLanguage?: string;
+        batchId?: string;
+        offeringId?: string;
+        combinationId?: string;
+      } = { enrolId: toStringValue(payload.enrol_id) };
+      if (payload.enrollment_id !== undefined) args.enrollmentId = toStringValue(payload.enrollment_id);
+      if (payload.enrollment_status !== undefined) args.enrollmentStatus = toStringValue(payload.enrollment_status);
+      if (payload.mode_of_study !== undefined) args.modeOfStudy = toStringValue(payload.mode_of_study);
+      if (payload.preferred_language !== undefined) args.preferredLanguage = toStringValue(payload.preferred_language);
+      if (payload.batch_id !== undefined) args.batchId = toStringValue(payload.batch_id);
+      if (payload.offering_id !== undefined) args.offeringId = toStringValue(payload.offering_id);
+      if (payload.combination_id !== undefined) args.combinationId = toStringValue(payload.combination_id);
+      const result = await operationsService.updateEnrolment(requestUserId(request), args);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/feed/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listAdminFeeds();

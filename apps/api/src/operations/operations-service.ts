@@ -3749,12 +3749,17 @@ export class OperationsService {
       const feeOk = pay ? pay.paid >= pay.total && pay.total > 0 : false;
       if (!feeOk) reasons.push('Fee not fully paid');
 
-      // Assignments
+      // Assignments — must have at least one assignment configured AND
+      // all of them evaluated. A course with zero assignments cannot make
+      // a student eligible, even if their fee is fully paid (Naji UAT
+      // 2026-05-12).
       const assignmentIds = e.course_id ? assignmentsByCourse.get(e.course_id) ?? [] : [];
       const totalAssignments = assignmentIds.length;
       const evaluatedCount = e.user_id ? assignmentIds.filter((aid) => evaluatedKeys.has(`${e.user_id}:${aid}`)).length : 0;
-      const assignmentsOk = totalAssignments === 0 || evaluatedCount === totalAssignments;
-      if (totalAssignments > 0 && evaluatedCount < totalAssignments) {
+      const assignmentsOk = totalAssignments > 0 && evaluatedCount === totalAssignments;
+      if (totalAssignments === 0) {
+        reasons.push('No assignments configured for this course');
+      } else if (evaluatedCount < totalAssignments) {
         reasons.push(`${totalAssignments - evaluatedCount} assignment(s) pending evaluation`);
       }
 
@@ -8683,6 +8688,107 @@ export class OperationsService {
 
     if (result.count === 0) return { status: 0, message: 'No enrolment found for this student.' };
     return { status: 1, message: 'Enrollment ID updated successfully.' };
+  }
+
+  // Naji UAT 2026-05-12 — full Edit Enrolment dialog. Updates the enrol
+  // row directly + offering/combination on the linked applications row.
+  // For legacy students with users.application_id=0, creates a stamped
+  // application row first (same pattern as editStudentInfo).
+  async updateEnrolment(actorUserId: string, input: {
+    enrolId: string;
+    enrollmentId?: string;
+    enrollmentStatus?: string;
+    modeOfStudy?: string;
+    preferredLanguage?: string;
+    batchId?: string;
+    offeringId?: string;
+    combinationId?: string;
+  }): Promise<Record<string, unknown>> {
+    if (!input.enrolId) return { status: 0, message: 'Enrolment ID is required.' };
+    const enrolPk = toIntId(input.enrolId);
+    if (!enrolPk) return { status: 0, message: 'Invalid enrolment id.' };
+
+    const enrol = await this.prisma.enrol.findFirst({
+      where: { id: enrolPk, deleted_at: null },
+      select: { id: true, user_id: true, course_id: true },
+    });
+    if (!enrol) return { status: 0, message: 'Enrolment not found.' };
+
+    const actor = toIntId(actorUserId);
+    const now = new Date();
+
+    const enrolFields: Record<string, unknown> = { updated_by: actor, updated_at: now };
+    if (input.enrollmentId !== undefined && input.enrollmentId.trim() !== '') enrolFields.enrollment_id = input.enrollmentId.trim();
+    if (input.enrollmentStatus !== undefined) enrolFields.enrollment_status = input.enrollmentStatus.trim();
+    if (input.modeOfStudy !== undefined) enrolFields.mode_of_study = input.modeOfStudy.trim();
+    if (input.preferredLanguage !== undefined) enrolFields.preferred_language = input.preferredLanguage.trim();
+    if (input.batchId !== undefined) {
+      const bid = toNullableIntId(input.batchId);
+      enrolFields.batch_id = bid && bid > 0 ? bid : null;
+    }
+
+    await this.prisma.enrol.updateMany({ where: { id: enrolPk }, data: enrolFields });
+
+    // Offering + Combination live on applications, not enrol. Apply them
+    // when provided; auto-create the application row for legacy users.
+    const wantsAppUpdate = input.offeringId !== undefined || input.combinationId !== undefined;
+    if (wantsAppUpdate && enrol.user_id) {
+      const offeringPk = input.offeringId !== undefined ? toNullableIntId(input.offeringId) : undefined;
+      const combinationPk = input.combinationId !== undefined ? toNullableIntId(input.combinationId) : undefined;
+
+      const appFields: Record<string, unknown> = {};
+      if (input.offeringId !== undefined) appFields.offering_id = offeringPk && offeringPk > 0 ? offeringPk : null;
+      if (input.combinationId !== undefined) appFields.certificate_combination_id = combinationPk && combinationPk > 0 ? combinationPk : null;
+
+      const user = await this.prisma.users.findFirst({
+        where: { id: enrol.user_id, deleted_at: null },
+        select: { id: true, name: true, phone: true, user_email: true, country_code: true, image: true, profile_picture: true, application_id: true },
+      });
+
+      if (user) {
+        if (user.application_id && user.application_id > 0) {
+          appFields.updated_by = actor;
+          appFields.updated_at = now;
+          await this.prisma.applications.updateMany({
+            where: { id: user.application_id, deleted_at: null },
+            data: appFields,
+          });
+        } else {
+          const yy = String(now.getFullYear()).slice(-2);
+          const placeholderAppId = `TTII${yy}LEG${user.id}`;
+          const created = await this.prisma.applications.create({
+            data: {
+              application_id: placeholderAppId,
+              name: user.name ?? '',
+              phone: user.phone ?? '',
+              country_code: user.country_code ?? null,
+              user_email: user.user_email ?? '',
+              image: user.image || user.profile_picture || '',
+              second_code: 0,
+              second_phone: '',
+              whatsapp_no: 0,
+              stage: 'enrolled',
+              is_converted: 1,
+              converted_at: now,
+              converted_by: actor,
+              created_at: now,
+              updated_at: now,
+              created_by: actor,
+              updated_by: actor,
+              course_id: enrol.course_id ?? null,
+              ...appFields,
+            },
+            select: { id: true },
+          });
+          await this.prisma.users.updateMany({
+            where: { id: user.id, deleted_at: null },
+            data: { application_id: created.id, updated_at: now, updated_by: actor },
+          });
+        }
+      }
+    }
+
+    return { status: 1, message: 'Enrolment updated successfully.' };
   }
 
   async editStudentInfo(

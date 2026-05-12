@@ -1,9 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
 import { MetricCard } from '@ttii/ui';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -44,6 +48,24 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   // or lesson) is expanded at a time. Key format: `subject:<id>` or
   // `lesson:<subjectId>:<lessonId>`.
   const [expandedNode, setExpandedNode] = useState<string | null>(null);
+
+  // Edit Enrolment dialog state (Naji UAT 2026-05-12)
+  const [editEnrolOpen, setEditEnrolOpen] = useState(false);
+  const [editEnrolRow, setEditEnrolRow] = useState<Record<string, unknown> | null>(null);
+  const [enrolForm, setEnrolForm] = useState({
+    enrollment_id: '',
+    enrollment_status: '',
+    mode_of_study: '',
+    preferred_language: '',
+    batch_id: '',
+    offering_id: '',
+    combination_id: '',
+  });
+  const [enrolSubmitting, setEnrolSubmitting] = useState(false);
+  const [offeringOptions, setOfferingOptions] = useState<{ label: string; value: string }[]>([]);
+  const [combinationOptions, setCombinationOptions] = useState<{ label: string; value: string }[]>([]);
+  const [batchOptions, setBatchOptions] = useState<{ label: string; value: string }[]>([]);
+  const [languageOptions, setLanguageOptions] = useState<{ label: string; value: string }[]>([]);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -186,6 +208,20 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     [],
   );
 
+  const openEditEnrol = (row: Record<string, unknown>) => {
+    setEditEnrolRow(row);
+    setEnrolForm({
+      enrollment_id: asString(row.enrollment_id),
+      enrollment_status: asString(row.enrollment_status) || asString(row.status) || 'Active',
+      mode_of_study: asString(row.mode_of_study),
+      preferred_language: asString(row.preferred_language),
+      batch_id: asString(row.batch_id),
+      offering_id: '',
+      combination_id: '',
+    });
+    setEditEnrolOpen(true);
+  };
+
   const enrollmentActions = useMemo(
     () => [
       {
@@ -195,9 +231,90 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           setEnrollmentSubTab(0);
         },
       },
+      {
+        label: 'Edit',
+        onClick: (row: Record<string, unknown>) => {
+          openEditEnrol(row);
+        },
+      },
     ],
     [],
   );
+
+  // Load dropdown sources once the dialog opens.
+  useEffect(() => {
+    if (!editEnrolOpen || !editEnrolRow) return;
+    const courseId = asString(editEnrolRow.course_id);
+    const filters = courseId ? { course_id: courseId } : undefined;
+    void Promise.all([
+      api.listOfferings(session.token, filters),
+      api.loadCertificateCombinations(session.token, filters),
+      api.loadBatches(session.token),
+      api.loadLanguages(session.token),
+    ]).then(([offerings, combinations, batches, languages]) => {
+      setOfferingOptions(offerings.map((o) => ({
+        label: asString(o.title) || asString(o.offering_code) || `Offering ${asString(o.id)}`,
+        value: asString(o.id),
+      })));
+      setCombinationOptions(combinations.map((c) => ({
+        label: asString(c.combination_code) || asString(c.title) || `Combination ${asString(c.id)}`,
+        value: asString(c.id),
+      })));
+      setBatchOptions(batches.map((b) => ({
+        label: asString(b.title) || asString(b.batch_name) || `Batch ${asString(b.id)}`,
+        value: asString(b.id),
+      })));
+      setLanguageOptions(languages.map((l) => ({
+        label: asString(l.title) || asString(l.name) || `Language ${asString(l.id)}`,
+        value: asString(l.id),
+      })));
+      // Prefill offering + combination from the current enrolment row if
+      // the backend already enriched them.
+      const offTitle = asString(editEnrolRow.offering_title);
+      if (offTitle) {
+        const match = offerings.find((o) => asString(o.title) === offTitle || asString(o.offering_code) === offTitle);
+        if (match) setEnrolForm((f) => ({ ...f, offering_id: asString(match.id) }));
+      }
+      const comboCode = asString(editEnrolRow.certificate_combination_code);
+      if (comboCode) {
+        const match = combinations.find((c) => asString(c.combination_code) === comboCode);
+        if (match) setEnrolForm((f) => ({ ...f, combination_id: asString(match.id) }));
+      }
+    });
+  }, [editEnrolOpen, editEnrolRow, api, session.token]);
+
+  const closeEditEnrol = () => {
+    setEditEnrolOpen(false);
+    setEditEnrolRow(null);
+    setOfferingOptions([]);
+    setCombinationOptions([]);
+    setBatchOptions([]);
+    setLanguageOptions([]);
+  };
+
+  const submitEditEnrol = async () => {
+    if (!editEnrolRow) return;
+    const enrolId = asString(editEnrolRow.id);
+    if (!enrolId) {
+      toast.error('Enrolment id missing');
+      return;
+    }
+    setEnrolSubmitting(true);
+    try {
+      const res = await api.updateEnrolment(session.token, enrolId, enrolForm);
+      if ((res as { status?: number }).status === 1) {
+        toast.success('Enrolment updated');
+        closeEditEnrol();
+        window.location.reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Update failed');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setEnrolSubmitting(false);
+    }
+  };
 
   // Naji 2026-05-12 — Assignment table now shows the assignment metadata
   // (subject + title + total marks + due date) alongside submission detail
@@ -1247,6 +1364,119 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           )}
         </div>
       )}
+
+      {/* Edit Enrolment Dialog — Naji UAT 2026-05-12 */}
+      <Dialog open={editEnrolOpen} onOpenChange={(open) => { if (!open) closeEditEnrol(); }}>
+        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
+          <form
+            className="w-full min-w-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitEditEnrol();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Edit Enrolment</DialogTitle>
+            </DialogHeader>
+            <div className="w-full min-w-0 space-y-4 py-2">
+              <div>
+                <Label className="mb-1 text-sm">Enrollment ID</Label>
+                <Input
+                  value={enrolForm.enrollment_id}
+                  onChange={(e) => setEnrolForm((f) => ({ ...f, enrollment_id: e.target.value }))}
+                  placeholder="e.g. TIDMTT26040115"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Status</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={enrolForm.enrollment_status}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, enrollment_status: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    <option value="Active">Active</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Dropped">Dropped</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Mode of Study</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={enrolForm.mode_of_study}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, mode_of_study: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    <option value="Online">Online</option>
+                    <option value="Offline">Offline</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1 text-sm">Course Offering</Label>
+                <select
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  value={enrolForm.offering_id}
+                  onChange={(e) => setEnrolForm((f) => ({ ...f, offering_id: e.target.value }))}
+                >
+                  <option value="">- Select -</option>
+                  {offeringOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label className="mb-1 text-sm">Certificate Combination</Label>
+                <select
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  value={enrolForm.combination_id}
+                  onChange={(e) => setEnrolForm((f) => ({ ...f, combination_id: e.target.value }))}
+                >
+                  <option value="">- Select -</option>
+                  {combinationOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Batch</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={enrolForm.batch_id}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, batch_id: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    {batchOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Preferred Language</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={enrolForm.preferred_language}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, preferred_language: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    {languageOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeEditEnrol} disabled={enrolSubmitting}>Cancel</Button>
+              <Button type="submit" disabled={enrolSubmitting}>{enrolSubmitting ? 'Saving...' : 'Save'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

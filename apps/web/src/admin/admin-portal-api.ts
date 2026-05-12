@@ -2116,6 +2116,30 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/students/edit_enrollment_id', authToken, { id: studentId, enrollment_id: enrollmentId });
   }
 
+  // Naji UAT 2026-05-12 — full Edit Enrolment from the Enrollments tab on
+  // the Student View page. Backend updates enrol fields directly and
+  // pushes offering/combination onto the linked applications row.
+  async updateEnrolment(
+    authToken: string,
+    enrolId: string,
+    fields: Partial<{
+      enrollment_id: string;
+      enrollment_status: string;
+      mode_of_study: string;
+      preferred_language: string;
+      batch_id: string;
+      offering_id: string;
+      combination_id: string;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/enrol/update', authToken, { enrol_id: enrolId, ...fields });
+  }
+
+  async loadCertificateCombinations(authToken: string, filters?: Record<string, string>): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/certificate_combinations', authToken, filters);
+    return toRecords(payload.data);
+  }
+
   async editStudentInfo(authToken: string, studentId: string, name: string, phone: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/students/edit', authToken, { id: studentId, name, phone });
   }
