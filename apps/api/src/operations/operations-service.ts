@@ -7952,10 +7952,27 @@ export class OperationsService {
     const courseFeeMap = new Map(courseFees.map(f => [f.course_id, f]));
 
     // Sum payments per course_id so we can compute pending per enrolment.
+    // Naji UAT 2026-05-13 — Fee Paid was always ₹0 because payment_info is
+    // razorpay-only and never populated for cash / installment payments.
+    // The Payment History table reads from student_payments, so the
+    // Fee Paid total must come from the same source: sum amount on rows
+    // with status='Paid'. payment_info rows are added in as a fallback
+    // for online-only payments that don't have a matching schedule row.
     const paidByCourse = new Map<number, number>();
+    for (const sp of studentPaymentSchedule) {
+      const courseId = Number(sp.course_id ?? 0);
+      if (!courseId) continue;
+      const status = String(sp.status ?? '').trim().toLowerCase();
+      if (status !== 'paid') continue;
+      const amt = Number(sp.amount ?? 0);
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+      paidByCourse.set(courseId, (paidByCourse.get(courseId) ?? 0) + amt);
+    }
     for (const p of payments) {
       if (p.course_id == null) continue;
-      paidByCourse.set(p.course_id, (paidByCourse.get(p.course_id) ?? 0) + Number(p.amount_paid ?? 0));
+      const amt = Number(p.amount_paid ?? 0);
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+      paidByCourse.set(p.course_id, (paidByCourse.get(p.course_id) ?? 0) + amt);
     }
 
     // Video progress per course, used to compute Tab 2 progress %.
