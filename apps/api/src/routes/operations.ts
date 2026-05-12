@@ -3384,6 +3384,29 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  app.post('/admin/student-payments/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const args: {
+        installmentId: string;
+        installmentDetails?: string;
+        amount?: string;
+        paymentMode?: string;
+        status?: string;
+        dueDate?: string;
+        paidDate?: string;
+      } = { installmentId: toStringValue(payload.installment_id) };
+      if (payload.installment_details !== undefined) args.installmentDetails = toStringValue(payload.installment_details);
+      if (payload.amount !== undefined) args.amount = toStringValue(payload.amount);
+      if (payload.payment_mode !== undefined) args.paymentMode = toStringValue(payload.payment_mode);
+      if (payload.status !== undefined) args.status = toStringValue(payload.status);
+      if (payload.due_date !== undefined) args.dueDate = toStringValue(payload.due_date);
+      if (payload.paid_date !== undefined) args.paidDate = toStringValue(payload.paid_date);
+      const result = await operationsService.updateInstallment(requestUserId(request), args);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // ── Phase F: Chat Support ─────────────────────────────────────
 
   app.get('/admin/chat_support/conversations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {

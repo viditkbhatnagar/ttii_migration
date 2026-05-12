@@ -8019,6 +8019,21 @@ export class OperationsService {
         })
       : null;
 
+    // Pricing package — Naji UAT 2026-05-12. The Payments sub-tab needs
+    // base_fee / discount / course_fee / gst_percent / course_fee_inc_gst
+    // pulled from offering_certificate_packages (the source of truth for
+    // pricing once an offering + combination are picked).
+    const enrolmentPackage = application?.offering_id && application?.certificate_combination_id
+      ? await this.prisma.offering_certificate_packages.findFirst({
+          where: {
+            offering_id: application.offering_id,
+            combination_id: application.certificate_combination_id,
+            deleted_at: null,
+          },
+          select: { base_fee: true, discount: true, offered_fee: true, gst_percent: true, registration_fee: true },
+        })
+      : null;
+
     const enrichedEnrolments = enrolments.map(e => {
       const course = e.course_id ? courseMap.get(e.course_id) : null;
       const fee = e.course_id ? courseFeeMap.get(e.course_id) : null;
@@ -8042,17 +8057,38 @@ export class OperationsService {
       };
     });
 
-    // Per-enrolment fee aggregation for Tab 3 (Course Fee).
+    // Per-enrolment fee aggregation for Tab 3 (Course Fee) + the
+    // Payments sub-tab on the enrolment drill-down. Naji UAT 2026-05-12 —
+    // expanded with the full pricing breakdown sourced from the
+    // application's offering_certificate_package (base/discount/offered/
+    // GST). Falls back to the legacy `course_fees` row when no package
+    // is set (legacy enrolments).
     const studentFees = enrichedEnrolments.map(e => {
-      const total = Number(e.course_fee ?? 0);
       const paid = e.course_id ? (paidByCourse.get(e.course_id) ?? 0) : 0;
+      const baseFee = enrolmentPackage?.base_fee != null
+        ? Number(enrolmentPackage.base_fee)
+        : Number(e.course_fee ?? 0);
+      const discount = enrolmentPackage?.discount != null ? Number(enrolmentPackage.discount) : 0;
+      const courseFee = enrolmentPackage?.offered_fee != null
+        ? Number(enrolmentPackage.offered_fee)
+        : Math.max(0, baseFee - discount);
+      const gstPercent = enrolmentPackage?.gst_percent != null ? Number(enrolmentPackage.gst_percent) : 0;
+      const gstAmount = Math.round((courseFee * gstPercent) / 100);
+      const courseFeeIncGst = courseFee + gstAmount;
       return {
         enrollment_id: e.enrollment_id,
         course_title: e.course_title,
         offering_title: e.offering_title,
-        total_fee: total,
+        combination_title: enrolmentCombination?.combination_code ?? null,
+        base_fee: baseFee,
+        discount,
+        course_fee: courseFee,
+        gst_percent: gstPercent,
+        gst_amount: gstAmount,
+        course_fee_inc_gst: courseFeeIncGst,
+        total_fee: courseFeeIncGst,
         paid_amount: paid,
-        pending_amount: Math.max(0, total - paid),
+        pending_amount: Math.max(0, courseFeeIncGst - paid),
       };
     });
 
@@ -9617,6 +9653,49 @@ export class OperationsService {
       data: { status: 'Paid', paid_date: now, updated_by: toNullableIntId(actorUserId), updated_at: now },
     });
     return { status: 1, message: 'Installment marked as paid.' };
+  }
+
+  // Naji UAT 2026-05-12 — admin row-level edit on an installment row.
+  // Allows changing label, amount, due/paid dates, mode, and status.
+  async updateInstallment(actorUserId: string, input: {
+    installmentId: string;
+    installmentDetails?: string;
+    amount?: string;
+    paymentMode?: string;
+    status?: string;
+    dueDate?: string;
+    paidDate?: string;
+  }): Promise<Record<string, unknown>> {
+    if (!input.installmentId) return { status: 0, message: 'Installment ID is required.' };
+    const id = toIntId(input.installmentId);
+    if (!id) return { status: 0, message: 'Invalid installment id.' };
+
+    const row = await this.prisma.student_payments.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!row) return { status: 0, message: 'Installment not found.' };
+
+    const now = new Date();
+    const data: Record<string, unknown> = { updated_by: toNullableIntId(actorUserId), updated_at: now };
+    if (input.installmentDetails !== undefined) data.installment_details = input.installmentDetails.trim();
+    if (input.amount !== undefined) {
+      const n = Number(input.amount);
+      if (Number.isFinite(n) && n >= 0) data.amount = Math.round(n);
+    }
+    if (input.paymentMode !== undefined) data.payment_mode = input.paymentMode.trim() || null;
+    if (input.status !== undefined) data.status = input.status.trim() || null;
+    if (input.dueDate !== undefined) {
+      const d = input.dueDate.trim();
+      data.due_date = d ? new Date(d) : null;
+    }
+    if (input.paidDate !== undefined) {
+      const d = input.paidDate.trim();
+      data.paid_date = d ? new Date(d) : null;
+    }
+
+    await this.prisma.student_payments.updateMany({ where: { id }, data });
+    return { status: 1, message: 'Installment updated successfully.' };
   }
 
   async sendPaymentReminder(_actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {

@@ -282,9 +282,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     });
   }, [editEnrolOpen, editEnrolRow, api, session.token]);
 
-  // Pipeline → Pipeline User cascade. Centre lists centres; the three
-  // admin roles (Admin/Counsellor/Associate) list users for that role.
-  const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
+  // Pipeline → Pipeline User cascade. Centre lists centres; Admin pulls
+  // both Super Admin (role 1) and Admin (role 8) users. Counsellor and
+  // Associate are scoped to their single role.
   useEffect(() => {
     if (!editEnrolOpen) return;
     const p = enrolForm.pipeline;
@@ -301,17 +301,27 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       });
       return;
     }
-    const roleId = PIPELINE_ROLE_MAP[p];
-    if (!roleId) {
+    const roleIds = p === 'Admin' ? [1, 8] : p === 'Counsellor' ? [9] : p === 'Associate' ? [10] : [];
+    if (roleIds.length === 0) {
       setPipelineUserOptions([]);
       return;
     }
-    void api.loadPipelineUsers(session.token, roleId).then((rows) => {
-      setPipelineUserOptions(rows.map((r) => ({
-        label: asString(r.name) || asString(r.user_email) || `User ${asString(r.id)}`,
-        value: asString(r.id),
-      })));
-    });
+    void Promise.all(roleIds.map((rid) => api.loadPipelineUsers(session.token, rid)))
+      .then((results) => {
+        const merged = results.flat();
+        const seen = new Set<string>();
+        const opts: { label: string; value: string }[] = [];
+        for (const r of merged) {
+          const id = asString(r.id);
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          opts.push({
+            label: asString(r.name) || asString(r.user_email) || `User ${id}`,
+            value: id,
+          });
+        }
+        setPipelineUserOptions(opts);
+      });
   }, [editEnrolOpen, enrolForm.pipeline, api, session.token]);
 
   const closeEditEnrol = () => {

@@ -67,11 +67,16 @@ export function SearchableSelect({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options.slice(0, maxResults);
+    const v = value.trim().toLowerCase();
+    // Browse mode: when the input is empty OR the user hasn't typed
+    // anything since the field was prefilled (query still equals the
+    // saved value), show the FULL option list so clicking the chevron
+    // actually exposes every choice — not just the one current value.
+    if (!q || q === v) return options.slice(0, Math.max(maxResults, 200));
     return options
       .filter((o) => o.toLowerCase().includes(q))
       .slice(0, maxResults);
-  }, [options, query, maxResults]);
+  }, [options, query, value, maxResults]);
 
   const select = (val: string): void => {
     setQuery(val);
