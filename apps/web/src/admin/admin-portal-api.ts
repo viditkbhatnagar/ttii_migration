@@ -2127,9 +2127,11 @@ export class AdminPortalApi {
       enrollment_status: string;
       mode_of_study: string;
       preferred_language: string;
-      batch_id: string;
       offering_id: string;
       combination_id: string;
+      pipeline: string;
+      pipeline_user: string;
+      lead_source: string;
     }>,
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/enrol/update', authToken, { enrol_id: enrolId, ...fields });

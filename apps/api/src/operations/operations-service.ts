@@ -8700,9 +8700,11 @@ export class OperationsService {
     enrollmentStatus?: string;
     modeOfStudy?: string;
     preferredLanguage?: string;
-    batchId?: string;
     offeringId?: string;
     combinationId?: string;
+    pipeline?: string;
+    pipelineUser?: string;
+    leadSource?: string;
   }): Promise<Record<string, unknown>> {
     if (!input.enrolId) return { status: 0, message: 'Enrolment ID is required.' };
     const enrolPk = toIntId(input.enrolId);
@@ -8717,21 +8719,27 @@ export class OperationsService {
     const actor = toIntId(actorUserId);
     const now = new Date();
 
+    const pipelineUserPk = input.pipelineUser !== undefined ? toNullableIntId(input.pipelineUser) : undefined;
+
     const enrolFields: Record<string, unknown> = { updated_by: actor, updated_at: now };
     if (input.enrollmentId !== undefined && input.enrollmentId.trim() !== '') enrolFields.enrollment_id = input.enrollmentId.trim();
     if (input.enrollmentStatus !== undefined) enrolFields.enrollment_status = input.enrollmentStatus.trim();
     if (input.modeOfStudy !== undefined) enrolFields.mode_of_study = input.modeOfStudy.trim();
     if (input.preferredLanguage !== undefined) enrolFields.preferred_language = input.preferredLanguage.trim();
-    if (input.batchId !== undefined) {
-      const bid = toNullableIntId(input.batchId);
-      enrolFields.batch_id = bid && bid > 0 ? bid : null;
-    }
+    if (input.pipeline !== undefined) enrolFields.pipeline = input.pipeline.trim() || null;
+    if (input.pipelineUser !== undefined) enrolFields.pipeline_user = pipelineUserPk && pipelineUserPk > 0 ? pipelineUserPk : null;
 
     await this.prisma.enrol.updateMany({ where: { id: enrolPk }, data: enrolFields });
 
-    // Offering + Combination live on applications, not enrol. Apply them
-    // when provided; auto-create the application row for legacy users.
-    const wantsAppUpdate = input.offeringId !== undefined || input.combinationId !== undefined;
+    // Offering, Combination, Pipeline, Pipeline User, Lead Source live on
+    // applications. Apply them when provided; auto-create the application
+    // row for legacy users (users.application_id=0).
+    const wantsAppUpdate =
+      input.offeringId !== undefined ||
+      input.combinationId !== undefined ||
+      input.pipeline !== undefined ||
+      input.pipelineUser !== undefined ||
+      input.leadSource !== undefined;
     if (wantsAppUpdate && enrol.user_id) {
       const offeringPk = input.offeringId !== undefined ? toNullableIntId(input.offeringId) : undefined;
       const combinationPk = input.combinationId !== undefined ? toNullableIntId(input.combinationId) : undefined;
@@ -8739,6 +8747,9 @@ export class OperationsService {
       const appFields: Record<string, unknown> = {};
       if (input.offeringId !== undefined) appFields.offering_id = offeringPk && offeringPk > 0 ? offeringPk : null;
       if (input.combinationId !== undefined) appFields.certificate_combination_id = combinationPk && combinationPk > 0 ? combinationPk : null;
+      if (input.pipeline !== undefined) appFields.pipeline = input.pipeline.trim() || null;
+      if (input.pipelineUser !== undefined) appFields.pipeline_user = pipelineUserPk && pipelineUserPk > 0 ? pipelineUserPk : null;
+      if (input.leadSource !== undefined) appFields.lead_source = input.leadSource.trim() || null;
 
       const user = await this.prisma.users.findFirst({
         where: { id: enrol.user_id, deleted_at: null },

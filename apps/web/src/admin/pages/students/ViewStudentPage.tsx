@@ -57,15 +57,17 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     enrollment_status: '',
     mode_of_study: '',
     preferred_language: '',
-    batch_id: '',
     offering_id: '',
     combination_id: '',
+    pipeline: '',
+    pipeline_user: '',
+    lead_source: '',
   });
   const [enrolSubmitting, setEnrolSubmitting] = useState(false);
   const [offeringOptions, setOfferingOptions] = useState<{ label: string; value: string }[]>([]);
   const [combinationOptions, setCombinationOptions] = useState<{ label: string; value: string }[]>([]);
-  const [batchOptions, setBatchOptions] = useState<{ label: string; value: string }[]>([]);
   const [languageOptions, setLanguageOptions] = useState<{ label: string; value: string }[]>([]);
+  const [pipelineUserOptions, setPipelineUserOptions] = useState<{ label: string; value: string }[]>([]);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -215,9 +217,11 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       enrollment_status: asString(row.enrollment_status) || asString(row.status) || 'Active',
       mode_of_study: asString(row.mode_of_study),
       preferred_language: asString(row.preferred_language),
-      batch_id: asString(row.batch_id),
       offering_id: '',
       combination_id: '',
+      pipeline: asString(row.pipeline),
+      pipeline_user: asString(row.pipeline_user),
+      lead_source: asString(student?.lead_source),
     });
     setEditEnrolOpen(true);
   };
@@ -249,9 +253,8 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     void Promise.all([
       api.listOfferings(session.token, filters),
       api.loadCertificateCombinations(session.token, filters),
-      api.loadBatches(session.token),
       api.loadLanguages(session.token),
-    ]).then(([offerings, combinations, batches, languages]) => {
+    ]).then(([offerings, combinations, languages]) => {
       setOfferingOptions(offerings.map((o) => ({
         label: asString(o.title) || asString(o.offering_code) || `Offering ${asString(o.id)}`,
         value: asString(o.id),
@@ -259,10 +262,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       setCombinationOptions(combinations.map((c) => ({
         label: asString(c.combination_code) || asString(c.title) || `Combination ${asString(c.id)}`,
         value: asString(c.id),
-      })));
-      setBatchOptions(batches.map((b) => ({
-        label: asString(b.title) || asString(b.batch_name) || `Batch ${asString(b.id)}`,
-        value: asString(b.id),
       })));
       setLanguageOptions(languages.map((l) => ({
         label: asString(l.title) || asString(l.name) || `Language ${asString(l.id)}`,
@@ -283,13 +282,45 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     });
   }, [editEnrolOpen, editEnrolRow, api, session.token]);
 
+  // Pipeline → Pipeline User cascade. Centre lists centres; the three
+  // admin roles (Admin/Counsellor/Associate) list users for that role.
+  const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
+  useEffect(() => {
+    if (!editEnrolOpen) return;
+    const p = enrolForm.pipeline;
+    if (!p) {
+      setPipelineUserOptions([]);
+      return;
+    }
+    if (p === 'Centre') {
+      void api.loadCentres(session.token).then((rows) => {
+        setPipelineUserOptions(rows.map((r) => ({
+          label: asString(r.name) || asString(r.title) || `Centre ${asString(r.id)}`,
+          value: asString(r.id),
+        })));
+      });
+      return;
+    }
+    const roleId = PIPELINE_ROLE_MAP[p];
+    if (!roleId) {
+      setPipelineUserOptions([]);
+      return;
+    }
+    void api.loadPipelineUsers(session.token, roleId).then((rows) => {
+      setPipelineUserOptions(rows.map((r) => ({
+        label: asString(r.name) || asString(r.user_email) || `User ${asString(r.id)}`,
+        value: asString(r.id),
+      })));
+    });
+  }, [editEnrolOpen, enrolForm.pipeline, api, session.token]);
+
   const closeEditEnrol = () => {
     setEditEnrolOpen(false);
     setEditEnrolRow(null);
     setOfferingOptions([]);
     setCombinationOptions([]);
-    setBatchOptions([]);
     setLanguageOptions([]);
+    setPipelineUserOptions([]);
   };
 
   const submitEditEnrol = async () => {
@@ -1441,33 +1472,61 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   ))}
                 </select>
               </div>
+              <div>
+                <Label className="mb-1 text-sm">Preferred Language</Label>
+                <select
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  value={enrolForm.preferred_language}
+                  onChange={(e) => setEnrolForm((f) => ({ ...f, preferred_language: e.target.value }))}
+                >
+                  <option value="">- Select -</option>
+                  {languageOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="mb-1 text-sm">Batch</Label>
+                  <Label className="mb-1 text-sm">Pipeline</Label>
                   <select
                     className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                    value={enrolForm.batch_id}
-                    onChange={(e) => setEnrolForm((f) => ({ ...f, batch_id: e.target.value }))}
+                    value={enrolForm.pipeline}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, pipeline: e.target.value, pipeline_user: '' }))}
                   >
                     <option value="">- Select -</option>
-                    {batchOptions.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
+                    <option value="Admin">Admin</option>
+                    <option value="Counsellor">Counsellor</option>
+                    <option value="Associate">Associate</option>
+                    <option value="Centre">Centre</option>
                   </select>
                 </div>
                 <div>
-                  <Label className="mb-1 text-sm">Preferred Language</Label>
+                  <Label className="mb-1 text-sm">Pipeline User</Label>
                   <select
                     className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                    value={enrolForm.preferred_language}
-                    onChange={(e) => setEnrolForm((f) => ({ ...f, preferred_language: e.target.value }))}
+                    value={enrolForm.pipeline_user}
+                    onChange={(e) => setEnrolForm((f) => ({ ...f, pipeline_user: e.target.value }))}
+                    disabled={!enrolForm.pipeline}
                   >
-                    <option value="">- Select -</option>
-                    {languageOptions.map((o) => (
+                    <option value="">{enrolForm.pipeline ? '- Select -' : 'Pick pipeline first'}</option>
+                    {pipelineUserOptions.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 </div>
+              </div>
+              <div>
+                <Label className="mb-1 text-sm">Lead Source</Label>
+                <select
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  value={enrolForm.lead_source}
+                  onChange={(e) => setEnrolForm((f) => ({ ...f, lead_source: e.target.value }))}
+                >
+                  <option value="">- Select -</option>
+                  {['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <DialogFooter>
