@@ -4416,8 +4416,12 @@ export class OperationsService {
         const u = userMap.get(uid);
         if (!u) return null;
         return {
+          id: u.id,
           user_id: u.id,
           student_id: u.student_id,
+          // Frontend reads both `name` (Unsubmitted Students table) and
+          // `student_name` (Submissions table); expose both.
+          name: u.name,
           student_name: u.name,
           user_email: u.user_email,
           image: toLegacyFileUrl(u.profile_picture) || toLegacyFileUrl(u.image),
