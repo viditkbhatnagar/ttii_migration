@@ -9344,9 +9344,9 @@ export class OperationsService {
           mode: 'full',
           totalAmount: Math.round(finalFee * 100),
         });
-        if ((linkResult as { status?: number }).status === 1) {
-          const linkData = (linkResult as { data?: Record<string, unknown> }).data ?? {};
-          const url = linkData.short_url ?? linkData.payment_link_url ?? (linkResult as Record<string, unknown>).payment_link_url;
+        if (linkResult.status === 1) {
+          const linkData = (linkResult.data && typeof linkResult.data === 'object' ? linkResult.data : {}) as Record<string, unknown>;
+          const url = linkData.short_url ?? linkData.payment_link_url ?? linkResult.payment_link_url;
           paymentLinkUrl = typeof url === 'string' && url.length > 0 ? url : null;
         }
       } catch { /* swallow — admin can re-trigger from the application view */ }
