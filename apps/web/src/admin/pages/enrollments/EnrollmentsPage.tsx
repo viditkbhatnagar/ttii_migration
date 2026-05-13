@@ -11,6 +11,8 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 
 export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
+  const [offeringFilter, setOfferingFilter] = useState('');
+  const [combinationFilter, setCombinationFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -22,16 +24,41 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
 
   const allEnrollments = useMemo(() => toRecords(data), [data]);
 
-  // Unique courses for the course filter dropdown
   const courseOptions = useMemo(() => {
     const titles = [...new Set(allEnrollments.map((r) => asString(r.course_title)).filter(Boolean))];
     return titles.sort().map((t) => ({ label: t, value: t }));
   }, [allEnrollments]);
 
+  // Offering options scoped to the selected course (when set) so the
+  // dropdown stays manageable. Naji UAT 2026-05-13.
+  const offeringOptions = useMemo(() => {
+    const titles = [...new Set(
+      allEnrollments
+        .filter((r) => !courseFilter || asString(r.course_title) === courseFilter)
+        .map((r) => asString(r.course_offering))
+        .filter(Boolean),
+    )];
+    return titles.sort().map((t) => ({ label: t, value: t }));
+  }, [allEnrollments, courseFilter]);
+
+  // Combination options scoped to the selected course + offering.
+  const combinationOptions = useMemo(() => {
+    const titles = [...new Set(
+      allEnrollments
+        .filter((r) => !courseFilter || asString(r.course_title) === courseFilter)
+        .filter((r) => !offeringFilter || asString(r.course_offering) === offeringFilter)
+        .map((r) => asString(r.combination_title))
+        .filter(Boolean),
+    )];
+    return titles.sort().map((t) => ({ label: t, value: t }));
+  }, [allEnrollments, courseFilter, offeringFilter]);
+
   // Apply filters client-side (keeps single-round-trip load + fast UX)
   const filteredEnrollments = useMemo(() => {
     return allEnrollments.filter((r) => {
       if (courseFilter && asString(r.course_title) !== courseFilter) return false;
+      if (offeringFilter && asString(r.course_offering) !== offeringFilter) return false;
+      if (combinationFilter && asString(r.combination_title) !== combinationFilter) return false;
       if (statusFilter && asString(r.enrollment_status).toLowerCase() !== statusFilter.toLowerCase()) return false;
       if (fromDate || toDate) {
         const dateStr = asString(r.enrollment_date) || asString(r.created_at);
@@ -42,7 +69,7 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
       }
       return true;
     });
-  }, [allEnrollments, courseFilter, statusFilter, fromDate, toDate]);
+  }, [allEnrollments, courseFilter, offeringFilter, combinationFilter, statusFilter, fromDate, toDate]);
 
   const activeCount = useMemo(
     () => allEnrollments.filter((r) => asString(r.enrollment_status).toLowerCase() === 'active').length,
@@ -119,7 +146,33 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
         value: courseFilter,
         placeholder: 'All Courses',
         options: courseOptions,
-        onChange: setCourseFilter,
+        onChange: (v: string) => {
+          setCourseFilter(v);
+          // Reset child filters when course changes so they stay in sync.
+          setOfferingFilter('');
+          setCombinationFilter('');
+        },
+      },
+      {
+        key: 'offering',
+        label: 'Offering',
+        type: 'select' as const,
+        value: offeringFilter,
+        placeholder: 'All Offerings',
+        options: offeringOptions,
+        onChange: (v: string) => {
+          setOfferingFilter(v);
+          setCombinationFilter('');
+        },
+      },
+      {
+        key: 'combination',
+        label: 'Combination',
+        type: 'select' as const,
+        value: combinationFilter,
+        placeholder: 'All Combinations',
+        options: combinationOptions,
+        onChange: setCombinationFilter,
       },
       {
         key: 'status',
@@ -138,7 +191,7 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
       { key: 'from_date', label: 'From Date', type: 'date' as const, value: fromDate, onChange: setFromDate },
       { key: 'to_date', label: 'To Date', type: 'date' as const, value: toDate, onChange: setToDate },
     ],
-    [courseOptions, courseFilter, statusFilter, fromDate, toDate],
+    [courseOptions, courseFilter, offeringOptions, offeringFilter, combinationOptions, combinationFilter, statusFilter, fromDate, toDate],
   );
 
   if (loading) return <PageLoader label="Loading enrollments..." />;
@@ -176,6 +229,8 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
         onApply={() => {}}
         onClear={() => {
           setCourseFilter('');
+          setOfferingFilter('');
+          setCombinationFilter('');
           setStatusFilter('');
           setFromDate('');
           setToDate('');
