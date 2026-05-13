@@ -205,8 +205,38 @@ export default function PublicApplyPage({ token }: { token: string }) {
   };
 
   const handleSubmit = async () => {
-    if (!form.first_name.trim()) { toast.error('First name is required.'); return; }
-    if (!form.date_of_birth) { toast.error('Date of birth is required.'); return; }
+    // Naji UAT 2026-05-13 — public form now enforces the same required
+    // fields as the admin Add Application form so leads can't submit a
+    // blank application via the magic-link.
+    const required: { value: string; label: string }[] = [
+      { value: form.photo_url, label: 'Profile Photo' },
+      { value: form.first_name.trim(), label: 'First Name' },
+      { value: form.date_of_birth, label: 'Date of Birth' },
+      { value: form.gender, label: 'Gender' },
+      { value: form.nationality.trim(), label: 'Nationality' },
+      { value: form.marital_status, label: 'Marital Status' },
+      { value: form.father_name.trim(), label: "Father's Name" },
+      { value: form.mother_name.trim(), label: "Mother's Name" },
+      { value: form.aadhar_no.trim(), label: 'Aadhaar No' },
+      { value: form.passport_no.trim(), label: 'Passport No' },
+      { value: form.email.trim(), label: 'Email' },
+      { value: form.phone.trim(), label: 'Phone' },
+      { value: form.alternate_phone.trim(), label: 'Alternate Phone' },
+      { value: form.whatsapp_no.trim(), label: 'WhatsApp Number' },
+      { value: form.country.trim(), label: 'Country' },
+      { value: form.state.trim(), label: 'State' },
+      { value: form.district.trim(), label: 'District' },
+      { value: form.address.trim(), label: 'Permanent Address' },
+      { value: form.native_address.trim(), label: 'Correspondence / Native Address' },
+      { value: form.highest_qualification.trim(), label: 'Highest Qualification' },
+      { value: form.previous_school.trim(), label: 'School / College' },
+      { value: form.year_of_passing.trim(), label: 'Year of Passing' },
+      { value: form.employment_status, label: 'Employment Status' },
+    ];
+    const missing = required.find((r) => !r.value);
+    if (missing) { toast.error(`${missing.label} is required.`); return; }
+    const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is invalid.'); return; }
     if (!signature.trim()) { toast.error('Please sign in the signature box.'); return; }
     setSubmitting(true);
     try {
@@ -275,14 +305,14 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <FieldText label="First Name *" value={form.first_name} onChange={update('first_name')} />
             <FieldText label="Last Name" value={form.last_name} onChange={update('last_name')} />
             <FieldText label="Date of Birth *" type="date" value={form.date_of_birth} onChange={update('date_of_birth')} />
-            <FieldSelect label="Gender" value={form.gender} onChange={update('gender')} options={['', 'Male', 'Female', 'Other']} />
-            <FieldText label="Nationality" value={form.nationality} onChange={update('nationality')} />
-            <FieldSelect label="Marital Status" value={form.marital_status} onChange={update('marital_status')} options={['', 'Single', 'Married', 'Divorced', 'Widowed']} />
-            <FieldText label="Father's Name" value={form.father_name} onChange={update('father_name')} />
-            <FieldText label="Mother's Name" value={form.mother_name} onChange={update('mother_name')} />
+            <FieldSelect label="Gender *" value={form.gender} onChange={update('gender')} options={['', 'Male', 'Female', 'Other']} />
+            <FieldText label="Nationality *" value={form.nationality} onChange={update('nationality')} />
+            <FieldSelect label="Marital Status *" value={form.marital_status} onChange={update('marital_status')} options={['', 'Single', 'Married', 'Divorced', 'Widowed']} />
+            <FieldText label="Father's Name *" value={form.father_name} onChange={update('father_name')} />
+            <FieldText label="Mother's Name *" value={form.mother_name} onChange={update('mother_name')} />
             <FieldText label="Guardian's Name" value={form.guardian_name} onChange={update('guardian_name')} />
-            <FieldText label="Aadhaar No" value={form.aadhar_no} onChange={update('aadhar_no')} />
-            <FieldText label="Passport No" value={form.passport_no} onChange={update('passport_no')} />
+            <FieldText label="Aadhaar No *" value={form.aadhar_no} onChange={update('aadhar_no')} />
+            <FieldText label="Passport No *" value={form.passport_no} onChange={update('passport_no')} />
           </div>
 
           {/* Contact Information — Naji 2026-05-08: was missing entirely;
@@ -299,33 +329,33 @@ export default function PublicApplyPage({ token }: { token: string }) {
               number={form.phone}
               onNumberChange={update('phone')}
             />
-            <FieldText label="Alternate Phone" value={form.alternate_phone} onChange={update('alternate_phone')} />
+            <FieldText label="Alternate Phone *" value={form.alternate_phone} onChange={update('alternate_phone')} />
             <PhoneFieldGroup
-              label="WhatsApp Number"
+              label="WhatsApp Number *"
               code={form.whatsapp_country_code}
               onCodeChange={update('whatsapp_country_code')}
               number={form.whatsapp_no}
               onNumberChange={update('whatsapp_no')}
             />
-            <FieldText label="Country" value={form.country} onChange={update('country')} />
+            <FieldText label="Country *" value={form.country} onChange={update('country')} />
           </div>
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Address</h2>
           <div className="grid grid-cols-1 gap-4">
-            <FieldTextArea label="Permanent Address" value={form.address} onChange={update('address')} />
-            <FieldTextArea label="Correspondence / Native Address" value={form.native_address} onChange={update('native_address')} />
+            <FieldTextArea label="Permanent Address *" value={form.address} onChange={update('address')} />
+            <FieldTextArea label="Correspondence / Native Address *" value={form.native_address} onChange={update('native_address')} />
             <div className="grid grid-cols-2 gap-4">
-              <FieldText label="State" value={form.state} onChange={update('state')} />
-              <FieldText label="District" value={form.district} onChange={update('district')} />
+              <FieldText label="State *" value={form.state} onChange={update('state')} />
+              <FieldText label="District *" value={form.district} onChange={update('district')} />
             </div>
           </div>
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Qualification</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="Highest Qualification" value={form.highest_qualification} onChange={update('highest_qualification')} />
+            <FieldText label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} />
             <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} />
-            <FieldText label="School / College" value={form.previous_school} onChange={update('previous_school')} />
-            <FieldText label="Year of Passing" value={form.year_of_passing} onChange={update('year_of_passing')} />
+            <FieldText label="School / College *" value={form.previous_school} onChange={update('previous_school')} />
+            <FieldText label="Year of Passing *" value={form.year_of_passing} onChange={update('year_of_passing')} />
             <FieldText label="Percentage / Grade" value={form.percentage_or_grade} onChange={update('percentage_or_grade')} />
           </div>
 
@@ -338,7 +368,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Employment</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldSelect label="Employment Status" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-Employed', 'Unemployed', 'Student']} />
+            <FieldSelect label="Employment Status *" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-Employed', 'Unemployed', 'Student']} />
             <FieldText label="Organisation" value={form.organization_name} onChange={update('organization_name')} />
             <FieldText label="Designation" value={form.designation} onChange={update('designation')} />
             <FieldText label="Years of Experience" value={form.experience_years} onChange={update('experience_years')} />
