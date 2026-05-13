@@ -6413,6 +6413,69 @@ export class OperationsService {
   //     `duplicate_student_other_course` so the UI can show the
   //     "enrol to second course" dialog.
   //   - Same email already a Student in the target course → block.
+  // Naji UAT 2026-05-14 — duplicate-check used by the Add Lead form's
+  // email/phone onBlur handler. Returns the matching Student row(s) so
+  // the form can show a red banner with the student's name / id and
+  // a deep-link into the existing record. Only role_id=2 (Student),
+  // not deleted. Email is case-insensitive; phone is matched on the
+  // last 10 digits to be tolerant of country-code formatting.
+  async findDuplicateStudent(input: { email?: string; phone?: string }): Promise<{
+    matches: Array<{
+      id: number;
+      name: string | null;
+      student_id: string | null;
+      user_email: string | null;
+      phone: string | null;
+      match_via: 'email' | 'phone' | 'both';
+    }>;
+  }> {
+    const email = (input.email ?? '').trim().toLowerCase();
+    const phoneDigits = (input.phone ?? '').replace(/\D/g, '');
+    const phoneSuffix = phoneDigits.slice(-10);
+    if (!email && !phoneSuffix) return { matches: [] };
+
+    const where: Prisma.usersWhereInput = { role_id: 2, deleted_at: null };
+    const orConds: Prisma.usersWhereInput[] = [];
+    if (email) {
+      orConds.push({ user_email: { contains: email } });
+      orConds.push({ email: { contains: email } });
+    }
+    if (phoneSuffix) {
+      orConds.push({ phone: { endsWith: phoneSuffix } });
+    }
+    where.OR = orConds;
+
+    const rows = await this.prisma.users.findMany({
+      where,
+      select: { id: true, name: true, student_id: true, user_email: true, email: true, phone: true },
+      orderBy: { id: 'desc' },
+      take: 10,
+    });
+
+    const matches = rows.map((r) => {
+      const rowEmail = (r.user_email || r.email || '').toLowerCase();
+      const rowPhone = (r.phone || '').replace(/\D/g, '');
+      const emailMatch = !!email && rowEmail === email;
+      const phoneMatch = !!phoneSuffix && rowPhone.endsWith(phoneSuffix);
+      const via: 'email' | 'phone' | 'both' = emailMatch && phoneMatch
+        ? 'both'
+        : emailMatch
+          ? 'email'
+          : 'phone';
+      return {
+        id: r.id,
+        name: r.name,
+        student_id: r.student_id,
+        user_email: r.user_email || r.email,
+        phone: r.phone,
+        match_via: via,
+      };
+    });
+    // Drop rows where neither check actually matched (shouldn't happen but defensive).
+    const filtered = matches.filter((m) => m.match_via === 'email' || m.match_via === 'phone' || m.match_via === 'both');
+    return { matches: filtered };
+  }
+
   async addLead(
     actorUserId: string,
     input: {
@@ -6458,15 +6521,24 @@ export class OperationsService {
       };
     }
 
-    // 2) Already a Student? Check `users` (role 2) AND check if they're
-    //    enrolled in the target course via `enrol`.
+    // 2) Already a Student? Match by email OR phone (last 10 digits) so
+    //    the lead can't be re-entered with a slightly different email
+    //    while reusing the same phone. Naji UAT 2026-05-14.
+    const phoneDigits = phone.replace(/\D/g, '');
+    const phoneSuffix = phoneDigits.slice(-10);
+    const studentOrConds: Prisma.usersWhereInput[] = [
+      { email }, { user_email: email },
+    ];
+    if (phoneSuffix.length >= 10) {
+      studentOrConds.push({ phone: { endsWith: phoneSuffix } });
+    }
     const studentUser = await this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         role_id: 2,
-        OR: [{ email }, { user_email: email }],
+        OR: studentOrConds,
       },
-      select: { id: true },
+      select: { id: true, name: true, student_id: true },
     });
     if (studentUser) {
       const alreadyEnrolled = await this.prisma.enrol.findFirst({
@@ -6489,8 +6561,12 @@ export class OperationsService {
       return {
         status: 2,
         code: 'duplicate_student_other_course',
-        message: 'This email is already a student. Enrol them to the new course?',
-        data: { existing_user_id: studentUser.id },
+        message: 'This email or phone already belongs to a student. Use Add Enrolment on their record instead of creating a new lead.',
+        data: {
+          existing_user_id: studentUser.id,
+          existing_user_name: studentUser.name,
+          existing_student_id: studentUser.student_id,
+        },
       };
     }
 
@@ -9054,6 +9130,265 @@ export class OperationsService {
   // row directly + offering/combination on the linked applications row.
   // For legacy students with users.application_id=0, creates a stamped
   // application row first (same pattern as editStudentInfo).
+  // Naji UAT 2026-05-14 — "Add another enrolment to an existing student"
+  // flow. Admin lands directly on stage='enrolled' with the enrol row
+  // created in the same call; Counsellor / Associate / Centre create a
+  // stage='approval_waiting' application that admin reviews + approves
+  // through the existing approveApplication pipeline (which is what
+  // creates the enrol row in that case).
+  async addAdditionalEnrolment(actorUserId: string, studentId: string, input: {
+    courseId: string;
+    offeringId?: string;
+    combinationId?: string;
+    modeOfStudy?: string;
+    preferredLanguage?: string;
+    pipeline?: string;
+    pipelineUser?: string;
+    leadSource?: string;
+    referenceStudentId?: string;
+    registrationFee?: string;
+    discount?: string;
+    discountType?: string;
+    gstPercent?: string;
+    finalCourseFee?: string;
+    paymentMode?: 'link' | 'manual' | 'draft';
+    manualPaymentMode?: string;
+    manualReference?: string;
+  }): Promise<Record<string, unknown>> {
+    const studentPk = toIntId(studentId);
+    if (!studentPk) return { status: 0, message: 'Invalid student id.' };
+    const courseIdInt = toNullableIntId(input.courseId);
+    if (!courseIdInt) return { status: 0, message: 'Course is required.' };
+
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { id: true, role_id: true, name: true },
+    });
+    if (!actor) return { status: 0, message: 'Actor not found.' };
+
+    // Admin-tier roles (Super Admin 1, Admin 8) finalise immediately;
+    // others land in Approval Waiting.
+    const isAdmin = actor.role_id === 1 || actor.role_id === 8;
+
+    const student = await this.prisma.users.findFirst({
+      where: { id: studentPk, deleted_at: null, role_id: 2 },
+      select: {
+        id: true, name: true, phone: true, user_email: true, country_code: true,
+        image: true, profile_picture: true, application_id: true,
+      },
+    });
+    if (!student) return { status: 0, message: 'Student not found.' };
+
+    // Refuse if the student is already actively enrolled in the same course.
+    const dup = await this.prisma.enrol.findFirst({
+      where: { user_id: student.id, course_id: courseIdInt, deleted_at: null },
+      select: { id: true, enrollment_id: true },
+    });
+    if (dup) {
+      return {
+        status: 0,
+        code: 'already_enrolled_same_course',
+        message: 'Student is already enrolled in this course.',
+        data: { enrol_id: dup.id, enrollment_id: dup.enrollment_id },
+      };
+    }
+
+    // Copy personal fields from the student's existing application row so
+    // we don't re-collect anything.
+    const sourceApp = student.application_id && student.application_id > 0
+      ? await this.prisma.applications.findFirst({
+          where: { id: student.application_id },
+          select: {
+            name: true, phone: true, country_code: true, user_email: true, image: true,
+            second_code: true, second_phone: true, whatsapp_no: true, whatsapp: true,
+            date_of_birth: true, age: true, gender: true, nationality: true,
+            marital_status: true, father_name: true, mother_name: true, guardian_name: true,
+            aadhar_no: true, passport_no: true, address: true, native_address: true,
+            country_id: true, state: true, district: true,
+            highest_qualification: true, previous_school: true, year_of_passing: true,
+            percentage_or_grade: true, employment_status: true, current_occupation: true,
+            experience_years: true,
+            emergency_name: true, emergency_relation: true, emergency_phone: true,
+            biography: true, learning_disabilities: true, accessibility_needs: true,
+          },
+        })
+      : null;
+
+    const now = new Date();
+    const actorPk = actor.id;
+    const offeringPk = input.offeringId ? toNullableIntId(input.offeringId) : null;
+    const combinationPk = input.combinationId ? toNullableIntId(input.combinationId) : null;
+    const pipelineUserPk = input.pipelineUser ? toNullableIntId(input.pipelineUser) : null;
+    const finalFee = input.finalCourseFee ? Number(input.finalCourseFee) : null;
+    const discountVal = input.discount ? Number(input.discount) : null;
+    const gstVal = input.gstPercent ? Number(input.gstPercent) : null;
+
+    const applicationIdSeq = await this.nextApplicationId();
+    // Stage = enrolled for admins (gets created with is_converted=1 +
+    // converted timestamps); approval_waiting for everyone else.
+    const stage = isAdmin ? 'enrolled' : 'approval_waiting';
+    const isConverted = isAdmin ? 1 : 0;
+
+    const created = await this.prisma.applications.create({
+      data: {
+        application_id: applicationIdSeq,
+        // Personal copy
+        name: sourceApp?.name ?? student.name ?? '',
+        phone: sourceApp?.phone ?? student.phone ?? '',
+        country_code: sourceApp?.country_code ?? student.country_code ?? null,
+        user_email: sourceApp?.user_email ?? student.user_email ?? '',
+        image: sourceApp?.image || student.image || student.profile_picture || '',
+        second_code: sourceApp?.second_code ?? 0,
+        second_phone: sourceApp?.second_phone ?? '',
+        whatsapp_no: sourceApp?.whatsapp_no ?? 0,
+        whatsapp: sourceApp?.whatsapp ?? null,
+        date_of_birth: sourceApp?.date_of_birth ?? null,
+        age: sourceApp?.age ?? null,
+        gender: sourceApp?.gender ?? null,
+        nationality: sourceApp?.nationality ?? null,
+        marital_status: sourceApp?.marital_status ?? null,
+        father_name: sourceApp?.father_name ?? null,
+        mother_name: sourceApp?.mother_name ?? null,
+        guardian_name: sourceApp?.guardian_name ?? null,
+        aadhar_no: sourceApp?.aadhar_no ?? null,
+        passport_no: sourceApp?.passport_no ?? null,
+        address: sourceApp?.address ?? null,
+        native_address: sourceApp?.native_address ?? null,
+        country_id: sourceApp?.country_id ?? null,
+        state: sourceApp?.state ?? null,
+        district: sourceApp?.district ?? null,
+        highest_qualification: sourceApp?.highest_qualification ?? null,
+        previous_school: sourceApp?.previous_school ?? null,
+        year_of_passing: sourceApp?.year_of_passing ?? null,
+        percentage_or_grade: sourceApp?.percentage_or_grade ?? null,
+        employment_status: sourceApp?.employment_status ?? null,
+        current_occupation: sourceApp?.current_occupation ?? null,
+        experience_years: sourceApp?.experience_years ?? null,
+        emergency_name: sourceApp?.emergency_name ?? null,
+        emergency_relation: sourceApp?.emergency_relation ?? null,
+        emergency_phone: sourceApp?.emergency_phone ?? null,
+        biography: sourceApp?.biography ?? null,
+        learning_disabilities: sourceApp?.learning_disabilities ?? null,
+        accessibility_needs: sourceApp?.accessibility_needs ?? null,
+        // Enrolment-specific (new) fields
+        course_id: courseIdInt,
+        offering_id: offeringPk,
+        certificate_combination_id: combinationPk,
+        mode_of_study: input.modeOfStudy || null,
+        preferred_language: input.preferredLanguage || null,
+        pipeline: input.pipeline || null,
+        pipeline_user: pipelineUserPk,
+        marketing_source: input.leadSource === 'Reference' && input.referenceStudentId
+          ? `Reference#${input.referenceStudentId}`
+          : (input.leadSource || null),
+        application_discount: discountVal,
+        application_gst_percent: gstVal,
+        application_final_fee: finalFee,
+        stage,
+        status: isAdmin ? 'converted' : 'pending',
+        is_converted: isConverted,
+        converted_at: isAdmin ? now : null,
+        converted_by: isAdmin ? actorPk : null,
+        admin_approved_at: isAdmin ? now : null,
+        admin_approved_by: isAdmin ? actorPk : null,
+        created_at: now,
+        updated_at: now,
+        created_by: actorPk,
+        updated_by: actorPk,
+      },
+      select: { id: true, application_id: true },
+    });
+
+    // Record the lifecycle event so the View page activity timeline picks
+    // it up and the existing notifyApplicationEvent fan-out runs.
+    await this.recordEvent(created.id, 'lead_created', `Additional enrolment created by ${actor.name ?? 'user'} (${actor.role_id})`, actorUserId, {
+      student_id: student.id,
+      via: 'add-additional-enrolment',
+    });
+
+    let enrolRow: { id: number; enrollment_id: string | null } | null = null;
+    if (isAdmin) {
+      // Admin path: create the enrol row immediately. Enrolment-id format
+      // matches what approveApplication uses elsewhere.
+      const yy = String(now.getFullYear()).slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const enrollmentIdSeq = `TIDMTT${yy}${mm}${String(student.id).padStart(4, '0')}`;
+      const enrol = await this.prisma.enrol.create({
+        data: {
+          user_id: student.id,
+          course_id: courseIdInt,
+          enrollment_id: enrollmentIdSeq,
+          enrollment_status: 'Active',
+          mode_of_study: input.modeOfStudy || null,
+          preferred_language: input.preferredLanguage || null,
+          pipeline: input.pipeline || null,
+          pipeline_user: pipelineUserPk,
+          discount_perc: discountVal != null ? String(discountVal) : null,
+          created_at: now,
+          updated_at: now,
+          created_by: actorPk,
+          updated_by: actorPk,
+        },
+        select: { id: true, enrollment_id: true },
+      });
+      enrolRow = enrol;
+    }
+
+    // Optional payment-link generation (admin + counsellor/associate
+    // both supported — admin pays first, counsellor pays before approval).
+    let paymentLinkUrl: string | null = null;
+    if (input.paymentMode === 'link' && finalFee && finalFee > 0) {
+      try {
+        const linkResult = await this.generatePaymentLink(actorUserId, {
+          applicationId: String(created.id),
+          mode: 'full',
+          totalAmount: Math.round(finalFee * 100),
+        });
+        if ((linkResult as { status?: number }).status === 1) {
+          const linkData = (linkResult as { data?: Record<string, unknown> }).data ?? {};
+          const url = linkData.short_url ?? linkData.payment_link_url ?? (linkResult as Record<string, unknown>).payment_link_url;
+          paymentLinkUrl = typeof url === 'string' && url.length > 0 ? url : null;
+        }
+      } catch { /* swallow — admin can re-trigger from the application view */ }
+    }
+
+    // Optional manual payment record.
+    if (input.paymentMode === 'manual' && finalFee && finalFee > 0) {
+      await this.prisma.student_payments.create({
+        data: {
+          user_id: student.id,
+          course_id: courseIdInt,
+          installment_details: 'Full course fee',
+          amount: Math.round(finalFee),
+          payment_mode: input.manualPaymentMode || 'Cash',
+          status: 'Paid',
+          due_date: now,
+          paid_date: now,
+          created_by: actorPk,
+          updated_by: actorPk,
+          created_at: now,
+          updated_at: now,
+          payment_to: input.manualReference || 'ttii',
+        },
+      });
+    }
+
+    return {
+      status: 1,
+      message: isAdmin
+        ? 'Additional enrolment created.'
+        : 'Enrolment request submitted for admin approval.',
+      data: {
+        application_id: created.id,
+        application_code: created.application_id,
+        enrol_id: enrolRow?.id ?? null,
+        enrollment_id: enrolRow?.enrollment_id ?? null,
+        pending_admin_approval: !isAdmin,
+        payment_link_url: paymentLinkUrl,
+      },
+    };
+  }
+
   async updateEnrolment(actorUserId: string, input: {
     enrolId: string;
     enrollmentId?: string;

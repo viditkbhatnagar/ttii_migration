@@ -2273,6 +2273,66 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji UAT 2026-05-14 — Add another enrolment for an existing student.
+  app.post('/admin/students/:id/add-enrolment', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const payload = requestPayload(request);
+      const args: {
+        courseId: string;
+        offeringId?: string;
+        combinationId?: string;
+        modeOfStudy?: string;
+        preferredLanguage?: string;
+        pipeline?: string;
+        pipelineUser?: string;
+        leadSource?: string;
+        referenceStudentId?: string;
+        registrationFee?: string;
+        discount?: string;
+        discountType?: string;
+        gstPercent?: string;
+        finalCourseFee?: string;
+        paymentMode?: 'link' | 'manual' | 'draft';
+        manualPaymentMode?: string;
+        manualReference?: string;
+      } = { courseId: toStringValue(payload.course_id) };
+      if (payload.offering_id !== undefined) args.offeringId = toStringValue(payload.offering_id);
+      if (payload.combination_id !== undefined) args.combinationId = toStringValue(payload.combination_id);
+      if (payload.mode_of_study !== undefined) args.modeOfStudy = toStringValue(payload.mode_of_study);
+      if (payload.preferred_language !== undefined) args.preferredLanguage = toStringValue(payload.preferred_language);
+      if (payload.pipeline !== undefined) args.pipeline = toStringValue(payload.pipeline);
+      if (payload.pipeline_user !== undefined) args.pipelineUser = toStringValue(payload.pipeline_user);
+      if (payload.lead_source !== undefined) args.leadSource = toStringValue(payload.lead_source);
+      if (payload.reference_student_id !== undefined) args.referenceStudentId = toStringValue(payload.reference_student_id);
+      if (payload.registration_fee !== undefined) args.registrationFee = toStringValue(payload.registration_fee);
+      if (payload.discount !== undefined) args.discount = toStringValue(payload.discount);
+      if (payload.discount_type !== undefined) args.discountType = toStringValue(payload.discount_type);
+      if (payload.gst_percent !== undefined) args.gstPercent = toStringValue(payload.gst_percent);
+      if (payload.final_course_fee !== undefined) args.finalCourseFee = toStringValue(payload.final_course_fee);
+      const pm = toStringValue(payload.payment_mode);
+      if (pm === 'link' || pm === 'manual' || pm === 'draft') args.paymentMode = pm;
+      if (payload.manual_payment_mode !== undefined) args.manualPaymentMode = toStringValue(payload.manual_payment_mode);
+      if (payload.manual_reference !== undefined) args.manualReference = toStringValue(payload.manual_reference);
+      const result = await operationsService.addAdditionalEnrolment(requestUserId(request), params.id, args);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // Naji UAT 2026-05-14 — Add Lead duplicate guard. Called on email/phone
+  // blur from AddLeadPage. Returns any active Student rows that match
+  // either field; the form uses this to surface the red banner + block Save.
+  app.get('/admin/leads/duplicate-check', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.findDuplicateStudent({
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+      });
+      reply.code(200).send({ status: 1, data: result });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/enrol/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

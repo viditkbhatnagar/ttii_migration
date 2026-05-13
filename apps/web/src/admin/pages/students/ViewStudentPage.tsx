@@ -128,6 +128,30 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [languageOptions, setLanguageOptions] = useState<{ label: string; value: string }[]>([]);
   const [pipelineUserOptions, setPipelineUserOptions] = useState<{ label: string; value: string }[]>([]);
 
+  // Add Enrolment dialog state — Naji UAT 2026-05-14.
+  const [addEnrolOpen, setAddEnrolOpen] = useState(false);
+  const [addEnrolForm, setAddEnrolForm] = useState({
+    course_id: '',
+    offering_id: '',
+    combination_id: '',
+    mode_of_study: 'Online',
+    preferred_language: '',
+    pipeline: '',
+    pipeline_user: '',
+    lead_source: '',
+    registration_fee: '',
+    discount: '',
+    gst_percent: '18',
+    final_course_fee: '',
+    payment_mode: 'link' as 'link' | 'manual' | 'draft',
+  });
+  const [addEnrolCourses, setAddEnrolCourses] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolOfferings, setAddEnrolOfferings] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolCombinations, setAddEnrolCombinations] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolLanguages, setAddEnrolLanguages] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolPipelineUsers, setAddEnrolPipelineUsers] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolSubmitting, setAddEnrolSubmitting] = useState(false);
+
   // Edit Installment dialog (Naji UAT 2026-05-13)
   const [editInstOpen, setEditInstOpen] = useState(false);
   const [editInstRow, setEditInstRow] = useState<Record<string, unknown> | null>(null);
@@ -499,6 +523,110 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       toast.error(err instanceof Error ? err.message : 'Update failed');
     } finally {
       setEnrolSubmitting(false);
+    }
+  };
+
+  // Add Enrolment dialog — Naji UAT 2026-05-14.
+  // When the dialog opens, fetch the dropdown sources (courses, languages)
+  // and cascade offerings + combinations whenever course changes.
+  useEffect(() => {
+    if (!addEnrolOpen) return;
+    void api.loadCourses(session.token).then((rows) => {
+      setAddEnrolCourses(rows.map((r) => ({
+        label: asString(r.title) || asString(r.course_title) || `Course ${asString(r.id)}`,
+        value: asString(r.id),
+      })));
+    });
+    void api.loadLanguages(session.token).then((rows) => {
+      setAddEnrolLanguages(rows.map((r) => ({
+        label: asString(r.title) || asString(r.name) || `Language ${asString(r.id)}`,
+        value: asString(r.id),
+      })));
+    });
+  }, [addEnrolOpen, api, session.token]);
+
+  useEffect(() => {
+    if (!addEnrolOpen || !addEnrolForm.course_id) {
+      setAddEnrolOfferings([]);
+      setAddEnrolCombinations([]);
+      return;
+    }
+    void Promise.all([
+      api.listOfferings(session.token, { course_id: addEnrolForm.course_id }),
+      api.loadCertificateCombinations(session.token, { course_id: addEnrolForm.course_id }),
+    ]).then(([offerings, combinations]) => {
+      setAddEnrolOfferings(offerings.map((o) => ({
+        label: asString(o.title) || asString(o.offering_code) || `Offering ${asString(o.id)}`,
+        value: asString(o.id),
+      })));
+      setAddEnrolCombinations(combinations.map((c) => ({
+        label: asString(c.combination_code) || asString(c.title) || `Combination ${asString(c.id)}`,
+        value: asString(c.id),
+      })));
+    });
+  }, [addEnrolOpen, addEnrolForm.course_id, api, session.token]);
+
+  useEffect(() => {
+    if (!addEnrolOpen) return;
+    const p = addEnrolForm.pipeline;
+    if (!p) { setAddEnrolPipelineUsers([]); return; }
+    if (p === 'Centre') {
+      void api.loadCentres(session.token).then((rows) => {
+        setAddEnrolPipelineUsers(rows.map((r) => ({
+          label: asString(r.name) || asString(r.title) || `Centre ${asString(r.id)}`,
+          value: asString(r.id),
+        })));
+      });
+      return;
+    }
+    const roleIds = p === 'Admin' ? [1, 8] : p === 'Counsellor' ? [9] : p === 'Associate' ? [10] : [];
+    if (roleIds.length === 0) { setAddEnrolPipelineUsers([]); return; }
+    void Promise.all(roleIds.map((rid) => api.loadPipelineUsers(session.token, rid))).then((results) => {
+      const merged = results.flat();
+      const seen = new Set<string>();
+      const opts: { label: string; value: string }[] = [];
+      for (const r of merged) {
+        const id = asString(r.id);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        opts.push({ label: asString(r.name) || asString(r.user_email) || `User ${id}`, value: id });
+      }
+      setAddEnrolPipelineUsers(opts);
+    });
+  }, [addEnrolOpen, addEnrolForm.pipeline, api, session.token]);
+
+  const closeAddEnrol = (): void => {
+    setAddEnrolOpen(false);
+    setAddEnrolForm({
+      course_id: '', offering_id: '', combination_id: '',
+      mode_of_study: 'Online', preferred_language: '',
+      pipeline: '', pipeline_user: '', lead_source: '',
+      registration_fee: '', discount: '', gst_percent: '18',
+      final_course_fee: '', payment_mode: 'link',
+    });
+  };
+
+  const submitAddEnrol = async (): Promise<void> => {
+    if (!addEnrolForm.course_id) { toast.error('Course is required.'); return; }
+    if (!addEnrolForm.final_course_fee) { toast.error('Final Course Fee is required.'); return; }
+    setAddEnrolSubmitting(true);
+    try {
+      const res = await api.addAdditionalEnrolment(session.token, studentId, addEnrolForm);
+      if ((res as { status?: number }).status === 1) {
+        const data = (res as { data?: { pending_admin_approval?: boolean; payment_link_url?: string | null } }).data ?? {};
+        const msg = data.pending_admin_approval
+          ? 'Enrolment request submitted for admin approval.'
+          : 'Additional enrolment created.';
+        toast.success(msg + (data.payment_link_url ? ' Payment link sent.' : ''));
+        closeAddEnrol();
+        reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Failed to create enrolment.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create enrolment.');
+    } finally {
+      setAddEnrolSubmitting(false);
     }
   };
 
@@ -1170,6 +1298,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 <CardTitle className="text-sm font-semibold">Enrolled courses</CardTitle>
                 <span className="text-xs text-gray-500">{enrolments.length} total</span>
               </div>
+              <Button
+                size="sm"
+                className="mt-2 w-full bg-ttii-primary hover:bg-ttii-primary/90"
+                onClick={() => setAddEnrolOpen(true)}
+              >
+                + Add Enrolment
+              </Button>
             </CardHeader>
             <CardContent className="space-y-2 p-3">
               {enrolments.length === 0 ? (
@@ -1792,6 +1927,167 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeEditInstallment} disabled={instSubmitting}>Cancel</Button>
               <Button type="submit" disabled={instSubmitting}>{instSubmitting ? 'Saving...' : 'Save'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Enrolment Dialog — Naji UAT 2026-05-14 */}
+      <Dialog open={addEnrolOpen} onOpenChange={(open) => { if (!open) closeAddEnrol(); }}>
+        <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-[min(620px,calc(100vw-2rem))] overflow-hidden">
+          <form
+            className="w-full min-w-0"
+            onSubmit={(e) => { e.preventDefault(); void submitAddEnrol(); }}
+          >
+            <DialogHeader>
+              <DialogTitle>Add Enrolment</DialogTitle>
+            </DialogHeader>
+            <div className="w-full min-w-0 max-h-[70vh] overflow-y-auto space-y-4 py-2">
+              <p className="text-xs text-gray-500">
+                Add another course enrolment for this student. Personal information stays as-is — only the course, fee and payment method are needed.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Course *</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={addEnrolForm.course_id}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, course_id: e.target.value, offering_id: '', combination_id: '' }))}
+                  >
+                    <option value="">- Select -</option>
+                    {addEnrolCourses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Course Offering</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.offering_id}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, offering_id: e.target.value }))}
+                      disabled={!addEnrolForm.course_id}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolOfferings.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Certificate Combination</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.combination_id}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, combination_id: e.target.value }))}
+                      disabled={!addEnrolForm.course_id}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolCombinations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Mode of Study</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.mode_of_study}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, mode_of_study: e.target.value }))}
+                    >
+                      <option value="Online">Online</option>
+                      <option value="Offline">Offline</option>
+                      <option value="Hybrid">Hybrid</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Preferred Language</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.preferred_language}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, preferred_language: e.target.value }))}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolLanguages.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Pipeline</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.pipeline}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, pipeline: e.target.value, pipeline_user: '' }))}
+                    >
+                      <option value="">- Select -</option>
+                      <option value="Admin">Admin</option>
+                      <option value="Counsellor">Counsellor</option>
+                      <option value="Associate">Associate</option>
+                      <option value="Centre">Centre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Pipeline User</Label>
+                    <select
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                      value={addEnrolForm.pipeline_user}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, pipeline_user: e.target.value }))}
+                      disabled={!addEnrolForm.pipeline}
+                    >
+                      <option value="">{addEnrolForm.pipeline ? '- Select -' : 'Pick pipeline first'}</option>
+                      {addEnrolPipelineUsers.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Lead Source</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={addEnrolForm.lead_source}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, lead_source: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    {['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rounded-md border border-gray-200 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Fee breakdown</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="mb-1 text-xs">Registration Fee</Label>
+                      <Input value={addEnrolForm.registration_fee} onChange={(e) => setAddEnrolForm((f) => ({ ...f, registration_fee: e.target.value }))} placeholder="e.g. 2000" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">Discount</Label>
+                      <Input value={addEnrolForm.discount} onChange={(e) => setAddEnrolForm((f) => ({ ...f, discount: e.target.value }))} placeholder="e.g. 10" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">GST %</Label>
+                      <Input value={addEnrolForm.gst_percent} onChange={(e) => setAddEnrolForm((f) => ({ ...f, gst_percent: e.target.value }))} placeholder="e.g. 18" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">Final Course Fee *</Label>
+                      <Input value={addEnrolForm.final_course_fee} onChange={(e) => setAddEnrolForm((f) => ({ ...f, final_course_fee: e.target.value }))} placeholder="e.g. 25000" type="number" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Payment</Label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                    value={addEnrolForm.payment_mode}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, payment_mode: e.target.value as 'link' | 'manual' | 'draft' }))}
+                  >
+                    <option value="link">Generate Payment Link (Razorpay)</option>
+                    <option value="manual">Mark Paid Manually</option>
+                    <option value="draft">Save without payment</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeAddEnrol} disabled={addEnrolSubmitting}>Cancel</Button>
+              <Button type="submit" disabled={addEnrolSubmitting}>{addEnrolSubmitting ? 'Saving...' : 'Add Enrolment'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

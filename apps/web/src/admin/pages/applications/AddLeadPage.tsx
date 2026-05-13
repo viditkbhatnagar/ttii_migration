@@ -72,6 +72,30 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const [editLoading, setEditLoading] = useState(isEditMode);
   const [duplicate, setDuplicate] = useState<{ message: string; existingUserId?: string } | null>(null);
 
+  // Naji UAT 2026-05-14 — pre-submit duplicate-check banner (different
+  // shape from `duplicate` above which is the post-submit dialog). This
+  // surfaces during typing when the email/phone matches an existing
+  // student row and blocks Save until the field is changed.
+  const [duplicateMatch, setDuplicateMatch] = useState<{
+    id: number;
+    name: string | null;
+    student_id: string | null;
+    user_email: string | null;
+    phone: string | null;
+    match_via: 'email' | 'phone' | 'both';
+  } | null>(null);
+
+  const runDuplicateCheck = async (overrideEmail?: string, overridePhone?: string): Promise<void> => {
+    const e = (overrideEmail ?? email).trim();
+    const p = (overridePhone ?? phone).trim();
+    if (!e && !p) { setDuplicateMatch(null); return; }
+    try {
+      const res = await api.checkLeadDuplicate(session.token, { email: e, phone: p });
+      const first = res.matches[0];
+      setDuplicateMatch(first ?? null);
+    } catch { /* silently ignore — server-side guard is the real backstop */ }
+  };
+
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [offerings, setOfferings] = useState<Record<string, unknown>[]>([]);
   const [combinations, setCombinations] = useState<Record<string, unknown>[]>([]);
@@ -315,6 +339,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                   const trimmed = email.trim();
                   if (!trimmed) return;
                   void verifyEmailWithFeedback(api, session.token, trimmed, (corrected) => setEmail(corrected));
+                  void runDuplicateCheck(trimmed, undefined);
                 }}
                 placeholder="student@example.com"
               />
@@ -333,6 +358,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                   className="flex-1"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                  onBlur={() => { void runDuplicateCheck(undefined, phone.trim()); }}
                   placeholder="9876543210"
                 />
               </div>
@@ -424,6 +450,43 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
               </div>
             </div>
           </div>
+          {/* Duplicate-student banner — Naji UAT 2026-05-14. Surfaces
+              as soon as email or phone matches an existing Student row
+              and blocks Save until the field is changed to a non-dup. */}
+          {duplicateMatch && !isEditMode ? (
+            <div className="rounded-md border border-red-200 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-800">
+                This {duplicateMatch.match_via === 'both' ? 'email and phone' : duplicateMatch.match_via} already belongs to a student
+              </p>
+              <p className="mt-1 text-sm text-red-700">
+                {duplicateMatch.name ?? 'Existing student'}
+                {duplicateMatch.student_id ? ` · ${duplicateMatch.student_id}` : ''}
+              </p>
+              <p className="mt-1 text-xs text-red-600">
+                To enrol them in another course, open their student record and click "+ Add Enrolment". A new lead cannot be created on top of an existing student.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigate(`/admin/students/view/${duplicateMatch.id}`)}
+                >
+                  Open student record
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEmail('');
+                    setPhone('');
+                    setDuplicateMatch(null);
+                  }}
+                >
+                  Clear email & phone
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="flex justify-end gap-3 pt-2">
             <Button
               variant="outline"
@@ -433,7 +496,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             </Button>
             <Button
               onClick={() => { void handleSubmit(); }}
-              disabled={submitting || !name.trim() || !email.trim() || !phone.trim() || !courseId}
+              disabled={submitting || !name.trim() || !email.trim() || !phone.trim() || !courseId || (!isEditMode && duplicateMatch !== null)}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               {submitting ? 'Saving...' : isEditMode ? 'Save Changes' : 'Add Lead'}

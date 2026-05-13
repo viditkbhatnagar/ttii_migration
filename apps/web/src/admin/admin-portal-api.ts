@@ -2142,6 +2142,44 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Naji UAT 2026-05-14 — Add another enrolment for an existing student.
+  async addAdditionalEnrolment(
+    authToken: string,
+    studentId: string,
+    fields: {
+      course_id: string;
+      offering_id?: string;
+      combination_id?: string;
+      mode_of_study?: string;
+      preferred_language?: string;
+      pipeline?: string;
+      pipeline_user?: string;
+      lead_source?: string;
+      reference_student_id?: string;
+      registration_fee?: string;
+      discount?: string;
+      discount_type?: string;
+      gst_percent?: string;
+      final_course_fee?: string;
+      payment_mode?: 'link' | 'manual' | 'draft';
+      manual_payment_mode?: string;
+      manual_reference?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>(`/admin/students/${encodeURIComponent(studentId)}/add-enrolment`, authToken, fields);
+  }
+
+  // Naji UAT 2026-05-14 — duplicate-check used by the Add Lead form's
+  // email/phone onBlur to surface a red banner before the admin keeps typing.
+  async checkLeadDuplicate(authToken: string, params: { email?: string; phone?: string }): Promise<{
+    matches: Array<{ id: number; name: string | null; student_id: string | null; user_email: string | null; phone: string | null; match_via: 'email' | 'phone' | 'both' }>;
+  }> {
+    const payload = await this.get<LegacyEnvelope<{ matches?: unknown[] }>>('/admin/leads/duplicate-check', authToken, params as Record<string, string>);
+    const data = (payload.data ?? {}) as { matches?: unknown[] };
+    const matches = Array.isArray(data.matches) ? data.matches : [];
+    return { matches: matches as { id: number; name: string | null; student_id: string | null; user_email: string | null; phone: string | null; match_via: 'email' | 'phone' | 'both' }[] };
+  }
+
   // Naji UAT 2026-05-13 — admin edit on a payment-schedule row.
   async updateInstallment(
     authToken: string,
