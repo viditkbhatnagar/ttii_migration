@@ -6721,7 +6721,21 @@ export class OperationsService {
     // own leads. Admin / Super Admin see everything.
     const where: Prisma.applicationsWhereInput = { deleted_at: null };
     if (actor.role_id === 9) where.pipeline_user = actor.id;
-    if (options?.stage) where.stage = options.stage;
+    // Naji UAT 2026-05-13 — drop already-converted / enrolled rows so the
+    // per-stage tab counts (which use listAdminApplications) and the
+    // table (which uses listLeads) agree. Once a lead converts, the
+    // source-of-truth row lives under Students; surfacing it here lets
+    // admins accidentally re-process it.
+    if (options?.stage === 'enrolled') {
+      where.stage = 'enrolled';
+    } else {
+      where.is_converted = 0;
+      if (options?.stage) {
+        where.stage = options.stage;
+      } else {
+        where.stage = { not: 'enrolled' };
+      }
+    }
     if (options?.courseId) {
       const cid = toNullableIntId(options.courseId);
       if (cid !== null) where.course_id = cid;
