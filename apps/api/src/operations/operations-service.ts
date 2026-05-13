@@ -9273,6 +9273,13 @@ export class OperationsService {
       if (input.guardianName !== undefined) appFields.guardian_name = input.guardianName || null;
       if (input.aadharNo !== undefined) appFields.aadhar_no = input.aadharNo || null;
       if (input.passportNo !== undefined) appFields.passport_no = input.passportNo || null;
+      // Naji UAT 2026-05-14 — country was declared in the input type but
+      // never written to either users or applications, so every edit on
+      // the Country dropdown silently vanished after save. applications
+      // .country_id is MediumText, so it can carry either the legacy
+      // numeric FK or the country name; the read path (getStudentDetail)
+      // already handles both via parseLooseInt + countryRow lookup.
+      if (input.country !== undefined) appFields.country_id = input.country || null;
       if (input.state !== undefined) appFields.state = input.state || null;
       if (input.city !== undefined) appFields.district = input.city || null;
       if (input.address !== undefined) appFields.address = input.address || null;
