@@ -8,6 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import {
+  User as UserIcon, BookOpen, Wallet, FileText as FileTextIcon, BarChart3, Award,
+  MessageSquare, Activity, Phone as PhoneIcon, Mail as MailIcon, IdCard,
+  GraduationCap, MapPin, Briefcase, TrendingUp, TrendingDown, PlayCircle,
+  CheckCircle2, ClipboardList,
+} from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -15,15 +21,18 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 
-const MAIN_TABS = [
-  'Student Profile',
-  'Enrollments',
-  'Course Fee',
-  'Documents',
-  'Performance Analytics',
-  'Certification',
-  'Communication',
-  'Activity Log',
+// Naji UAT 2026-05-13 — Student Profile page modelled on the
+// regal-folio-kit reference. Each main tab now carries an icon for
+// quicker scanning + an underline indicator on the active tab.
+const MAIN_TABS: { label: string; icon: typeof UserIcon }[] = [
+  { label: 'Student Profile', icon: UserIcon },
+  { label: 'Enrollments', icon: BookOpen },
+  { label: 'Course Fee', icon: Wallet },
+  { label: 'Documents', icon: FileTextIcon },
+  { label: 'Performance Analytics', icon: BarChart3 },
+  { label: 'Certification', icon: Award },
+  { label: 'Communication', icon: MessageSquare },
+  { label: 'Activity Log', icon: Activity },
 ];
 // Naji 2026-05-12 — Application Details is now a tab inside the drill-down
 // (it was a card at the top). Tab indices: 0 Application Details,
@@ -36,6 +45,56 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
       <span className="text-sm font-medium text-gray-500">{label}</span>
       <span className="col-span-2 text-sm text-gray-900">{value || '-'}</span>
+    </div>
+  );
+}
+
+// Reference site uses a coloured icon tile + title + one-line subtitle as
+// each section's header. Reusable wrapper so every section gets the same
+// treatment.
+function SectionHeader({ icon: Icon, title, subtitle, tone = 'primary' }: {
+  icon: typeof UserIcon;
+  title: string;
+  subtitle?: string;
+  tone?: 'primary' | 'sky' | 'amber' | 'emerald' | 'rose' | 'violet';
+}) {
+  const TONES: Record<string, string> = {
+    primary: 'bg-ttii-primary/10 text-ttii-primary',
+    sky: 'bg-sky-100 text-sky-700',
+    amber: 'bg-amber-100 text-amber-700',
+    emerald: 'bg-emerald-100 text-emerald-700',
+    rose: 'bg-rose-100 text-rose-700',
+    violet: 'bg-violet-100 text-violet-700',
+  };
+  return (
+    <div className="flex items-start gap-3">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${TONES[tone]}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0">
+        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+        {subtitle ? <p className="text-xs text-gray-500">{subtitle}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+// Compact info chip used in the hero card (Student ID / Email / Phone /
+// Enrollments). Renders as a small bordered card with icon + label + value.
+function InfoChip({ icon: Icon, label, value }: {
+  icon: typeof UserIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-ttii-primary/10 text-ttii-primary">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</p>
+        <p className="truncate text-sm font-medium text-gray-900">{value || '-'}</p>
+      </div>
     </div>
   );
 }
@@ -359,6 +418,15 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     });
   }, [editEnrolOpen, editEnrolRow, api, session.token]);
 
+  // Naji UAT 2026-05-13 — auto-select the first enrolment when the
+  // Enrollments tab opens so the right pane never sits empty.
+  useEffect(() => {
+    if (activeTab === 1 && selectedEnrollmentIdx === null && enrolments.length > 0) {
+      setSelectedEnrollmentIdx(0);
+      setEnrollmentSubTab(0);
+    }
+  }, [activeTab, selectedEnrollmentIdx, enrolments.length]);
+
   // Pipeline → Pipeline User cascade. Centre lists centres; Admin pulls
   // both Super Admin (role 1) and Admin (role 8) users. Counsellor and
   // Associate are scoped to their single role.
@@ -478,57 +546,92 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         </Button>
       </AdminPageHeader>
 
-      {/* Naji 2026-05-11 — Student identity card. Sits above the tabs and
-          stays visible on every tab so the admin can tell at a glance which
-          student they're viewing without having to go back to the list. */}
+      {/* Hero identity card — Naji UAT 2026-05-13 redesign modelled on
+          the regal-folio-kit reference. Avatar + name + status pill +
+          (when present) primary course pill, secondary line with key
+          facts, then a 4-chip row (Student ID / Email / Phone /
+          Enrollments). Message / Edit Profile actions live top-right. */}
       <Card>
-        <CardContent className="flex flex-wrap items-center gap-4 py-4">
-          {profilePicture ? (
-            <img
-              src={profilePicture}
-              alt={asString(student.name)}
-              className="h-16 w-16 shrink-0 rounded-full border border-gray-200 object-cover"
-            />
-          ) : (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-xl font-semibold text-gray-400">
-              {asString(student.name).charAt(0).toUpperCase() || '?'}
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-lg font-semibold text-gray-900">{asString(student.name) || 'Unnamed Student'}</h2>
-              <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
-              {asString(student.student_id) ? (
-                <span><span className="font-medium text-gray-500">ID:</span> {asString(student.student_id)}</span>
-              ) : null}
-              {asString(student.user_email) ? (
-                <span><span className="font-medium text-gray-500">Email:</span> {asString(student.user_email)}</span>
-              ) : null}
-              {asString(student.phone) ? (
-                <span><span className="font-medium text-gray-500">Phone:</span> {asString(student.phone)}</span>
-              ) : null}
-              {enrolments.length > 0 ? (
-                <span><span className="font-medium text-gray-500">Enrolments:</span> {enrolments.length}</span>
+        <CardContent className="space-y-5 p-6">
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="relative">
+              {profilePicture ? (
+                <img
+                  src={profilePicture}
+                  alt={asString(student.name)}
+                  className="h-20 w-20 shrink-0 rounded-2xl border border-gray-200 object-cover"
+                />
+              ) : (
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-gray-200 bg-gradient-to-br from-ttii-primary/15 to-ttii-secondary/15 text-2xl font-semibold text-ttii-primary">
+                  {asString(student.name).charAt(0).toUpperCase() || '?'}
+                </div>
+              )}
+              {asString(student.status_label).toLowerCase() === 'active' || asString(student.status) === '1' ? (
+                <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white bg-emerald-500" aria-label="Active" />
               ) : null}
             </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-2xl font-semibold text-gray-900">{asString(student.name) || 'Unnamed Student'}</h2>
+                <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
+                {enrolments[0]?.course_title ? (
+                  <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
+                    {asString(enrolments[0].course_title)}
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                {[
+                  asString(student.highest_qualification),
+                  asString(student.country_name) || asString(student.country),
+                  student.created_at ? `Joined ${formatDate(student.created_at)}` : '',
+                ].filter(Boolean).join(' · ') || 'Drill down into an individual learner.'}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const email = asString(student.user_email);
+                  if (email) window.location.href = `mailto:${email}`;
+                }}
+              >
+                <MessageSquare className="mr-1.5 h-4 w-4" />
+                Message
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => onNavigate(`/admin/students/edit/${studentId}`)}
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+              >
+                Edit profile
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <InfoChip icon={IdCard} label="Student ID" value={asString(student.student_id)} />
+            <InfoChip icon={MailIcon} label="Email" value={asString(student.user_email)} />
+            <InfoChip icon={PhoneIcon} label="Phone" value={asString(student.phone)} />
+            <InfoChip icon={BookOpen} label="Enrollments" value={`${enrolments.length} ${enrolments.length === 1 ? 'course' : 'courses'}`} />
           </div>
         </CardContent>
       </Card>
 
-      {/* Main tab navigation */}
-      <div className="flex gap-1 border-b border-gray-200">
-        {MAIN_TABS.map((label, idx) => (
+      {/* Main tab navigation — icon + label, underline indicator. */}
+      <div className="flex flex-wrap gap-1 border-b border-gray-200">
+        {MAIN_TABS.map(({ label, icon: Icon }, idx) => (
           <button
             key={label}
             type="button"
-            className={`relative px-4 py-2 text-sm font-medium transition-colors ${
+            className={`relative inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === idx ? 'text-ttii-primary' : 'text-gray-500 hover:text-gray-700'
             }`}
             onClick={() => { setActiveTab(idx); setSelectedEnrollmentIdx(null); }}
           >
-            {label}
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
             {activeTab === idx ? (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ttii-primary" />
             ) : null}
@@ -545,7 +648,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* 1. Personal Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Personal Information</CardTitle>
+              <SectionHeader icon={UserIcon} title="Personal Information" subtitle="Identity, contact and demographic details" tone="primary" />
             </CardHeader>
             <CardContent>
               <div className="grid gap-x-8 md:grid-cols-2">
@@ -595,7 +698,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* 2. Contact Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Contact Information</CardTitle>
+              <SectionHeader icon={MapPin} title="Contact Information" subtitle="Phone, address and location" tone="sky" />
             </CardHeader>
             <CardContent>
               <div className="grid gap-x-8 md:grid-cols-2">
@@ -619,7 +722,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* 3. Qualification */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Qualification</CardTitle>
+              <SectionHeader icon={Briefcase} title="Qualification & Employment" subtitle="Highest qualification, school, current role" tone="amber" />
             </CardHeader>
             <CardContent>
               <div className="grid gap-x-8 md:grid-cols-2">
@@ -642,7 +745,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           {/* 4. Education Pathway */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Education Pathway</CardTitle>
+              <SectionHeader icon={GraduationCap} title="Education Pathway" subtitle="History of qualifications, institutions and marks" tone="emerald" />
             </CardHeader>
             <CardContent className="p-0">
               {educationPathway.length > 0 ? (
@@ -1052,33 +1155,98 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         </Card>
       )}
 
-      {/* Tab 2: Enrollments */}
+      {/* Tab 2: Enrollments — Naji UAT 2026-05-13 redesign modelled on
+          the regal-folio-kit reference: a left rail of enrolment cards
+          (one per course) and a right pane showing the selected
+          enrolment's drill-down. Auto-selects the first enrolment when
+          the tab opens. The legacy table view is kept as a fallback
+          when the rail is collapsed (xl: layout). */}
       {activeTab === 1 && (
-        <div className="space-y-4">
-          {/* Naji 2026-05-12 — All Enrollments table stays at the top.
-              Application Details moved INSIDE the drill-down (shows only
-              when a specific enrollment is opened). */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">All Enrollments</CardTitle>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_1fr]">
+          {/* Left rail: enrolled courses */}
+          <Card className="self-start">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Enrolled courses</CardTitle>
+                <span className="text-xs text-gray-500">{enrolments.length} total</span>
+              </div>
             </CardHeader>
-            <CardContent className="p-0">
-              {enrolments.length > 0 ? (
-                <AdminDataTable
-                  columns={enrollmentColumns}
-                  rows={enrolments}
-                  actions={enrollmentActions}
-                  searchable={false}
-                  exportable={false}
-                />
+            <CardContent className="space-y-2 p-3">
+              {enrolments.length === 0 ? (
+                <p className="py-6 text-center text-sm text-gray-400">No enrolments.</p>
               ) : (
-                <p className="py-6 text-center text-sm text-gray-400">No enrollment records found.</p>
+                enrolments.map((e, idx) => {
+                  const isSelected = selectedEnrollmentIdx === idx;
+                  const pct = Math.max(0, Math.min(100, asNumber(e.progress)));
+                  const courseTitle = asString(e.course_title) || `Enrolment ${asString(e.id)}`;
+                  return (
+                    <button
+                      key={asString(e.id) || idx}
+                      type="button"
+                      onClick={() => { setSelectedEnrollmentIdx(idx); setEnrollmentSubTab(0); }}
+                      className={`w-full rounded-lg border p-3 text-left transition ${
+                        isSelected
+                          ? 'border-ttii-primary bg-ttii-primary/5 ring-2 ring-ttii-primary/20'
+                          : 'border-gray-200 hover:border-ttii-primary/40 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isSelected ? 'bg-ttii-primary/15 text-ttii-primary' : 'bg-gray-100 text-gray-600'}`}>
+                          <GraduationCap className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-gray-900">{courseTitle}</p>
+                          <p className="truncate text-[11px] text-gray-500">{asString(e.enrollment_id) || `ID ${asString(e.id)}`}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <AdminStatusBadge status={asString(e.status) || asString(e.enrollment_status) || 'Active'} />
+                        <span className="text-xs font-semibold text-gray-700">{pct}%</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 w-full rounded-full bg-gray-100">
+                        <div
+                          className={`h-1.5 rounded-full ${isSelected ? 'bg-ttii-primary' : 'bg-gray-400'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </CardContent>
           </Card>
-          {selectedEnrollment !== null && (
-            /* Enrollment Detail Drill-down */
-            <div className="space-y-4">
+
+          {/* Right pane: drill-down for the selected enrolment */}
+          <div className="space-y-4">
+            {selectedEnrollment === null ? (
+              <Card>
+                <CardContent className="py-16 text-center text-sm text-gray-400">
+                  Pick a course on the left to see its details.
+                </CardContent>
+              </Card>
+            ) : (
+            <>
+              {/* Course header card — title, breadcrumb, status pill */}
+              <Card>
+                <CardContent className="flex flex-wrap items-start justify-between gap-3 p-5">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                      Enrolment · {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)}
+                    </p>
+                    <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">
+                      {asString(selectedEnrollment?.course_title) || 'Enrolment'}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {[asString(selectedEnrollment?.offering_title), asString(selectedEnrollment?.certificate_combination_code)].filter(Boolean).join(' · ') || '—'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <AdminStatusBadge status={asString(selectedEnrollment?.status) || asString(selectedEnrollment?.enrollment_status) || 'Active'} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Drill-down sub-tabs + content unchanged below */}
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="sm" onClick={() => setSelectedEnrollmentIdx(null)}>
                   ← Close Drill-down
@@ -1135,33 +1303,89 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </Card>
               )}
 
-              {/* Sub-tab: Learning Progress */}
+              {/* Sub-tab: Learning Progress — Naji UAT 2026-05-13 redesign
+                  with icon-led metric cards + 7-day trend deltas, plus
+                  status pills (On track / Ahead / Behind) on each
+                  Subject Progress row. */}
               {enrollmentSubTab === 1 && (
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <Card>
-                      <CardContent className="py-5 text-center">
-                        <p className="text-2xl font-bold text-ttii-primary">{videoProgress.length}</p>
-                        <p className="mt-1 text-sm text-gray-500">Videos Watched</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="py-5 text-center">
-                        <p className="text-2xl font-bold text-ttii-primary">{materialProgress.length}</p>
-                        <p className="mt-1 text-sm text-gray-500">Materials Completed</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="py-5 text-center">
-                        <p className="text-2xl font-bold text-ttii-primary">{assignmentSubmissions.length}</p>
-                        <p className="mt-1 text-sm text-gray-500">Assignments Submitted</p>
-                      </CardContent>
-                    </Card>
-                  </div>
+                  {(() => {
+                    // 7-day delta for each metric. videoProgress carries a
+                    // created_at timestamp per lesson_file; materials use
+                    // the same field; assignments use created_at on the
+                    // submission row.
+                    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                    const oneDayAgo = Date.now() - 1 * 24 * 60 * 60 * 1000;
+                    const recent = (rows: Record<string, unknown>[], since: number) =>
+                      rows.filter((r) => {
+                        const t = new Date(asString(r.created_at) || asString(r.updated_at)).getTime();
+                        return Number.isFinite(t) && t >= since;
+                      }).length;
+                    const videosThisWeek = recent(videoProgress, sevenDaysAgo);
+                    const materialsThisWeek = recent(materialProgress, sevenDaysAgo);
+                    const assignmentsToday = recent(assignmentSubmissions, oneDayAgo);
+                    const cards = [
+                      {
+                        label: 'Videos Watched',
+                        value: videoProgress.length,
+                        delta: videosThisWeek,
+                        deltaLabel: 'this week',
+                        icon: PlayCircle,
+                        tone: 'violet' as const,
+                      },
+                      {
+                        label: 'Materials Completed',
+                        value: materialProgress.length,
+                        delta: materialsThisWeek,
+                        deltaLabel: 'this week',
+                        icon: CheckCircle2,
+                        tone: 'emerald' as const,
+                      },
+                      {
+                        label: 'Assignments Submitted',
+                        value: assignmentSubmissions.length,
+                        delta: assignmentsToday,
+                        deltaLabel: 'today',
+                        icon: ClipboardList,
+                        tone: 'sky' as const,
+                      },
+                    ];
+                    const TONE: Record<string, string> = {
+                      violet: 'bg-violet-100 text-violet-700',
+                      emerald: 'bg-emerald-100 text-emerald-700',
+                      sky: 'bg-sky-100 text-sky-700',
+                    };
+                    return (
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        {cards.map((c) => (
+                          <Card key={c.label}>
+                            <CardContent className="flex items-start justify-between gap-3 p-5">
+                              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${TONE[c.tone]}`}>
+                                <c.icon className="h-5 w-5" />
+                              </div>
+                              <div className="flex flex-col items-end text-right">
+                                {c.delta > 0 ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                    <TrendingUp className="h-3 w-3" />+{c.delta} {c.deltaLabel}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">
+                                    <TrendingDown className="h-3 w-3" />0 {c.deltaLabel}
+                                  </span>
+                                )}
+                                <p className="mt-2 text-2xl font-bold text-gray-900">{c.value}</p>
+                                <p className="text-xs text-gray-500">{c.label}</p>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   {videoProgress.length > 0 && (
                     <Card>
                       <CardHeader>
-                        <CardTitle className="text-base">Subject Progress</CardTitle>
+                        <SectionHeader icon={BarChart3} title="Subject Progress" subtitle="Lesson completion across enrolled subjects" tone="violet" />
                       </CardHeader>
                       <CardContent>
                         {/* Naji 2026-05-12 — Subject → Lesson accordion.
@@ -1215,6 +1439,17 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                                 const subjectPct = totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0;
                                 const subjectKey = `subject:${subject.id}`;
                                 const subjectOpen = expandedNode === subjectKey || expandedNode?.startsWith(`lesson:${subject.id}:`);
+                                // Naji UAT 2026-05-13 — on-track / ahead /
+                                // behind pill modelled on the reference
+                                // student profile. Expected pace = a flat
+                                // 60% target; >= target+15 is Ahead,
+                                // >= target is On track, otherwise Behind.
+                                const TARGET_PCT = 60;
+                                const paceStatus: { label: string; klass: string } = subjectPct >= TARGET_PCT + 15
+                                  ? { label: 'Ahead', klass: 'bg-emerald-100 text-emerald-700' }
+                                  : subjectPct >= TARGET_PCT
+                                    ? { label: 'On track', klass: 'bg-sky-100 text-sky-700' }
+                                    : { label: 'Behind', klass: 'bg-amber-100 text-amber-700' };
                                 return (
                                   <div key={subject.id} className="rounded-md border border-gray-200">
                                     <button
@@ -1227,6 +1462,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                                         <h4 className="text-sm font-semibold text-gray-900">{subject.title}</h4>
                                       </div>
                                       <div className="flex items-center gap-3">
+                                        <span className={`hidden rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline-block ${paceStatus.klass}`}>
+                                          {paceStatus.label}
+                                        </span>
                                         <div className="h-1.5 w-32 rounded-full bg-gray-200">
                                           <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(subjectPct, 100)}%` }} />
                                         </div>
@@ -1498,8 +1736,9 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   </Card>
                 </div>
               )}
-            </div>
+            </>
           )}
+          </div>
         </div>
       )}
 
