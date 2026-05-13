@@ -1622,9 +1622,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   >
                     <option value="">- Select -</option>
                     <option value="Active">Active</option>
+                    <option value="On Hold">On Hold</option>
+                    <option value="Dropout">Dropout</option>
                     <option value="Completed">Completed</option>
-                    <option value="Dropped">Dropped</option>
-                    <option value="Inactive">Inactive</option>
+                    <option value="Graduated">Graduated</option>
                   </select>
                 </div>
                 <div>
