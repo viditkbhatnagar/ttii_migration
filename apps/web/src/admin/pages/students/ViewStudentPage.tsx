@@ -104,9 +104,8 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const [selectedEnrollmentIdx, setSelectedEnrollmentIdx] = useState<number | null>(null);
   const [enrollmentSubTab, setEnrollmentSubTab] = useState(0);
   // Naji 2026-05-12 — Subject Progress accordion: only one node (subject
-  // or lesson) is expanded at a time. Key format: `subject:<id>` or
-  // `lesson:<subjectId>:<lessonId>`.
-  const [expandedNode, setExpandedNode] = useState<string | null>(null);
+  // (Subject Progress accordion state retired 2026-05-14 — replaced
+  // with the flat row layout from the regal-folio-kit reference.)
 
   // Edit Enrolment dialog state (Naji UAT 2026-05-12)
   const [editEnrolOpen, setEditEnrolOpen] = useState(false);
@@ -315,46 +314,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   // Selected enrollment for drill-down
   const selectedEnrollment = selectedEnrollmentIdx !== null ? enrolments[selectedEnrollmentIdx] : null;
 
-  // Enrollment table columns
-  const enrollmentColumns: DataTableColumn[] = useMemo(
-    () => [
-      { key: 'enrollment_id', label: 'Enrollment ID', render: (v, row) => asString(v) || asString(row.id) || '-' },
-      { key: 'enrollment_date', label: 'Date of Enrollment', render: (v, row) => formatDate(v || row.created_at) },
-      { key: 'course_title', label: 'Course Name', render: (v) => asString(v) || '-' },
-      { key: 'offering_title', label: 'Course Offering', render: (v) => asString(v) || '-' },
-      { key: 'certificate_combination_code', label: 'Certificate Combination', render: (v) => asString(v) || '-' },
-      {
-        key: 'course_fee',
-        label: 'Course Fee',
-        render: (v) => {
-          const fee = asNumber(v);
-          return fee ? `₹${fee.toLocaleString()}` : '-';
-        },
-      },
-      {
-        key: 'progress',
-        label: 'Progress',
-        render: (v) => {
-          const pct = asNumber(v);
-          return (
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-20 rounded-full bg-gray-200">
-                <div className="h-2 rounded-full bg-ttii-primary" style={{ width: `${Math.min(pct, 100)}%` }} />
-              </div>
-              <span className="text-xs text-gray-500">{pct}%</span>
-            </div>
-          );
-        },
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        render: (v, row) => <AdminStatusBadge status={asString(v) || asString(row.enrollment_status) || 'Active'} />,
-      },
-    ],
-    [],
-  );
-
+  // Edit Enrolment trigger — surfaces from the course header card on
+  // the right pane of the Enrolments tab. Naji UAT 2026-05-14 — the
+  // older flat table was retired with the left-rail redesign, so the
+  // legacy enrollmentColumns + enrollmentActions blocks were dropped.
   const openEditEnrol = (row: Record<string, unknown>) => {
     setEditEnrolRow(row);
     setEnrolForm({
@@ -370,25 +333,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     });
     setEditEnrolOpen(true);
   };
-
-  const enrollmentActions = useMemo(
-    () => [
-      {
-        label: 'View',
-        onClick: (_row: Record<string, unknown>, index: number) => {
-          setSelectedEnrollmentIdx(index);
-          setEnrollmentSubTab(0);
-        },
-      },
-      {
-        label: 'Edit',
-        onClick: (row: Record<string, unknown>) => {
-          openEditEnrol(row);
-        },
-      },
-    ],
-    [],
-  );
 
   // Load dropdown sources once the dialog opens.
   useEffect(() => {
@@ -1394,6 +1338,13 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700">
                       {ENROLLMENT_SUB_TABS[enrollmentSubTab]}
                     </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { if (selectedEnrollment) openEditEnrol(selectedEnrollment); }}
+                    >
+                      Edit enrolment
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
