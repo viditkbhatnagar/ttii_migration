@@ -52,17 +52,21 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
 
   const allStudents = useMemo(() => toRecords(data), [data]);
 
+  // Naji UAT 2026-05-13 — Inactive status is driven by the universal
+  // disabled_at toggle, not the legacy users.status field. Graduated /
+  // Dropped tabs were removed from the Students page (they belong on
+  // Enrolments).
+  const isInactive = (row: Record<string, unknown>): boolean => Boolean(row.disabled_at);
+
   /* ── Client-side tab + status filtering ──────────────────────────────────── */
   const filteredStudents = useMemo(() => {
     let list = allStudents;
 
-    if (statusFilter) {
-      list = list.filter((r) => asString(r.status_label) === statusFilter);
-    }
+    if (statusFilter === 'Active') list = list.filter((r) => !isInactive(r));
+    else if (statusFilter === 'Inactive') list = list.filter(isInactive);
 
-    if (activeTab !== 'all') {
-      list = list.filter((r) => asString(r.status_label) === activeTab);
-    }
+    if (activeTab === 'Active') list = list.filter((r) => !isInactive(r));
+    else if (activeTab === 'Inactive') list = list.filter(isInactive);
 
     return list;
   }, [allStudents, statusFilter, activeTab]);
@@ -71,10 +75,8 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   const tabs: AdminTab[] = useMemo(
     () => [
       { id: 'all', label: 'All', count: allStudents.length },
-      { id: 'Active', label: 'Active', count: allStudents.filter((r) => asString(r.status_label) === 'Active').length },
-      { id: 'Inactive', label: 'Inactive', count: allStudents.filter((r) => asString(r.status_label) === 'Inactive').length },
-      { id: 'Graduated', label: 'Graduated', count: allStudents.filter((r) => asString(r.status_label) === 'Graduated').length },
-      { id: 'Dropped', label: 'Dropped', count: allStudents.filter((r) => asString(r.status_label) === 'Dropped').length },
+      { id: 'Active', label: 'Active', count: allStudents.filter((r) => !isInactive(r)).length },
+      { id: 'Inactive', label: 'Inactive', count: allStudents.filter(isInactive).length },
     ],
     [allStudents],
   );
@@ -100,8 +102,6 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         options: [
           { label: 'Active', value: 'Active' },
           { label: 'Inactive', value: 'Inactive' },
-          { label: 'Graduated', value: 'Graduated' },
-          { label: 'Dropped', value: 'Dropped' },
         ],
         onChange: setStatusFilter,
       },
@@ -216,8 +216,12 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         key: 'status_label',
         label: 'Status',
         sortable: true,
-        render: (value: unknown) => {
-          const status = asString(value) || 'Inactive';
+        render: (value: unknown, row: Record<string, unknown>) => {
+          // disabled_at takes precedence over status_label so a disabled
+          // student always reads as Inactive in the badge + the Inactive
+          // tab. Naji UAT 2026-05-13.
+          if (row.disabled_at) return <AdminStatusBadge status="Inactive" />;
+          const status = asString(value) || 'Active';
           return <AdminStatusBadge status={status} />;
         },
       },
