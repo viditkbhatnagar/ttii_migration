@@ -6434,14 +6434,18 @@ export class OperationsService {
     const phoneSuffix = phoneDigits.slice(-10);
     if (!email && !phoneSuffix) return { matches: [] };
 
+    // Legacy data quirk: `users.email` column actually stores the phone
+    // (the PHP LMS reused that column as a phone-with-country-code field),
+    // and `users.user_email` is the real email. Match email only against
+    // user_email; match phone against BOTH phone and email columns.
     const where: Prisma.usersWhereInput = { role_id: 2, deleted_at: null };
     const orConds: Prisma.usersWhereInput[] = [];
     if (email) {
       orConds.push({ user_email: { contains: email } });
-      orConds.push({ email: { contains: email } });
     }
     if (phoneSuffix) {
       orConds.push({ phone: { endsWith: phoneSuffix } });
+      orConds.push({ email: { endsWith: phoneSuffix } });
     }
     where.OR = orConds;
 
@@ -6453,10 +6457,11 @@ export class OperationsService {
     });
 
     const matches = rows.map((r) => {
-      const rowEmail = (r.user_email || r.email || '').toLowerCase();
+      const rowEmail = (r.user_email || '').toLowerCase();
       const rowPhone = (r.phone || '').replace(/\D/g, '');
+      const rowLegacyPhone = (r.email || '').replace(/\D/g, '');
       const emailMatch = !!email && rowEmail === email;
-      const phoneMatch = !!phoneSuffix && rowPhone.endsWith(phoneSuffix);
+      const phoneMatch = !!phoneSuffix && (rowPhone.endsWith(phoneSuffix) || rowLegacyPhone.endsWith(phoneSuffix));
       const via: 'email' | 'phone' | 'both' = emailMatch && phoneMatch
         ? 'both'
         : emailMatch
@@ -6466,8 +6471,8 @@ export class OperationsService {
         id: r.id,
         name: r.name,
         student_id: r.student_id,
-        user_email: r.user_email || r.email,
-        phone: r.phone,
+        user_email: r.user_email,
+        phone: r.phone || r.email, // surface whichever holds the phone
         match_via: via,
       };
     });
