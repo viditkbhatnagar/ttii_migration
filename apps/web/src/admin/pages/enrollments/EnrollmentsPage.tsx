@@ -8,12 +8,30 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
+import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
+
+// Naji UAT 2026-05-13 — canonical enrolment statuses. Tabs + summary
+// cards mirror the Edit Enrolment dialog dropdown.
+const ENROLMENT_STATUSES = ['Active', 'On Hold', 'Dropout', 'Completed', 'Graduated'] as const;
+type EnrolmentStatus = (typeof ENROLMENT_STATUSES)[number];
+
+function normalizeStatus(raw: string): EnrolmentStatus | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  // Map legacy spellings to the canonical labels.
+  if (s === 'active') return 'Active';
+  if (s === 'on hold' || s === 'onhold' || s === 'hold' || s === 'pending') return 'On Hold';
+  if (s === 'dropout' || s === 'drop out' || s === 'dropped' || s === 'inactive') return 'Dropout';
+  if (s === 'completed' || s === 'complete') return 'Completed';
+  if (s === 'graduated' || s === 'graduate') return 'Graduated';
+  return null;
+}
 
 export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [offeringFilter, setOfferingFilter] = useState('');
   const [combinationFilter, setCombinationFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [activeStatusTab, setActiveStatusTab] = useState<string>('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
@@ -53,13 +71,14 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
     return titles.sort().map((t) => ({ label: t, value: t }));
   }, [allEnrollments, courseFilter, offeringFilter]);
 
-  // Apply filters client-side (keeps single-round-trip load + fast UX)
-  const filteredEnrollments = useMemo(() => {
+  // Tab counts (mapped onto the canonical 5 statuses). Run BEFORE the
+  // status-tab filter so the badges reflect the full course/offering
+  // filtered set, not the currently selected tab.
+  const filteredByOthers = useMemo(() => {
     return allEnrollments.filter((r) => {
       if (courseFilter && asString(r.course_title) !== courseFilter) return false;
       if (offeringFilter && asString(r.course_offering) !== offeringFilter) return false;
       if (combinationFilter && asString(r.combination_title) !== combinationFilter) return false;
-      if (statusFilter && asString(r.enrollment_status).toLowerCase() !== statusFilter.toLowerCase()) return false;
       if (fromDate || toDate) {
         const dateStr = asString(r.enrollment_date) || asString(r.created_at);
         if (!dateStr) return false;
@@ -69,22 +88,28 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
       }
       return true;
     });
-  }, [allEnrollments, courseFilter, offeringFilter, combinationFilter, statusFilter, fromDate, toDate]);
+  }, [allEnrollments, courseFilter, offeringFilter, combinationFilter, fromDate, toDate]);
 
-  const activeCount = useMemo(
-    () => allEnrollments.filter((r) => asString(r.enrollment_status).toLowerCase() === 'active').length,
-    [allEnrollments],
-  );
+  const statusCounts = useMemo(() => {
+    const counts: Record<EnrolmentStatus, number> = {
+      Active: 0, 'On Hold': 0, Dropout: 0, Completed: 0, Graduated: 0,
+    };
+    for (const r of filteredByOthers) {
+      // Default unmarked rows to Active so the totals add up cleanly.
+      const s = normalizeStatus(asString(r.enrollment_status)) ?? 'Active';
+      counts[s] += 1;
+    }
+    return counts;
+  }, [filteredByOthers]);
 
-  const pendingCount = useMemo(
-    () => allEnrollments.filter((r) => asString(r.enrollment_status).toLowerCase() === 'pending').length,
-    [allEnrollments],
-  );
-
-  const uniqueCourses = useMemo(
-    () => new Set(allEnrollments.map((r) => asString(r.course_title)).filter(Boolean)).size,
-    [allEnrollments],
-  );
+  // Apply status-tab filter on top of the other filters.
+  const filteredEnrollments = useMemo(() => {
+    if (activeStatusTab === 'all') return filteredByOthers;
+    return filteredByOthers.filter((r) => {
+      const s = normalizeStatus(asString(r.enrollment_status)) ?? 'Active';
+      return s === activeStatusTab;
+    });
+  }, [filteredByOthers, activeStatusTab]);
 
   const columns: DataTableColumn[] = useMemo(
     () => [
@@ -174,24 +199,18 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
         options: combinationOptions,
         onChange: setCombinationFilter,
       },
-      {
-        key: 'status',
-        label: 'Status',
-        type: 'select' as const,
-        value: statusFilter,
-        placeholder: 'All',
-        options: [
-          { label: 'Active', value: 'active' },
-          { label: 'Pending', value: 'pending' },
-          { label: 'Completed', value: 'completed' },
-          { label: 'Dropped', value: 'dropped' },
-        ],
-        onChange: setStatusFilter,
-      },
       { key: 'from_date', label: 'From Date', type: 'date' as const, value: fromDate, onChange: setFromDate },
       { key: 'to_date', label: 'To Date', type: 'date' as const, value: toDate, onChange: setToDate },
     ],
-    [courseOptions, courseFilter, offeringOptions, offeringFilter, combinationOptions, combinationFilter, statusFilter, fromDate, toDate],
+    [courseOptions, courseFilter, offeringOptions, offeringFilter, combinationOptions, combinationFilter, fromDate, toDate],
+  );
+
+  const statusTabs: AdminTab[] = useMemo(
+    () => [
+      { id: 'all', label: 'All', count: filteredByOthers.length },
+      ...ENROLMENT_STATUSES.map((s) => ({ id: s, label: s, count: statusCounts[s] })),
+    ],
+    [filteredByOthers.length, statusCounts],
   );
 
   if (loading) return <PageLoader label="Loading enrollments..." />;
@@ -208,12 +227,14 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
     <div className="space-y-4">
       <AdminPageHeader title="Enrollments" />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         {[
-          { label: 'Total Enrollments', value: allEnrollments.length },
-          { label: 'Active', value: activeCount },
-          { label: 'Pending', value: pendingCount },
-          { label: 'Unique Courses', value: uniqueCourses },
+          { label: 'Total Enrolments', value: filteredByOthers.length },
+          { label: 'Active', value: statusCounts.Active },
+          { label: 'On Hold', value: statusCounts['On Hold'] },
+          { label: 'Dropout', value: statusCounts.Dropout },
+          { label: 'Completed', value: statusCounts.Completed },
+          { label: 'Graduated', value: statusCounts.Graduated },
         ].map((card) => (
           <Card key={card.label}>
             <CardContent className="p-4">
@@ -231,11 +252,13 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
           setCourseFilter('');
           setOfferingFilter('');
           setCombinationFilter('');
-          setStatusFilter('');
+          setActiveStatusTab('all');
           setFromDate('');
           setToDate('');
         }}
       />
+
+      <AdminTabBar tabs={statusTabs} activeTab={activeStatusTab} onChange={setActiveStatusTab} />
 
       <AdminDataTable columns={columns} rows={filteredEnrollments} actions={actions} />
     </div>
