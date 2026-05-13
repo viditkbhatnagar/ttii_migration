@@ -1226,22 +1226,39 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               </Card>
             ) : (
             <>
-              {/* Course header card — title, breadcrumb, status pill */}
+              {/* Course header card — modelled on the regal-folio-kit
+                  reference: uppercase breadcrumb, course title, secondary
+                  line (offering / combination / cohort code), and two
+                  small pills on the right (status + current sub-tab). */}
               <Card>
-                <CardContent className="flex flex-wrap items-start justify-between gap-3 p-5">
+                <CardContent className="flex flex-wrap items-start justify-between gap-3 p-6">
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                      Enrolment · {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)}
+                      Enrollment · {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)}
                     </p>
-                    <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">
+                    <h3 className="mt-1 truncate text-xl font-semibold text-gray-900">
                       {asString(selectedEnrollment?.course_title) || 'Enrolment'}
                     </h3>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {[asString(selectedEnrollment?.offering_title), asString(selectedEnrollment?.certificate_combination_code)].filter(Boolean).join(' · ') || '—'}
+                    <p className="mt-1 text-sm text-gray-500">
+                      {[
+                        asString(selectedEnrollment?.offering_title),
+                        asString(selectedEnrollment?.certificate_combination_code),
+                        asString(selectedEnrollment?.cohort_title) || asString(selectedEnrollment?.batch_title),
+                      ].filter(Boolean).join(' · ') || '—'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <AdminStatusBadge status={asString(selectedEnrollment?.status) || asString(selectedEnrollment?.enrollment_status) || 'Active'} />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700">
+                      {(() => {
+                        const pct = asNumber(selectedEnrollment?.progress);
+                        if (pct >= 100) return 'Completed';
+                        if (pct > 0) return 'In progress';
+                        return 'Not started';
+                      })()}
+                    </span>
+                    <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700">
+                      {ENROLLMENT_SUB_TABS[enrollmentSubTab]}
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -1359,23 +1376,23 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                       <div className="grid gap-4 sm:grid-cols-3">
                         {cards.map((c) => (
                           <Card key={c.label}>
-                            <CardContent className="flex items-start justify-between gap-3 p-5">
-                              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${TONE[c.tone]}`}>
-                                <c.icon className="h-5 w-5" />
-                              </div>
-                              <div className="flex flex-col items-end text-right">
+                            <CardContent className="p-6">
+                              <div className="flex items-start justify-between">
+                                <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${TONE[c.tone]}`}>
+                                  <c.icon className="h-5 w-5" />
+                                </div>
                                 {c.delta > 0 ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
                                     <TrendingUp className="h-3 w-3" />+{c.delta} {c.deltaLabel}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
                                     <TrendingDown className="h-3 w-3" />0 {c.deltaLabel}
                                   </span>
                                 )}
-                                <p className="mt-2 text-2xl font-bold text-gray-900">{c.value}</p>
-                                <p className="text-xs text-gray-500">{c.label}</p>
                               </div>
+                              <p className="mt-5 text-3xl font-bold text-gray-900">{c.value}</p>
+                              <p className="mt-1 text-sm text-gray-500">{c.label}</p>
                             </CardContent>
                           </Card>
                         ))}
@@ -1384,28 +1401,33 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   })()}
                   {videoProgress.length > 0 && (
                     <Card>
-                      <CardHeader>
-                        <SectionHeader icon={BarChart3} title="Subject Progress" subtitle="Lesson completion across enrolled subjects" tone="violet" />
-                      </CardHeader>
-                      <CardContent>
-                        {/* Naji 2026-05-12 — Subject → Lesson accordion.
-                            Each video_progress_status row is a
-                            lesson_file (sub-content), not a lesson. We
-                            dedup by lesson_id so the lesson name shows
-                            once with all its files inside. Subject and
-                            lesson are expandable; only one node expanded
-                            at a time. */}
+                      <CardContent className="p-6">
+                        {/* Header row: title + subtitle on the left,
+                            View report link on the right — matching the
+                            regal-folio-kit reference. */}
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Subject progress</h3>
+                            <p className="text-sm text-gray-500">Lesson completion across enrolled subjects</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEnrollmentSubTab(4)}
+                            className="text-sm font-medium text-ttii-primary hover:text-ttii-primary/80"
+                          >
+                            View report →
+                          </button>
+                        </div>
+                        {/* Flat per-subject list. Naji UAT 2026-05-14 —
+                            replaced the previous accordion with the
+                            cleaner per-subject row from the reference. */}
                         {(() => {
-                          type LessonBucket = {
-                            id: string;
-                            title: string;
-                            files: Record<string, unknown>[];
-                          };
                           type SubjectBucket = {
                             id: string;
                             title: string;
                             order: number;
-                            lessons: Map<string, LessonBucket>;
+                            lessonIds: Set<string>;
+                            files: Record<string, unknown>[];
                           };
                           const subjects = new Map<string, SubjectBucket>();
                           for (const vp of videoProgress) {
@@ -1413,114 +1435,67 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                             const stitle = asString(vp.subject_title) || 'Other';
                             const order = asNumber(vp.subject_order);
                             if (!subjects.has(sid)) {
-                              subjects.set(sid, { id: sid, title: stitle, order, lessons: new Map() });
+                              subjects.set(sid, { id: sid, title: stitle, order, lessonIds: new Set(), files: [] });
                             }
                             const subj = subjects.get(sid);
                             if (!subj) continue;
                             const lid = asString(vp.lesson_id) || `lf-${asString(vp.lesson_file_id)}`;
-                            const ltitle = asString(vp.lesson_title) || 'Lesson';
-                            if (!subj.lessons.has(lid)) {
-                              subj.lessons.set(lid, { id: lid, title: ltitle, files: [] });
-                            }
-                            subj.lessons.get(lid)?.files.push(vp);
+                            subj.lessonIds.add(lid);
+                            subj.files.push(vp);
                           }
                           const orderedSubjects = [...subjects.values()].sort((a, b) => {
                             if (a.id === 'none') return 1;
                             if (b.id === 'none') return -1;
                             return a.order - b.order;
                           });
+                          const TARGET_PCT = 60;
                           return (
-                            <div className="space-y-2">
+                            <div className="mt-6 space-y-5">
                               {orderedSubjects.map((subject) => {
-                                const lessons = [...subject.lessons.values()];
-                                const allFiles = lessons.flatMap((l) => l.files);
-                                const totalFiles = allFiles.length;
-                                const completedFiles = allFiles.filter((f) => asNumber(f.status) === 1).length;
+                                const totalFiles = subject.files.length;
+                                const completedFiles = subject.files.filter((f) => asNumber(f.status) === 1).length;
                                 const subjectPct = totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0;
-                                const subjectKey = `subject:${subject.id}`;
-                                const subjectOpen = expandedNode === subjectKey || expandedNode?.startsWith(`lesson:${subject.id}:`);
-                                // Naji UAT 2026-05-13 — on-track / ahead /
-                                // behind pill modelled on the reference
-                                // student profile. Expected pace = a flat
-                                // 60% target; >= target+15 is Ahead,
-                                // >= target is On track, otherwise Behind.
-                                const TARGET_PCT = 60;
-                                const paceStatus: { label: string; klass: string } = subjectPct >= TARGET_PCT + 15
+                                const totalLessons = subject.lessonIds.size;
+                                const completedLessons = (() => {
+                                  // Count a lesson as completed when every
+                                  // file under it is marked complete.
+                                  const byLesson = new Map<string, { total: number; done: number }>();
+                                  for (const f of subject.files) {
+                                    const lid = asString(f.lesson_id) || `lf-${asString(f.lesson_file_id)}`;
+                                    const cur = byLesson.get(lid) ?? { total: 0, done: 0 };
+                                    cur.total += 1;
+                                    if (asNumber(f.status) === 1) cur.done += 1;
+                                    byLesson.set(lid, cur);
+                                  }
+                                  let done = 0;
+                                  for (const v of byLesson.values()) if (v.total > 0 && v.done === v.total) done += 1;
+                                  return done;
+                                })();
+                                const paceStatus = subjectPct >= TARGET_PCT + 15
                                   ? { label: 'Ahead', klass: 'bg-emerald-100 text-emerald-700' }
                                   : subjectPct >= TARGET_PCT
                                     ? { label: 'On track', klass: 'bg-sky-100 text-sky-700' }
                                     : { label: 'Behind', klass: 'bg-amber-100 text-amber-700' };
                                 return (
-                                  <div key={subject.id} className="rounded-md border border-gray-200">
-                                    <button
-                                      type="button"
-                                      onClick={() => setExpandedNode(subjectOpen && expandedNode === subjectKey ? null : subjectKey)}
-                                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <span className={`text-gray-400 transition-transform ${subjectOpen ? 'rotate-90' : ''}`}>▶</span>
-                                        <h4 className="text-sm font-semibold text-gray-900">{subject.title}</h4>
+                                  <div key={subject.id}>
+                                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <h4 className="truncate text-base font-semibold text-gray-900">{subject.title}</h4>
+                                        <p className="text-xs text-gray-500">{completedLessons} / {totalLessons} lessons</p>
                                       </div>
                                       <div className="flex items-center gap-3">
-                                        <span className={`hidden rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline-block ${paceStatus.klass}`}>
+                                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${paceStatus.klass}`}>
                                           {paceStatus.label}
                                         </span>
-                                        <div className="h-1.5 w-32 rounded-full bg-gray-200">
-                                          <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(subjectPct, 100)}%` }} />
-                                        </div>
-                                        <span className="whitespace-nowrap text-xs text-gray-500">
-                                          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} • {subjectPct}%
-                                        </span>
+                                        <span className="text-sm font-semibold text-gray-900">{subjectPct}%</span>
                                       </div>
-                                    </button>
-                                    {subjectOpen ? (
-                                      <div className="space-y-1 border-t border-gray-100 bg-gray-50/50 px-3 py-2">
-                                        {lessons.map((lesson) => {
-                                          const lessonKey = `lesson:${subject.id}:${lesson.id}`;
-                                          const lessonOpen = expandedNode === lessonKey;
-                                          const lessonCompleted = lesson.files.filter((f) => asNumber(f.status) === 1).length;
-                                          const lessonPct = lesson.files.length > 0 ? Math.round((lessonCompleted / lesson.files.length) * 100) : 0;
-                                          return (
-                                            <div key={lesson.id} className="rounded-md border border-gray-200 bg-white">
-                                              <button
-                                                type="button"
-                                                onClick={() => setExpandedNode(lessonOpen ? subjectKey : lessonKey)}
-                                                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-gray-50"
-                                              >
-                                                <div className="flex items-center gap-2">
-                                                  <span className={`text-gray-400 transition-transform ${lessonOpen ? 'rotate-90' : ''}`}>▶</span>
-                                                  <span className="text-sm text-gray-800">{lesson.title}</span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                  <div className="h-1.5 w-24 rounded-full bg-gray-200">
-                                                    <div className="h-1.5 rounded-full bg-ttii-primary" style={{ width: `${Math.min(lessonPct, 100)}%` }} />
-                                                  </div>
-                                                  <span className="whitespace-nowrap text-xs text-gray-500">
-                                                    {lessonCompleted}/{lesson.files.length} • {lessonPct}%
-                                                  </span>
-                                                </div>
-                                              </button>
-                                              {lessonOpen ? (
-                                                <ul className="space-y-1 border-t border-gray-100 px-3 py-2 text-sm text-gray-700">
-                                                  {lesson.files.map((f, idx) => {
-                                                    const done = asNumber(f.status) === 1;
-                                                    return (
-                                                      <li key={idx} className="flex items-center justify-between gap-2">
-                                                        <span className="truncate">
-                                                          <span className={`mr-2 inline-block size-2 rounded-full ${done ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                                          Content #{asString(f.lesson_file_id) || idx + 1}
-                                                        </span>
-                                                        <span className="text-xs text-gray-500">{done ? 'Completed' : 'Pending'}</span>
-                                                      </li>
-                                                    );
-                                                  })}
-                                                </ul>
-                                              ) : null}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    ) : null}
+                                    </div>
+                                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                                      <div
+                                        className="h-2 rounded-full bg-ttii-primary transition-all"
+                                        style={{ width: `${Math.min(subjectPct, 100)}%` }}
+                                      />
+                                    </div>
                                   </div>
                                 );
                               })}
