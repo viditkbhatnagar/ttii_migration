@@ -1791,6 +1791,28 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji UAT 2026-05-14 — Cohort > Add Learner dialog. Was 404-ing
+  // (no backend handler) which is why the dialog always showed
+  // "No available students".
+  app.get('/admin/cohorts/available_learners', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listAvailableCohortLearners(toStringValue(payload.cohort_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+  app.post('/admin/cohorts/add_learners', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const raw = payload.student_ids;
+      const studentIds: string[] = Array.isArray(raw)
+        ? raw.map((v) => toStringValue(v)).filter((s) => s.length > 0)
+        : toStringValue(raw).split(',').map((s) => s.trim()).filter(Boolean);
+      const result = await operationsService.addCohortLearners(requestUserId(request), toStringValue(payload.cohort_id), studentIds);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji UAT 2026-05-13 — Cohort Edit page calls these from the
   // Assignments side-panel. Routes existed only on the legacy PHP LMS
   // until now; the new admin shell was 404-ing.

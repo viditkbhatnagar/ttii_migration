@@ -1412,13 +1412,18 @@ function AddLearnerModal({
                         <td className="px-3 py-2 text-xs">{idx + 1}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <Avatar className="size-7">
+                            <Avatar className="size-8">
                               {asString(s.image) ? <AvatarImage src={asString(s.image)} alt="" /> : null}
                               <AvatarFallback className="bg-ttii-primary text-[9px] text-white">
                                 {(asString(s.name) || 'S').charAt(0).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="text-xs font-medium">{asString(s.name)}</span>
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium text-gray-900">{asString(s.name) || '—'}</p>
+                              <p className="truncate text-[11px] text-gray-500">
+                                {[asString(s.student_id), asString(s.course_title)].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
                           </div>
                         </td>
                       </tr>

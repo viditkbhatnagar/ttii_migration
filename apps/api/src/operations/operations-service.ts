@@ -4357,6 +4357,161 @@ export class OperationsService {
   // Submissions tab always rendered "No submissions yet". Returns the
   // submitted rows plus the still-pending students (cohort roster minus
   // submitters), so the Unsubmitted Students tab also works.
+  // Naji UAT 2026-05-14 — Cohort > Add Learner dialog. Returns the list
+  // of students eligible to be added to this cohort:
+  //   - role_id = 2 (Student), not deleted, not disabled (disabled_at NULL)
+  //   - enrolled in the cohort's course via an active enrol row
+  //     (enrollment_status = Active or On Hold or NULL fallback)
+  //   - enrolled course must be cohort-based (course.course_type=1) and
+  //     not self-study
+  //   - the cohort's subject must be one of the course's configured
+  //     subjects (course_subject pivot)
+  //   - the student must not already be in this cohort OR any other
+  //     cohort that shares the same subject
+  async listAvailableCohortLearners(cohortId: string): Promise<SqlRow[]> {
+    const cId = toIntId(cohortId);
+    if (!cId) return [];
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cId, deleted_at: null },
+      select: { id: true, cohort_id: true, course_id: true, subject_id: true },
+    });
+    if (!cohort || !cohort.course_id) return [];
+
+    // Course must be cohort-based (course_type=1). Self-study courses
+    // (course_type != 1) are skipped per the eligibility rules.
+    const course = await this.prisma.course.findFirst({
+      where: { id: cohort.course_id },
+      select: { id: true, title: true, course_type: true },
+    });
+    if (!course || course.course_type !== 1) return [];
+
+    // Subject must be in the course's curriculum.
+    if (cohort.subject_id) {
+      const subjectInCourse = await this.prisma.course_subject.findFirst({
+        where: { course_id: cohort.course_id, subject_id: cohort.subject_id, deleted_at: null },
+        select: { course_id: true },
+      });
+      if (!subjectInCourse) return [];
+    }
+
+    // Pull enrolments for this course with the right status.
+    const enrolments = await this.prisma.enrol.findMany({
+      where: {
+        course_id: cohort.course_id,
+        deleted_at: null,
+        OR: [
+          { enrollment_status: { in: ['Active', 'On Hold', 'active', 'on hold'] } },
+          { enrollment_status: null },
+        ],
+      },
+      select: { user_id: true, course_id: true, enrollment_status: true },
+    });
+    const candidateUserIds = [...new Set(enrolments.map((e) => e.user_id).filter((x): x is number => x != null))];
+    if (candidateUserIds.length === 0) return [];
+
+    // Drop students who are already in this cohort OR any other cohort
+    // sharing the same subject. cohort_students.cohort_id is a TEXT
+    // column that may hold either the numeric pk or the legacy text
+    // code; query for both.
+    let excludedUserIds = new Set<number>();
+    if (cohort.subject_id) {
+      const cohortsSharingSubject = await this.prisma.cohorts.findMany({
+        where: { subject_id: cohort.subject_id, deleted_at: null },
+        select: { id: true, cohort_id: true },
+      });
+      const cohortKeys: string[] = [];
+      for (const c of cohortsSharingSubject) {
+        cohortKeys.push(String(c.id));
+        if (c.cohort_id) cohortKeys.push(c.cohort_id);
+      }
+      if (cohortKeys.length > 0) {
+        const enrolled = await this.prisma.cohort_students.findMany({
+          where: { cohort_id: { in: cohortKeys }, deleted_at: null, user_id: { in: candidateUserIds } },
+          select: { user_id: true },
+        });
+        excludedUserIds = new Set(enrolled.map((e) => e.user_id).filter((x): x is number => x != null));
+      }
+    } else {
+      // No subject → only exclude users already in THIS cohort.
+      const thisCohortKeys = [String(cohort.id)];
+      if (cohort.cohort_id) thisCohortKeys.push(cohort.cohort_id);
+      const enrolled = await this.prisma.cohort_students.findMany({
+        where: { cohort_id: { in: thisCohortKeys }, deleted_at: null, user_id: { in: candidateUserIds } },
+        select: { user_id: true },
+      });
+      excludedUserIds = new Set(enrolled.map((e) => e.user_id).filter((x): x is number => x != null));
+    }
+
+    const finalUserIds = candidateUserIds.filter((uid) => !excludedUserIds.has(uid));
+    if (finalUserIds.length === 0) return [];
+
+    const users = await this.prisma.users.findMany({
+      where: { id: { in: finalUserIds }, deleted_at: null, disabled_at: null, role_id: 2 },
+      select: {
+        id: true, name: true, student_id: true, user_email: true, phone: true,
+        image: true, profile_picture: true,
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+
+    return users.map((u) => ({
+      id: u.id,
+      _id: u.id,
+      name: u.name,
+      student_id: u.student_id,
+      user_email: u.user_email,
+      phone: u.phone,
+      course_id: course.id,
+      course_title: course.title,
+      image: toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture),
+    })) as unknown as SqlRow[];
+  }
+
+  // Naji UAT 2026-05-14 — bulk-assign students to a cohort. Each row in
+  // cohort_students stores cohort_id as a string (legacy schema quirk),
+  // so we store the numeric pk as a string for the new entries.
+  async addCohortLearners(actorUserId: string, cohortId: string, studentIds: string[]): Promise<Record<string, unknown>> {
+    const cId = toIntId(cohortId);
+    if (!cId) return { status: 0, message: 'Invalid cohort id.' };
+    const ids = (studentIds || []).map((s) => toIntId(s)).filter((n) => n > 0);
+    if (ids.length === 0) return { status: 0, message: 'Pick at least one student.' };
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cId, deleted_at: null },
+      select: { id: true, cohort_id: true },
+    });
+    if (!cohort) return { status: 0, message: 'Cohort not found.' };
+
+    const cohortKey = String(cohort.id);
+    const now = new Date();
+    const actor = toIntId(actorUserId);
+
+    // Skip students already in this cohort to avoid duplicate rows.
+    const cohortKeys = [cohortKey];
+    if (cohort.cohort_id) cohortKeys.push(cohort.cohort_id);
+    const existing = await this.prisma.cohort_students.findMany({
+      where: { cohort_id: { in: cohortKeys }, user_id: { in: ids }, deleted_at: null },
+      select: { user_id: true },
+    });
+    const existingIds = new Set(existing.map((e) => e.user_id));
+    const toInsert = ids.filter((id) => !existingIds.has(id));
+    if (toInsert.length === 0) return { status: 1, message: 'All selected students are already in this cohort.' };
+
+    await this.prisma.cohort_students.createMany({
+      data: toInsert.map((uid) => ({
+        cohort_id: cohortKey,
+        user_id: uid,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      })),
+    });
+
+    return { status: 1, message: `${toInsert.length} student(s) added.`, data: { added: toInsert.length } };
+  }
+
   async getCohortAssignmentSubmissions(assignmentId: string): Promise<{ submissions: SqlRow[]; unsubmitted: SqlRow[] }> {
     const aId = toIntId(assignmentId);
     if (!aId) return { submissions: [], unsubmitted: [] };
