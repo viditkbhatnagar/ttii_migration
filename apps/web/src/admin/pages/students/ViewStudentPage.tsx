@@ -1263,17 +1263,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </CardContent>
               </Card>
 
-              {/* Drill-down sub-tabs + content unchanged below */}
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" onClick={() => setSelectedEnrollmentIdx(null)}>
-                  ← Close Drill-down
-                </Button>
-                <span className="text-sm font-medium text-gray-600">
-                  Enrollment: {asString(selectedEnrollment?.enrollment_id) || asString(selectedEnrollment?.id)} — {asString(selectedEnrollment?.course_title)}
-                </span>
-              </div>
-
-              {/* Sub-tab navigation */}
+              {/* Sub-tab navigation — Naji UAT 2026-05-14 — dropped
+                  the redundant "Close Drill-down + Enrollment …" row;
+                  the left rail handles course selection and the course
+                  header card directly above already shows the same info. */}
               <div className="flex flex-wrap gap-1 border-b border-gray-200">
                 {ENROLLMENT_SUB_TABS.map((label, idx) => (
                   <button
