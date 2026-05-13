@@ -17,18 +17,25 @@ export function readStoredSession(storageKey = DEFAULT_AUTH_STORAGE_KEY): AuthSe
   }
 
   try {
-    const parsed = JSON.parse(rawValue) as Partial<AuthSession>;
-    if (
-      typeof parsed.token !== 'string'
-      || typeof parsed.userId !== 'number'
-      || typeof parsed.roleId !== 'number'
-    ) {
-      return null;
-    }
+    // AuthSession.userId is a string (legacy LMS returns it as such), but
+    // the original guard checked for `number` and silently dropped every
+    // stored session on page reload, forcing a login. Coerce userId to a
+    // string from whatever the JSON holds; reject only when token /
+    // roleId are missing or malformed (Naji UAT 2026-05-13 — bug report
+    // from Risha: Edit Enrolment save bounced her to /login).
+    const parsed = JSON.parse(rawValue) as Partial<AuthSession> & { userId?: unknown };
+    if (typeof parsed.token !== 'string' || parsed.token === '') return null;
+    if (typeof parsed.roleId !== 'number') return null;
+    const userId = typeof parsed.userId === 'string'
+      ? parsed.userId
+      : typeof parsed.userId === 'number'
+        ? String(parsed.userId)
+        : '';
+    if (!userId) return null;
 
     return {
       token: parsed.token,
-      userId: parsed.userId,
+      userId,
       roleId: parsed.roleId,
     };
   } catch {

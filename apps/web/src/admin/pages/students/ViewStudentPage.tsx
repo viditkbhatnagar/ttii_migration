@@ -87,7 +87,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     return parts[parts.length - 1] || '';
   }, []);
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.getStudentDetail(session.token, studentId),
     [studentId],
   );
@@ -214,7 +214,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       if ((res as { status?: number }).status === 1) {
         toast.success('Installment updated');
         closeEditInstallment();
-        window.location.reload();
+        reload();
       } else {
         toast.error(asString((res as { message?: unknown }).message) || 'Update failed');
       }
@@ -317,7 +317,22 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       api.loadCertificateCombinations(session.token, filters),
       api.loadLanguages(session.token),
     ]).then(([offerings, combinations, languages]) => {
-      setOfferingOptions(offerings.map((o) => ({
+      // Naji UAT 2026-05-13 — sort offerings chronologically. The title
+      // ends with a "Month Year" (e.g. "Diploma ... - May 2026"); parse
+      // that into a Date for stable ordering, with a fallback to start_date
+      // / enrollment_start when present in the API payload.
+      const MONTHS = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const sortKey = (o: Record<string, unknown>): number => {
+        const explicit = asString(o.start_date) || asString(o.enrollment_start);
+        if (explicit) { const t = new Date(explicit).getTime(); if (Number.isFinite(t)) return t; }
+        const tail = (asString(o.title) || asString(o.offering_code) || '').split('-').pop()?.trim().toLowerCase() ?? '';
+        const monthIdx = MONTHS.findIndex((m) => tail.includes(m));
+        const yr = tail.match(/(\d{4})/)?.[1];
+        if (monthIdx >= 0 && yr) return new Date(Number(yr), monthIdx, 1).getTime();
+        return Number.MAX_SAFE_INTEGER; // unknown dates sort to the end
+      };
+      const offeringsSorted = [...offerings].sort((a, b) => sortKey(a) - sortKey(b));
+      setOfferingOptions(offeringsSorted.map((o) => ({
         label: asString(o.title) || asString(o.offering_code) || `Offering ${asString(o.id)}`,
         value: asString(o.id),
       })));
@@ -408,7 +423,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       if ((res as { status?: number }).status === 1) {
         toast.success('Enrolment updated');
         closeEditEnrol();
-        window.location.reload();
+        reload();
       } else {
         toast.error(asString((res as { message?: unknown }).message) || 'Update failed');
       }
