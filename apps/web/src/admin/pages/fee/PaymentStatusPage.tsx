@@ -45,6 +45,7 @@ interface MarkPaidForm {
 export default function PaymentStatusPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
+  const [enrolmentStatusFilter, setEnrolmentStatusFilter] = useState('');
   const [searchText, setSearchText] = useState('');
   const [dueDateFrom, setDueDateFrom] = useState('');
   const [dueDateTo, setDueDateTo] = useState('');
@@ -83,9 +84,18 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
   const allInstallments = useMemo(() => data?.installments ?? [], [data]);
 
   const filteredInstallments = useMemo(() => {
-    if (activeTab === 'all') return allInstallments;
-    return allInstallments.filter((r) => asString(r.computed_status) === activeTab);
-  }, [allInstallments, activeTab]);
+    let list = allInstallments;
+    if (activeTab !== 'all') {
+      list = list.filter((r) => asString(r.computed_status) === activeTab);
+    }
+    // Naji UAT 2026-05-15 — Enrolment Status filter (client-side over the
+    // enrolment_status column we surfaced last round, including the
+    // synthesised "Application" tag).
+    if (enrolmentStatusFilter) {
+      list = list.filter((r) => asString(r.enrolment_status) === enrolmentStatusFilter);
+    }
+    return list;
+  }, [allInstallments, activeTab, enrolmentStatusFilter]);
 
   // Naji UAT 2026-05-14 — order is now Overdue → Due → Upcoming → Paid → All
   // (All moved to the end). The page also defaults to Overdue, which is
@@ -144,7 +154,23 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
       ],
       onChange: setPaymentStatusFilter,
     },
-  ], [searchText, dueDateFrom, dueDateTo, courseFilter, paymentStatusFilter, courses]);
+    {
+      key: 'enrolmentStatus',
+      label: 'Enrolment Status',
+      type: 'select' as const,
+      value: enrolmentStatusFilter,
+      placeholder: 'All',
+      options: [
+        { label: 'Active', value: 'Active' },
+        { label: 'On Hold', value: 'On Hold' },
+        { label: 'Completed', value: 'Completed' },
+        { label: 'Graduated', value: 'Graduated' },
+        { label: 'Dropout', value: 'Dropout' },
+        { label: 'Application', value: 'Application' },
+      ],
+      onChange: setEnrolmentStatusFilter,
+    },
+  ], [searchText, dueDateFrom, dueDateTo, courseFilter, paymentStatusFilter, enrolmentStatusFilter, courses]);
 
   // Reset the rich Mark-Paid form every time the dialog opens for a
   // different row. Reminder dialog doesn't need it.
@@ -419,6 +445,7 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
           setCourseFilter('');
           setSearchText('');
           setPaymentStatusFilter('');
+          setEnrolmentStatusFilter('');
           setDueDateFrom('');
           setDueDateTo('');
         }}

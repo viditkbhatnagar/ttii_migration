@@ -8756,6 +8756,88 @@ export class OperationsService {
         })
       : null;
 
+    // Naji UAT 2026-05-15 — Cohort sub-tab under Enrollments needs to
+    // surface every cohort this student is enrolled in, grouped by the
+    // enrolment's course. cohort_students.cohort_id is a TEXT column
+    // (legacy quirk) that holds either the numeric cohort id or the
+    // human cohort_id code, so look both up.
+    const cohortStudentRows = await this.prisma.cohort_students.findMany({
+      where: { user_id: uid, deleted_at: null },
+      select: { cohort_id: true },
+    });
+    const cohortKeys = [...new Set(cohortStudentRows.map(r => String(r.cohort_id ?? '')).filter(Boolean))];
+    const cohortIntIds = cohortKeys
+      .map(k => parseInt(k, 10))
+      .filter(n => Number.isFinite(n) && n > 0);
+    const studentCohorts = cohortKeys.length > 0
+      ? await this.prisma.cohorts.findMany({
+          where: {
+            deleted_at: null,
+            OR: [
+              ...(cohortIntIds.length > 0 ? [{ id: { in: cohortIntIds } }] : []),
+              { cohort_id: { in: cohortKeys } },
+            ],
+          },
+        })
+      : [];
+    const cohortSubjectIds = [...new Set(studentCohorts.map(c => c.subject_id).filter((x): x is number => x != null))];
+    const cohortInstructorIds = [...new Set(studentCohorts.map(c => c.instructor_id).filter((x): x is number => x != null))];
+    const [cohortSubjects, cohortInstructors] = await Promise.all([
+      cohortSubjectIds.length > 0
+        ? this.prisma.subject.findMany({ where: { id: { in: cohortSubjectIds } }, select: { id: true, title: true } })
+        : Promise.resolve([]),
+      cohortInstructorIds.length > 0
+        ? this.prisma.users.findMany({
+            where: { id: { in: cohortInstructorIds } },
+            select: { id: true, name: true, image: true, profile_picture: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const subjectTitleById = new Map(cohortSubjects.map(s => [s.id, s.title]));
+    const instructorById = new Map(
+      cohortInstructors.map(u => [u.id, {
+        name: u.name ?? null,
+        image: toLegacyFileUrl(u.profile_picture) || toLegacyFileUrl(u.image) || null,
+      }]),
+    );
+    const todayDate = new Date();
+    const cohortsByCourse = new Map<number, Array<{
+      id: number;
+      cohort_code: string | null;
+      title: string | null;
+      subject_id: number | null;
+      subject_title: string | null;
+      start_date: Date | null;
+      end_date: Date | null;
+      instructor_id: number | null;
+      instructor_name: string | null;
+      instructor_photo: string | null;
+      status: 'In Progress' | 'Completed' | 'Upcoming' | 'Active';
+    }>>();
+    for (const c of studentCohorts) {
+      if (c.course_id == null) continue;
+      let status: 'In Progress' | 'Completed' | 'Upcoming' | 'Active' = 'Active';
+      if (c.end_date && c.end_date < todayDate) status = 'Completed';
+      else if (c.start_date && c.start_date > todayDate) status = 'Upcoming';
+      else if (c.start_date && c.start_date <= todayDate) status = 'In Progress';
+      const instr = c.instructor_id != null ? instructorById.get(c.instructor_id) : null;
+      const arr = cohortsByCourse.get(c.course_id) ?? [];
+      arr.push({
+        id: c.id,
+        cohort_code: c.cohort_id ?? null,
+        title: c.title ?? null,
+        subject_id: c.subject_id ?? null,
+        subject_title: c.subject_id != null ? subjectTitleById.get(c.subject_id) ?? null : null,
+        start_date: c.start_date ?? null,
+        end_date: c.end_date ?? null,
+        instructor_id: c.instructor_id ?? null,
+        instructor_name: instr?.name ?? null,
+        instructor_photo: instr?.image ?? null,
+        status,
+      });
+      cohortsByCourse.set(c.course_id, arr);
+    }
+
     const enrichedEnrolments = enrolments.map(e => {
       const course = e.course_id ? courseMap.get(e.course_id) : null;
       const fee = e.course_id ? courseFeeMap.get(e.course_id) : null;
@@ -8776,6 +8858,7 @@ export class OperationsService {
         course_fee: Math.round(courseFee),
         progress,
         status: e.enrollment_status ?? 'Active',
+        cohorts: e.course_id ? cohortsByCourse.get(e.course_id) ?? [] : [],
       };
     });
 

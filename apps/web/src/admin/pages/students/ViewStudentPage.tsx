@@ -38,7 +38,10 @@ const MAIN_TABS: { label: string; icon: typeof UserIcon }[] = [
 // (it was a card at the top). Tab indices: 0 Application Details,
 // 1 Learning Progress, 2 Quiz, 3 Live Class, 4 Assignment, 5 Examination,
 // 6 Payments.
-const ENROLLMENT_SUB_TABS = ['Application Details', 'Learning Progress', 'Quiz', 'Live Class', 'Assignment', 'Examination', 'Payments'];
+// Naji UAT 2026-05-15 — Cohort sub-tab inserted between Live Class and
+// Assignment so the cohort context for an enrolment is one click away
+// from Live Class (the cohort is the parent of the live-class schedule).
+const ENROLLMENT_SUB_TABS = ['Application Details', 'Learning Progress', 'Quiz', 'Live Class', 'Cohort', 'Assignment', 'Examination', 'Payments'];
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -1397,7 +1400,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                           <GraduationCap className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-gray-900">{courseTitle}</p>
+                          {/* Naji UAT 2026-05-15 — single-line truncate
+                              was chopping "Diploma in Montessori Teac…";
+                              allow up to two lines before truncating. */}
+                          <p className="line-clamp-2 break-words text-sm font-medium leading-snug text-gray-900">{courseTitle}</p>
                           <p className="truncate text-[11px] text-gray-500">{asString(e.enrollment_id) || `ID ${asString(e.id)}`}</p>
                         </div>
                       </div>
@@ -1614,7 +1620,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                           </div>
                           <button
                             type="button"
-                            onClick={() => setEnrollmentSubTab(4)}
+                            onClick={() => setEnrollmentSubTab(5)}
                             className="text-sm font-medium text-ttii-primary hover:text-ttii-primary/80"
                           >
                             View report →
@@ -1788,8 +1794,98 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 </Card>
               )}
 
-              {/* Sub-tab: Assignment */}
+              {/* Sub-tab: Cohort — Naji UAT 2026-05-15. Lists every cohort
+                  this student is in for the selected enrolment's course,
+                  with subject, cohort code, start/end dates, instructor
+                  card, and In Progress / Completed / Upcoming status. */}
               {enrollmentSubTab === 4 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Cohorts</CardTitle>
+                    <p className="text-xs text-slate-500">
+                      Subjects this student is grouped into for {asString(selectedEnrollment?.course_title) || 'this course'}.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const cohorts = toRecords(selectedEnrollment?.cohorts);
+                      if (cohorts.length === 0) {
+                        return (
+                          <p className="py-6 text-center text-sm text-gray-400">
+                            Not assigned to any cohort for this course yet.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {cohorts.map((c, idx) => {
+                            const code = asString(c.cohort_code) || `C${asString(c.id)}`;
+                            const subject = asString(c.subject_title) || asString(c.title) || 'Subject TBD';
+                            const start = formatDate(c.start_date);
+                            const end = formatDate(c.end_date);
+                            const status = asString(c.status) || 'Active';
+                            const instructorName = asString(c.instructor_name);
+                            const instructorPhoto = asString(c.instructor_photo);
+                            const initials = (instructorName || 'I')
+                              .split(' ')
+                              .map((p) => p[0])
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .join('')
+                              .toUpperCase();
+                            return (
+                              <div
+                                key={asString(c.id) + idx}
+                                className="rounded-lg border border-gray-200 bg-white p-4 transition hover:border-ttii-primary/40 hover:shadow-sm"
+                              >
+                                <div className="mb-3 flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                                      {code}
+                                    </p>
+                                    <p className="line-clamp-2 break-words text-sm font-semibold text-gray-900">
+                                      {subject}
+                                    </p>
+                                  </div>
+                                  <AdminStatusBadge status={status} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400">Start</p>
+                                    <p>{start || '-'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400">End</p>
+                                    <p>{end || '-'}</p>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+                                  <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ttii-primary/10 text-[10px] font-semibold text-ttii-primary">
+                                    {instructorPhoto ? (
+                                      <img src={instructorPhoto} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <span>{initials}</span>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-medium text-gray-900">
+                                      {instructorName || 'Instructor not assigned'}
+                                    </p>
+                                    <p className="text-[10px] text-gray-500">Instructor</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Sub-tab: Assignment */}
+              {enrollmentSubTab === 5 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Assignments</CardTitle>
@@ -1805,7 +1901,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               )}
 
               {/* Sub-tab: Examination — Naji 2026-05-11 wired to exam_attempt */}
-              {enrollmentSubTab === 5 && (
+              {enrollmentSubTab === 6 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Examination</CardTitle>
@@ -1853,7 +1949,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   offering_certificate_packages on the backend. Payment
                   History rows are editable via the new
                   /admin/student-payments/update endpoint. */}
-              {enrollmentSubTab === 6 && (
+              {enrollmentSubTab === 7 && (
                 <div className="space-y-4">
                   {studentFees.length > 0 && (
                     <Card>
