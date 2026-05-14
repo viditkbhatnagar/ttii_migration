@@ -5547,7 +5547,30 @@ export class OperationsService {
     const dueTo = filters.dueDateTo ? new Date(filters.dueDateTo) : null;
     if (dueTo) dueTo.setHours(23, 59, 59, 999);
 
-    let enriched = installments.map(inst => {
+    // Naji UAT 2026-05-14 — `enriched` carries rows from BOTH
+    // student_payments (id: number) and synthesised application-stage
+    // rows (id: "app-N-IDX"). Use a wide row shape so the union types
+    // compose cleanly without per-row casts.
+    type PaymentRow = {
+      id: number | string;
+      user_id: number | null;
+      course_id: number | null;
+      installment_details: string | null;
+      amount: number;
+      payment_mode: string | null;
+      payment_to: string | null;
+      status: string | null;
+      due_date: Date | null;
+      paid_date: Date | null;
+      reference_number?: string | null;
+      receipt_url?: string | null;
+      user_name: string | null;
+      student_id: string | number | null;
+      course_title: string | null;
+      enrolment_status: string | null;
+      computed_status: 'overdue' | 'due' | 'upcoming' | 'paid';
+    };
+    let enriched: PaymentRow[] = installments.map(inst => {
       const isPaid = (inst.status ?? '').toLowerCase() === 'paid';
       let computed_status: 'overdue' | 'due' | 'upcoming' | 'paid' = 'upcoming';
       if (isPaid) {
