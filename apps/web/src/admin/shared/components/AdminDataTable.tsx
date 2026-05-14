@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, MoreHorizontal, Printer, Search } from 'lucide-react';
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, MoreHorizontal, Printer, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -165,8 +165,18 @@ export function AdminDataTable({
                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
                 placeholder="Search..."
                 aria-label="Search table"
-                className="h-8 w-52 pl-8 text-xs"
+                className="h-8 w-52 pl-8 pr-7 text-xs"
               />
+              {search ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => { setSearch(''); setPage(0); }}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ttii-primary/40"
+                >
+                  <X aria-hidden="true" className="size-3.5" />
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
