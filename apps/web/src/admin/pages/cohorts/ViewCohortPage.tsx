@@ -1382,10 +1382,15 @@ function AddLearnerModal({
             <p className="py-6 text-center text-sm text-gray-400">No available students.</p>
           ) : (
             <div className="max-h-80 overflow-y-auto rounded border border-gray-200">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-50">
+              <table className="w-full border-separate border-spacing-0 text-sm">
+                {/* Naji UAT 2026-05-15 — sticky <thead> alone doesn't paint
+                    opaquely across browsers because table cells render
+                    transparently behind the row content scrolling underneath.
+                    Put bg + border + z-index on each <th> cell so the
+                    header isolates from the avatar circles in row 1. */}
+                <thead className="sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-2 text-left">
+                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left align-middle">
                       <input
                         type="checkbox"
                         checked={selected.size === filtered.length && filtered.length > 0}
@@ -1393,8 +1398,8 @@ function AddLearnerModal({
                       />
                       <span className="ml-2 text-xs font-semibold">Select All</span>
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">No</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Students</th>
+                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left align-middle text-xs font-semibold">No</th>
+                    <th className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-left align-middle text-xs font-semibold">Students</th>
                   </tr>
                 </thead>
                 <tbody>
