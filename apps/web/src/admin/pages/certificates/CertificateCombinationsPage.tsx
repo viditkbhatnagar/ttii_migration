@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,35 @@ function generateCombinationCode(): string {
   return `CC-${ts}`;
 }
 
+// Naji UAT 2026-05-14 — the Combination dropdown showed both
+// "TTII + KHDA" and "TTII+KHDA" because the auto-generated code wasn't
+// canonicalised. Collapse any whitespace around `+` to a single ` + `
+// so every code is written in the same shape — backend save normalises
+// too, and existing rows get backfilled with the same regex.
+function normalizeCombinationCode(value: string): string {
+  return value.trim().replace(/\s*\+\s*/g, ' + ');
+}
+
+function buildCodeFromPartners(
+  partners: Record<string, unknown>[],
+  selectedIds: string[],
+): string {
+  const order = new Map<string, number>();
+  partners.forEach((p, idx) => order.set(asString(p.id), idx));
+  const tokens = selectedIds
+    .slice()
+    .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
+    .map((id) => {
+      const p = partners.find((x) => asString(x.id) === id);
+      if (!p) return '';
+      const code = typeof p.partner_code === 'string' ? p.partner_code.trim() : '';
+      const short = typeof p.short_name === 'string' ? p.short_name.trim() : '';
+      return code || short;
+    })
+    .filter(Boolean);
+  return tokens.length > 0 ? tokens.join(' + ') : '';
+}
+
 export default function CertificateCombinationsPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
@@ -69,6 +98,18 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
     setShowForm(true);
   }, []);
 
+  // Naji 2026-05-14 — when partner checkboxes change, auto-populate the
+  // combination code as `Code1 + Code2 + …` from the picked partners so
+  // every new combination is written in the canonical spaced form. The
+  // admin can still edit the field after if they want a custom code.
+  useEffect(() => {
+    if (!showForm) return;
+    if (form.partner_ids.length === 0) return;
+    const next = buildCodeFromPartners(partners, form.partner_ids);
+    if (!next) return;
+    setForm((f) => (f.combination_code === next ? f : { ...f, combination_code: next }));
+  }, [form.partner_ids, partners, showForm]);
+
   const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
     setEditId(asString(row.id));
     const partnersList = Array.isArray(row.partners) ? (row.partners as Record<string, unknown>[]) : [];
@@ -89,7 +130,7 @@ export default function CertificateCombinationsPage({ api, session }: AdminPageP
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        combination_code: form.combination_code.trim(),
+        combination_code: normalizeCombinationCode(form.combination_code),
         program_id: form.program_id || undefined,
         course_id: form.course_id || undefined,
         partner_ids: form.partner_ids,

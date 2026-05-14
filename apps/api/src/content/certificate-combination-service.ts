@@ -25,6 +25,16 @@ function toNullableIntId(id: string | number | null | undefined): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
+// Naji UAT 2026-05-14 — the auto-generated combination code (e.g. partner
+// short codes joined by `+`) was being stored with inconsistent spacing,
+// so the dropdown showed "TTII + KHDA" and "TTII+KHDA" as separate
+// options. Collapse any whitespace around `+` to a single ` + ` so all
+// new rows are written in the canonical form. The prod backfill SQL
+// applies the same regex to existing rows.
+function normalizeCombinationCode(value: string): string {
+  return value.trim().replace(/\s*\+\s*/g, ' + ');
+}
+
 function serialize(
   row: certificate_combinations,
   joined: {
@@ -145,7 +155,7 @@ export class CertificateCombinationService {
       data: {
         program_id: toNullableIntId(input.program_id),
         course_id: toNullableIntId(input.course_id),
-        combination_code: input.combination_code.trim(),
+        combination_code: normalizeCombinationCode(input.combination_code),
         gst_applicable: input.gst_applicable ?? true,
         gst_percent: input.gst_percent ?? 18,
         status: input.status?.trim() || 'active',
@@ -169,7 +179,7 @@ export class CertificateCombinationService {
       data: {
         program_id: toNullableIntId(input.program_id),
         course_id: toNullableIntId(input.course_id),
-        combination_code: input.combination_code.trim(),
+        combination_code: normalizeCombinationCode(input.combination_code),
         gst_applicable: input.gst_applicable ?? true,
         gst_percent: input.gst_percent ?? 18,
         status: input.status?.trim() || 'active',
