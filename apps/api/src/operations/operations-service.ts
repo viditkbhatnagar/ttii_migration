@@ -545,6 +545,10 @@ export type AddInstructorInput = {
   status?: number;
   /** Profile photo URL (uploaded via /admin/upload). */
   image?: string;
+  /** Highest academic qualification — stored on users.highest_qualification.
+   *  The Add Instructor form has had this field for a while but the backend
+   *  was silently dropping it; Naji UAT 2026-05-14 surfaced it as a column. */
+  qualification?: string;
 };
 
 export type AddUserInput = {
@@ -4943,7 +4947,7 @@ export class OperationsService {
     const instructors = await this.prisma.users.findMany({
       where: { role_id: 3, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, image: true, profile_picture: true, created_at: true, disabled_at: true },
+      select: { id: true, name: true, user_email: true, phone: true, status: true, image: true, profile_picture: true, created_at: true, disabled_at: true, highest_qualification: true },
     });
 
     const instructorIds = instructors.map(i => i.id);
@@ -6207,6 +6211,7 @@ export class OperationsService {
     });
 
     const now = new Date();
+    const qualification = input.qualification?.trim() || null;
     await this.prisma.users.create({
       data: {
         name: input.name.trim(),
@@ -6221,6 +6226,7 @@ export class OperationsService {
         image: input.image?.trim() ?? '',
         profile_picture: input.image?.trim() ?? '',
         application_id: 0,
+        highest_qualification: qualification,
         created_at: now,
         updated_at: now,
       },
@@ -6234,14 +6240,18 @@ export class OperationsService {
   async editInstructor(actorUserId: string, id: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     const now = new Date();
+    const data: Record<string, unknown> = {
+      name: input.name.trim(),
+      phone: input.phone?.trim() || null,
+      status: input.status ?? 1,
+      updated_at: now,
+    };
+    if (input.qualification !== undefined) {
+      data.highest_qualification = input.qualification.trim() || null;
+    }
     await this.prisma.users.updateMany({
       where: { id: toIntId(id), deleted_at: null },
-      data: {
-        name: input.name.trim(),
-        phone: input.phone?.trim() || null,
-        status: input.status ?? 1,
-        updated_at: now,
-      },
+      data,
     });
     return { status: 1, message: 'Instructor updated successfully.' };
   }

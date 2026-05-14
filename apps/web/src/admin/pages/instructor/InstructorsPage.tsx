@@ -145,29 +145,25 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
     }
   }, [form, editingId, api, session.token, reload]);
 
+  // Naji UAT 2026-05-14 — Dropped OTP, Course (Enrolled Courses chip), and
+  // Students columns. Added Highest Qualification (read from
+  // users.highest_qualification) and No of Cohorts (already returned as
+  // cohort_count by listInstructors).
+  void onNavigate;
   const columns: DataTableColumn[] = useMemo(
     () => [
       { key: 'name', label: 'Name', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'phone', label: 'Phone', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'user_email', label: 'Email', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'verification_code', label: 'OTP', sortable: true, render: (v) => asString(v) || '-' },
       {
-        key: 'assigned_courses',
-        label: 'Course',
+        key: 'highest_qualification',
+        label: 'Highest Qualification',
         sortable: true,
-        render: (_v, row) => (
-          <button
-            type="button"
-            className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200"
-            onClick={() => onNavigate('/admin/course/index?instructor=' + asString(row?._id || row?.id))}
-          >
-            Enrolled Courses
-          </button>
-        ),
+        render: (v) => asString(v) || '-',
       },
       {
-        key: 'students_count',
-        label: 'Students',
+        key: 'cohort_count',
+        label: 'No of Cohorts',
         sortable: true,
         render: (v) => String(asNumber(v) || 0),
       },
@@ -179,7 +175,7 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
         ),
       },
     ],
-    [onNavigate],
+    [],
   );
 
   const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {

@@ -2444,6 +2444,7 @@ export function registerOperationsRoutes(
         bio: toStringValue(payload.bio),
         status: toInteger(payload.status),
         image: toStringValue(payload.image),
+        qualification: toStringValue(payload.qualification),
       };
       const result = await operationsService.addInstructor(requestUserId(request), input);
       reply.code(200).send(result);
@@ -2459,6 +2460,7 @@ export function registerOperationsRoutes(
         phone: toStringValue(payload.phone),
         bio: toStringValue(payload.bio),
         status: toInteger(payload.status),
+        qualification: toStringValue(payload.qualification),
       };
       const result = await operationsService.editInstructor(requestUserId(request), toStringValue(payload.id), input);
       reply.code(200).send(result);
