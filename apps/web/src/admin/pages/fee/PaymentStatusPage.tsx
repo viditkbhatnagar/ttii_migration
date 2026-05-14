@@ -1,6 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
@@ -25,16 +29,40 @@ const STATUS_CARDS = [
   { key: 'paid', label: 'Paid', color: 'border-green-500', textColor: 'text-green-600', bgColor: 'bg-green-50' },
 ] as const;
 
+const PAYMENT_MODE_OPTIONS = ['Cash', 'Bank Transfer', 'Cheque', 'UPI', 'Card', 'Online', 'Other'];
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+interface MarkPaidForm {
+  paidDate: string;
+  paymentMode: string;
+  referenceNumber: string;
+  receiptUrl: string;
+}
+
 export default function PaymentStatusPage({ api, session }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [searchText, setSearchText] = useState('');
   const [dueDateFrom, setDueDateFrom] = useState('');
   const [dueDateTo, setDueDateTo] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('overdue');
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [actionDialog, setActionDialog] = useState<{ type: 'mark_paid' | 'reminder'; row: Record<string, unknown> } | null>(null);
+  const [actionDialog, setActionDialog] = useState<
+    | { type: 'mark_paid'; row: Record<string, unknown> }
+    | { type: 'reminder'; row: Record<string, unknown> }
+    | null
+  >(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [markPaidForm, setMarkPaidForm] = useState<MarkPaidForm>({
+    paidDate: todayIso(),
+    paymentMode: 'Online',
+    referenceNumber: '',
+    receiptUrl: '',
+  });
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     api.loadCourses(session.token).then(setCourses).catch(() => {});
@@ -59,12 +87,15 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
     return allInstallments.filter((r) => asString(r.computed_status) === activeTab);
   }, [allInstallments, activeTab]);
 
+  // Naji UAT 2026-05-14 — order is now Overdue → Due → Upcoming → Paid → All
+  // (All moved to the end). The page also defaults to Overdue, which is
+  // the actionable bucket the team triages from.
   const tabs: AdminTab[] = useMemo(() => [
-    { id: 'all', label: 'All', count: allInstallments.length },
     { id: 'overdue', label: 'Overdue', count: asNumber(counts.overdue) },
     { id: 'due', label: 'Due', count: asNumber(counts.due) },
     { id: 'upcoming', label: 'Upcoming', count: asNumber(counts.upcoming) },
     { id: 'paid', label: 'Paid', count: asNumber(counts.paid) },
+    { id: 'all', label: 'All', count: allInstallments.length },
   ], [allInstallments.length, counts]);
 
   const filters: FilterField[] = useMemo(() => [
@@ -115,30 +146,90 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
     },
   ], [searchText, dueDateFrom, dueDateTo, courseFilter, paymentStatusFilter, courses]);
 
+  // Reset the rich Mark-Paid form every time the dialog opens for a
+  // different row. Reminder dialog doesn't need it.
+  const openMarkPaid = useCallback((row: Record<string, unknown>) => {
+    setMarkPaidForm({
+      paidDate: todayIso(),
+      paymentMode: asString(row.payment_mode) || 'Online',
+      referenceNumber: '',
+      receiptUrl: '',
+    });
+    setActionDialog({ type: 'mark_paid', row });
+  }, []);
+
+  const closeDialog = useCallback(() => {
+    setActionDialog(null);
+    setActionLoading(false);
+    setUploading(false);
+  }, []);
+
+  const handleReceiptUpload = useCallback(async (file: File) => {
+    setUploading(true);
+    try {
+      const result = await api.uploadFile(session.token, file);
+      setMarkPaidForm((f) => ({ ...f, receiptUrl: result.url }));
+      toast.success('Receipt uploaded.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }, [api, session.token]);
+
   const handleAction = useCallback(async () => {
     if (!actionDialog) return;
     setActionLoading(true);
     try {
       const id = asString(actionDialog.row.id);
       if (actionDialog.type === 'mark_paid') {
-        await api.markInstallmentPaid(session.token, id);
+        const extras: {
+          paidDate?: string;
+          paymentMode?: string;
+          referenceNumber?: string;
+          receiptUrl?: string;
+        } = {};
+        if (markPaidForm.paidDate) extras.paidDate = markPaidForm.paidDate;
+        if (markPaidForm.paymentMode) extras.paymentMode = markPaidForm.paymentMode;
+        if (markPaidForm.referenceNumber) extras.referenceNumber = markPaidForm.referenceNumber;
+        if (markPaidForm.receiptUrl) extras.receiptUrl = markPaidForm.receiptUrl;
+        await api.markInstallmentPaid(session.token, id, extras);
+        toast.success('Installment marked as paid.');
       } else {
         await api.sendPaymentReminder(session.token, id);
+        toast.success('Reminder sent.');
       }
-      setActionDialog(null);
+      closeDialog();
       reload();
-    } catch {
-      // error handled silently
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Operation failed.');
     } finally {
       setActionLoading(false);
     }
-  }, [actionDialog, api, session.token, reload]);
+  }, [actionDialog, api, session.token, reload, markPaidForm, closeDialog]);
 
-  const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'student_id', label: 'Student ID', sortable: true, render: (v) => asString(v) || '-' },
-    { key: 'user_name', label: 'Name', sortable: true },
-    { key: 'course_title', label: 'course', sortable: true, render: (v) => asString(v) || '-' },
-    {
+  // Column definitions — built per-tab so Paid drops the row Action and
+  // moves Mode before Payment Status; Overdue/Due/Upcoming drop Paid
+  // Date, Mode, To, and the Remind action (Naji UAT 2026-05-14). The All
+  // tab keeps the full set.
+  const columns: DataTableColumn[] = useMemo(() => {
+    const enrolmentStatusCol: DataTableColumn = {
+      key: 'enrolment_status',
+      label: 'Enrolment Status',
+      sortable: true,
+      render: (v) => {
+        const s = asString(v);
+        return s ? <AdminStatusBadge status={s} /> : <span className="text-slate-400">—</span>;
+      },
+    };
+    const studentIdCol: DataTableColumn = {
+      key: 'student_id', label: 'Student ID', sortable: true, render: (v) => asString(v) || '-',
+    };
+    const nameCol: DataTableColumn = { key: 'user_name', label: 'Name', sortable: true };
+    const courseCol: DataTableColumn = {
+      key: 'course_title', label: 'course', sortable: true, render: (v) => asString(v) || '-',
+    };
+    const detailsCol: DataTableColumn = {
       key: 'installment_details',
       label: 'Installment Details',
       sortable: true,
@@ -146,19 +237,38 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
         const details = asString(v);
         return details || `Installment ${asNumber(row?.installment_no) || 1}`;
       },
-    },
-    { key: 'amount', label: 'Amount', sortable: true, render: (v) => formatCurrency(v) },
-    { key: 'due_date', label: 'Due Date', sortable: true, render: (v) => formatDate(v) },
-    { key: 'paid_date', label: 'Paid Date', sortable: true, render: (v) => formatDate(v) || '-' },
-    {
+    };
+    const amountCol: DataTableColumn = {
+      key: 'amount', label: 'Amount', sortable: true, render: (v) => formatCurrency(v),
+    };
+    const dueDateCol: DataTableColumn = {
+      key: 'due_date', label: 'Due Date', sortable: true, render: (v) => formatDate(v),
+    };
+    const paidDateCol: DataTableColumn = {
+      key: 'paid_date', label: 'Paid Date', sortable: true, render: (v) => formatDate(v) || '-',
+    };
+    const statusCol: DataTableColumn = {
       key: 'computed_status',
       label: 'Payment Status',
       sortable: true,
       render: (v) => <AdminStatusBadge status={asString(v) || 'pending'} />,
-    },
-    { key: 'payment_mode', label: 'Mode', render: (v) => asString(v) || '-' },
-    { key: 'payment_to', label: 'To', render: (v) => asString(v) || '-' },
-    {
+    };
+    const modeCol: DataTableColumn = {
+      key: 'payment_mode', label: 'Mode', render: (v) => asString(v) || '-',
+    };
+    const toCol: DataTableColumn = {
+      key: 'payment_to', label: 'To', render: (v) => asString(v) || '-',
+    };
+    const actionMarkOnlyCol: DataTableColumn = {
+      key: '_actions',
+      label: 'Action',
+      render: (_v, row) => (
+        <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
+          Mark Paid
+        </Button>
+      ),
+    };
+    const actionFullCol: DataTableColumn = {
       key: '_actions',
       label: 'Action',
       render: (_v, row) => {
@@ -166,11 +276,7 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
         if (status === 'paid') return null;
         return (
           <div className="flex gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => row && setActionDialog({ type: 'mark_paid', row })}
-            >
+            <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
               Mark Paid
             </Button>
             <Button
@@ -183,8 +289,55 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
           </div>
         );
       },
-    },
-  ], []);
+    };
+
+    if (activeTab === 'paid') {
+      // Paid tab: drop "To" and the row Action entirely; move Mode in front
+      // of Payment Status (Naji UAT 2026-05-14).
+      return [
+        enrolmentStatusCol,
+        studentIdCol,
+        nameCol,
+        courseCol,
+        detailsCol,
+        amountCol,
+        dueDateCol,
+        paidDateCol,
+        modeCol,
+        statusCol,
+      ];
+    }
+    if (activeTab === 'overdue' || activeTab === 'due' || activeTab === 'upcoming') {
+      // Open buckets: drop Paid Date, Mode, To, and the Remind action;
+      // keep Mark Paid as the only row action.
+      return [
+        enrolmentStatusCol,
+        studentIdCol,
+        nameCol,
+        courseCol,
+        detailsCol,
+        amountCol,
+        dueDateCol,
+        statusCol,
+        actionMarkOnlyCol,
+      ];
+    }
+    // All tab keeps the full set.
+    return [
+      enrolmentStatusCol,
+      studentIdCol,
+      nameCol,
+      courseCol,
+      detailsCol,
+      amountCol,
+      dueDateCol,
+      paidDateCol,
+      statusCol,
+      modeCol,
+      toCol,
+      actionFullCol,
+    ];
+  }, [activeTab, openMarkPaid]);
 
   if (loading) {
     return <PageLoader label="Loading payment status..." />;
@@ -239,9 +392,9 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
 
       <AdminDataTable columns={columns} rows={filteredInstallments} searchable exportable />
 
-      {/* Action confirmation dialog */}
-      <Dialog open={actionDialog != null} onOpenChange={() => setActionDialog(null)}>
-        <DialogContent>
+      {/* Rich Mark-Paid / Reminder dialog */}
+      <Dialog open={actionDialog != null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+        <DialogContent className="sm:max-w-lg">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -253,14 +406,88 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
                 {actionDialog?.type === 'mark_paid' ? 'Mark as Paid' : 'Send Reminder'}
               </DialogTitle>
             </DialogHeader>
-            <p className="text-sm text-gray-600">
-              {actionDialog?.type === 'mark_paid'
-                ? `Mark installment for ${asString(actionDialog?.row.user_name)} (${formatCurrency(actionDialog?.row.amount)}) as paid?`
-                : `Send a payment reminder to ${asString(actionDialog?.row.user_name)} for ${formatCurrency(actionDialog?.row.amount)}?`}
-            </p>
+
+            {actionDialog?.type === 'mark_paid' ? (
+              <div className="space-y-4 py-2">
+                <p className="text-sm text-slate-600">
+                  Mark installment for <strong>{asString(actionDialog.row.user_name)}</strong>
+                  {' '}({formatCurrency(actionDialog.row.amount)}) as paid.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="mp-paid-date" className="text-xs">Date of Payment</Label>
+                    <Input
+                      id="mp-paid-date"
+                      type="date"
+                      value={markPaidForm.paidDate}
+                      onChange={(e) => setMarkPaidForm((f) => ({ ...f, paidDate: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="mp-mode" className="text-xs">Payment Mode</Label>
+                    <select
+                      id="mp-mode"
+                      value={markPaidForm.paymentMode}
+                      onChange={(e) => setMarkPaidForm((f) => ({ ...f, paymentMode: e.target.value }))}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {PAYMENT_MODE_OPTIONS.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="mp-ref" className="text-xs">Reference Number</Label>
+                  <Input
+                    id="mp-ref"
+                    value={markPaidForm.referenceNumber}
+                    onChange={(e) => setMarkPaidForm((f) => ({ ...f, referenceNumber: e.target.value }))}
+                    placeholder="Transaction / cheque / receipt number"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Receipt Upload</Label>
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-slate-50">
+                      <Upload className="size-3.5" aria-hidden="true" />
+                      <span>{uploading ? 'Uploading…' : 'Choose file'}</span>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*,application/pdf"
+                        disabled={uploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleReceiptUpload(f);
+                        }}
+                      />
+                    </label>
+                    {markPaidForm.receiptUrl ? (
+                      <a
+                        href={markPaidForm.receiptUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-blue-600 underline"
+                      >
+                        View uploaded receipt
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500">No file uploaded</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600 py-2">
+                Send a payment reminder to <strong>{asString(actionDialog?.row.user_name)}</strong> for
+                {' '}{formatCurrency(actionDialog?.row.amount)}?
+              </p>
+            )}
+
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button>
-              <Button type="submit" disabled={actionLoading}>
+              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
+              <Button type="submit" disabled={actionLoading || uploading}>
                 {actionLoading ? 'Processing...' : 'Confirm'}
               </Button>
             </DialogFooter>

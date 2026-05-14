@@ -5514,12 +5514,25 @@ export class OperationsService {
     const userIds = [...new Set(installments.map(i => i.user_id).filter((x): x is number => x !== null && x !== undefined))];
     const courseIds = [...new Set(installments.map(i => i.course_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [users, courses] = await Promise.all([
+    const [users, courses, enrolments] = await Promise.all([
       userIds.length > 0 ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, student_id: true } }) : [],
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+      // Naji UAT 2026-05-14 — surface enrolment status on each instalment
+      // row so the team can see at a glance which payments belong to
+      // active vs dropout/completed enrolments while triaging dues.
+      userIds.length > 0 && courseIds.length > 0
+        ? this.prisma.enrol.findMany({
+            where: { user_id: { in: userIds }, course_id: { in: courseIds }, deleted_at: null },
+            select: { user_id: true, course_id: true, enrollment_status: true },
+          })
+        : [],
     ]);
     const userMap = new Map(users.map(u => [u.id, u]));
     const courseMap = new Map(courses.map(c => [c.id, c.title]));
+    const enrolmentStatusMap = new Map<string, string | null>();
+    for (const e of enrolments) {
+      enrolmentStatusMap.set(`${e.user_id}|${e.course_id}`, e.enrollment_status ?? null);
+    }
 
     // Match legacy PHP month-year bucketing: previous months → overdue,
     // current month → due, future months → upcoming, status='Paid' → paid.
@@ -5548,12 +5561,16 @@ export class OperationsService {
         }
       }
       const user = userMap.get(inst.user_id);
+      const enrolment_status = inst.course_id
+        ? enrolmentStatusMap.get(`${inst.user_id}|${inst.course_id}`) ?? null
+        : null;
       return {
         ...inst,
         amount: inst.amount == null ? 0 : Number(inst.amount),
         user_name: user?.name ?? null,
         student_id: user?.student_id ?? null,
         course_title: inst.course_id ? courseMap.get(inst.course_id) ?? null : null,
+        enrolment_status,
         computed_status,
       };
     });
@@ -10472,11 +10489,44 @@ export class OperationsService {
 
   // ── Phase F: Payment Actions ──────────────────────────────────
 
-  async markInstallmentPaid(actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {
+  async markInstallmentPaid(
+    actorUserId: string,
+    installmentId: string,
+    extras?: {
+      paidDate?: string;
+      paymentMode?: string;
+      referenceNumber?: string;
+      receiptUrl?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    // Naji UAT 2026-05-14 — Mark Paid on Payment Status used to be a one-
+    // click "set status=Paid". Naji asked for the same rich capture the
+    // Application flow has: paid date (defaults to today, editable),
+    // mode, reference number, and an uploaded receipt. We accept all of
+    // them via the extras bag so the legacy callers (one-click confirms)
+    // still work without arguments.
     const now = new Date();
+    const data: Record<string, unknown> = {
+      status: 'Paid',
+      paid_date: extras?.paidDate ? new Date(extras.paidDate) : now,
+      updated_by: toNullableIntId(actorUserId),
+      updated_at: now,
+    };
+    if (extras?.paymentMode !== undefined) {
+      const mode = extras.paymentMode.trim();
+      if (mode) data.payment_mode = mode;
+    }
+    if (extras?.referenceNumber !== undefined) {
+      const ref = extras.referenceNumber.trim();
+      if (ref) data.reference_number = ref;
+    }
+    if (extras?.receiptUrl !== undefined) {
+      const url = extras.receiptUrl.trim();
+      if (url) data.receipt_url = url;
+    }
     await this.prisma.student_payments.updateMany({
       where: { id: toIntId(installmentId), deleted_at: null },
-      data: { status: 'Paid', paid_date: now, updated_by: toNullableIntId(actorUserId), updated_at: now },
+      data,
     });
     return { status: 1, message: 'Installment marked as paid.' };
   }

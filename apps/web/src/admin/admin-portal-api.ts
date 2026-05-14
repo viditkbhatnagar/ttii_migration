@@ -2910,8 +2910,22 @@ export class AdminPortalApi {
 
   // ── Phase F: Payment Actions ──────────────────────────────────
 
-  async markInstallmentPaid(authToken: string, installmentId: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/fee_management/mark_paid', authToken, { installment_id: installmentId });
+  async markInstallmentPaid(
+    authToken: string,
+    installmentId: string,
+    extras?: {
+      paidDate?: string;
+      paymentMode?: string;
+      referenceNumber?: string;
+      receiptUrl?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    const payload: Record<string, unknown> = { installment_id: installmentId };
+    if (extras?.paidDate) payload.paid_date = extras.paidDate;
+    if (extras?.paymentMode) payload.payment_mode = extras.paymentMode;
+    if (extras?.referenceNumber) payload.reference_number = extras.referenceNumber;
+    if (extras?.receiptUrl) payload.receipt_url = extras.receiptUrl;
+    return this.post<Record<string, unknown>>('/admin/fee_management/mark_paid', authToken, payload);
   }
 
   async sendPaymentReminder(authToken: string, installmentId: string): Promise<Record<string, unknown>> {

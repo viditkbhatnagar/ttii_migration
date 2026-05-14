@@ -3492,7 +3492,21 @@ export function registerOperationsRoutes(
   app.post('/admin/fee_management/mark_paid', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.markInstallmentPaid(requestUserId(request), toStringValue(payload.installment_id));
+      const extras: {
+        paidDate?: string;
+        paymentMode?: string;
+        referenceNumber?: string;
+        receiptUrl?: string;
+      } = {};
+      if (payload.paid_date !== undefined) extras.paidDate = toStringValue(payload.paid_date);
+      if (payload.payment_mode !== undefined) extras.paymentMode = toStringValue(payload.payment_mode);
+      if (payload.reference_number !== undefined) extras.referenceNumber = toStringValue(payload.reference_number);
+      if (payload.receipt_url !== undefined) extras.receiptUrl = toStringValue(payload.receipt_url);
+      const result = await operationsService.markInstallmentPaid(
+        requestUserId(request),
+        toStringValue(payload.installment_id),
+        extras,
+      );
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

@@ -2034,6 +2034,12 @@ model student_payments {
   payment_mode        String?   @db.VarChar(20)
   paid_date           DateTime? @db.Date
   payment_to          String?   @db.VarChar(50)
+  // Naji UAT 2026-05-14 — Mark Paid dialog on the Payment Status page
+  // now captures a reference number and an uploaded receipt, matching
+  // the rich dialog on the Application flow. Both nullable so historical
+  // rows + cash-collected payments without docs still validate.
+  reference_number    String?   @db.VarChar(100)
+  receipt_url         String?   @db.VarChar(500)
   status              String?   @db.VarChar(10)
   created_at          DateTime? @db.DateTime(0)
   created_by          Int?
