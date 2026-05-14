@@ -7172,8 +7172,13 @@ export class OperationsService {
         if (!to) return;
         try {
           await registry.email.sendEmail({ to, subject, html: body });
-        } catch {
-          // best-effort
+        } catch (err) {
+          // Best-effort delivery, but log the failure so silent MsGraph
+          // bounces surface in pm2 logs. Naji UAT 2026-05-14.
+          console.error(
+            `[notifyApplicationEvent:${event}] email send failed → ${to}:`,
+            err instanceof Error ? err.message : err,
+          );
         }
       };
 
@@ -7593,15 +7598,14 @@ export class OperationsService {
         updated_by: actor,
       },
     });
-    await this.recordEvent(id, 'payment_link_sent', `Payment link emailed to ${app.user_email} (${input.mode})`, actorUserId, {
-      mode: input.mode,
-      total_amount_minor: input.totalAmount,
-      payment_link_url: link.shortUrl,
-    });
-
     // Email the student the link + plan summary. Razorpay also emails
     // its own checkout page when notify.email=true; this one carries
-    // the human plan summary.
+    // the human plan summary. Naji UAT 2026-05-14 — capture delivery
+    // outcome and surface it in the response + event log; the previous
+    // silent try/catch meant admins saw "emailed" even when MsGraph
+    // bounced.
+    let emailDelivered = false;
+    let emailError: string | null = null;
     try {
       const { renderBrandedEmail } = await import('../integrations/email-template.js');
       const planTableHtml = input.mode === 'installment' && (input.installments ?? []).length > 0
@@ -7639,14 +7643,43 @@ export class OperationsService {
         subject: 'Your TTII payment link',
         html,
       });
-    } catch {
-      // email failure shouldn't block the link save — admin can resend.
+      emailDelivered = true;
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : 'Unknown email error';
+      // Log so the failure shows up in pm2 logs instead of disappearing.
+      console.error(
+        `[generatePaymentLink] email send failed for application ${id} → ${app.user_email}:`,
+        emailError,
+      );
     }
+
+    await this.recordEvent(
+      id,
+      'payment_link_sent',
+      emailDelivered
+        ? `Payment link emailed to ${app.user_email} (${input.mode})`
+        : `Payment link saved for ${app.user_email} (${input.mode}) — email delivery failed: ${emailError}`,
+      actorUserId,
+      {
+        mode: input.mode,
+        total_amount_minor: input.totalAmount,
+        payment_link_url: link.shortUrl,
+        email_delivered: emailDelivered,
+        ...(emailError ? { email_error: emailError } : {}),
+      },
+    );
 
     return {
       status: 1,
-      message: 'Payment link generated and emailed.',
-      data: { payment_link_url: link.shortUrl, payment_link_id: link.paymentLinkId },
+      message: emailDelivered
+        ? `Payment link generated and emailed to ${app.user_email}.`
+        : `Payment link generated but the email to ${app.user_email} failed (${emailError}). Use Resend or check the address.`,
+      data: {
+        payment_link_url: link.shortUrl,
+        payment_link_id: link.paymentLinkId,
+        email_delivered: emailDelivered,
+        ...(emailError ? { email_error: emailError } : {}),
+      },
     };
   }
 
