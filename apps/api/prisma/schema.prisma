@@ -2591,7 +2591,13 @@ model certificate_combinations {
   id                Int       @id @default(autoincrement()) @db.UnsignedInt
   program_id        Int?
   course_id         Int?
-  combination_code  String    @unique @db.VarChar(40)
+  // Naji UAT 2026-05-14 — the unique constraint widened from
+  // combination_code alone to (combination_code, program_id, course_id)
+  // so the same partner-combo string (e.g. "TTII + KHDA") can coexist
+  // for different program/course pairs. The single-column unique used
+  // to force admins to type "TTII+KHDA" vs "TTII + KHDA" as a hack to
+  // sidestep collisions, which polluted the filter dropdown.
+  combination_code  String    @db.VarChar(40)
   gst_applicable    Boolean   @default(true)
   gst_percent       Decimal?  @default(18.00) @db.Decimal(5, 2)
   status            String    @default("active") @db.VarChar(20)
@@ -2601,6 +2607,8 @@ model certificate_combinations {
   created_at        DateTime? @default(now()) @db.DateTime(0)
   updated_at        DateTime? @default(now()) @db.DateTime(0)
   deleted_at        DateTime? @db.DateTime(0)
+
+  @@unique([combination_code, program_id, course_id], map: "uniq_certificate_combinations_code_prog_course")
 }
 
 /// Pivot for certificate_combinations × certification_partners.
