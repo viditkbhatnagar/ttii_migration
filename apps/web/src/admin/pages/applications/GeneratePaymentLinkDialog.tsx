@@ -222,27 +222,30 @@ export function GeneratePaymentLinkDialog({
   // Generate the payment plan rows per Naji's row-structure spec.
   // Naji 2026-05-09 — each row carries its own GST percent so the saved
   // plan can render Description / Instalment / GST / Instalment Inc GST
-  // columns later. Registration fee and course-fee splits both inherit
-  // the current GST setting.
+  // columns later. Naji UAT 2026-05-14 — Registration Fee rows now carry
+  // 0% GST (flat administrative charge); only Course Fee installments
+  // attract the offering's GST. This keeps Plan Total = Fee Inc. GST +
+  // Registration Fee, matching the top-of-dialog breakdown the team
+  // treats as authoritative.
   const generatePlan = () => {
     // Course fee (excl GST) = final fee. Registration fee is added on
-    // top. Both then attract GST per the picked combination.
+    // top but is GST-free.
     const courseFeeExcl = breakdown.finalFee;
     const totalExcl = courseFeeExcl + registrationFee;
     const rows: PlanRow[] = [];
     const gst = breakdown.gstPercent;
 
-    // Row 1: Registration Fee (Fee Due Now), Today's date.
+    // Row 1: Registration Fee (Fee Due Now), Today's date. GST-free.
     if (registrationFee > 0 && registrationDueNow > 0) {
       rows.push({
         label: 'Registration Fee — Due Now',
         amount: Math.min(registrationDueNow, registrationFee),
-        gstPercent: gst,
+        gstPercent: 0,
         dueDate: todayIso(),
       });
     }
 
-    // Row 2..N: Registration Fee Balance — split across remaining splits.
+    // Row 2..N: Registration Fee Balance — split across remaining splits, GST-free.
     const regBalance = Math.max(0, registrationFee - registrationDueNow);
     const regSplitsRemaining = Math.max(0, registrationSplitCount - 1);
     if (regBalance > 0 && regSplitsRemaining > 0) {
@@ -251,21 +254,22 @@ export function GeneratePaymentLinkDialog({
         rows.push({
           label: `Registration Fee Balance ${i + 1} of ${regSplitsRemaining}`,
           amount: each,
-          gstPercent: gst,
+          gstPercent: 0,
           dueDate: addMonthsIso(firstDueDate, i + 1),
         });
       }
     } else if (regBalance > 0) {
-      // No remaining splits — push the balance as one row.
+      // No remaining splits — push the balance as one row, GST-free.
       rows.push({
         label: 'Registration Fee Balance',
         amount: regBalance,
-        gstPercent: gst,
+        gstPercent: 0,
         dueDate: addMonthsIso(firstDueDate, 1),
       });
     }
 
-    // Row N+1..N+M: Remaining course-fee installments equally split.
+    // Row N+1..N+M: Remaining course-fee installments equally split. These
+    // carry the offering's GST percent.
     const remainingCourseFee = Math.max(0, totalExcl - registrationFee);
     if (remainingInstallmentsCount > 0 && remainingCourseFee > 0) {
       const each = Math.round((remainingCourseFee / remainingInstallmentsCount) * 100) / 100;
