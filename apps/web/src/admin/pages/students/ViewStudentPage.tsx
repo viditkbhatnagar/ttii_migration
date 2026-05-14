@@ -174,12 +174,61 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     [studentId],
   );
 
-  const { data: analyticsData } = useAdminPageData(
+  const { data: analyticsData, reload: reloadAnalytics } = useAdminPageData(
     () => api.getStudentAnalytics(session.token, studentId),
     [studentId],
   );
 
+  // Naji UAT 2026-05-14 — Documents tab Replace + Upload-Pending dialog.
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadLabel, setUploadLabel] = useState('');
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const openDocumentUpload = (label: string) => {
+    setUploadLabel(label);
+    setUploadDialogOpen(true);
+  };
+  const closeUploadDialog = () => {
+    setUploadDialogOpen(false);
+    setUploadLabel('');
+    setUploadBusy(false);
+  };
+  const handleDocumentFile = async (file: File) => {
+    if (!uploadLabel.trim()) {
+      toast.error('Label is required.');
+      return;
+    }
+    setUploadBusy(true);
+    try {
+      const uploaded = await api.uploadFile(session.token, file);
+      const res = await api.upsertStudentDocument(session.token, {
+        studentId,
+        label: uploadLabel.trim(),
+        file: uploaded.url,
+      });
+      const msg = typeof res.message === 'string' ? res.message : 'Saved.';
+      if (res.status === 1) {
+        toast.success(msg);
+        closeUploadDialog();
+        reloadAnalytics();
+      } else {
+        toast.error(msg);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
   const documents = useMemo(() => toRecords(analyticsData?.documents), [analyticsData]);
+  // Naji UAT 2026-05-14 — Documents tab now surfaces pending required-
+  // document slots derived from course_required_documents on the
+  // student's enrolled courses, plus a Replace action on existing rows.
+  const requiredDocuments = useMemo(() => toRecords(analyticsData?.requiredDocuments), [analyticsData]);
+  const pendingRequiredDocs = useMemo(
+    () => requiredDocuments.filter((r) => !r.fulfilled),
+    [requiredDocuments],
+  );
   const performance = useMemo(() => {
     const p = analyticsData?.performance;
     return typeof p === 'object' && p !== null ? (p as Record<string, unknown>) : null;
@@ -1107,10 +1156,84 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     { key: 'uploaded_at', label: 'Uploaded', render: (v) => formatDate(v) },
                   ]}
                   rows={documents}
+                  actions={[
+                    {
+                      label: 'Replace',
+                      onClick: (row) => openDocumentUpload(asString(row.label)),
+                    },
+                  ]}
                 />
               )}
             </CardContent>
           </Card>
+
+          {pendingRequiredDocs.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pending Documents</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Required by the student's enrolled courses but not yet uploaded.
+                </p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <AdminDataTable
+                  columns={[
+                    { key: 'label', label: 'Required Document', render: (v) => asString(v) || '-' },
+                    { key: 'course_title', label: 'For Course', render: (v) => asString(v) || '-' },
+                    {
+                      key: 'is_mandatory',
+                      label: 'Mandatory',
+                      render: (v) => (v ? <Badge variant="destructive">Required</Badge> : <Badge variant="secondary">Optional</Badge>),
+                    },
+                  ]}
+                  rows={pendingRequiredDocs}
+                  actions={[
+                    {
+                      label: 'Upload',
+                      onClick: (row) => openDocumentUpload(asString(row.label)),
+                    },
+                  ]}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {/* Replace / Upload modal — single label-driven upsert. */}
+          <Dialog open={uploadDialogOpen} onOpenChange={(o) => { if (!o) closeUploadDialog(); }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {documents.some((d) => asString(d.label).toLowerCase() === uploadLabel.toLowerCase())
+                    ? `Replace "${uploadLabel}"`
+                    : `Upload "${uploadLabel}"`}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Label</Label>
+                  <Input value={uploadLabel} onChange={(e) => setUploadLabel(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">File</Label>
+                  <Input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    disabled={uploadBusy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleDocumentFile(f);
+                    }}
+                  />
+                  <p className="text-xs text-slate-500">PDF, JPG, or PNG. Max 10 MB.</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={closeUploadDialog} disabled={uploadBusy}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 

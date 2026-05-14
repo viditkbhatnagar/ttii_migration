@@ -9122,6 +9122,61 @@ export class OperationsService {
       });
     }
 
+    // Naji UAT 2026-05-14 — Documents tab needs to surface ALL doc slots
+    // the student's enrolled courses require, not just the ones they
+    // happen to have uploaded. Look up enrolled courses → required doc
+    // types and cross-reference uploaded student_document rows by
+    // case-insensitive label so admins can see what is still missing
+    // and Upload directly.
+    const enrolledCourseIds = await this.prisma.enrol.findMany({
+      where: { user_id: uid, deleted_at: null },
+      select: { course_id: true },
+    }).then((rows) => [...new Set(rows.map((r) => r.course_id).filter((x): x is number => x != null))]);
+    let requiredDocuments: Array<{
+      document_type_id: number;
+      label: string;
+      course_id: number;
+      course_title: string | null;
+      is_mandatory: boolean;
+      fulfilled: boolean;
+      file: string | null;
+      student_document_id: string | null;
+    }> = [];
+    if (enrolledCourseIds.length > 0) {
+      const [reqLinks, reqTypes, reqCourses] = await Promise.all([
+        this.prisma.course_required_documents.findMany({
+          where: { course_id: { in: enrolledCourseIds }, deleted_at: null },
+          orderBy: [{ position: 'asc' }, { document_type_id: 'asc' }],
+        }),
+        this.prisma.document_types.findMany({ where: { deleted_at: null } }),
+        this.prisma.course.findMany({
+          where: { id: { in: enrolledCourseIds } },
+          select: { id: true, title: true },
+        }),
+      ]);
+      const typeLabelById = new Map(reqTypes.map((t) => [t.id, t.label]));
+      const courseTitleById = new Map(reqCourses.map((c) => [c.id, c.title ?? null]));
+      const docsByLabel = new Map<string, typeof documents[number]>();
+      for (const d of documents) {
+        const key = (d.label ?? '').trim().toLowerCase();
+        if (key && !docsByLabel.has(key)) docsByLabel.set(key, d);
+      }
+      requiredDocuments = reqLinks.map((l) => {
+        const label = typeLabelById.get(l.document_type_id) ?? `#${l.document_type_id}`;
+        const match = docsByLabel.get(label.trim().toLowerCase());
+        return {
+          document_type_id: l.document_type_id,
+          label,
+          course_id: l.course_id,
+          course_title: courseTitleById.get(l.course_id) ?? null,
+          is_mandatory: Boolean(l.is_mandatory),
+          fulfilled: Boolean(match),
+          file: match ? toLegacyFileUrl(match.file) : null,
+          student_document_id: match ? String(match.student_document_id) : null,
+        };
+      });
+    }
+
     return {
       status: 1,
       message: 'success',
@@ -9135,6 +9190,7 @@ export class OperationsService {
         file: toLegacyFileUrl(d.file),
         uploaded_at: d.created_at,
       })),
+      requiredDocuments,
       performance: {
         quiz_avg_score: examAgg._avg?.score ? Number(examAgg._avg.score) : 0,
         quiz_attempts: examAgg._count?.id ?? 0,
@@ -10531,6 +10587,57 @@ export class OperationsService {
   }
 
   // ── Phase F: Payment Actions ──────────────────────────────────
+
+  // Naji UAT 2026-05-14 — Documents tab needs a Replace action on
+  // existing rows + an Upload button on required-but-missing slots.
+  // Both flow through this single upsert: matching by (student_id,
+  // case-insensitive label) updates the row's file; non-existing
+  // rows get inserted.
+  async upsertStudentDocument(
+    actorUserId: string,
+    input: { studentId: string; label: string; file: string },
+  ): Promise<Record<string, unknown>> {
+    const sid = toIntId(input.studentId);
+    const label = input.label.trim();
+    const file = input.file.trim();
+    if (!sid) return { status: 0, message: 'Invalid student id.' };
+    if (!label) return { status: 0, message: 'Label is required.' };
+    if (!file) return { status: 0, message: 'File URL is required.' };
+
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    // MariaDB's default collation (utf8mb4_unicode_ci) is already case
+    // insensitive, so a plain `equals` match handles "Aadar" / "AADAR"
+    // dedup; no Prisma `mode` flag needed (and the MySQL provider doesn't
+    // support it anyway).
+    const existing = await this.prisma.student_document.findFirst({
+      where: {
+        student_id: sid,
+        deleted_at: null,
+        label,
+      },
+      select: { student_document_id: true },
+    });
+    if (existing) {
+      await this.prisma.student_document.update({
+        where: { student_document_id: existing.student_document_id },
+        data: { file, updated_by: actor, updated_at: now },
+      });
+      return { status: 1, message: 'Document replaced.', data: { id: String(existing.student_document_id) } };
+    }
+    const created = await this.prisma.student_document.create({
+      data: {
+        student_id: sid,
+        label,
+        file,
+        created_by: actor,
+        created_at: now,
+        updated_by: actor,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Document uploaded.', data: { id: String(created.student_document_id) } };
+  }
 
   async markInstallmentPaid(
     actorUserId: string,

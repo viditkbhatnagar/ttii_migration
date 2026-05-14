@@ -3227,6 +3227,21 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji UAT 2026-05-14 — Documents tab Replace / Upload actions.
+  // Single upsert keyed on (student_id, label); also fills required-doc
+  // slots derived from course_required_documents.
+  app.post('/admin/student-documents/upsert', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.upsertStudentDocument(requestUserId(request), {
+        studentId: toStringValue(payload.student_id),
+        label: toStringValue(payload.label),
+        file: toStringValue(payload.file),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/students/change_username', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

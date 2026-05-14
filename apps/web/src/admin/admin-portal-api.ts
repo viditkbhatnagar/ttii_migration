@@ -2910,6 +2910,17 @@ export class AdminPortalApi {
 
   // ── Phase F: Payment Actions ──────────────────────────────────
 
+  async upsertStudentDocument(
+    authToken: string,
+    input: { studentId: string; label: string; file: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/student-documents/upsert', authToken, {
+      student_id: input.studentId,
+      label: input.label,
+      file: input.file,
+    });
+  }
+
   async markInstallmentPaid(
     authToken: string,
     installmentId: string,
