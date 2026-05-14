@@ -42,7 +42,7 @@ interface MarkPaidForm {
   receiptUrl: string;
 }
 
-export default function PaymentStatusPage({ api, session }: AdminPageProps) {
+export default function PaymentStatusPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -259,20 +259,56 @@ export default function PaymentStatusPage({ api, session }: AdminPageProps) {
     const toCol: DataTableColumn = {
       key: 'payment_to', label: 'To', render: (v) => asString(v) || '-',
     };
+    // Synthesised rows from applications.payment_plan have an id like
+    // "app-{appId}-{idx}" and can't be marked paid through the
+    // student_payments endpoint. Surface a View Application shortcut
+    // instead so admins manage them in the Generate Payment Link
+    // dialog on the application itself (Naji UAT 2026-05-14).
+    const isApplicationRow = (row: Record<string, unknown> | undefined): { appId: string } | null => {
+      const id = asString(row?.id);
+      const m = /^app-(\d+)-/.exec(id);
+      return m ? { appId: m[1] ?? '' } : null;
+    };
     const actionMarkOnlyCol: DataTableColumn = {
       key: '_actions',
       label: 'Action',
-      render: (_v, row) => (
-        <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
-          Mark Paid
-        </Button>
-      ),
+      render: (_v, row) => {
+        const appRow = isApplicationRow(row);
+        if (appRow) {
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate(`/admin/applications/view/${appRow.appId}`)}
+            >
+              View Application
+            </Button>
+          );
+        }
+        return (
+          <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
+            Mark Paid
+          </Button>
+        );
+      },
     };
     const actionFullCol: DataTableColumn = {
       key: '_actions',
       label: 'Action',
       render: (_v, row) => {
         const status = asString(row?.computed_status);
+        const appRow = isApplicationRow(row);
+        if (appRow) {
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate(`/admin/applications/view/${appRow.appId}`)}
+            >
+              View Application
+            </Button>
+          );
+        }
         if (status === 'paid') return null;
         return (
           <div className="flex gap-1">

@@ -5579,6 +5579,113 @@ export class OperationsService {
       };
     });
 
+    // Naji UAT 2026-05-14 — Payment details of enrolments which are in
+    // the application stage (lead pipeline, not yet converted) need to
+    // surface in this list too. They live in applications.payment_plan
+    // JSON until adminApprove transfers them to student_payments. Tag
+    // the synthesised rows with enrolment_status='Application' so the
+    // table makes it obvious they are pre-enrolment payments.
+    type ApplicationPlanInstallment = {
+      label?: string;
+      amountMinor?: number;
+      dueDate?: string;
+      gstPercent?: number;
+    };
+    type ApplicationPlanJson = {
+      installments?: ApplicationPlanInstallment[];
+      registration_fee_minor?: number | null;
+    };
+    const appCourseIdFilter = courseIdFilter
+      ? { course_id: courseIdFilter }
+      : {};
+    const applicationsWithPlans = await this.prisma.applications.findMany({
+      where: {
+        payment_plan: { not: null },
+        is_converted: 0,
+        deleted_at: null,
+        ...appCourseIdFilter,
+      },
+      select: {
+        id: true,
+        name: true,
+        user_email: true,
+        course_id: true,
+        payment_plan: true,
+        payment_status: true,
+        payment_method: true,
+      },
+    });
+    const appCourseIds = [
+      ...new Set(
+        applicationsWithPlans
+          .map((a) => a.course_id)
+          .filter((x): x is number => x != null),
+      ),
+    ];
+    if (appCourseIds.length > 0) {
+      // Reuse the already-fetched courseMap when overlapping; merge in
+      // any new course titles we haven't fetched yet.
+      const missingCourseIds = appCourseIds.filter((id) => !courseMap.has(id));
+      if (missingCourseIds.length > 0) {
+        const extraCourses = await this.prisma.course.findMany({
+          where: { id: { in: missingCourseIds } },
+          select: { id: true, title: true },
+        });
+        for (const c of extraCourses) courseMap.set(c.id, c.title);
+      }
+    }
+    const synthesisedRows = applicationsWithPlans.flatMap((app) => {
+      let plan: ApplicationPlanJson | null = null;
+      try {
+        plan = app.payment_plan ? (JSON.parse(app.payment_plan) as ApplicationPlanJson) : null;
+      } catch {
+        plan = null;
+      }
+      const installments = Array.isArray(plan?.installments) ? plan.installments : [];
+      if (installments.length === 0) return [];
+      const courseTitle = app.course_id ? courseMap.get(app.course_id) ?? null : null;
+      // Treat the first row (registration) as Paid when the application
+      // has overall payment_status='paid'. Remaining rows derive status
+      // from their due date — the registration is the only thing the
+      // Razorpay link / manual mark-paid actually settled at lead stage.
+      const appPaidFirst = (app.payment_status ?? '').toLowerCase() === 'paid';
+      return installments.map((row, idx) => {
+        const amountInr = Number.isFinite(row.amountMinor) ? Number(row.amountMinor) / 100 : 0;
+        const dueDate = typeof row.dueDate === 'string' && row.dueDate ? new Date(row.dueDate) : null;
+        let computed_status: 'overdue' | 'due' | 'upcoming' | 'paid' = 'upcoming';
+        if (idx === 0 && appPaidFirst) {
+          computed_status = 'paid';
+        } else if (dueDate) {
+          const dm = dueDate.getMonth();
+          const dy = dueDate.getFullYear();
+          if (dy < currentYear || (dy === currentYear && dm < currentMonth)) computed_status = 'overdue';
+          else if (dy === currentYear && dm === currentMonth) computed_status = 'due';
+          else computed_status = 'upcoming';
+        }
+        return {
+          id: `app-${app.id}-${idx}`,
+          user_id: null,
+          course_id: app.course_id,
+          installment_details: row.label ?? `Installment ${idx + 1}`,
+          amount: amountInr,
+          payment_mode: idx === 0 && appPaidFirst ? app.payment_method ?? null : null,
+          payment_to: 'ttii',
+          status: computed_status === 'paid' ? 'Paid' : null,
+          due_date: dueDate,
+          paid_date: null,
+          reference_number: null,
+          receipt_url: null,
+          user_name: app.name ?? null,
+          student_id: app.user_email ?? null,
+          course_title: courseTitle,
+          enrolment_status: 'Application',
+          computed_status,
+        };
+      });
+    });
+
+    enriched = [...enriched, ...synthesisedRows];
+
     if (dueFrom) enriched = enriched.filter(r => r.due_date && new Date(r.due_date) >= dueFrom);
     if (dueTo) enriched = enriched.filter(r => r.due_date && new Date(r.due_date) <= dueTo);
 
