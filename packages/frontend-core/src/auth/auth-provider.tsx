@@ -86,7 +86,14 @@ export function AuthProvider({ authApi, storageKey, children }: AuthProviderProp
       const apiError = toApiError(error, '/auth/me');
       clearStoredSession(storageKey);
       portalAccessCache.current.clear();
-      applyReadyState(null, apiError);
+      // A 401/403 on the bootstrap /auth/me probe just means the stored
+      // token is stale (expired or revoked). The user lands on the login
+      // page anyway — surfacing "User not authenticated!" as a banner is
+      // misleading and made Risha's UAT think the form was broken even
+      // though sign-in worked. Suppress that specific case; bubble up any
+      // other error (network failure, 5xx) so it stays visible.
+      const isAuthExpiry = apiError.statusCode === 401 || apiError.statusCode === 403;
+      applyReadyState(null, isAuthExpiry ? null : apiError);
       return null;
     }
   }, [applyReadyState, authApi, storageKey]);
