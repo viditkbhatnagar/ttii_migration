@@ -237,7 +237,7 @@ export async function renderApplicationPdf(
   const finished = new Promise<Buffer>((resolve, reject) => {
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err) => reject(err));
+    doc.on('error', (err: unknown) => reject(err instanceof Error ? err : new Error(String(err))));
   });
 
   // ── Page 1 ─────────────────────────────────────────────────────

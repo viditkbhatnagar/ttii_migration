@@ -8149,7 +8149,10 @@ export class OperationsService {
     const str = (v: unknown): string => {
       if (v == null) return '';
       if (v instanceof Date) return v.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      return String(v).trim();
+      if (typeof v === 'string') return v.trim();
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (typeof v === 'bigint') return v.toString();
+      return ''; // objects / arrays / fns don't belong in a label/value PDF row
     };
     const orDash = (v: unknown): string => str(v) || 'Not provided';
 
