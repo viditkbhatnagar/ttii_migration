@@ -15,6 +15,8 @@ import {
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { PhoneInput } from '../../shared/components/PhoneInput.js';
+import { SearchableSelect } from '../../shared/components/SearchableSelect.js';
 import { titleCaseOnBlur } from '@/lib/text-format';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 
@@ -68,6 +70,13 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const [offeringId, setOfferingId] = useState('');
   const [combinationId, setCombinationId] = useState('');
   const [source, setSource] = useState('');
+  // Naji UAT 2026-05-16 — when source = Reference, also capture which
+  // existing student is doing the referring. Stored as the numeric
+  // student user_id; on save it's serialised as "Reference#<id>" into
+  // marketing_source (matches the legacy parsing in getApplication).
+  const [referenceStudentId, setReferenceStudentId] = useState('');
+  const [referenceStudentLabel, setReferenceStudentLabel] = useState('');
+  const [studentRefOptions, setStudentRefOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [editLoading, setEditLoading] = useState(isEditMode);
   const [duplicate, setDuplicate] = useState<{ message: string; existingUserId?: string } | null>(null);
@@ -161,6 +170,34 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
       .then((profile) => setMe({ name: profile.name, roleId: profile.roleId }))
       .catch(() => setMe(null));
   }, [api, session.token]);
+
+  // Naji UAT 2026-05-16 — pre-load the student list once so the
+  // Reference picker has options ready when admin flips source.
+  useEffect(() => {
+    void api
+      .loadStudents(session.token, {})
+      .then((rows) => {
+        const opts = (Array.isArray(rows) ? rows : []).map((r) => {
+          const id = asString(r.id ?? r._id);
+          const name = asString(r.name) || asString(r.student_name) || 'Student';
+          const sid = asString(r.student_id);
+          return { id, label: sid ? `${name} · ${sid}` : name };
+        }).filter((o) => o.id);
+        setStudentRefOptions(opts);
+      })
+      .catch(() => setStudentRefOptions([]));
+  }, [api, session.token]);
+
+  // Edit mode prefill: parse "Reference#<id>" into the picker state.
+  useEffect(() => {
+    if (!source || !source.startsWith('Reference#')) return;
+    const refId = source.slice('Reference#'.length);
+    if (!refId) return;
+    setReferenceStudentId(refId);
+    setSource('Reference');
+    const match = studentRefOptions.find((o) => o.id === refId);
+    if (match) setReferenceStudentLabel(match.label);
+  }, [source, studentRefOptions]);
 
   useEffect(() => {
     if (!courseId) {
@@ -277,7 +314,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         course_id: courseId,
         offering_id: offeringId || undefined,
         combination_id: combinationId || undefined,
-        source: source.trim() || undefined,
+        // Naji UAT 2026-05-16 — when source = Reference and a student
+        // is picked, serialise as "Reference#<student_user_id>" so
+        // getApplication's existing split logic recovers the linkage.
+        source: source.trim() === 'Reference' && referenceStudentId
+          ? `Reference#${referenceStudentId}`
+          : (source.trim() || undefined),
       };
       const res = isEditMode
         ? await api.editLead(session.token, editId, payload)
@@ -346,22 +388,22 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone *</Label>
-              <div className="flex gap-2">
-                <Input
-                  className="w-20"
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="91"
-                />
-                <Input
-                  id="phone"
-                  className="flex-1"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 15))}
-                  onBlur={() => { void runDuplicateCheck(undefined, phone.trim()); }}
-                  placeholder="9876543210"
-                />
-              </div>
+              {/* Naji UAT 2026-05-16 — swap the bespoke text input for
+                  the shared PhoneInput so the country dial code is
+                  picked from a proper dropdown like every other form. */}
+              <PhoneInput
+                id="phone"
+                countryCode={countryCode}
+                number={phone}
+                onChange={({ countryCode: cc, number }) => {
+                  setCountryCode(cc);
+                  setPhone(number.replace(/\D/g, '').slice(0, 15));
+                  if (number.trim()) {
+                    void runDuplicateCheck(undefined, number.trim());
+                  }
+                }}
+                placeholder="9876543210"
+              />
             </div>
           </div>
           <div className="space-y-2">
@@ -431,6 +473,30 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
               <option value="Reference">Reference (existing student)</option>
               <option value="Other">Other</option>
             </select>
+            {/* Naji UAT 2026-05-16 — picker only appears when source =
+                Reference. Stores the referred student's user_id;
+                serialised as "Reference#<id>" on save. */}
+            {source === 'Reference' ? (
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/40 p-3">
+                <SearchableSelect
+                  label="Referred By (Existing Student) *"
+                  value={referenceStudentLabel}
+                  onChange={(label) => {
+                    setReferenceStudentLabel(label);
+                    const match = studentRefOptions.find((o) => o.label === label);
+                    setReferenceStudentId(match?.id ?? '');
+                  }}
+                  options={studentRefOptions.map((o) => o.label)}
+                  placeholder="Search by name or student ID"
+                  strict
+                />
+                {!referenceStudentId && source === 'Reference' ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Pick the existing student who is making the referral, otherwise the source won't capture who referred this lead.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           {/* Naji 2026-05-07 — show Pipeline + Pipeline User even though
               they are auto-set so the team can see what's being recorded.
@@ -463,16 +529,23 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                 {duplicateMatch.student_id ? ` · ${duplicateMatch.student_id}` : ''}
               </p>
               <p className="mt-1 text-xs text-red-600">
-                To enrol them in another course, open their student record and click "+ Add Enrolment". A new lead cannot be created on top of an existing student.
+                {session.roleId === 9
+                  ? 'A new lead cannot be created on top of an existing student. Ask the admin team to add another enrolment for this student.'
+                  : 'To enrol them in another course, open their student record and click "+ Add Enrolment". A new lead cannot be created on top of an existing student.'}
               </p>
               <div className="mt-3 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onNavigate(`/admin/students/view/${duplicateMatch.id}`)}
-                >
-                  Open student record
-                </Button>
+                {/* Naji UAT 2026-05-16 — Counsellors only have access to
+                    their own students, so the "Open student record"
+                    button isn't useful for them. Hide it for role 9. */}
+                {session.roleId !== 9 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onNavigate(`/admin/students/view/${duplicateMatch.id}`)}
+                  >
+                    Open student record
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"

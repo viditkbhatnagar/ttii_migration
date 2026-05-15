@@ -185,7 +185,10 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
   const editId = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const path = window.location.pathname;
-    const m = path.match(/^\/admin\/applications\/edit\/(\d+)$/);
+    // Naji UAT 2026-05-16 — accept both admin and counsellor prefixes
+    // so the same component handles edit on either portal (the
+    // counsellor portal mounts this via CounsellorEditApplicationPage).
+    const m = path.match(/^\/(?:admin|counsellor)\/applications\/edit\/(\d+)$/);
     if (m) return m[1] ?? '';
     return '';
   }, []);

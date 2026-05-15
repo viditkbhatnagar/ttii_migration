@@ -18,6 +18,7 @@ export interface CounsellorRouteConfig {
 const CounsellorDashboardPage = lazy(() => import('../pages/dashboard/CounsellorDashboardPage.js'));
 const CounsellorApplicationsPage = lazy(() => import('../pages/applications/CounsellorApplicationsPage.js'));
 const CounsellorViewApplicationPage = lazy(() => import('../pages/applications/CounsellorViewApplicationPage.js'));
+const CounsellorEditApplicationPage = lazy(() => import('../pages/applications/CounsellorEditApplicationPage.js'));
 const CounsellorAddLeadPage = lazy(() => import('../pages/leads/CounsellorAddLeadPage.js'));
 const CounsellorStudentsPage = lazy(() => import('../pages/students/CounsellorStudentsPage.js'));
 const CounsellorTargetsPage = lazy(() => import('../pages/targets/CounsellorTargetsPage.js'));
@@ -29,6 +30,11 @@ export const COUNSELLOR_ROUTES: CounsellorRouteConfig[] = [
   // Naji 2026-05-08 — Lead workflow parity with admin portal.
   { path: '/counsellor/applications', aliases: ['/counsellor/applications/index'], pageComponent: CounsellorApplicationsPage, title: 'Applications' },
   { path: '/counsellor/applications/view/:id', pageComponent: CounsellorViewApplicationPage, title: 'View Application' },
+  // Naji UAT 2026-05-16 — Edit Application for post-lead stages
+  // (form_submitted / approval_waiting / enrolled / rejected). The
+  // admin View page's Edit button routes here once the rewrite kicks
+  // in.
+  { path: '/counsellor/applications/edit/:id', pageComponent: CounsellorEditApplicationPage, title: 'Edit Application' },
   { path: '/counsellor/leads/add', pageComponent: CounsellorAddLeadPage, title: 'Add Lead' },
   { path: '/counsellor/leads/edit/:id', pageComponent: CounsellorAddLeadPage, title: 'Edit Lead' },
   { path: '/counsellor/students', pageComponent: CounsellorStudentsPage, title: 'Students' },

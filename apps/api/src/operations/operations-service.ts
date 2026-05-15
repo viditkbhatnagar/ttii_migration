@@ -6693,11 +6693,39 @@ export class OperationsService {
     const nationalityIdInt = parseLooseInt(app.nationality);
     const languageIdInt = parseLooseInt(app.preferred_language);
 
+    // Naji UAT 2026-05-16 — student_payments.paid_date stores a literal
+    // '0000-00-00' for legacy rows; Prisma's MySQL driver throws "Value
+    // out of range" when findMany() tries to hydrate that. Same fix
+    // pattern as listPaymentStatus / getStudentDetail: read through
+    // $queryRaw with NULLIF so the zero-date becomes NULL before it
+    // reaches the driver. The user_id filter stays as-is (legacy
+    // semantic).
+    type RawStudentPayment = {
+      id: number;
+      user_id: number;
+      course_id: number;
+      installment_details: string | null;
+      amount: number | null;
+      payment_mode: string | null;
+      payment_to: string | null;
+      status: string | null;
+      due_date: Date | null;
+      paid_date: Date | null;
+    };
+    const studentPaymentsForApp = this.prisma.$queryRaw<RawStudentPayment[]>`
+      SELECT id, user_id, course_id, installment_details, amount,
+             payment_mode, payment_to, status,
+             NULLIF(due_date, '0000-00-00') AS due_date,
+             NULLIF(paid_date, '0000-00-00') AS paid_date
+      FROM student_payments
+      WHERE user_id = ${toIntId(id)} AND deleted_at IS NULL
+      ORDER BY id DESC
+    `;
     const [course, pipelineUser, centre, payments, countryRow, nationalityRow, languageRow, educationPathway, offering, combination] = await Promise.all([
       app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
       app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
       app.added_under_centre ? this.prisma.centres.findFirst({ where: { id: app.added_under_centre }, select: { id: true, centre_name: true } }) : null,
-      this.prisma.student_payments.findMany({ where: { user_id: toIntId(id), deleted_at: null }, orderBy: { id: 'desc' } }),
+      studentPaymentsForApp,
       countryIdInt !== null ? this.prisma.country.findFirst({ where: { id: countryIdInt }, select: { id: true, name: true } }) : null,
       nationalityIdInt !== null ? this.prisma.country.findFirst({ where: { id: nationalityIdInt }, select: { id: true, name: true } }) : null,
       languageIdInt !== null ? this.prisma.languages.findFirst({ where: { id: languageIdInt }, select: { id: true, title: true } }) : null,
