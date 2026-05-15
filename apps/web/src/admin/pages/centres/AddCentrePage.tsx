@@ -12,6 +12,8 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -230,7 +232,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
               </div>
               <div className="grid gap-2">
                 <Label>Centre Name *</Label>
-                <Input value={form.centreName} onChange={(e) => set('centreName', e.target.value)} placeholder="Enter centre name" />
+                <Input value={form.centreName} onChange={(e) => set('centreName', e.target.value)} onBlur={titleCaseOnBlur((value) => set('centreName', value))} placeholder="Enter centre name" />
               </div>
               <div className="grid gap-2">
                 <Label>Country *</Label>
@@ -267,6 +269,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
                     <Input
                       value={form.city}
                       onChange={(e) => set('city', e.target.value)}
+                      onBlur={titleCaseOnBlur((value) => set('city', value))}
                       placeholder={form.state ? `Enter district in ${form.state}` : 'Pick a state first'}
                     />
                   );
@@ -296,7 +299,7 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
             <div className="grid gap-4 md:grid-cols-2">
               <div className="grid gap-2">
                 <Label>Contact Person Name</Label>
-                <Input value={form.contactPerson} onChange={(e) => set('contactPerson', e.target.value)} placeholder="Enter contact person name" />
+                <Input value={form.contactPerson} onChange={(e) => set('contactPerson', e.target.value)} onBlur={titleCaseOnBlur((value) => set('contactPerson', value))} placeholder="Enter contact person name" />
               </div>
               <div className="grid gap-2">
                 <Label>Contact Phone</Label>
@@ -329,15 +332,15 @@ export default function AddCentrePage({ api, session, onNavigate }: AdminPagePro
               </div>
               <div className="grid gap-2">
                 <Label>Address Line 1</Label>
-                <Input value={form.addressLine1} onChange={(e) => set('addressLine1', e.target.value)} placeholder="Enter address" />
+                <Input value={form.addressLine1} onChange={(e) => set('addressLine1', e.target.value)} onBlur={titleCaseOnBlur((value) => set('addressLine1', value))} placeholder="Enter address" />
               </div>
               <div className="grid gap-2">
                 <Label>Address Line 2</Label>
-                <Input value={form.addressLine2} onChange={(e) => set('addressLine2', e.target.value)} placeholder="Enter address line 2" />
+                <Input value={form.addressLine2} onChange={(e) => set('addressLine2', e.target.value)} onBlur={titleCaseOnBlur((value) => set('addressLine2', value))} placeholder="Enter address line 2" />
               </div>
               <div className="grid gap-2">
                 <Label>City</Label>
-                <Input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Enter city" />
+                <Input value={form.city} onChange={(e) => set('city', e.target.value)} onBlur={titleCaseOnBlur((value) => set('city', value))} placeholder="Enter city" />
               </div>
               <div className="grid gap-2">
                 <Label>State</Label>

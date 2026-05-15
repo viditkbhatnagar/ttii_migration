@@ -12,6 +12,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -208,6 +210,7 @@ export default function TeamsMeetingHostsPage({ api, session }: AdminPageProps) 
                 <Input
                   value={form.displayName}
                   onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, displayName: next })); }}
                   placeholder="e.g. Priya (Montessori Dept)"
                 />
               </div>

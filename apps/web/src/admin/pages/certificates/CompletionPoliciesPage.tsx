@@ -11,6 +11,8 @@ import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-uti
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -122,7 +124,7 @@ export default function CompletionPoliciesPage({ api, session }: AdminPageProps)
           >
             <DialogHeader><DialogTitle>{editId ? 'Edit Policy' : 'New Completion Policy'}</DialogTitle></DialogHeader>
             <div className="space-y-3">
-              <div><Label>Title *</Label><Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Diploma Standard Completion" /></div>
+              <div><Label>Title *</Label><Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, title: next })); }} placeholder="e.g. Diploma Standard Completion" /></div>
               <div><Label>Course (optional)</Label>
                 <select className={selectClass} value={form.course_id} onChange={(e) => setForm((f) => ({ ...f, course_id: e.target.value }))}>
                   <option value="">All Courses</option>

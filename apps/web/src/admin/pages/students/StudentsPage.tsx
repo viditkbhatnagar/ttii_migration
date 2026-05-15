@@ -16,6 +16,8 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 export default function StudentsPage({ api, session, onNavigate }: AdminPageProps) {
   /* ── Filter state ────────────────────────────────────────────────────────── */
@@ -352,6 +354,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
                 <Input
                   value={dialogName}
                   onChange={(e) => setDialogName(e.target.value)}
+                  onBlur={titleCaseOnBlur(setDialogName)}
                   placeholder="Student name"
                 />
               </div>

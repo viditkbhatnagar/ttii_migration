@@ -8,6 +8,8 @@ import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 // Naji 2026-05-09 — new Exam Creation wizard.
 // Five steps:
@@ -266,7 +268,7 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="ex-title">Exam Title *</Label>
-                <Input id="ex-title" value={draft.title} onChange={(e) => setDraft((p) => ({ ...p, title: e.target.value }))} placeholder="e.g. Mid-Semester Examination — November 2026" />
+                <Input id="ex-title" value={draft.title} onChange={(e) => setDraft((p) => ({ ...p, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setDraft((p) => ({ ...p, title: next })); }} placeholder="e.g. Mid-Semester Examination — November 2026" />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Exam ID</Label>
@@ -1029,7 +1031,7 @@ function PublishStep({
           </div>
           {showTemplateForm ? (
             <div className="mb-3 grid grid-cols-1 gap-2 rounded-md bg-slate-50 p-3">
-              <Input placeholder="Template title" value={tplTitle} onChange={(e) => setTplTitle(e.target.value)} />
+              <Input placeholder="Template title" value={tplTitle} onChange={(e) => setTplTitle(e.target.value)} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setTplTitle(next); }} />
               <textarea placeholder="Template body" value={tplBody || instructions} onChange={(e) => setTplBody(e.target.value)} rows={4}
                 className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
               <div className="flex justify-end">

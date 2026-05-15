@@ -20,6 +20,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 interface BatchForm {
   title: string;
@@ -225,6 +227,7 @@ export default function IntakePage({ api, session }: AdminPageProps) {
                   id="batch-title"
                   value={batchForm.title}
                   onChange={(e) => setBatchForm((f) => ({ ...f, title: e.target.value }))}
+                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setBatchForm((f) => ({ ...f, title: next })); }}
                   placeholder="Batch title"
                 />
               </div>

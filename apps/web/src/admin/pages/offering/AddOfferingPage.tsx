@@ -10,6 +10,8 @@ import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -335,7 +337,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Offering Title</Label>
-              <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="e.g. Montessori Foundations — Jan 2026 Batch" />
+              <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} onBlur={titleCaseOnBlur((value) => updateField('title', value))} placeholder="e.g. Montessori Foundations — Jan 2026 Batch" />
             </div>
             <div className="space-y-1">
               <Label>Offering Code</Label>

@@ -24,6 +24,8 @@ import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { COUNTRIES } from '@/lib/locations';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -368,7 +370,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2 md:col-span-2">
               <Label htmlFor="a-name">Full Name *</Label>
-              <Input id="a-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" required />
+              <Input id="a-name" value={formName} onChange={(e) => setFormName(e.target.value)} onBlur={titleCaseOnBlur(setFormName)} placeholder="Full Name" required />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-gender">Gender *</Label>

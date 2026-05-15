@@ -13,6 +13,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -258,6 +260,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
                   id="partner-name"
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, name: next })); }}
                   placeholder="e.g. American Academy of Pediatrics"
                 />
               </div>
@@ -276,6 +279,7 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
                   id="partner-country"
                   value={form.country}
                   onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
+                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, country: next })); }}
                   placeholder="e.g. United States"
                 />
               </div>

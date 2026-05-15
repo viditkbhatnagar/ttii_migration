@@ -12,6 +12,8 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 export default function DocumentTypesPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -144,6 +146,7 @@ export default function DocumentTypesPage({ api, session }: AdminPageProps) {
                 autoFocus
                 value={editing?.label ?? ''}
                 onChange={(e) => setEditing((prev) => (prev ? { ...prev, label: e.target.value } : prev))}
+                onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setEditing((prev) => (prev ? { ...prev, label: next } : prev)); }}
                 placeholder="e.g. Aadhaar, Senior Secondary, Signature"
               />
             </div>

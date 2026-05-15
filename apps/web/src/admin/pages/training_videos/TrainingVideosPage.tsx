@@ -10,6 +10,8 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const CATEGORIES = ['Live', 'Lectures', 'Tutorials'];
 const VIDEO_TYPES = ['YouTube', 'Vimeo'];
@@ -226,7 +228,7 @@ export default function TrainingVideosPage({ api, session }: AdminPageProps) {
             <div className="space-y-3">
               <div>
                 <Label>Title *</Label>
-                <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} placeholder="Video title" />
+                <Input value={form.title} onChange={(e) => updateField('title', e.target.value)} onBlur={titleCaseOnBlur((value) => updateField('title', value))} placeholder="Video title" />
               </div>
               <div>
                 <Label>Category *</Label>

@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
@@ -158,7 +160,7 @@ export default function BannersPage({ api, session }: AdminPageProps) {
             <div className="space-y-3 py-2">
               <div className="grid gap-2">
                 <Label>Title *</Label>
-                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Banner title" />
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} onBlur={titleCaseOnBlur(setMTitle)} placeholder="Banner title" />
               </div>
               <div className="grid gap-2">
                 <Label>Image *</Label>

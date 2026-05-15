@@ -12,6 +12,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 interface ProgramForm {
   title: string;
@@ -169,7 +171,7 @@ export default function ProgramDirectoryPage({ api, session, onNavigate }: Admin
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="program-name">Program Name *</Label>
-              <Input id="program-name" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Diploma in Montessori Education" />
+              <Input id="program-name" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, title: next })); }} placeholder="e.g. Diploma in Montessori Education" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="program-description">Program Description</Label>

@@ -17,6 +17,8 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -543,7 +545,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
           <div className="w-full min-w-0 space-y-4">
             <div className="space-y-1.5">
               <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Asset title" />
+              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, title: next })); }} placeholder="Asset title" />
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">

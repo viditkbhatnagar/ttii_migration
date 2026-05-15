@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -302,6 +304,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               id="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onBlur={titleCaseOnBlur(setTitle)}
               placeholder="Auto-generated from Subject + Start Month"
             />
             <p className="text-xs text-muted-foreground">

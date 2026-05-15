@@ -12,6 +12,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 export default function LanguagePage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -123,7 +125,7 @@ export default function LanguagePage({ api, session }: AdminPageProps) {
             <div className="space-y-3 py-2">
               <div className="grid gap-2">
                 <Label>Title *</Label>
-                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="e.g. English, Malayalam" />
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} onBlur={titleCaseOnBlur(setMTitle)} placeholder="e.g. English, Malayalam" />
               </div>
             </div>
             <DialogFooter>

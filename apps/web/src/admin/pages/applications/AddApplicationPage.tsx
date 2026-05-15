@@ -895,15 +895,15 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                   </div>
                   <div className="grid gap-2">
                     <Label>Father Name *</Label>
-                    <Input value={form.fatherName} onChange={(e) => set('fatherName', e.target.value)} placeholder="Enter father's name" />
+                    <Input value={form.fatherName} onChange={(e) => set('fatherName', e.target.value)} onBlur={titleCaseOnBlur((value) => set('fatherName', value))} placeholder="Enter father's name" />
                   </div>
                   <div className="grid gap-2">
                     <Label>Mother Name *</Label>
-                    <Input value={form.motherName} onChange={(e) => set('motherName', e.target.value)} placeholder="Enter mother's name" />
+                    <Input value={form.motherName} onChange={(e) => set('motherName', e.target.value)} onBlur={titleCaseOnBlur((value) => set('motherName', value))} placeholder="Enter mother's name" />
                   </div>
                   <div className="grid gap-2">
                     <Label>Guardian Name (if applicable)</Label>
-                    <Input value={form.guardianName} onChange={(e) => set('guardianName', e.target.value)} placeholder="Enter guardian's name" />
+                    <Input value={form.guardianName} onChange={(e) => set('guardianName', e.target.value)} onBlur={titleCaseOnBlur((value) => set('guardianName', value))} placeholder="Enter guardian's name" />
                   </div>
                   <div className="grid gap-2">
                     <Label>Aadhar Number *</Label>
@@ -979,7 +979,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                         {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     ) : (
-                      <Input value={form.state} onChange={(e) => set('state', e.target.value)} placeholder="Enter state / province" />
+                      <Input value={form.state} onChange={(e) => set('state', e.target.value)} onBlur={titleCaseOnBlur((value) => set('state', value))} placeholder="Enter state / province" />
                     )}
                   </div>
                   <div className="grid gap-2">
@@ -993,6 +993,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                       <Input
                         value={form.district}
                         onChange={(e) => set('district', e.target.value)}
+                        onBlur={titleCaseOnBlur((value) => set('district', value))}
                         placeholder={form.country === 'India' && form.state ? `Enter district in ${form.state}` : 'Enter district / city'}
                       />
                     )}
@@ -1046,11 +1047,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </div>
                 <div className="grid gap-2">
                   <Label>Specialization</Label>
-                  <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Enter specialization" />
+                  <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} onBlur={titleCaseOnBlur((value) => set('specialization', value))} placeholder="Enter specialization" />
                 </div>
                 <div className="grid gap-2">
                   <Label>School / College *</Label>
-                  <Input value={form.institutionName} onChange={(e) => set('institutionName', e.target.value)} placeholder="Enter school/college name" />
+                  <Input value={form.institutionName} onChange={(e) => set('institutionName', e.target.value)} onBlur={titleCaseOnBlur((value) => set('institutionName', value))} placeholder="Enter school/college name" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Year of Passing *</Label>
@@ -1073,7 +1074,7 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                 </div>
                 <div className="grid gap-2">
                   <Label>Current Occupation</Label>
-                  <Input value={form.currentOccupation} onChange={(e) => set('currentOccupation', e.target.value)} placeholder="Enter current occupation" />
+                  <Input value={form.currentOccupation} onChange={(e) => set('currentOccupation', e.target.value)} onBlur={titleCaseOnBlur((value) => set('currentOccupation', value))} placeholder="Enter current occupation" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Experience *</Label>
@@ -1108,10 +1109,10 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                         {educationRows.map((row, idx) => (
                           <tr key={idx} className="border-b last:border-b-0">
                             <td className="px-2 py-1.5">
-                              <Input value={row.qualification} onChange={(e) => updateEducationRow(idx, 'qualification', e.target.value)} placeholder="e.g. B.Ed." className="h-8 text-sm" />
+                              <Input value={row.qualification} onChange={(e) => updateEducationRow(idx, 'qualification', e.target.value)} onBlur={titleCaseOnBlur((value) => updateEducationRow(idx, 'qualification', value))} placeholder="e.g. B.Ed." className="h-8 text-sm" />
                             </td>
                             <td className="px-2 py-1.5">
-                              <Input value={row.institution} onChange={(e) => updateEducationRow(idx, 'institution', e.target.value)} placeholder="Institution name" className="h-8 text-sm" />
+                              <Input value={row.institution} onChange={(e) => updateEducationRow(idx, 'institution', e.target.value)} onBlur={titleCaseOnBlur((value) => updateEducationRow(idx, 'institution', value))} placeholder="Institution name" className="h-8 text-sm" />
                             </td>
                             <td className="px-2 py-1.5">
                               <select

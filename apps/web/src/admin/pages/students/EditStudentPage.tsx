@@ -11,6 +11,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { SearchableSelect } from '../../shared/components/SearchableSelect.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 
@@ -267,7 +269,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
         <CardHeader><CardTitle className="text-base">Basic Information</CardTitle></CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label="Name" value={form.name ?? ''} onChange={(v) => set('name', v)} />
+            <FieldRow label="Name" value={form.name ?? ''} onChange={(v) => set('name', v)} titleCase />
             <FieldRow label="Email" type="email" value={form.user_email ?? ''} onChange={(v) => set('user_email', v)} />
             <FieldRow label="Phone" value={form.phone ?? ''} onChange={(v) => set('phone', v)} />
             <FieldRow label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => set('alternate_phone', v)} />
@@ -287,9 +289,9 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             />
             <FieldRow label="Aadhar No" value={form.aadhar_no ?? ''} onChange={(v) => set('aadhar_no', v)} />
             <FieldRow label="Passport No" value={form.passport_no ?? ''} onChange={(v) => set('passport_no', v)} />
-            <FieldRow label="Father Name" value={form.father_name ?? ''} onChange={(v) => set('father_name', v)} />
-            <FieldRow label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => set('mother_name', v)} />
-            <FieldRow label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => set('guardian_name', v)} />
+            <FieldRow label="Father Name" value={form.father_name ?? ''} onChange={(v) => set('father_name', v)} titleCase />
+            <FieldRow label="Mother Name" value={form.mother_name ?? ''} onChange={(v) => set('mother_name', v)} titleCase />
+            <FieldRow label="Guardian Name" value={form.guardian_name ?? ''} onChange={(v) => set('guardian_name', v)} titleCase />
             <SearchableSelect
               label="Country"
               value={form.country ?? ''}
@@ -317,7 +319,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
                 placeholder={`Type to search ${form.state} districts…`}
               />
             ) : (
-              <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} />
+              <FieldRow label="City / District" value={form.city ?? ''} onChange={(v) => set('city', v)} titleCase />
             )}
             <SelectRow label="Status" value={form.status ?? '1'} onChange={(v) => set('status', v)}
               options={[{ value: '1', label: 'Active' }, { value: '0', label: 'Inactive' }, { value: '2', label: 'Graduated' }, { value: '3', label: 'Dropped' }]} />
@@ -348,8 +350,8 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
           <div className="grid gap-4 md:grid-cols-2">
             <SelectRow label="Highest Qualification" value={form.highest_qualification ?? ''} onChange={(v) => set('highest_qualification', v)}
               options={[{ value: '', label: 'Select' }, ...QUALIFICATIONS.map((q) => ({ value: q, label: q }))]} />
-            <FieldRow label="Specialization" value={form.specialization ?? ''} onChange={(v) => set('specialization', v)} />
-            <FieldRow label="School / College" value={form.institution_name ?? ''} onChange={(v) => set('institution_name', v)} />
+            <FieldRow label="Specialization" value={form.specialization ?? ''} onChange={(v) => set('specialization', v)} titleCase />
+            <FieldRow label="School / College" value={form.institution_name ?? ''} onChange={(v) => set('institution_name', v)} titleCase />
             <FieldRow label="Year of Passing" value={form.year_of_passing ?? ''} onChange={(v) => set('year_of_passing', v)} />
             <FieldRow label="Percentage / Grade" value={form.percentage_or_grade ?? ''} onChange={(v) => set('percentage_or_grade', v)} />
             <SelectRow label="Current Employment Status" value={form.employment_status ?? ''} onChange={(v) => set('employment_status', v)}
@@ -362,7 +364,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
                 { value: 'Homemaker', label: 'Homemaker' },
                 { value: 'Retired', label: 'Retired' },
               ]} />
-            <FieldRow label="Current Occupation" value={form.current_occupation ?? ''} onChange={(v) => set('current_occupation', v)} />
+            <FieldRow label="Current Occupation" value={form.current_occupation ?? ''} onChange={(v) => set('current_occupation', v)} titleCase />
             <SelectRow label="Experience" value={form.experience_years ?? ''} onChange={(v) => set('experience_years', v)}
               options={[{ value: '', label: 'Select' }, ...EXPERIENCE_BUCKETS.map((b) => ({ value: b, label: b }))]} />
           </div>
@@ -384,7 +386,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
 }
 
 function FieldRow({
-  label, value, onChange, type, readOnly, hint,
+  label, value, onChange, type, readOnly, hint, titleCase,
 }: {
   label: string;
   value: string;
@@ -392,6 +394,7 @@ function FieldRow({
   type?: string;
   readOnly?: boolean;
   hint?: string;
+  titleCase?: boolean;
 }) {
   return (
     <div>
@@ -400,6 +403,10 @@ function FieldRow({
         type={type ?? 'text'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={titleCase ? (e) => {
+          const next = titleCaseEachWord(e.target.value);
+          if (next !== e.target.value) onChange(next);
+        } : undefined}
         readOnly={readOnly}
         className={readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : undefined}
       />

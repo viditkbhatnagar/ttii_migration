@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../../admin/shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -133,6 +135,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: CentrePa
                 id="cohort-title"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
+                onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm({ ...form, title: next }); }}
                 placeholder="Enter cohort title"
               />
             </div>

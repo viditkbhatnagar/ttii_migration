@@ -17,6 +17,8 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -644,6 +646,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
                 <Input
                   value={lessonForm.title}
                   onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))}
+                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setLessonForm((f) => ({ ...f, title: next })); }}
                   placeholder="Lesson title"
                 />
               </div>
@@ -699,6 +702,7 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
               <Input
                 value={fileForm.title}
                 onChange={(e) => setFileForm((f) => ({ ...f, title: e.target.value }))}
+                onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setFileForm((f) => ({ ...f, title: next })); }}
                 placeholder={`${fileTypeLabel[fileDialogType]} title`}
               />
             </div>

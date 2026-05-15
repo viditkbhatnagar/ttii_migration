@@ -18,6 +18,8 @@ import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/ad
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const TAB_LABELS = ['Learners', 'Live Sessions', 'Assignments', 'Announcements'];
 const ASSIGNMENT_SUB_TABS = ['Details', 'Submissions', 'Unsubmitted Students'];
@@ -1676,7 +1678,7 @@ function AddLiveSessionModal({
                 </div>
                 <div>
                   <Label className="mb-1 text-xs">Title</Label>
-                  <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Physics — Batch A" />
+                  <Input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={titleCaseOnBlur(setTitle)} placeholder="e.g. Physics — Batch A" />
                 </div>
               </div>
               {platform === 'teams' && (
@@ -1819,7 +1821,7 @@ function AddLiveSessionModal({
                                 <td className="px-2 py-1.5">{day}</td>
                                 <td className="px-2 py-1.5">{format12hTime(e.fromTime)} – {format12hTime(e.toTime)}</td>
                                 <td className="px-2 py-1.5">
-                                  <Input value={e.title} onChange={(ev) => updateEntry(idx, { title: ev.target.value })} className="h-7 text-xs" />
+                                  <Input value={e.title} onChange={(ev) => updateEntry(idx, { title: ev.target.value })} onBlur={titleCaseOnBlur((value) => updateEntry(idx, { title: value }))} className="h-7 text-xs" />
                                 </td>
                               </tr>
                             );
@@ -1987,7 +1989,7 @@ function AssignmentModal({
         <div className="space-y-3 py-2">
           <div>
             <Label className="mb-1 text-xs">Title *</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={titleCaseOnBlur(setTitle)} />
           </div>
           <div>
             <Label className="mb-1 text-xs">Description</Label>
@@ -2170,7 +2172,7 @@ function AnnouncementModal({
         <div className="space-y-3 py-2">
           <div>
             <Label className="mb-1 text-xs">Title *</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={titleCaseOnBlur(setTitle)} />
           </div>
           <div>
             <Label className="mb-1 text-xs">Content *</Label>

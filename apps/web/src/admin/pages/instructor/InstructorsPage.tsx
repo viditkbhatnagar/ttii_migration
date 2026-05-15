@@ -16,6 +16,8 @@ import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -293,6 +295,10 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
                 id="inst-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                onBlur={(e) => {
+                  const next = titleCaseEachWord(e.target.value);
+                  if (next !== e.target.value) setForm((f) => ({ ...f, name: next }));
+                }}
                 placeholder="Name"
                 required
               />

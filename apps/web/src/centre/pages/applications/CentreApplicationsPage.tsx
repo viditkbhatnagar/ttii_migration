@@ -18,6 +18,8 @@ import { AdminFilterBar, type FilterField } from '../../../admin/shared/componen
 import { AdminTabBar, type AdminTab } from '../../../admin/shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../../admin/shared/components/AdminStatusBadge.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 import { asString, formatDate, responseSuccess } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CentrePageProps } from '../../routing/centre-routes.js';
 import { CentrePortalApi, type CentreApplicationsSnapshot } from '../../centre-portal-api.js';
@@ -305,7 +307,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
           <div className="space-y-4 pt-2">
             <div>
               <Label className="mb-1 text-xs text-gray-500">Name *</Label>
-              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Applicant name" />
+              <Input value={formName} onChange={(e) => setFormName(e.target.value)} onBlur={titleCaseOnBlur(setFormName)} placeholder="Applicant name" />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>

@@ -20,6 +20,8 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 export default function AdminUsersPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
@@ -329,7 +331,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="au-name">Full Name *</Label>
-              <Input id="au-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full Name" required />
+              <Input id="au-name" value={name} onChange={(e) => setName(e.target.value)} onBlur={titleCaseOnBlur(setName)} placeholder="Full Name" required />
             </div>
             {!editingUser && (
               <div className="space-y-1.5">

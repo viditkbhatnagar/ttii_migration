@@ -12,6 +12,8 @@ import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
@@ -194,7 +196,7 @@ export default function CircularsPage({ api, session }: AdminPageProps) {
             <div className="grid gap-3 py-2 md:grid-cols-2">
               <div className="grid gap-2 md:col-span-2">
                 <Label>Title *</Label>
-                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Circular title" />
+                <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} onBlur={titleCaseOnBlur(setMTitle)} placeholder="Circular title" />
               </div>
               <div className="grid gap-2 md:col-span-2">
                 <Label>Image *</Label>

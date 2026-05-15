@@ -8,6 +8,8 @@ import { PageLoader } from '@/components/ui/page-loader';
 import { useCounsellorLayout } from '../../layout/CounsellorLayoutContext.js';
 import type { CounsellorProfileSnapshot } from '../../counsellor-portal-api.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 interface ProfileFormState {
   name: string;
@@ -146,7 +148,7 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="settings-name">Full name</Label>
-            <Input id="settings-name" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} autoComplete="name" />
+            <Input id="settings-name" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setProfileForm((p) => ({ ...p, name: next })); }} autoComplete="name" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="settings-email">Email</Label>

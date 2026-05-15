@@ -13,6 +13,8 @@ import { AdminDataTable, type DataTableColumn } from '../../shared/components/Ad
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { useConfirm } from '@/components/confirm-dialog';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 export default function AssignmentsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
@@ -206,7 +208,7 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
             <div className="space-y-4 py-2">
               <div className="space-y-1">
                 <Label htmlFor="edit-title">Title</Label>
-                <Input id="edit-title" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
+                <Input id="edit-title" value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setEditForm((f) => ({ ...f, title: next })); }} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="edit-description">Description</Label>

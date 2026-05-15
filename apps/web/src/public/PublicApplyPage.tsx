@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseEachWord } from '@/lib/text-format';
 
 type ApiOk = { status: 1; data?: Record<string, unknown> };
 type ApiErr = { status: number; message?: string };
@@ -302,15 +304,15 @@ export default function PublicApplyPage({ token }: { token: string }) {
 
           <h2 className="pt-2 text-sm font-semibold text-slate-700">Personal</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="First Name *" value={form.first_name} onChange={update('first_name')} />
-            <FieldText label="Last Name" value={form.last_name} onChange={update('last_name')} />
+            <FieldText label="First Name *" value={form.first_name} onChange={update('first_name')} titleCase />
+            <FieldText label="Last Name" value={form.last_name} onChange={update('last_name')} titleCase />
             <FieldText label="Date of Birth *" type="date" value={form.date_of_birth} onChange={update('date_of_birth')} />
             <FieldSelect label="Gender *" value={form.gender} onChange={update('gender')} options={['', 'Male', 'Female', 'Other']} />
-            <FieldText label="Nationality *" value={form.nationality} onChange={update('nationality')} />
+            <FieldText label="Nationality *" value={form.nationality} onChange={update('nationality')} titleCase />
             <FieldSelect label="Marital Status *" value={form.marital_status} onChange={update('marital_status')} options={['', 'Single', 'Married', 'Divorced', 'Widowed']} />
-            <FieldText label="Father's Name *" value={form.father_name} onChange={update('father_name')} />
-            <FieldText label="Mother's Name *" value={form.mother_name} onChange={update('mother_name')} />
-            <FieldText label="Guardian's Name" value={form.guardian_name} onChange={update('guardian_name')} />
+            <FieldText label="Father's Name *" value={form.father_name} onChange={update('father_name')} titleCase />
+            <FieldText label="Mother's Name *" value={form.mother_name} onChange={update('mother_name')} titleCase />
+            <FieldText label="Guardian's Name" value={form.guardian_name} onChange={update('guardian_name')} titleCase />
             <FieldText label="Aadhaar No *" value={form.aadhar_no} onChange={update('aadhar_no')} />
             <FieldText label="Passport No *" value={form.passport_no} onChange={update('passport_no')} />
           </div>
@@ -337,7 +339,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
               number={form.whatsapp_no}
               onNumberChange={update('whatsapp_no')}
             />
-            <FieldText label="Country *" value={form.country} onChange={update('country')} />
+            <FieldText label="Country *" value={form.country} onChange={update('country')} titleCase />
           </div>
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Address</h2>
@@ -345,16 +347,16 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <FieldTextArea label="Permanent Address *" value={form.address} onChange={update('address')} />
             <FieldTextArea label="Correspondence / Native Address *" value={form.native_address} onChange={update('native_address')} />
             <div className="grid grid-cols-2 gap-4">
-              <FieldText label="State *" value={form.state} onChange={update('state')} />
-              <FieldText label="District *" value={form.district} onChange={update('district')} />
+              <FieldText label="State *" value={form.state} onChange={update('state')} titleCase />
+              <FieldText label="District *" value={form.district} onChange={update('district')} titleCase />
             </div>
           </div>
 
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Qualification</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} />
-            <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} />
-            <FieldText label="School / College *" value={form.previous_school} onChange={update('previous_school')} />
+            <FieldText label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} titleCase />
+            <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} titleCase />
+            <FieldText label="School / College *" value={form.previous_school} onChange={update('previous_school')} titleCase />
             <FieldText label="Year of Passing *" value={form.year_of_passing} onChange={update('year_of_passing')} />
             <FieldText label="Percentage / Grade" value={form.percentage_or_grade} onChange={update('percentage_or_grade')} />
           </div>
@@ -369,8 +371,8 @@ export default function PublicApplyPage({ token }: { token: string }) {
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Employment</h2>
           <div className="grid grid-cols-2 gap-4">
             <FieldSelect label="Employment Status *" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-Employed', 'Unemployed', 'Student']} />
-            <FieldText label="Organisation" value={form.organization_name} onChange={update('organization_name')} />
-            <FieldText label="Designation" value={form.designation} onChange={update('designation')} />
+            <FieldText label="Organisation" value={form.organization_name} onChange={update('organization_name')} titleCase />
+            <FieldText label="Designation" value={form.designation} onChange={update('designation')} titleCase />
             <FieldText label="Years of Experience" value={form.experience_years} onChange={update('experience_years')} />
             <FieldTextArea label="Teaching Experience (optional)" value={form.teaching_experience} onChange={update('teaching_experience')} />
           </div>
@@ -428,10 +430,10 @@ function EducationPathwayEditor({
       {rows.map((r, idx) => (
         <div key={idx} className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <FieldText label="Qualification" value={r.qualification} onChange={(e) => updateRow(idx, { qualification: e.target.value })} />
-            <FieldText label="Specialization" value={r.specialization} onChange={(e) => updateRow(idx, { specialization: e.target.value })} />
-            <FieldText label="Institution" value={r.institution} onChange={(e) => updateRow(idx, { institution: e.target.value })} />
-            <FieldText label="Board / University" value={r.board} onChange={(e) => updateRow(idx, { board: e.target.value })} />
+            <FieldText label="Qualification" value={r.qualification} onChange={(e) => updateRow(idx, { qualification: e.target.value })} titleCase />
+            <FieldText label="Specialization" value={r.specialization} onChange={(e) => updateRow(idx, { specialization: e.target.value })} titleCase />
+            <FieldText label="Institution" value={r.institution} onChange={(e) => updateRow(idx, { institution: e.target.value })} titleCase />
+            <FieldText label="Board / University" value={r.board} onChange={(e) => updateRow(idx, { board: e.target.value })} titleCase />
             <FieldText label="Year Passed" value={r.year_passed} onChange={(e) => updateRow(idx, { year_passed: e.target.value })} />
             <FieldText label="Marks / Grade" value={r.marks} onChange={(e) => updateRow(idx, { marks: e.target.value })} />
           </div>
@@ -449,11 +451,23 @@ function EducationPathwayEditor({
   );
 }
 
-function FieldText({ label, value, type = 'text', onChange }: { label: string; value: string; type?: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+function FieldText({ label, value, type = 'text', onChange, titleCase }: { label: string; value: string; type?: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; titleCase?: boolean }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input type={type} value={value} onChange={onChange} />
+      <Input
+        type={type}
+        value={value}
+        onChange={onChange}
+        onBlur={titleCase ? (e) => {
+          const next = titleCaseEachWord(e.target.value);
+          if (next !== e.target.value) {
+            // Synthesize a change event so the existing onChange handler updates the form state.
+            const synthetic = { ...e, target: { ...e.target, value: next } } as React.ChangeEvent<HTMLInputElement>;
+            onChange(synthetic);
+          }
+        } : undefined}
+      />
     </div>
   );
 }

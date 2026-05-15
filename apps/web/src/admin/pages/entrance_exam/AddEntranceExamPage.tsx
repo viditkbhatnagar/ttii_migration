@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 export default function AddEntranceExamPage({ api, session, onNavigate }: AdminPageProps) {
   const [title, setTitle] = useState('');
@@ -55,7 +57,7 @@ export default function AddEntranceExamPage({ api, session, onNavigate }: AdminP
         <CardContent className="space-y-4 p-6">
           <div className="space-y-2">
             <Label htmlFor="title">Title *</Label>
-            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Exam title" />
+            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={titleCaseOnBlur(setTitle)} placeholder="Exam title" />
           </div>
 
           <div className="space-y-2">

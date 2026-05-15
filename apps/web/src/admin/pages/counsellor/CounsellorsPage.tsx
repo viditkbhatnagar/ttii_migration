@@ -22,6 +22,8 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { PhoneInput } from '../../shared/components/PhoneInput.js';
 import { COUNTRIES } from '@/lib/locations';
 import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
+// Naji UAT 2026-05-16 — title-case name-like fields on blur.
+import { titleCaseOnBlur } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
@@ -370,7 +372,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2 md:col-span-2">
               <Label htmlFor="c-name">Full Name *</Label>
-              <Input id="c-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Full Name" required />
+              <Input id="c-name" value={formName} onChange={(e) => setFormName(e.target.value)} onBlur={titleCaseOnBlur(setFormName)} placeholder="Full Name" required />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="c-gender">Gender *</Label>
