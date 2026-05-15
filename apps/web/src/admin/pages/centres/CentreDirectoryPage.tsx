@@ -1,8 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
@@ -149,6 +151,35 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
     },
   ];
 
+  // Naji UAT 2026-05-15 — Resend Login Email parity with every other
+  // user-directory page (Instructors / Counsellors / Associates / Admin
+  // Users). The backend listCentres now surfaces `linked_user_id` for
+  // the role_id=7 user that owns the centre, so we just route through
+  // the existing resendLoginCredentials endpoint.
+  const confirm = useConfirm();
+  const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {
+    const userId = asString(row.linked_user_id);
+    const centreName = asString(row.centre_name) || 'this centre';
+    if (!userId) {
+      toast.error(`No login is wired for ${centreName}. Edit the centre and re-save to provision one.`);
+      return;
+    }
+    if (!(await confirm({
+      title: `Resend login email to "${centreName}"?`,
+      description: `A new temporary password will be generated and emailed to ${asString(row.linked_user_email) || asString(row.email)}. The previous password will stop working.`,
+      confirmText: 'Resend',
+      variant: 'default',
+    }))) return;
+    try {
+      const res = await api.resendLoginCredentials(session.token, userId);
+      const message = typeof res.message === 'string' ? res.message : 'Login email sent.';
+      if (res.status === 1) toast.success(message);
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send login email');
+    }
+  }, [api, session.token, confirm]);
+
   const actions: DataTableAction[] = [
     {
       label: 'View',
@@ -157,6 +188,10 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
     {
       label: 'Edit',
       onClick: (row) => onNavigate('/admin/centres/edit/' + asString(row.id)),
+    },
+    {
+      label: 'Resend Login Email',
+      onClick: (row) => { void handleResendCredentials(row); },
     },
     {
       label: 'Delete',

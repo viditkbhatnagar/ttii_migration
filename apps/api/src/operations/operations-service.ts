@@ -1444,10 +1444,40 @@ export class OperationsService {
 
     const countMap = new Map(studentCounts.map(sc => [sc.added_under_centre, sc._count.id]));
 
-    return allCentres.map(c => ({
-      ...c,
-      students_count: countMap.get(c.id) ?? 0,
-    })) as unknown as SqlRow[];
+    // Naji UAT 2026-05-15 — surface the linked Centre user (role_id=7)
+    // so the directory can render a Resend Login Email row action that
+    // flows through the existing resendLoginCredentials path (same
+    // pattern as Instructors / Counsellors / Associates).
+    //
+    // The linkage lives on users.centre_id (text — historical PHP
+    // quirk) pointing back at centres.id, NOT on centres.user_id.
+    const centreIdsAsStr = centreIds.map(id => String(id));
+    const centreUsers = centreIdsAsStr.length > 0
+      ? await this.prisma.users.findMany({
+          where: {
+            role_id: 7,
+            deleted_at: null,
+            centre_id: { in: centreIdsAsStr },
+          },
+          select: { id: true, centre_id: true, user_email: true },
+        })
+      : [];
+    const userByCentre = new Map<string, { id: number; user_email: string | null }>();
+    for (const u of centreUsers) {
+      if (u.centre_id && !userByCentre.has(u.centre_id)) {
+        userByCentre.set(u.centre_id, { id: u.id, user_email: u.user_email });
+      }
+    }
+
+    return allCentres.map(c => {
+      const linked = userByCentre.get(String(c.id));
+      return {
+        ...c,
+        students_count: countMap.get(c.id) ?? 0,
+        linked_user_id: linked?.id ?? null,
+        linked_user_email: linked?.user_email ?? c.email ?? null,
+      };
+    }) as unknown as SqlRow[];
   }
 
   async addCentre(actorUserId: string, input: CentreInput): Promise<Record<string, unknown>> {
