@@ -8073,12 +8073,176 @@ export class OperationsService {
 
     await this.recordEvent(id, 'admin_approved_enrolled', isNew ? 'Admin approved & enrolled (new student)' : 'Admin approved & enrolled (existing student, new course)', actorUserId, { student_id: student.id });
     await this.notifyApplicationEvent(id, 'enrolment_confirmed');
+
+    // Naji UAT 2026-05-15 — auto-email the filled application as a PDF
+    // attachment so admins stop attaching it manually after every
+    // approval. Render + send is fire-and-forget; render or delivery
+    // failures get console.error'd but don't roll back the enrolment.
+    try {
+      const rendered = await this.renderApplicationFormPdf(applicationId);
+      if (rendered.status === 1) {
+        const { createIntegrationRegistry } = await import('../integrations/registry.js');
+        const { renderBrandedEmail } = await import('../integrations/email-template.js');
+        const registry = createIntegrationRegistry();
+        const courseTitle = app.course_id
+          ? (await this.prisma.course.findFirst({ where: { id: app.course_id }, select: { title: true } }))?.title ?? ''
+          : '';
+        const html = renderBrandedEmail({
+          heading: 'Your application has been approved',
+          preheader: `Welcome to ${courseTitle || "Teachers' Training Institute of India"}.`,
+          bodyHtml: `
+            <p style="margin:0 0 12px;">Hi ${escapeHtmlText(app.name ?? 'there')},</p>
+            <p style="margin:0 0 8px;">Congratulations — your application for <strong>${escapeHtmlText(courseTitle)}</strong> has been approved and you have been enrolled.</p>
+            <p style="margin:0 0 8px;">Your filled application form is attached for your records. Please keep it safe.</p>
+            <p style="margin:0 0 8px;">If you haven't received your LMS sign-in credentials yet, check your inbox for a separate email titled <em>Welcome to TTII</em>.</p>
+          `,
+          footerNote: 'Reply to this email if anything in the attached form needs correcting.',
+        });
+        await registry.email.sendEmail({
+          to: app.user_email,
+          subject: 'Your TTII application — approved',
+          html,
+          attachments: [{
+            filename: rendered.filename,
+            content: rendered.buffer,
+            contentType: 'application/pdf',
+          }],
+        });
+      } else {
+        console.error('[adminApproveApplication] PDF render failed:', (rendered as { message?: string }).message);
+      }
+    } catch (err) {
+      console.error('[adminApproveApplication] application PDF email failed:', err instanceof Error ? err.message : err);
+    }
+
     return {
       status: 1,
       message: isNew
-        ? 'Student enrolled. LMS credentials + course welcome email queued.'
-        : 'Existing student enrolled to new course. Course welcome email queued.',
+        ? 'Student enrolled. LMS credentials + application form PDF emailed.'
+        : 'Existing student enrolled to new course. Application form PDF emailed.',
       data: { student_id: student.id, application_id: id },
+    };
+  }
+
+  /**
+   * Render the filled application as a PDF and return the bytes plus a
+   * suggested file name. Used by the admin download endpoint AND by
+   * adminApproveApplication to attach it to the approval email. Naji
+   * UAT 2026-05-15 — replaces the manual PDF send the team was doing.
+   */
+  async renderApplicationFormPdf(applicationId: string): Promise<{
+    status: 1;
+    buffer: Buffer;
+    filename: string;
+  } | { status: 0; message: string }> {
+    const id = toIntId(applicationId);
+    if (!id) return { status: 0, message: 'Invalid application id.' };
+    const enriched = await this.getApplication(applicationId);
+    if (enriched.status !== 1) {
+      return { status: 0, message: (enriched as { message?: string }).message ?? 'Application not found.' };
+    }
+    const application = enriched.application as Record<string, unknown>;
+    const educationPathway = Array.isArray(enriched.education_pathway)
+      ? (enriched.education_pathway as Array<Record<string, unknown>>)
+      : [];
+
+    const str = (v: unknown): string => {
+      if (v == null) return '';
+      if (v instanceof Date) return v.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      return String(v).trim();
+    };
+    const orDash = (v: unknown): string => str(v) || 'Not provided';
+
+    // Signature URL stash in biography JSON. Falls through gracefully if
+    // the row pre-dates the new public form. Photo lives on
+    // applications.image (already rewritten by getApplication).
+    let signatureUrl: string | null = null;
+    const bioRaw = application.biography as string | null | undefined;
+    if (typeof bioRaw === 'string' && bioRaw.trim() !== '') {
+      try {
+        const parsed = JSON.parse(bioRaw) as { signature?: string };
+        if (typeof parsed.signature === 'string' && parsed.signature.trim() !== '') {
+          signatureUrl = toLegacyFileUrl(parsed.signature);
+        }
+      } catch { /* ignore malformed biography JSON */ }
+    }
+
+    const submittedAt = (application.created_at as Date | null | undefined) ?? new Date();
+    const submittedOn = submittedAt instanceof Date
+      ? submittedAt.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+        + ' at ' + submittedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+      : '';
+
+    // Best qualification row to mirror what the sample shows. Falls back
+    // to the application.highest_qualification column when education
+    // pathway is empty.
+    const topQual = educationPathway.length > 0
+      ? educationPathway[educationPathway.length - 1] ?? null
+      : null;
+
+    const { renderApplicationPdf } = await import('../integrations/application-pdf.js');
+    const buffer = await renderApplicationPdf({
+      courseTitle: str(application.course_title) || str(application.course_id),
+      batch: str(application.batch_title) || str(application.offering_title) || 'Not assigned',
+      enrollmentDate: str(application.enrollment_date) || (submittedAt instanceof Date
+        ? submittedAt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : ''),
+      modeOfStudy: orDash(application.mode_of_study),
+      preferredLanguage: orDash(application.language_name ?? application.preferred_language),
+      personal: [
+        { label: 'Full Name:', value: orDash(application.name) },
+        { label: 'Date of Birth:', value: orDash(application.date_of_birth ?? application.dob) },
+        { label: 'Gender:', value: orDash(application.gender) },
+        { label: 'Nationality:', value: orDash(application.nationality_name ?? application.nationality) },
+        { label: 'Marital Status:', value: orDash(application.marital_status) },
+        { label: 'Passport Number:', value: orDash(application.passport_no) },
+        { label: 'Aadhar Number:', value: orDash(application.aadhar_no) },
+        { label: "Father's Name:", value: orDash(application.father_name) },
+        { label: "Mother's Name:", value: orDash(application.mother_name) },
+        { label: "Guardian's Name:", value: orDash(application.guardian_name) },
+      ],
+      contact: [
+        { label: 'Phone Number:', value: orDash(application.phone) },
+        { label: 'Alternative Phone:', value: orDash(application.second_phone) },
+        { label: 'WhatsApp Number:', value: orDash(application.whatsapp) },
+        { label: 'Email Address:', value: orDash(application.user_email) },
+        { label: 'Country:', value: orDash(application.country_name ?? application.country_id) },
+        { label: 'State:', value: orDash(application.state) },
+        { label: 'District:', value: orDash(application.district) },
+      ],
+      addresses: [
+        { label: 'Permanent Address:', value: orDash(application.address) },
+        { label: 'Correspondence Address:', value: orDash(application.native_address ?? application.address) },
+      ],
+      qualification: [
+        { label: 'Highest Qualification:', value: orDash(application.highest_qualification ?? (topQual?.qualification ?? null)) },
+        { label: 'School/College:', value: orDash(application.previous_school ?? (topQual?.institution ?? null)) },
+        { label: 'Year of Passing:', value: orDash(application.year_of_passing ?? (topQual?.year_passed ?? null)) },
+        { label: 'Percentage/Grade:', value: orDash(application.percentage_or_grade ?? (topQual?.marks ?? null)) },
+        { label: 'Teaching Experience:', value: orDash(application.teaching_experience) },
+      ],
+      declaration: [
+        'I declare that all information provided in this application form is true and correct to the best of my knowledge and belief. I understand that any violation of this may result in cancellation of my admission by the organization.',
+        "I agree to abide by all rules, regulations, and policies of the Teachers' Training Institute of India, and to maintain the required code of conduct, discipline, and academic standards.",
+        'I acknowledge that the certificate will be issued only upon successful completion of all academic and attendance requirements, and I understand that the institute reserves the right to modify the course structure, schedule, or faculty as deemed necessary.',
+        'I understand that fees once paid are strictly non-refundable and non-transferable under any circumstances.',
+        'I consent to the institute contacting me via phone, email, or WhatsApp for academic and administrative purposes and authorize the use of my photograph and personal details for official, academic, or promotional purposes if required.',
+      ],
+      submittedOn,
+      photoUrl: typeof application.image === 'string' ? application.image : null,
+      signatureUrl,
+    });
+
+    const slug = (str(application.name) || `application-${id}`)
+      .replace(/[^A-Za-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const dateSlug = submittedAt instanceof Date
+      ? submittedAt.toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    return {
+      status: 1,
+      buffer,
+      filename: `TTI_Application_${slug || `app_${id}`}_${dateSlug}.pdf`,
     };
   }
 

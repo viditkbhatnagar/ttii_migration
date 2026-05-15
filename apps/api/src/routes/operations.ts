@@ -2724,6 +2724,24 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji UAT 2026-05-15 — Download the filled application as a PDF.
+  // Same renderer that runs on AdminApprove so the email attachment
+  // and the manual download look identical.
+  app.get('/admin/applications/:id/pdf', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const rendered = await operationsService.renderApplicationFormPdf(toStringValue(params.id));
+      if (rendered.status !== 1) {
+        reply.code(404).send({ status: 0, message: rendered.message });
+        return;
+      }
+      reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${rendered.filename}"`)
+        .send(rendered.buffer);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Naji 2026-05-08 — Edit Lead. Used by ViewApplicationPage Edit
   // button when the row is in an early stage. Updates only the Add Lead
   // captured fields.

@@ -419,6 +419,26 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   </Button>,
                 );
               }
+              // Naji UAT 2026-05-15 — Download the filled application as
+              // a PDF. Available once the public form has been submitted
+              // (so the data is actually present). Streams from
+              // /admin/applications/:id/pdf.
+              if (stage === 'form_submitted' || stage === 'approval_waiting' || stage === 'enrolled' || stage === 'rejected') {
+                buttons.push(
+                  <Button
+                    key="pdf"
+                    size="sm"
+                    variant="outline"
+                    disabled={submitting}
+                    onClick={() => {
+                      const url = `/api/admin/applications/${applicationId}/pdf?auth_token=${encodeURIComponent(session.token)}`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    Download Application PDF
+                  </Button>,
+                );
+              }
               if (buttons.length === 0) {
                 buttons.push(
                   <span key="done" className="text-xs text-gray-500">No further stage actions available.</span>,

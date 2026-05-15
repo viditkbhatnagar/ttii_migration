@@ -4,6 +4,15 @@ export interface IntegrationDeliveryResult {
   providerMessageId?: string;
 }
 
+export interface EmailAttachment {
+  /** File name shown in the email client (e.g. `application-form.pdf`). */
+  filename: string;
+  /** File bytes. Strings are interpreted as UTF-8 for text attachments. */
+  content: Buffer | string;
+  /** MIME type — defaults to `application/octet-stream` if omitted. */
+  contentType?: string;
+}
+
 export interface EmailSendRequest {
   to: string;
   subject: string;
@@ -13,6 +22,12 @@ export interface EmailSendRequest {
   templateData?: Record<string, string | number | boolean>;
   tags?: string[];
   replyTo?: string;
+  /**
+   * Optional file attachments. Naji UAT 2026-05-15 added so the
+   * Application Approved email can carry the filled application as a
+   * PDF without requiring admins to attach it manually.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface EmailProvider {

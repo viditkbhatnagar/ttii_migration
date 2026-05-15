@@ -97,6 +97,18 @@ export class BrevoEmailProvider implements EmailProvider {
       payload.replyTo = { email: input.replyTo.trim() };
     }
 
+    // Brevo expects attachments as { name, content (base64) }. Naji UAT
+    // 2026-05-15 — only used when AdminApprove sends the application PDF;
+    // most transactional emails ship without attachments.
+    if (Array.isArray(input.attachments) && input.attachments.length > 0) {
+      payload.attachment = input.attachments.map((a) => ({
+        name: a.filename,
+        content: Buffer.isBuffer(a.content)
+          ? a.content.toString('base64')
+          : Buffer.from(a.content, 'utf-8').toString('base64'),
+      }));
+    }
+
     if (typeof input.templateId === 'string' && input.templateId.trim() !== '') {
       const parsedTemplateId = Number.parseInt(input.templateId, 10);
       if (Number.isFinite(parsedTemplateId)) {
@@ -191,6 +203,15 @@ export class SmtpEmailProvider implements EmailProvider {
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         ...(input.html ? { html: input.html } : {}),
         ...(input.text ? { text: input.text } : {}),
+        ...(Array.isArray(input.attachments) && input.attachments.length > 0
+          ? {
+              attachments: input.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+                contentType: a.contentType ?? 'application/octet-stream',
+              })),
+            }
+          : {}),
       };
 
       const info = (await this.transporter.sendMail(mailOptions)) as SMTPTransport.SentMessageInfo;
@@ -289,6 +310,22 @@ export class MsGraphEmailProvider implements EmailProvider {
 
     if (input.replyTo) {
       message.replyTo = [{ emailAddress: { address: input.replyTo } }];
+    }
+
+    // Microsoft Graph attachments shape: { @odata.type, name,
+    // contentType, contentBytes (base64) }. The fileAttachment subtype
+    // is correct for any byte stream, including PDFs. Naji UAT
+    // 2026-05-15 — wired so AdminApprove can ship the application PDF
+    // without admins emailing it manually.
+    if (Array.isArray(input.attachments) && input.attachments.length > 0) {
+      message.attachments = input.attachments.map((a) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: a.filename,
+        contentType: a.contentType ?? 'application/octet-stream',
+        contentBytes: Buffer.isBuffer(a.content)
+          ? a.content.toString('base64')
+          : Buffer.from(a.content, 'utf-8').toString('base64'),
+      }));
     }
 
     const response = await this.fetchImpl(
