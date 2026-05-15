@@ -534,8 +534,16 @@ const SUBDOMAIN_ROLE_OPTIONS: Record<string, { value: string; label: string }[]>
     { value: '9', label: 'Counsellor' },
   ],
   student: [{ value: '2', label: 'Student' }],
+  // Naji UAT 2026-05-15 — Centre portal login was blocking every
+  // Centre owner with "This account is not allowed on this portal"
+  // because this allowlist had role 4 (Team Lead) instead of 7
+  // (Centre). The four existing centres (Hanahadhi, upCarrera, TTC
+  // Bepur, new centre) all have proper users rows with role_id=7 and
+  // passwords; the only reason they couldn't sign in was this list.
+  // Backend CENTRE_PORTAL_ROLES was already [7, 10] — only the frontend
+  // candidate filter was wrong.
   centre: [
-    { value: '4', label: 'Centre' },
+    { value: '7', label: 'Centre' },
     { value: '10', label: 'Associate' },
   ],
 };
