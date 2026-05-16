@@ -21,6 +21,7 @@ const CounsellorViewApplicationPage = lazy(() => import('../pages/applications/C
 const CounsellorEditApplicationPage = lazy(() => import('../pages/applications/CounsellorEditApplicationPage.js'));
 const CounsellorAddLeadPage = lazy(() => import('../pages/leads/CounsellorAddLeadPage.js'));
 const CounsellorStudentsPage = lazy(() => import('../pages/students/CounsellorStudentsPage.js'));
+const CounsellorViewStudentPage = lazy(() => import('../pages/students/CounsellorViewStudentPage.js'));
 const CounsellorTargetsPage = lazy(() => import('../pages/targets/CounsellorTargetsPage.js'));
 const CounsellorReferralsPage = lazy(() => import('../pages/referrals/CounsellorReferralsPage.js'));
 const CounsellorSettingsPage = lazy(() => import('../pages/settings/CounsellorSettingsPage.js'));
@@ -38,6 +39,10 @@ export const COUNSELLOR_ROUTES: CounsellorRouteConfig[] = [
   { path: '/counsellor/leads/add', pageComponent: CounsellorAddLeadPage, title: 'Add Lead' },
   { path: '/counsellor/leads/edit/:id', pageComponent: CounsellorAddLeadPage, title: 'Edit Lead' },
   { path: '/counsellor/students', pageComponent: CounsellorStudentsPage, title: 'Students' },
+  // Naji UAT 2026-05-16 — Student detail (with the Add Enrolment CTA)
+  // so counsellors can add a second course to their existing students
+  // without going through admin.
+  { path: '/counsellor/students/view/:id', pageComponent: CounsellorViewStudentPage, title: 'View Student' },
   { path: '/counsellor/targets', pageComponent: CounsellorTargetsPage, title: 'My Targets' },
   { path: '/counsellor/referrals', pageComponent: CounsellorReferralsPage, title: 'Referrals' },
   { path: '/counsellor/settings', pageComponent: CounsellorSettingsPage, title: 'Settings' },
