@@ -418,11 +418,12 @@ export function GeneratePaymentLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Naji UAT 2026-05-16 — widened the dialog from 960px to 1120px
-          so the 5-column instalment table (Description / Instalment ₹ /
-          GST % / Inc GST / Due Date / X) doesn't horizontally scroll on
-          a typical 1280-wide admin viewport. */}
-      <DialogContent className="w-[min(1120px,calc(100vw-2rem))] max-w-[min(1120px,calc(100vw-2rem))] overflow-hidden">
+      {/* Naji UAT 2026-05-16 — went 960 → 1120 → fluid. The dialog now
+          uses 96vw on tablets+laptops up to 1280px max so the 6-column
+          instalment table always fits without horizontal scroll, and
+          drops to a near-full-screen sheet (98vw) on phones where every
+          pixel counts. */}
+      <DialogContent className="w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]">
         <DialogHeader>
           <DialogTitle>Generate Payment Link</DialogTitle>
           <DialogDescription>
@@ -570,18 +571,22 @@ export function GeneratePaymentLinkDialog({
               </Button>
 
               {plan && plan.length > 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
                   <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Payment Plan — edit any row</p>
+                  {/* Naji UAT 2026-05-16 — tightened cell padding +
+                      width-capped input fields so the 6 columns fit
+                      inside the dialog at 96vw. Overflow-x-auto remains
+                      as a safety net for narrow phone viewports. */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full min-w-[640px] text-sm">
                       <thead className="text-xs text-slate-500">
                         <tr className="border-b border-slate-100">
-                          <th className="px-2 py-2 text-left font-medium">Description</th>
-                          <th className="px-2 py-2 text-right font-medium">Instalment (₹)</th>
-                          <th className="px-2 py-2 text-right font-medium">GST %</th>
-                          <th className="px-2 py-2 text-right font-medium">Instalment Inc. GST</th>
-                          <th className="px-2 py-2 text-left font-medium">Due Date</th>
-                          <th className="px-2 py-2 font-medium" />
+                          <th className="px-1.5 py-2 text-left font-medium">Description</th>
+                          <th className="px-1.5 py-2 text-right font-medium">Instalment (₹)</th>
+                          <th className="px-1.5 py-2 text-right font-medium">GST %</th>
+                          <th className="px-1.5 py-2 text-right font-medium">Inc. GST</th>
+                          <th className="px-1.5 py-2 text-left font-medium">Due Date</th>
+                          <th className="px-1.5 py-2 font-medium" />
                         </tr>
                       </thead>
                       <tbody>
@@ -589,42 +594,42 @@ export function GeneratePaymentLinkDialog({
                           const incGst = r.amount + (r.amount * (r.gstPercent || 0)) / 100;
                           return (
                             <tr key={idx} className="border-b border-slate-100">
-                              <td className="px-2 py-1.5">
+                              <td className="px-1.5 py-1.5">
                                 <input
                                   value={r.label}
                                   onChange={(e) => updatePlanRow(idx, { label: e.target.value })}
-                                  className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm hover:border-slate-200 focus:border-slate-300"
+                                  className="w-full min-w-[120px] rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm hover:border-slate-200 focus:border-slate-300"
                                 />
                               </td>
-                              <td className="px-2 py-1.5 text-right">
+                              <td className="px-1.5 py-1.5 text-right">
                                 <input
                                   type="number"
                                   value={r.amount}
                                   onChange={(e) => updatePlanRow(idx, { amount: Number(e.target.value) || 0 })}
-                                  className="w-24 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
+                                  className="w-20 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm"
                                 />
                               </td>
-                              <td className="px-2 py-1.5 text-right">
+                              <td className="px-1.5 py-1.5 text-right">
                                 <input
                                   type="number"
                                   step="0.01"
                                   value={r.gstPercent}
                                   onChange={(e) => updatePlanRow(idx, { gstPercent: Number(e.target.value) || 0 })}
-                                  className="w-16 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
+                                  className="w-14 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm"
                                 />
                               </td>
-                              <td className="px-2 py-1.5 text-right font-medium text-slate-900">
+                              <td className="px-1.5 py-1.5 text-right font-medium text-slate-900 whitespace-nowrap">
                                 {fmtInr(incGst)}
                               </td>
-                              <td className="px-2 py-1.5">
+                              <td className="px-1.5 py-1.5">
                                 <input
                                   type="date"
                                   value={r.dueDate}
                                   onChange={(e) => updatePlanRow(idx, { dueDate: e.target.value })}
-                                  className="rounded-md border border-slate-200 px-2 py-1 text-sm"
+                                  className="w-32 rounded-md border border-slate-200 px-1.5 py-1 text-sm"
                                 />
                               </td>
-                              <td className="px-2 py-1.5 text-right">
+                              <td className="px-1.5 py-1.5 text-right">
                                 <button
                                   type="button"
                                   onClick={() => removePlanRow(idx)}

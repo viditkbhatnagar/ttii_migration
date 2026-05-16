@@ -6767,6 +6767,13 @@ export class OperationsService {
         country_name: countryName,
         nationality_name: nationalityName,
         language_name: languageName,
+        // Naji UAT 2026-05-16 — the legacy `whatsapp_no` Int column can't
+        // hold a full phone number (overflows on 10+ digits), so we now
+        // write the canonical value to `whatsapp` (VARCHAR) on save and
+        // mirror it back onto `whatsapp_no` here so the ViewApplication
+        // / EditStudent / AddApplication displays that still read
+        // `whatsapp_no` continue to work without per-page changes.
+        whatsapp_no: app.whatsapp || (app.whatsapp_no ? String(app.whatsapp_no) : null),
       },
       education_pathway: educationPathway,
       payments,
@@ -7646,7 +7653,14 @@ export class OperationsService {
         ...(phoneIn ? { phone: phoneIn } : {}),
         ...(countryCodeIn ? { country_code: `+${countryCodeIn}` } : {}),
         ...(altPhoneIn ? { second_phone: altPhoneIn } : {}),
-        ...(whatsAppIn ? { whatsapp: whatsAppIn, whatsapp_no: Number((whatsAppIn.match(/\d+/g) ?? []).join('').slice(-15)) || 0 } : {}),
+        // Naji UAT 2026-05-16 — the legacy whatsapp_no Int column
+        // overflows on 10+ digit phone numbers (max signed Int =
+        // 2.1bn; Indian phone with cc = ~9.1bn). The canonical value
+        // lives in the `whatsapp` VARCHAR column, and getApplication
+        // / getStudentDetail mirror it onto `whatsapp_no` on read.
+        // Keep the Int write at 0 so the public form submit stops
+        // crashing with "Value out of range".
+        ...(whatsAppIn ? { whatsapp: whatsAppIn, whatsapp_no: 0 } : {}),
         ...(photoUrlIn ? { image: photoUrlIn } : {}),
         address: toNullableString(f.address),
         native_address: toNullableString(f.native_address),
@@ -8382,12 +8396,13 @@ export class OperationsService {
         guardian_name: input.guardianName || null,
         aadhar_no: input.aadharNo || null,
         passport_no: input.passportNo || null,
-        // The form sends a country-code-prefixed string ("+91 9544125503"),
-        // so storing it via toIntId() produced 0 for everyone. Persist the
-        // raw string into applications.whatsapp (VarChar 20) and a
-        // digits-only int into whatsapp_no for legacy reads.
+        // The form sends a country-code-prefixed string ("+91 9544125503").
+        // Naji UAT 2026-05-16 — whatsapp_no Int overflows for any 10+
+        // digit phone; write 0 and rely on the `whatsapp` VARCHAR
+        // column (mirrored back onto whatsapp_no in getApplication
+        // / getStudentDetail).
         whatsapp: input.whatsappNo ? input.whatsappNo.trim() : null,
-        whatsapp_no: input.whatsappNo ? Number((input.whatsappNo.match(/\d+/g) ?? []).join('').slice(-15)) || 0 : 0,
+        whatsapp_no: 0,
         state: input.state || null,
         district: input.city || null,
         address: input.permanentAddress || (input.addressLine1 ? `${input.addressLine1}${input.addressLine2 ? ', ' + input.addressLine2 : ''}` : null),
@@ -8513,8 +8528,9 @@ export class OperationsService {
         guardian_name: input.guardianName || null,
         aadhar_no: input.aadharNo || null,
         passport_no: input.passportNo || null,
+        // Same fix as line 8390 — see Naji UAT 2026-05-16 note above.
         whatsapp: input.whatsappNo ? input.whatsappNo.trim() : null,
-        whatsapp_no: input.whatsappNo ? Number((input.whatsappNo.match(/\d+/g) ?? []).join('').slice(-15)) || 0 : 0,
+        whatsapp_no: 0,
         state: input.state || null,
         district: input.city || null,
         address: input.permanentAddress || null,
