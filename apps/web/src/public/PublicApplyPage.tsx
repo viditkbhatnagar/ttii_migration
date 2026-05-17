@@ -83,6 +83,17 @@ function emptyForm(): FormState {
   };
 }
 
+// Naji UAT 2026-05-17 — Student Declaration bullets shown as checkboxes
+// in this form (every box must be ticked before submit) and also
+// printed verbatim in the generated application PDF.
+const DECLARATION_LINES: readonly string[] = [
+  'I declare that all information provided in this application form is true and correct to the best of my knowledge and belief. I understand that any violation of this may result in cancellation of my admission by the organization.',
+  "I agree to abide by all rules, regulations, and policies of the Teachers' Training Institute of India, and to maintain the required code of conduct, discipline, and academic standards.",
+  'I acknowledge that the certificate will be issued only upon successful completion of all academic and attendance requirements, and I understand that the institute reserves the right to modify the course structure, schedule, or faculty as deemed necessary.',
+  'I understand that fees once paid are strictly non-refundable and non-transferable under any circumstances.',
+  'I consent to the institute contacting me via phone, email, or WhatsApp for academic and administrative purposes and authorize the use of my photograph and personal details for official, academic, or promotional purposes if required.',
+];
+
 /**
  * Public Application Form — Naji 2026-05-05, Phase D.
  *
@@ -98,6 +109,11 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const [appName, setAppName] = useState<string>('');
   const [form, setForm] = useState<FormState>(emptyForm());
   const [signature, setSignature] = useState<string>('');
+  // Naji UAT 2026-05-17 — five-point Student Declaration block as
+  // explicit checkboxes the student must tick before they can submit.
+  // Mirrors the bullets printed in the application PDF; the boolean
+  // array indexes match DECLARATION_LINES (see below).
+  const [declarations, setDeclarations] = useState<boolean[]>([false, false, false, false, false]);
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [educationPathway, setEducationPathway] = useState<EducationPathwayRow[]>([]);
   const [saving, setSaving] = useState<boolean>(false);
@@ -240,6 +256,10 @@ export default function PublicApplyPage({ token }: { token: string }) {
     const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
     if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is invalid.'); return; }
     if (!signature.trim()) { toast.error('Please sign in the signature box.'); return; }
+    if (declarations.some((checked) => !checked)) {
+      toast.error('Please read and accept every declaration before submitting.');
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/submit`, {
@@ -383,6 +403,29 @@ export default function PublicApplyPage({ token }: { token: string }) {
           </p>
           <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
 
+          {/* Naji UAT 2026-05-17 — Declarations as checkboxes BEFORE
+              the signature so the student explicitly acknowledges each
+              point. Submit is blocked until all five are ticked. */}
+          <h2 className="pt-4 text-sm font-semibold text-slate-700">Declarations</h2>
+          <p className="text-xs text-slate-500">
+            Please read and tick each point to confirm. All boxes must be ticked before you can submit.
+          </p>
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/40 p-3">
+            {DECLARATION_LINES.map((line, idx) => (
+              <label key={idx} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-white">
+                <input
+                  type="checkbox"
+                  checked={declarations[idx]}
+                  onChange={(e) =>
+                    setDeclarations((prev) => prev.map((v, i) => (i === idx ? e.target.checked : v)))
+                  }
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer rounded border-slate-300 accent-student-primary"
+                />
+                <span className="text-xs leading-relaxed text-slate-700">{line}</span>
+              </label>
+            ))}
+          </div>
+
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Signature</h2>
           <p className="text-xs text-slate-500">
             Sign in the box below to confirm that all the information provided is true and complete.
@@ -393,7 +436,11 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <Button variant="outline" onClick={() => { void handleSaveDraft(); }} disabled={saving}>
               {saving ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button onClick={() => { void handleSubmit(); }} disabled={submitting} className="bg-student-primary hover:bg-student-primary/90">
+            <Button
+              onClick={() => { void handleSubmit(); }}
+              disabled={submitting || declarations.some((v) => !v)}
+              className="bg-student-primary hover:bg-student-primary/90"
+            >
               {submitting ? 'Submitting...' : 'Submit Application'}
             </Button>
           </div>

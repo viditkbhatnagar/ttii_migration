@@ -8228,18 +8228,33 @@ export class OperationsService {
     };
     const orDash = (v: unknown): string => str(v) || 'Not provided';
 
-    // Signature URL stash in biography JSON. Falls through gracefully if
-    // the row pre-dates the new public form. Photo lives on
-    // applications.image (already rewritten by getApplication).
+    // Resolve the signature image. Naji UAT 2026-05-17 — the signature
+    // captured by the public form's SignaturePad is a base64 data URL
+    // and lands in applications.signature_data (the dedicated column).
+    // The previous implementation looked inside biography.signature
+    // which is never populated by the submit path, so every PDF came
+    // out with no signature. Try signature_data first; fall back to
+    // biography.signature (legacy field that some seeded rows may
+    // have set). renderApplicationPdf knows how to handle both data
+    // URLs and HTTPS URLs.
     let signatureUrl: string | null = null;
-    const bioRaw = application.biography as string | null | undefined;
-    if (typeof bioRaw === 'string' && bioRaw.trim() !== '') {
-      try {
-        const parsed = JSON.parse(bioRaw) as { signature?: string };
-        if (typeof parsed.signature === 'string' && parsed.signature.trim() !== '') {
-          signatureUrl = toLegacyFileUrl(parsed.signature);
-        }
-      } catch { /* ignore malformed biography JSON */ }
+    const sigData = (application.signature_data as string | null | undefined) ?? null;
+    if (typeof sigData === 'string' && sigData.trim() !== '') {
+      signatureUrl = sigData.startsWith('data:')
+        ? sigData
+        : toLegacyFileUrl(sigData);
+    } else {
+      const bioRaw = application.biography as string | null | undefined;
+      if (typeof bioRaw === 'string' && bioRaw.trim() !== '') {
+        try {
+          const parsed = JSON.parse(bioRaw) as { signature?: string };
+          if (typeof parsed.signature === 'string' && parsed.signature.trim() !== '') {
+            signatureUrl = parsed.signature.startsWith('data:')
+              ? parsed.signature
+              : toLegacyFileUrl(parsed.signature);
+          }
+        } catch { /* ignore malformed biography JSON */ }
+      }
     }
 
     const submittedAt = (application.created_at as Date | null | undefined) ?? new Date();
