@@ -1108,6 +1108,18 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Naji UAT 2026-05-18 — Question Bank rebuilt to group by Subject.
+  async loadQuestionBankSubjects(
+    authToken: string,
+    filters: { courseId?: string; subjectId?: string } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/question_bank/subjects', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.subjectId ? { subject_id: filters.subjectId } : {}),
+    });
+    return toRecords(payload.data);
+  }
+
   async addQuestion(authToken: string, input: AddQuestionInput): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/question_bank/add', authToken, {
       course_id: input.courseId,

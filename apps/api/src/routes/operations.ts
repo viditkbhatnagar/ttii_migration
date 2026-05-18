@@ -1236,6 +1236,21 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji UAT 2026-05-18 — Question Bank rebuilt to group by Subject.
+  app.get('/admin/question_bank/subjects', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const filters = {
+        courseId: toStringValue(payload.course_id),
+        subjectId: toStringValue(payload.subject_id),
+      };
+      const data = await operationsService.listQuestionBankSubjects(filters);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.post('/admin/question_bank/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

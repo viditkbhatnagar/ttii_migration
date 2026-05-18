@@ -3209,6 +3209,79 @@ export class OperationsService {
     return { status: 1, message: 'Question deleted successfully.' };
   }
 
+  // Naji UAT 2026-05-18 — Question Bank rebuilt to group by Subject:
+  // top-level list shows one row per subject with MCQ + Descriptive counts
+  // and the courses the subject belongs to (course_subject pivot). The
+  // detail page reuses the existing listQuestionBank with subject_id +
+  // q_type to populate MCQ / Descriptive tabs.
+  async listQuestionBankSubjects(filters: { courseId?: string; subjectId?: string } = {}): Promise<SqlRow[]> {
+    const where: Record<string, unknown> = { deleted_at: null };
+    if (filters.courseId) where.course_id = toIntId(filters.courseId);
+    if (filters.subjectId) where.subject_id = toIntId(filters.subjectId);
+
+    const counts = await this.prisma.question_bank.groupBy({
+      by: ['subject_id', 'q_type'],
+      where: where as Prisma.question_bankWhereInput,
+      _count: { id: true },
+    });
+
+    const subjectCountMap = new Map<number, { mcq: number; descriptive: number }>();
+    for (const row of counts) {
+      if (row.subject_id == null) continue;
+      const cur = subjectCountMap.get(row.subject_id) ?? { mcq: 0, descriptive: 0 };
+      // q_type stored as nullable TinyInt: 0=MCQ, 1=Descriptive. Treat
+      // null/unknown as MCQ for legacy rows (mirrors addQuestion default).
+      if (row.q_type === 1) cur.descriptive += row._count.id;
+      else cur.mcq += row._count.id;
+      subjectCountMap.set(row.subject_id, cur);
+    }
+
+    const subjectIds = [...subjectCountMap.keys()];
+    if (subjectIds.length === 0) return [];
+
+    const subjects = await this.prisma.subject.findMany({
+      where: { id: { in: subjectIds }, deleted_at: null },
+      select: { id: true, title: true, subject_code: true },
+      orderBy: { title: 'asc' },
+    });
+
+    const courseSubjects = await this.prisma.course_subject.findMany({
+      where: { subject_id: { in: subjectIds }, deleted_at: null },
+      select: { subject_id: true, course_id: true, position: true },
+      orderBy: [{ position: 'asc' }, { course_id: 'asc' }],
+    });
+    const courseIds = [...new Set(courseSubjects.map((cs) => cs.course_id))];
+    const courses = courseIds.length > 0
+      ? await this.prisma.course.findMany({
+          where: { id: { in: courseIds }, deleted_at: null },
+          select: { id: true, title: true },
+        })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+
+    const subjectCoursesMap = new Map<number, { id: number; title: string }[]>();
+    for (const cs of courseSubjects) {
+      const title = courseMap.get(cs.course_id) ?? '';
+      if (!title) continue;
+      const list = subjectCoursesMap.get(cs.subject_id) ?? [];
+      list.push({ id: cs.course_id, title });
+      subjectCoursesMap.set(cs.subject_id, list);
+    }
+
+    return subjects.map((s) => {
+      const cnt = subjectCountMap.get(s.id) ?? { mcq: 0, descriptive: 0 };
+      return {
+        id: s.id,
+        subject_code: s.subject_code ?? null,
+        title: s.title ?? null,
+        courses: subjectCoursesMap.get(s.id) ?? [],
+        mcq_count: cnt.mcq,
+        descriptive_count: cnt.descriptive,
+        total_count: cnt.mcq + cnt.descriptive,
+      };
+    }) as unknown as SqlRow[];
+  }
+
   // ─── Phase 2: Exams ────────────────────────────────────────────────────────
 
   async listAdminExams(filters: AdminExamFilters = {}): Promise<{

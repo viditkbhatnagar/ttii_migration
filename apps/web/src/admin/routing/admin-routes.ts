@@ -20,6 +20,7 @@ const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage.js'));
 
 // Phase 2: Exam & Assessment pages
 const QuestionBankPage = lazy(() => import('../pages/question_bank/QuestionBankPage.js'));
+const ViewSubjectQuestionsPage = lazy(() => import('../pages/question_bank/ViewSubjectQuestionsPage.js'));
 const ExamsPage = lazy(() => import('../pages/exam/ExamsPage.js'));
 const AddExamPage = lazy(() => import('../pages/exam/AddExamPage.js'));
 const AssignmentsPage = lazy(() => import('../pages/assignment/AssignmentsPage.js'));
@@ -239,6 +240,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/exam/eligibility/index', aliases: ['/admin/exam/eligibility'], pageComponent: StudentEligibilityPage, title: 'Student Eligibility' },
   { path: '/admin/Exam_result/index', pageComponent: ExamResultPage, title: 'Exam Result' },
   { path: '/admin/question_bank/index', pageComponent: QuestionBankPage, title: 'Question Bank' },
+  { path: '/admin/question_bank/view/:id', pageComponent: ViewSubjectQuestionsPage, title: 'Question Bank' },
 
   // Documents Manager
   { path: '/admin/documents/requests', pageComponent: DocumentRequestsPage, title: 'Document Requests' },
