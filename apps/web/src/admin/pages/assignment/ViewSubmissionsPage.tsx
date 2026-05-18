@@ -64,7 +64,7 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
     { key: 'student_name', label: 'Student Name', sortable: true },
     { key: 'student_id', label: 'Student ID' },
     {
-      key: 'assignment_files',
+      key: 'submission_file',
       label: 'Submitted File',
       render: (value) => {
         const fileUrl = asString(value);
@@ -76,7 +76,7 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
             rel="noopener noreferrer"
             className="text-blue-600 hover:underline text-sm"
           >
-            Download
+            View
           </a>
         );
       },

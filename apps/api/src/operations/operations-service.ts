@@ -4383,6 +4383,17 @@ export class OperationsService {
       ...s,
       student_name: s.user_id ? userMap.get(s.user_id)?.name ?? null : null,
       student_id: s.user_id ? userMap.get(s.user_id)?.student_id ?? null : null,
+      // Naji UAT 2026-05-18 — assignment_files is a JSON-encoded array of
+      // relative paths; expose the first as a resolved URL the frontend can
+      // link to. Mirrors listAssignmentSubmissionsAcrossCohorts below.
+      submission_file: (() => {
+        if (!s.assignment_files) return null;
+        try {
+          const arr = JSON.parse(s.assignment_files) as unknown;
+          if (Array.isArray(arr) && arr.length > 0) return toLegacyFileUrl(String(arr[0]));
+        } catch { /* not json */ }
+        return toLegacyFileUrl(s.assignment_files);
+      })(),
     })) as unknown as SqlRow[];
   }
 
@@ -4596,6 +4607,17 @@ export class OperationsService {
         student_id: u?.student_id ?? null,
         user_email: u?.user_email ?? null,
         image: toLegacyFileUrl(u?.profile_picture) || toLegacyFileUrl(u?.image),
+        // Naji UAT 2026-05-18 — same file-URL fix as listAssignmentSubmissions
+        // so the Cohort Edit > Assignments side-panel Submissions tab also
+        // produces a working View link.
+        submission_file: (() => {
+          if (!s.assignment_files) return null;
+          try {
+            const arr = JSON.parse(s.assignment_files) as unknown;
+            if (Array.isArray(arr) && arr.length > 0) return toLegacyFileUrl(String(arr[0]));
+          } catch { /* not json */ }
+          return toLegacyFileUrl(s.assignment_files);
+        })(),
         submitted_at: s.created_at,
       };
     }) as unknown as SqlRow[];
