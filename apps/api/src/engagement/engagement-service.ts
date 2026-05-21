@@ -792,6 +792,41 @@ export class EngagementService {
     });
   }
 
+  // Naji UAT 2026-05-18 — Mobile app force-update + payment version check.
+  // Legacy PHP endpoint /api/home/app_version returned a flat 4-field JSON:
+  //   { ios_force_update, android_force_update, ios_payment_version, android_payment_version }
+  // The app_version table stores android (`app_version`) + iOS
+  // (`app_version_ios`); optional settings rows can override the
+  // payment_version values independently if the mobile team needs them
+  // decoupled. Public endpoint — version checks run BEFORE login.
+  async getAppVersion(): Promise<Record<string, string>> {
+    const [versionRow, settings] = await Promise.all([
+      this.prisma.app_version.findFirst({
+        where: { deleted_at: null },
+        select: { app_version: true, app_version_ios: true },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.settings.findMany({
+        where: {
+          deleted_at: null,
+          key: { in: ['ios_force_update', 'android_force_update', 'ios_payment_version', 'android_payment_version'] },
+        },
+        select: { key: true, value: true },
+      }),
+    ]);
+
+    const android = versionRow?.app_version ?? '';
+    const ios = versionRow?.app_version_ios ?? '';
+    const settingsMap = new Map(settings.map((s) => [s.key, s.value ?? '']));
+
+    return {
+      ios_force_update: settingsMap.get('ios_force_update') || ios,
+      android_force_update: settingsMap.get('android_force_update') || android,
+      ios_payment_version: settingsMap.get('ios_payment_version') || ios,
+      android_payment_version: settingsMap.get('android_payment_version') || android,
+    };
+  }
+
   async getNotifications(userId: string): Promise<Record<string, unknown>[]> {
     const user = await this.getUserById(userId);
     if (!user) {

@@ -197,6 +197,18 @@ export function registerEngagementRoutes(
     }
   });
 
+  // Naji UAT 2026-05-18 — Mobile app version check. Public, matches the
+  // legacy PHP shape so the existing mobile app can repoint at the new LMS
+  // without changing the version-check call.
+  app.get('/home/app_version', async (_request, reply) => {
+    try {
+      const data = await engagementService.getAppVersion();
+      reply.code(200).send(data);
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
   app.get('/home/get_notification', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const notifications = await engagementService.getNotifications(requestUserId(request));

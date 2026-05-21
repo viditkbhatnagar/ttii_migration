@@ -218,6 +218,24 @@ export function registerContentRoutes(
     }
   });
 
+  // Naji UAT 2026-05-18 — Mobile app expects /course/my_course on the new
+  // LMS (was on legacy PHP). Returns the signed-in student's enrolled
+  // courses with the same shape buildCourseData() already produces for the
+  // web portal. Auth supports both Bearer header and ?auth_token= query
+  // string (requireLegacyAuth handles both).
+  app.get('/course/my_course', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const courses = await contentService.listCourses(requestUserId(request), { enrolledOnly: true });
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data: courses,
+      });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // Catalog view for students: returns ALL active courses with the
   // is_enrolled flag set, so the student "My Courses" page can split
   // them into Enrolled and All Other sections.
