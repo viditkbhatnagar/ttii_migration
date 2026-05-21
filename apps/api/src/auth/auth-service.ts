@@ -38,6 +38,21 @@ function isTruthyString(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+// Naji UAT 2026-05-21 — Adeeb's mobile-app harness POSTed an unrendered
+// template to /login/register and we saved literal "$name" and "$phone"
+// strings as a real student. Reject anything that smells like a template
+// placeholder so future test calls fail loudly instead of leaving ghost
+// users behind. Pattern matches `$foo`, `${foo}`, `{{foo}}`, `<foo>`,
+// `[foo]`, `%foo%`, and anything containing those structural chars.
+const TEMPLATE_PLACEHOLDER_REGEX = /[$<>{}[\]%`|\\]|^\s*\{\{.*\}\}\s*$/;
+
+function looksLikeTemplate(value: string | null | undefined): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  return TEMPLATE_PLACEHOLDER_REGEX.test(trimmed);
+}
+
 function hexToBuffer(value: string): Buffer {
   return Buffer.from(value, 'hex');
 }
@@ -870,6 +885,21 @@ export class AuthService {
 
     if (!isTruthyString(input.password) || input.password.length < 8) {
       throw new AuthErrorClass(400, 'Password must be at least 8 characters long.', 'VALIDATION_ERROR');
+    }
+
+    // Naji UAT 2026-05-21 — reject template-placeholder values so a
+    // misconfigured client (e.g. unrendered $name / {{phone}} in a mobile-
+    // app test harness) cannot create ghost student rows.
+    if (looksLikeTemplate(normalizedName) || looksLikeTemplate(normalizedPhone) || looksLikeTemplate(normalizedCountryCode)) {
+      throw new AuthErrorClass(400, 'Invalid name or phone: looks like an unfilled template placeholder.', 'VALIDATION_ERROR');
+    }
+
+    if (!/^\d{6,15}$/.test(normalizedPhone)) {
+      throw new AuthErrorClass(400, 'Phone number must contain 6 to 15 digits.', 'VALIDATION_ERROR');
+    }
+
+    if (normalizedName.length < 2) {
+      throw new AuthErrorClass(400, 'Name must be at least 2 characters.', 'VALIDATION_ERROR');
     }
 
     const phoneCandidates = this.phoneCandidates(normalizedPhone, normalizedCountryCode);
