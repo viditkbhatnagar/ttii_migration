@@ -48,8 +48,11 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     label: 'Courses',
     icon: 'BookOpen',
     // Order locked by Naji 2026-04-30: Course Offerings first, then
-    // Program → Course → Subject → Lessons → Content Library →
-    // certification stack at the bottom.
+    // Program → Course → Subject → Lessons → Content Library.
+    // Naji UAT 2026-05-22 — certification stack moved into its own
+    // top-level "Partner Management" group below; Completion Policies
+    // + Certificates stay under Courses since they target the
+    // students/courses (not the partners).
     children: [
       { id: 'offerings', label: 'Course Offerings', href: '/admin/offerings/index' },
       { id: 'programs', label: 'Program', href: '/admin/programs/index' },
@@ -57,10 +60,20 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'subjects', label: 'Subject', href: '/admin/subjects/index' },
       { id: 'lessons', label: 'Lessons', href: '/admin/course_new/index' },
       { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
-      { id: 'certification-partners', label: 'Certification Partners', href: '/admin/certification-partners/index' },
-      { id: 'certificate-combinations', label: 'Certificate Combinations', href: '/admin/certificate-combinations/index' },
       { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },
       { id: 'certificates', label: 'Certificates', href: '/admin/certificates/index' },
+    ],
+  },
+  {
+    // Naji UAT 2026-05-22 — Partner Management is its own top-level
+    // group so the partner stack (org-level) stays separated from
+    // the course curriculum stack.
+    id: 'partner-management',
+    label: 'Partner Management',
+    icon: 'Award',
+    children: [
+      { id: 'certification-partners', label: 'Certification Partners', href: '/admin/certification-partners/index' },
+      { id: 'certificate-combinations', label: 'Certificate Combinations', href: '/admin/certificate-combinations/index' },
     ],
   },
   {

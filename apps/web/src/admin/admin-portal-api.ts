@@ -2749,6 +2749,12 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Naji UAT 2026-05-22 — Partner View detail page (header + courses + students + liability).
+  async getCertificationPartnerDetail(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(`/admin/certification_partners/${id}/detail`, authToken);
+    return payload.data ?? {};
+  }
+
   async createCertificationPartner(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/certification_partners', authToken, input);
   }

@@ -89,6 +89,19 @@ export function registerCertificationRoutes(
     } catch (e) { sendError(reply, e); }
   });
 
+  // Naji UAT 2026-05-22 — Partner View detail (header + courses + students + liability).
+  app.get('/admin/certification_partners/:id/detail', guards, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await partners.getDetail(toStringValue(params.id));
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Partner not found.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (e) { sendError(reply, e); }
+  });
+
   app.post('/admin/certification_partners', guards, async (request, reply) => {
     try {
       const p = requestPayload(request);

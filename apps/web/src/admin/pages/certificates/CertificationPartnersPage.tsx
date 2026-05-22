@@ -41,7 +41,7 @@ const emptyForm: PartnerForm = {
   position: '',
 };
 
-export default function CertificationPartnersPage({ api, session }: AdminPageProps) {
+export default function CertificationPartnersPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
@@ -203,6 +203,9 @@ export default function CertificationPartnersPage({ api, session }: AdminPagePro
   ];
 
   const actions: DataTableAction[] = [
+    // Naji UAT 2026-05-22 — View opens the partner detail page (Courses /
+    // Students / Liability tabs). Edit and Delete behave as before.
+    { label: 'View', onClick: (row) => onNavigate(`/admin/partners/view/${asString(row.id)}`) },
     { label: 'Edit', onClick: (row) => handleOpenEdit(row) },
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];

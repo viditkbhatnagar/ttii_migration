@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import {
+  Award,
   BookOpen,
   Bot,
   Building2,
@@ -46,6 +47,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Megaphone,
   ClipboardCheck,
   Settings,
+  Award,
 };
 
 interface AdminSidebarProps {

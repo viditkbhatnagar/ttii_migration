@@ -59,6 +59,7 @@ const CompletionPoliciesPage = lazy(() => import('../pages/certificates/Completi
 const CertificatesPage = lazy(() => import('../pages/certificates/CertificatesPage.js'));
 const CertificationPartnersPage = lazy(() => import('../pages/certificates/CertificationPartnersPage.js'));
 const CertificateCombinationsPage = lazy(() => import('../pages/certificates/CertificateCombinationsPage.js'));
+const ViewPartnerPage = lazy(() => import('../pages/partners/ViewPartnerPage.js'));
 const CourseDirectoryPage = lazy(() => import('../pages/course/CourseDirectoryPage.js'));
 const AddCoursePage = lazy(() => import('../pages/course/AddCoursePage.js'));
 const ViewCoursePage = lazy(() => import('../pages/course/ViewCoursePage.js'));
@@ -176,6 +177,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/certificates/index', aliases: ['/admin/certificates'], pageComponent: CertificatesPage, title: 'Certificates' },
   { path: '/admin/certification-partners/index', aliases: ['/admin/certification-partners'], pageComponent: CertificationPartnersPage, title: 'Certification Partners' },
   { path: '/admin/certificate-combinations/index', aliases: ['/admin/certificate-combinations'], pageComponent: CertificateCombinationsPage, title: 'Certificate Combinations' },
+  // Naji UAT 2026-05-22 — Partner View detail page (header + Courses / Students / Liability tabs).
+  { path: '/admin/partners/view/:id', pageComponent: ViewPartnerPage, title: 'Partner Details' },
 
   // Course Offerings
   { path: '/admin/offerings/index', aliases: ['/admin/offerings'], pageComponent: OfferingsPage, title: 'Course Offerings' },
