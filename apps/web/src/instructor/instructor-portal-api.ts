@@ -84,7 +84,7 @@ export interface InstructorDashboardSnapshot {
     avgPerformancePercent: number;
     avgPerformanceDelta: number;
   };
-  performanceTrend: { week: string; score: number }[];
+  performanceTrend: { week: string; score: number; attendance: number }[];
   cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
   todaysSchedule: InstructorDashboardLiveClass[];
   recentActivities: {
@@ -557,7 +557,7 @@ export class InstructorPortalApi {
     const performanceTrend = Array.isArray(data.performanceTrend)
       ? (data.performanceTrend as unknown[]).map((p) => {
           const r = asRecord(p) ?? {};
-          return { week: asString(r.week), score: asNumber(r.score) };
+          return { week: asString(r.week), score: asNumber(r.score), attendance: asNumber(r.attendance) };
         })
       : [];
     const cohortPerformance = Array.isArray(data.cohortPerformance)

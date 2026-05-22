@@ -41,7 +41,7 @@ export interface InstructorDashboardPayload {
     avgPerformancePercent: number;
     avgPerformanceDelta: number;
   };
-  performanceTrend: { week: string; score: number }[]; // last 8 weeks
+  performanceTrend: { week: string; score: number; attendance: number }[]; // last 8 weeks
   cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
   todaysSchedule: InstructorLiveClassSummary[];
   recentActivities: {
@@ -392,23 +392,60 @@ export class InstructorService {
     const avgPerformancePercent = avg(totalScores);
 
     // 8-week performance trend — bucket evaluated submissions by their
-    // updated_at into weekly windows ending today.
-    const performanceTrend: { week: string; score: number }[] = [];
+    // updated_at into weekly windows ending today. Also bucket
+    // live_class_attendance rows for the second line on the chart
+    // (avg attendance % across this instructor's classes that ended in
+    // the same week).
     const week = 7 * 24 * 60 * 60 * 1000;
+    const earliestWindowStart = new Date(today.getTime() - 7 * week);
+
+    // Pull this instructor's live classes within the 8-week window so
+    // we can join their attendance rows. Cohort scope keeps it cheap.
+    const recentClasses = await this.prisma.live_class.findMany({
+      where: {
+        cohort_id: { in: cohortIds },
+        deleted_at: null,
+        date: { gte: earliestWindowStart },
+      },
+      select: { id: true, date: true },
+    });
+    const classDateMap = new Map(recentClasses.map((c) => [c.id, c.date]));
+    const recentClassIds = recentClasses.map((c) => c.id);
+    const attendanceRows = recentClassIds.length > 0
+      ? await this.prisma.live_class_attendance.findMany({
+          where: { live_class_id: { in: recentClassIds } },
+          select: { live_class_id: true, percent_attended: true },
+        })
+      : [];
+
+    const performanceTrend: { week: string; score: number; attendance: number }[] = [];
     for (let i = 7; i >= 0; i -= 1) {
       const end = new Date(today.getTime() - i * week + week);
       const start = new Date(end.getTime() - week);
-      const bucket: number[] = [];
+      const scoreBucket: number[] = [];
       for (const s of submissions) {
         if (!s.updated_at || !s.marks || String(s.marks).trim() === '') continue;
         const t = new Date(s.updated_at);
         if (t < start || t >= end) continue;
         const total = s.assignment_id ? Number(assignmentTotalMap.get(s.assignment_id) ?? 0) : 0;
         const scored = Number(String(s.marks).trim());
-        if (total > 0 && Number.isFinite(scored)) bucket.push(Math.round((scored / total) * 100));
+        if (total > 0 && Number.isFinite(scored)) scoreBucket.push(Math.round((scored / total) * 100));
+      }
+      const attendBucket: number[] = [];
+      for (const a of attendanceRows) {
+        const classDate = classDateMap.get(a.live_class_id);
+        if (!classDate) continue;
+        const t = new Date(classDate);
+        if (t < start || t >= end) continue;
+        const pct = a.percent_attended === null || a.percent_attended === undefined ? null : Number(a.percent_attended);
+        if (pct !== null && Number.isFinite(pct)) attendBucket.push(Math.max(0, Math.min(100, Math.round(pct))));
       }
       const label = `W${8 - i}`;
-      performanceTrend.push({ week: label, score: bucket.length === 0 ? avgPerformancePercent : avg(bucket) });
+      performanceTrend.push({
+        week: label,
+        score: scoreBucket.length === 0 ? avgPerformancePercent : avg(scoreBucket),
+        attendance: attendBucket.length === 0 ? 0 : avg(attendBucket),
+      });
     }
     // Approximate delta vs last month = current avg minus avg of weeks 1-4.
     const recentAvg = avg(performanceTrend.slice(-4).map((p) => p.score));

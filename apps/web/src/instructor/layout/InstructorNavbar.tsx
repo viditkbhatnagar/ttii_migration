@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Menu, PanelLeftClose, PanelLeftOpen, User, HelpCircle, LogOut } from 'lucide-react';
+import { Bell, Menu, PanelLeftClose, PanelLeftOpen, Search, User, HelpCircle, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -12,107 +11,104 @@ import {
 import { useInstructorLayout } from './InstructorLayoutContext.js';
 import type { AuthSession } from '@ttii/frontend-core';
 
+// Naji UAT 2026-05-22 — top bar now mirrors the Lovable mockup:
+// sidebar toggle (left), a pill-shaped search input (center, fills
+// available width), notification bell, and the user avatar (right).
+// The dashboard greeting + subtitle live inside the page itself, not
+// the header, so the header stays consistent across pages.
+
 interface InstructorNavbarProps {
   session: AuthSession;
   onNavigate: (href: string) => void;
   onLogout: () => void;
 }
 
-function useCurrentTime() {
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    const interval = setInterval(() => setTime(new Date()), 60000);
-    return () => clearInterval(interval);
-  }, []);
-  return time;
-}
-
 export function InstructorNavbar({ session: _session, onNavigate, onLogout }: InstructorNavbarProps) {
   const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar, currentUser } = useInstructorLayout();
-  const now = useCurrentTime();
 
   const displayName = currentUser?.name || 'Instructor';
   const initials = currentUser?.initials ?? 'IN';
   const avatarImage = currentUser?.image ?? '';
 
-  const formattedTime = now.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }) + ', ' + now.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/60 bg-white/80 px-4 backdrop-blur-md">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Open navigation menu"
-          className="md:hidden size-11 text-slate-500 hover:text-student-primary"
-          onClick={toggleMobileSidebar}
-        >
-          <Menu className="size-5" aria-hidden="true" />
-        </Button>
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Open navigation menu"
+        className="md:hidden size-10 text-slate-500 hover:text-slate-900"
+        onClick={toggleMobileSidebar}
+      >
+        <Menu className="size-5" aria-hidden="true" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-expanded={!sidebarCollapsed}
+        className="hidden md:flex text-slate-500 hover:text-slate-900"
+        onClick={toggleSidebar}
+      >
+        {sidebarCollapsed ? (
+          <PanelLeftOpen className="size-5" aria-hidden="true" />
+        ) : (
+          <PanelLeftClose className="size-5" aria-hidden="true" />
+        )}
+      </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!sidebarCollapsed}
-          className="hidden md:flex text-student-primary hover:bg-student-primary/10"
-          onClick={toggleSidebar}
-        >
-          {sidebarCollapsed ? (
-            <PanelLeftOpen className="size-5" aria-hidden="true" />
-          ) : (
-            <PanelLeftClose className="size-5" aria-hidden="true" />
-          )}
-        </Button>
+      <div className="flex-1 mx-auto max-w-2xl">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-400" aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search cohorts, learners, classes"
+            placeholder="Search cohorts, learners, classes..."
+            className="w-full rounded-full border border-slate-200 bg-slate-50 px-10 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:bg-white"
+          />
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="hidden sm:flex text-sm text-slate-500 mr-2">
-          {formattedTime}
-        </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Notifications"
+        className="relative text-slate-500 hover:text-slate-900"
+      >
+        <Bell className="size-5" aria-hidden="true" />
+        <span aria-hidden="true" className="absolute right-1.5 top-1.5 size-2 rounded-full bg-violet-500 ring-2 ring-white" />
+      </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              aria-label={`Account menu for ${displayName}`}
-              className="ml-1 gap-2 text-student-text hover:bg-student-primary/10"
-            >
-              <Avatar className="size-8">
-                {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
-                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent/70 text-xs text-white font-semibold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <span className="hidden text-sm font-medium sm:inline">{displayName}</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => onNavigate('/instructor/settings')}>
-              <User className="mr-2 size-4" aria-hidden="true" />
-              Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onNavigate('/instructor/dashboard')}>
-              <HelpCircle className="mr-2 size-4" aria-hidden="true" />
-              Dashboard
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onLogout} className="text-red-500">
-              <LogOut className="mr-2 size-4" aria-hidden="true" />
-              Logout
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            aria-label={`Account menu for ${displayName}`}
+            className="gap-0 px-0 hover:bg-transparent"
+          >
+            <Avatar className="size-9 ring-2 ring-violet-100">
+              {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+              <AvatarFallback className="bg-violet-600 text-xs text-white font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={() => onNavigate('/instructor/settings')}>
+            <User className="mr-2 size-4" aria-hidden="true" />
+            Profile
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onNavigate('/instructor/dashboard')}>
+            <HelpCircle className="mr-2 size-4" aria-hidden="true" />
+            Dashboard
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={onLogout} className="text-red-500">
+            <LogOut className="mr-2 size-4" aria-hidden="true" />
+            Logout
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
 }

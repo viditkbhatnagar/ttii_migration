@@ -24,26 +24,22 @@ function InstructorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
   }, [closeMobileSidebar, onNavigate]);
 
   return (
-    <div className="student-dashboard flex h-screen overflow-hidden bg-student-bg">
-      {/* Desktop Sidebar */}
+    // Naji UAT 2026-05-22 — switched the chrome to match the EduPulse
+    // Faculty Portal mockup: white sidebar + light slate-50 page bg.
+    <div className="flex h-screen overflow-hidden bg-slate-50">
       <InstructorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
 
-      {/* Mobile Sidebar (Sheet) */}
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
         <SheetContent side="left" className="w-64 p-0 border-0" showCloseButton={false}>
           <InstructorSidebarMobile pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
         </SheetContent>
       </Sheet>
 
-      {/* Main Content */}
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <InstructorNavbar session={session} onNavigate={handleNavigate} onLogout={onLogout} />
-        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4 md:px-6">
+        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4 md:px-6">
           <InstructorRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
-        <footer className="border-t border-slate-200/60 px-6 py-3 text-center text-xs text-student-muted">
-          2026 &copy; Teacher&apos;s Training Institute of India.
-        </footer>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import {
   ClipboardCheck,
+  GraduationCap,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -13,6 +14,11 @@ import { Button } from '@/components/ui/button';
 import { useInstructorLayout } from './InstructorLayoutContext.js';
 import { INSTRUCTOR_NAV_TREE, findActiveInstructorNav, type InstructorNavItem } from '../routing/instructor-nav-tree.js';
 import type { AuthSession } from '@ttii/frontend-core';
+
+// Naji UAT 2026-05-22 — sidebar restyled to match the ttiifaculty.lovable.app
+// mockup: white background, solid purple pill for the active nav item,
+// EduPulse Faculty Portal branding, and a Dr. Menon / Senior Faculty
+// styled user badge at the bottom.
 
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -48,10 +54,10 @@ function SidebarNavItem({
       aria-current={isActive ? 'page' : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 group text-left',
+        'flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-150 text-left',
         isActive
-          ? 'bg-white/10 text-white shadow-lg'
-          : 'text-white/60 hover:bg-white/5 hover:text-white',
+          ? 'bg-violet-600 text-white shadow-md shadow-violet-200/60'
+          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         collapsed && 'justify-center px-2',
       )}
       onClick={() => onNavigate(item.href)}
@@ -61,22 +67,102 @@ function SidebarNavItem({
         <Icon
           aria-hidden="true"
           className={cn(
-            'size-5 shrink-0 transition-colors duration-200',
-            isActive
-              ? 'text-student-accent'
-              : 'text-white/50 group-hover:text-white/80',
+            'size-5 shrink-0',
+            isActive ? 'text-white' : 'text-slate-500',
           )}
         />
       ) : null}
       {!collapsed ? (
-        <>
-          <span className={cn('truncate', isActive ? 'font-semibold' : '')}>{item.label}</span>
-          {isActive ? (
-            <span aria-hidden="true" className="ml-auto size-1.5 shrink-0 rounded-full bg-student-accent" />
-          ) : null}
-        </>
+        <span className={cn('truncate', isActive ? 'font-semibold' : '')}>{item.label}</span>
       ) : null}
     </button>
+  );
+}
+
+function BrandHeader({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Go to faculty dashboard"
+      className={cn(
+        'flex w-full items-center gap-2.5 px-4 py-5 hover:opacity-90 transition-opacity',
+        collapsed && 'justify-center px-2',
+      )}
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
+        <GraduationCap className="size-5" aria-hidden="true" />
+      </span>
+      {!collapsed ? (
+        <div className="min-w-0 text-left">
+          <p className="text-sm font-bold text-slate-900">EduPulse</p>
+          <p className="text-[11px] font-medium text-slate-500">Faculty Portal</p>
+        </div>
+      ) : null}
+    </button>
+  );
+}
+
+function UserBadge({
+  initials,
+  name,
+  collapsed,
+  onLogout,
+}: {
+  initials: string;
+  name: string;
+  collapsed: boolean;
+  onLogout: (() => void) | undefined;
+}) {
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-2 p-3 border-t border-slate-100">
+        <div className="flex size-9 items-center justify-center rounded-full bg-violet-100 text-violet-700 font-bold text-xs">
+          {initials}
+        </div>
+        {onLogout ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Log out"
+            className="text-slate-500 hover:bg-red-50 hover:text-red-600"
+            onClick={onLogout}
+            title="Log out"
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="p-3 border-t border-slate-100">
+      <div className="flex items-center gap-3 rounded-xl px-2 py-2">
+        <div
+          aria-hidden="true"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 font-bold text-sm"
+        >
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900 truncate">{name}</p>
+          {/* Naji UAT 2026-05-22 — "Senior Faculty" label matches the Lovable
+              mockup. Kept fixed for now since we don't track seniority on users. */}
+          <p className="text-[11px] text-slate-500 truncate">Senior Faculty</p>
+        </div>
+        {onLogout ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Log out"
+            className="shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            onClick={onLogout}
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -87,64 +173,21 @@ export function InstructorSidebar({ pathname, session: _session, onNavigate, onL
   const displayName = currentUser?.name || 'Instructor';
   const initials = currentUser?.initials ?? 'IN';
 
-  const generalItems = INSTRUCTOR_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = INSTRUCTOR_NAV_TREE.filter((item) => item.section === 'tools');
+  const navItems = INSTRUCTOR_NAV_TREE;
 
   return (
     <aside
       aria-label="Instructor navigation"
       className={cn(
-        'hidden md:flex h-screen flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to shadow-2xl transition-all duration-300',
+        'hidden md:flex h-screen flex-col bg-white border-r border-slate-200 transition-all duration-300',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-64',
       )}
     >
-      <div className={cn(
-        'flex h-20 items-center border-b border-white/10 bg-white px-4',
-        sidebarCollapsed && 'justify-center px-2',
-      )}>
-        <button
-          type="button"
-          onClick={() => onNavigate('/instructor/dashboard')}
-          aria-label="Go to instructor dashboard"
-          className="flex items-center hover:opacity-95 transition-opacity"
-        >
-          {sidebarCollapsed ? (
-            <img src="/logos/ttii-icon-color.svg" alt="TTII" className="h-9 w-auto" />
-          ) : (
-            <img
-              src="/logos/ttii-full-color.svg"
-              alt="Teachers' Training Institute of India"
-              className="h-10 w-auto max-w-full"
-            />
-          )}
-        </button>
-      </div>
+      <BrandHeader collapsed={sidebarCollapsed} onClick={() => onNavigate('/instructor/dashboard')} />
 
-      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
+      <ScrollArea className="flex-1 min-h-0 px-3 pb-3">
         <nav aria-label="Instructor sections" className="flex flex-col gap-1">
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-              General
-            </p>
-          ) : null}
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          <div aria-hidden="true" className="my-5 border-t border-white/10" />
-
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-              Tools
-            </p>
-          ) : null}
-          {toolsItems.map((item) => (
+          {navItems.map((item) => (
             <SidebarNavItem
               key={item.id}
               item={item}
@@ -156,59 +199,7 @@ export function InstructorSidebar({ pathname, session: _session, onNavigate, onL
         </nav>
       </ScrollArea>
 
-      <div className="p-4 border-t border-white/10">
-        {!sidebarCollapsed ? (
-          <>
-            <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-              <div
-                aria-hidden="true"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-              >
-                {initials}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{displayName}</p>
-                {/* Naji UAT 2026-05-22 — match the "Senior Faculty" subtitle
-                    from the Lovable mockup. Kept generic ("Faculty") here
-                    since we don't carry a separate seniority field yet. */}
-                <p className="text-xs text-white/50 truncate">Faculty</p>
-              </div>
-            </div>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
-                onClick={onLogout}
-              >
-                <LogOut className="mr-2 size-4" aria-hidden="true" />
-                <span className="text-sm font-medium">Log out</span>
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <div
-              aria-label={displayName}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-xs shadow-lg"
-            >
-              {initials}
-            </div>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Log out"
-                className="text-white/50 hover:bg-red-500/20 hover:text-red-400"
-                onClick={onLogout}
-                title="Log out"
-              >
-                <LogOut className="size-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </div>
+      <UserBadge initials={initials} name={displayName} collapsed={sidebarCollapsed} onLogout={onLogout} />
     </aside>
   );
 }
@@ -219,48 +210,14 @@ export function InstructorSidebarMobile({ pathname, session: _session, onNavigat
   const activeItemId = findActiveInstructorNav(pathname);
   const displayName = currentUser?.name || 'Instructor';
   const initials = currentUser?.initials ?? 'IN';
-
-  const generalItems = INSTRUCTOR_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = INSTRUCTOR_NAV_TREE.filter((item) => item.section === 'tools');
+  const navItems = INSTRUCTOR_NAV_TREE;
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to">
-      <div className="flex h-20 items-center border-b border-white/10 bg-white px-4">
-        <button
-          type="button"
-          onClick={() => onNavigate('/instructor/dashboard')}
-          aria-label="Go to instructor dashboard"
-          className="flex items-center hover:opacity-95 transition-opacity"
-        >
-          <img
-            src="/logos/ttii-full-color.svg"
-            alt="Teachers' Training Institute of India"
-            className="h-10 w-auto max-w-full"
-          />
-        </button>
-      </div>
-
-      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
+    <aside aria-label="Instructor navigation" className="flex h-full flex-col bg-white">
+      <BrandHeader collapsed={false} onClick={() => onNavigate('/instructor/dashboard')} />
+      <ScrollArea className="flex-1 min-h-0 px-3 pb-3">
         <nav aria-label="Instructor sections" className="flex flex-col gap-1">
-          <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-            General
-          </p>
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          <div aria-hidden="true" className="my-5 border-t border-white/10" />
-
-          <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-            Tools
-          </p>
-          {toolsItems.map((item) => (
+          {navItems.map((item) => (
             <SidebarNavItem
               key={item.id}
               item={item}
@@ -271,32 +228,7 @@ export function InstructorSidebarMobile({ pathname, session: _session, onNavigat
           ))}
         </nav>
       </ScrollArea>
-
-      <div className="p-4 border-t border-white/10">
-        <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-          <div
-            aria-hidden="true"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-          >
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{displayName}</p>
-            <p className="text-xs text-white/50 truncate">Instructor Portal</p>
-          </div>
-        </div>
-        {onLogout ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
-            onClick={onLogout}
-          >
-            <LogOut className="mr-2 size-4" aria-hidden="true" />
-            <span className="text-sm font-medium">Log out</span>
-          </Button>
-        ) : null}
-      </div>
-    </div>
+      <UserBadge initials={initials} name={displayName} collapsed={false} onLogout={onLogout} />
+    </aside>
   );
 }
