@@ -38,7 +38,19 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
     [courseFilter],
   );
 
-  const allAssignments = useMemo(() => toRecords(data), [data]);
+  // Naji UAT 2026-05-22 — guard against the legacy dummy rows where a
+  // course was created in test mode with no title or course assignment.
+  // Filter them out so the master list reads cleanly even before the
+  // backend cleanup script runs against prod.
+  const allAssignments = useMemo(() => {
+    return toRecords(data).filter((a) => {
+      const t = asString(a.title).trim();
+      const courseId = asString(a.course_id) || asString(a.cohort_id);
+      // Drop the genuinely empty rows: no title AND no course/cohort linkage.
+      if (!t && !courseId) return false;
+      return true;
+    });
+  }, [data]);
 
   const now = new Date().toISOString().slice(0, 10);
 

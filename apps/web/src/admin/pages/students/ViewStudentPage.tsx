@@ -447,6 +447,28 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     }
   }, [activeTab, selectedEnrollmentIdx, enrolments.length]);
 
+  // Naji UAT 2026-05-22 — deep-link support. Pages like Student Eligibility
+  // navigate here with ?tab=enrollments&enrol_id=<id> to focus the right
+  // enrolment directly. Runs once after enrolments load.
+  const [deepLinkApplied, setDeepLinkApplied] = useState(false);
+  useEffect(() => {
+    if (deepLinkApplied || enrolments.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const enrolIdParam = params.get('enrol_id');
+    if (tab === 'enrollments' || tab === 'enrollment') {
+      setActiveTab(1);
+      if (enrolIdParam) {
+        const idx = enrolments.findIndex((e) => asString((e as Record<string, unknown>).id) === enrolIdParam);
+        if (idx >= 0) {
+          setSelectedEnrollmentIdx(idx);
+          setEnrollmentSubTab(0);
+        }
+      }
+    }
+    setDeepLinkApplied(true);
+  }, [enrolments, deepLinkApplied]);
+
   // Pipeline → Pipeline User cascade. Centre lists centres; Admin pulls
   // both Super Admin (role 1) and Admin (role 8) users. Counsellor and
   // Associate are scoped to their single role.

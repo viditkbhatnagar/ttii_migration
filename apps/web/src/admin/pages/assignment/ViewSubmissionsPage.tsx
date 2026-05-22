@@ -17,6 +17,17 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
     return segments[segments.length - 1] || '';
   }, []);
 
+  // Naji UAT 2026-05-22 — when arriving from the Assignment Evaluation
+  // "Evaluate" action we get a ?submission_id=… focus parameter so the
+  // list collapses to just that student's submission. Without it the
+  // page keeps its original behaviour (every submission for the
+  // assignment), which is still used by the per-assignment Submissions
+  // link on the Assignments page.
+  const focusSubmissionId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('submission_id') || '';
+  }, []);
+
   const [editedRows, setEditedRows] = useState<Record<string, { marks: string; remarks: string }>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
@@ -25,7 +36,11 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
     [assignmentId],
   );
 
-  const submissions = useMemo(() => toRecords(data), [data]);
+  const allSubmissions = useMemo(() => toRecords(data), [data]);
+  const submissions = useMemo(() => {
+    if (!focusSubmissionId) return allSubmissions;
+    return allSubmissions.filter((r) => asString(r.id) === focusSubmissionId);
+  }, [allSubmissions, focusSubmissionId]);
 
   const getEdited = useCallback((rowId: string) => editedRows[rowId], [editedRows]);
 
@@ -163,19 +178,33 @@ export default function ViewSubmissionsPage({ api, session, onNavigate }: AdminP
     );
   }
 
+  // In focus mode, the back button returns to the evaluation queue
+  // because that's where the user came from (Evaluate action). Outside
+  // focus mode, it falls back to the Assignments list.
+  const backPath = focusSubmissionId ? '/admin/assignment/evaluation' : '/admin/assignment';
+  const headerTitle = focusSubmissionId ? 'Evaluate Submission' : 'Assignment Submissions';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" aria-label="Back to assignments" onClick={() => onNavigate('/admin/assignment')}>
+        <Button variant="ghost" size="icon" aria-label="Back" onClick={() => onNavigate(backPath)}>
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </Button>
-        <AdminPageHeader title="Assignment Submissions" />
+        <AdminPageHeader title={headerTitle} />
       </div>
 
-      <AdminDataTable
-        columns={columns}
-        rows={submissions}
-      />
+      {focusSubmissionId && submissions.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-gray-500">
+            Submission not found.
+          </CardContent>
+        </Card>
+      ) : (
+        <AdminDataTable
+          columns={columns}
+          rows={submissions}
+        />
+      )}
     </div>
   );
 }

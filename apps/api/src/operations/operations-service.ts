@@ -3765,9 +3765,9 @@ export class OperationsService {
       userIds.length > 0
         ? this.prisma.users.findMany({
             where: { id: { in: userIds }, deleted_at: null },
-            select: { id: true, name: true, user_email: true, email: true, student_id: true },
+            select: { id: true, name: true, user_email: true, email: true, student_id: true, application_id: true },
           })
-        : Promise.resolve([] as Array<{ id: number; name: string | null; user_email: string | null; email: string | null; student_id: number | null }>),
+        : Promise.resolve([] as Array<{ id: number; name: string | null; user_email: string | null; email: string | null; student_id: number | null; application_id: number | null }>),
       courseIds.length > 0
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
         : Promise.resolve([] as Array<{ id: number; title: string | null }>),
@@ -3793,6 +3793,27 @@ export class OperationsService {
       arr.push(a.id);
       assignmentsByCourse.set(a.course_id, arr);
     }
+
+    // Offering lookup: users.application_id -> applications.offering_id ->
+    // offerings.title. Mirrors the pattern used by listEnrollments so the
+    // Course Offering column on Student Eligibility matches the one on the
+    // Enrollments page. Naji UAT 2026-05-22.
+    const applicationIds = [...new Set(users.map((u) => u.application_id).filter((v): v is number => v !== null && v > 0))];
+    const applicationRows = applicationIds.length > 0
+      ? await this.prisma.applications.findMany({
+          where: { id: { in: applicationIds }, deleted_at: null },
+          select: { id: true, offering_id: true },
+        })
+      : [];
+    const offeringIds = [...new Set(applicationRows.map((a) => a.offering_id).filter((v): v is number => !!v && v > 0))];
+    const offeringRows = offeringIds.length > 0
+      ? await this.prisma.offerings.findMany({
+          where: { id: { in: offeringIds }, deleted_at: null },
+          select: { id: true, title: true, offering_code: true },
+        })
+      : [];
+    const offeringMap = new Map(offeringRows.map((o) => [o.id, o]));
+    const appOfferingMap = new Map(applicationRows.map((a) => [a.id, a.offering_id ?? 0]));
 
     // All submission rows for these users — status = has marks.
     const submissions = userIds.length > 0
@@ -3851,6 +3872,9 @@ export class OperationsService {
       const u = e.user_id ? userMap.get(e.user_id) : null;
       const courseTitle = e.course_id ? courseMap.get(e.course_id) ?? '' : '';
       const reasons: string[] = [];
+      const offId = u?.application_id ? appOfferingMap.get(u.application_id) ?? 0 : 0;
+      const offering = offId ? offeringMap.get(offId) : null;
+      const offeringTitle = offering?.title ?? offering?.offering_code ?? '';
 
       // Fee
       const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
@@ -3890,6 +3914,8 @@ export class OperationsService {
         email: u?.user_email ?? u?.email ?? '',
         course_id: e.course_id,
         course_title: courseTitle,
+        offering_id: offId || null,
+        course_offering: offeringTitle,
         enrollment_date: e.enrollment_date ?? '',
         enrollment_status: e.enrollment_status ?? '',
         status,

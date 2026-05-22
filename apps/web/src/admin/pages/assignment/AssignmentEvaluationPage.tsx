@@ -89,10 +89,16 @@ export default function AssignmentEvaluationPage({ api, session, onNavigate }: A
       },
     };
     const evaluate = {
+      // Naji UAT 2026-05-22 — Evaluate now opens just the row's submission
+      // (one student), not every submission for the assignment. The list
+      // page still works without ?submission_id for the table-wide flow.
       label: 'Evaluate',
       onClick: (row: Record<string, unknown>) => {
-        const id = asString(row.assignment_id);
-        if (id) onNavigate(`/admin/assignment/submissions/${id}`);
+        const assignmentId = asString(row.assignment_id);
+        const submissionId = asString(row.id);
+        if (!assignmentId) return;
+        const qs = submissionId ? `?submission_id=${encodeURIComponent(submissionId)}` : '';
+        onNavigate(`/admin/assignment/submissions/${assignmentId}${qs}`);
       },
     };
     const reEvaluate = { ...evaluate, label: 'Re-Evaluate' };

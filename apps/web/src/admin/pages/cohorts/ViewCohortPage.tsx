@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   BookOpen, Users, Video, ClipboardList, Calendar, Megaphone,
   Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download,
-  CheckCircle2, FileText,
+  CheckCircle2, FileText, LayoutList, LayoutGrid,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
@@ -554,6 +555,10 @@ function LiveSessionsTab({
 }) {
   const confirm = useConfirm();
   const [attendanceSession, setAttendanceSession] = useState<{ id: string; title: string } | null>(null);
+  // Naji UAT 2026-05-22 — upcoming-sessions view toggle. Row is the
+  // static/default option; user can switch to Card. Completed sessions
+  // stay as rows since that's the only sensible layout for them.
+  const [upcomingView, setUpcomingView] = useState<'row' | 'card'>('row');
   const handleDelete = useCallback(
     async (session: Record<string, unknown>) => {
       const id = asString(session.id) || asString(session._id);
@@ -584,12 +589,40 @@ function LiveSessionsTab({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Upcoming sessions — card layout */}
+        {/* Upcoming sessions — row (default) or card layout. */}
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Upcoming / Scheduled</p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Upcoming / Scheduled</p>
+            <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5" role="tablist" aria-label="View mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={upcomingView === 'row'}
+                aria-label="Row view"
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  upcomingView === 'row' ? 'bg-ttii-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                onClick={() => setUpcomingView('row')}
+              >
+                <LayoutList className="size-3.5" /> Row
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={upcomingView === 'card'}
+                aria-label="Card view"
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  upcomingView === 'card' ? 'bg-ttii-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                onClick={() => setUpcomingView('card')}
+              >
+                <LayoutGrid className="size-3.5" /> Card
+              </button>
+            </div>
+          </div>
           {upcomingSessions.length === 0 ? (
             <p className="py-4 text-center text-sm text-gray-400">No upcoming sessions.</p>
-          ) : (
+          ) : upcomingView === 'card' ? (
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {upcomingSessions.map((s) => {
                 const id = asString(s.id) || asString(s._id);
@@ -663,6 +696,86 @@ function LiveSessionsTab({
                         onClick={() => void handleDelete(s)}
                       >
                         <Trash2 className="size-3" /> Delete
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            // Row layout — denser, scans top-to-bottom. Naji UAT 2026-05-22.
+            <div className="space-y-2">
+              {upcomingSessions.map((s) => {
+                const id = asString(s.id) || asString(s._id);
+                const sessionId = asString(s.session_id);
+                const title = asString(s.title);
+                const platform = asString(s.platform).toLowerCase();
+                const zoomId = asString(s.zoom_id);
+                const password = asString(s.password);
+                const joinUrl = asString(s.join_url);
+                const hostEmail = asString(s.host_email);
+                const date = formatSessionDate(asString(s.date));
+                const fromTime = format12hTime(formatTimeValue(asString(s.from_time) || asString(s.fromTime)));
+                const toTime = format12hTime(formatTimeValue(asString(s.to_time) || asString(s.toTime)));
+                const platformLabel =
+                  platform === 'teams' ? 'Microsoft Teams'
+                  : platform === 'zoom' ? 'Zoom'
+                  : platform === 'manual' ? 'Manual link'
+                  : zoomId ? 'Zoom' : '-';
+                const hostUrl =
+                  joinUrl ? joinUrl
+                  : platform === 'zoom' || (!platform && zoomId) ? `/zoom/index/${id}`
+                  : '';
+                const platformDetail = platform === 'teams' ? (hostEmail || '-')
+                  : platform === 'zoom' ? (zoomId || '-')
+                  : (password || '-');
+                const platformDetailLabel = platform === 'teams' ? 'Host' : platform === 'zoom' ? 'Zoom ID' : 'Password';
+
+                return (
+                  <div key={id} className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-ttii-primary/10">
+                      <Video className="size-5 text-ttii-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-gray-900">{title}</p>
+                      <p className="truncate text-xs text-gray-500">
+                        <span className="font-medium">{sessionId}</span>
+                        {' · '}{platformLabel}
+                        {' · '}<span className="text-gray-400">{platformDetailLabel}:</span> {platformDetail}
+                      </p>
+                    </div>
+                    <div className="hidden text-right text-xs text-gray-600 sm:block">
+                      <p className="font-medium">{date}</p>
+                      <p className="text-gray-500">{fromTime} - {toTime}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1 px-2 text-xs"
+                        onClick={() => onEditRecordingClick(id, asString(s.video_url) || asString(s.recording_url))}
+                        title="Edit Recording"
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1 px-2 text-xs text-blue-600 hover:bg-blue-50"
+                        disabled={!hostUrl}
+                        onClick={() => hostUrl && window.open(hostUrl, '_blank')}
+                        title="Join"
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1 px-2 text-xs text-red-600 hover:bg-red-50"
+                        onClick={() => void handleDelete(s)}
+                        title="Delete"
+                      >
+                        <Trash2 className="size-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -1923,6 +2036,15 @@ function AssignmentModal({
   setSubmitting: (v: boolean) => void;
   onSuccess: () => void;
 }) {
+  // Naji UAT 2026-05-22 — dialog overhaul:
+  //   1. "Reuse from Previous" dropdown pre-fills every field from a
+  //      past assignment (saves typing for repeat schedules).
+  //   2. The Question block now offers BOTH "Add Question" (typed text,
+  //      saved to description) and "Upload Question" (file, saved to the
+  //      assignment.file column) so instructors can pick whichever fits.
+  //   3. Instructions is a TipTap rich-text editor — bullet/numbered
+  //      lists, headings, bold/italic. Naji specifically asked for
+  //      bullet points so multi-step instructions read cleanly.
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [totalMarks, setTotalMarks] = useState('');
@@ -1930,18 +2052,92 @@ function AssignmentModal({
   const [fromTime, setFromTime] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [file, setFile] = useState(''); // question-file URL (existing schema column)
+  const [fileName, setFileName] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [previousAssignments, setPreviousAssignments] = useState<Record<string, unknown>[]>([]);
+  const [reuseId, setReuseId] = useState('');
 
+  // Reset / hydrate form whenever the dialog opens. Edit mode hydrates
+  // from the assignment row; Add mode starts blank.
   useEffect(() => {
+    if (!open) return;
     if (assignment) {
       setTitle(asString(assignment.title));
       setDescription(asString(assignment.description));
       setTotalMarks(asString(assignment.total_marks));
       setDueDate(asString(assignment.due_date));
       setFromTime(asString(assignment.from_time));
-      setDueTime(asString(assignment.due_time));
+      setDueTime(asString(assignment.due_time) || asString(assignment.to_time));
       setInstructions(asString(assignment.instructions));
+      const existingFile = asString(assignment.file);
+      setFile(existingFile);
+      setFileName(existingFile ? existingFile.split('/').pop() || existingFile : '');
+    } else {
+      setTitle('');
+      setDescription('');
+      setTotalMarks('');
+      setDueDate('');
+      setFromTime('');
+      setDueTime('');
+      setInstructions('');
+      setFile('');
+      setFileName('');
     }
-  }, [assignment]);
+    setReuseId('');
+  }, [open, assignment]);
+
+  // Load previous assignments once per dialog open so the Reuse dropdown
+  // is populated. Skipped in edit mode (nothing to reuse).
+  useEffect(() => {
+    if (!open || assignment) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await api.loadAdminAssignments(token, {});
+        if (!cancelled) setPreviousAssignments(rows);
+      } catch {
+        // non-fatal — dropdown just stays empty.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, assignment, api, token]);
+
+  const handleReuse = useCallback((id: string) => {
+    setReuseId(id);
+    if (!id) return;
+    const src = previousAssignments.find((r) => asString(r.id) === id || asString(r._id) === id);
+    if (!src) return;
+    setTitle(asString(src.title));
+    setDescription(asString(src.description));
+    setTotalMarks(asString(src.total_marks));
+    setFromTime(asString(src.from_time));
+    setDueTime(asString(src.to_time) || asString(src.due_time));
+    setInstructions(asString(src.instructions));
+    const f = asString(src.file);
+    setFile(f);
+    setFileName(f ? f.split('/').pop() || f : '');
+    // Intentionally don't copy due_date — every new assignment needs a fresh schedule.
+    toast.success('Pre-filled from previous assignment. Set a new due date before saving.');
+  }, [previousAssignments]);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+    setUploading(true);
+    try {
+      const result = await api.uploadFile(token, picked);
+      setFile(result.url);
+      setFileName(picked.name);
+      toast.success('Question file uploaded.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      // reset input so picking the same file again retriggers onChange
+      e.target.value = '';
+    }
+  }, [api, token]);
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -1956,6 +2152,7 @@ function AssignmentModal({
         fromTime,
         toTime: dueTime,
         instructions,
+        file,
         courseId: '',
         cohortId,
         ...(totalMarks ? { totalMarks: Number(totalMarks) } : {}),
@@ -1976,7 +2173,7 @@ function AssignmentModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1986,20 +2183,81 @@ function AssignmentModal({
         <DialogHeader>
           <DialogTitle>{assignment ? 'Edit Assignment' : 'Add Assignment'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-2">
+        <div className="space-y-4 py-2">
+          {/* Reuse from Previous — only in Add mode. Pre-fills every
+              field except due date so the instructor doesn't have to
+              retype recurring assignments. */}
+          {!assignment && previousAssignments.length > 0 ? (
+            <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-3">
+              <Label className="mb-1 text-xs font-semibold text-gray-700">Reuse from Previous Assignment (optional)</Label>
+              <select
+                value={reuseId}
+                onChange={(e) => handleReuse(e.target.value)}
+                className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm"
+              >
+                <option value="">— Start blank —</option>
+                {previousAssignments.map((r) => {
+                  const id = asString(r.id) || asString(r._id);
+                  const t = asString(r.title);
+                  const c = asString(r.course_title) || asString(r.cohort_title) || asString(r.cohort_code);
+                  return (
+                    <option key={id} value={id}>{t}{c ? ` — ${c}` : ''}</option>
+                  );
+                })}
+              </select>
+              <p className="mt-1 text-[11px] text-gray-500">Copies title, question text, file, marks, and instructions. Due date stays blank.</p>
+            </div>
+          ) : null}
+
           <div>
             <Label className="mb-1 text-xs">Title *</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={titleCaseOnBlur(setTitle)} />
           </div>
-          <div>
-            <Label className="mb-1 text-xs">Description</Label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-            />
+
+          {/* Question block — two ways to provide the question itself.
+              Both are optional and they can co-exist. */}
+          <div className="rounded-md border border-gray-200 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-600">Question</p>
+            <div className="space-y-3">
+              <div>
+                <Label className="mb-1 text-xs">Add Question (Text)</Label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  placeholder="Type the question or a brief description here…"
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="mb-1 text-xs">Upload Question (File)</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+                    onChange={(e) => void handleFileChange(e)}
+                    disabled={uploading}
+                    className="text-xs"
+                  />
+                  {uploading ? <span className="text-xs text-gray-500">Uploading…</span> : null}
+                </div>
+                {file ? (
+                  <div className="mt-2 flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs">
+                    <a href={file} target="_blank" rel="noreferrer" className="truncate text-blue-600 hover:underline">{fileName || file}</a>
+                    <button
+                      type="button"
+                      className="ml-2 text-red-600 hover:underline"
+                      onClick={() => { setFile(''); setFileName(''); }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
+                <p className="mt-1 text-[11px] text-gray-500">PDF, DOC, image, or any file with the questions.</p>
+              </div>
+            </div>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="mb-1 text-xs">Total Marks</Label>
@@ -2020,19 +2278,14 @@ function AssignmentModal({
           </div>
           <div>
             <Label className="mb-1 text-xs">Instructions</Label>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={4}
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-            />
+            <RichTextEditor value={instructions} onChange={setInstructions} />
           </div>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button
             type="submit"
-            disabled={submitting || !title || !dueDate}
+            disabled={submitting || uploading || !title || !dueDate}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Saving...' : 'Save'}
