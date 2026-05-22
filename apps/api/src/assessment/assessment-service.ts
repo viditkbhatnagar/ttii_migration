@@ -489,8 +489,10 @@ export class AssessmentService {
       this.userPurchaseStatus(userId, courseId),
     ]);
 
+    // Ansaba UAT 2026-05-22 — Flutter Exam model types `id` as int.
+    // Send the raw int so Map<int,Exam> indexing doesn't crash.
     return {
-      id: examId,
+      id: toNullableIntId(examId) ?? 0,
       title: toStringValue(exam.title),
       description: toStringValue(exam.description),
       total_mark: toDbNumber(exam.mark),
@@ -1365,8 +1367,9 @@ export class AssessmentService {
     const totalMarks = toStringValue(assignment.total_marks);
     const marksValue = toNullableString(submission?.marks) ?? '';
 
+    // Ansaba UAT 2026-05-22 — Flutter Assignment model types `id` as int.
     return {
-      id: assignmentId,
+      id: toNullableIntId(assignmentId) ?? 0,
       title: toStringValue(assignment.title),
       description: toStringValue(assignment.description),
       total_marks: assignment.total_marks ?? '',

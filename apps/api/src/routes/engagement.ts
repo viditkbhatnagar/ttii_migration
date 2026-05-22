@@ -225,8 +225,9 @@ export function registerEngagementRoutes(
   app.get('/home/get_notification_list', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const notifications = await engagementService.getNotificationList();
+      // Ansaba UAT 2026-05-22 — Flutter expects `status: 1/0`, not boolean.
       reply.code(200).send({
-        status: true,
+        status: 1,
         message: 'Success',
         data: notifications,
       });
@@ -318,8 +319,9 @@ export function registerEngagementRoutes(
       const result = await engagementService.registerEvent(requestUserId(request), input);
 
       if (result.duplicate) {
+        // Ansaba UAT 2026-05-22 — Flutter expects `status: 1/0`, not boolean.
         reply.code(200).send({
-          status: false,
+          status: 0,
           message: 'You are already registered..!',
           data: [],
         });

@@ -528,15 +528,17 @@ export class EngagementService {
     for (const row of feedRows) {
       const instructor = row.instructor_id ? instructorMap.get(row.instructor_id) : null;
 
+      // Ansaba UAT 2026-05-22 — numeric foreign keys must default to 0,
+      // not empty string, so Flutter's int models don't blow up parsing.
       output.push({
         id: row.id,
         title: toStringValue(row.title),
         content: toStringValue(row.content),
-        feed_category_id: row.feed_category_id ?? '',
-        course_id: row.course_id ?? '',
+        feed_category_id: row.feed_category_id ?? 0,
+        course_id: row.course_id ?? 0,
         image: this.toFileUrl(row.image),
         date: formatLegacyDateDmy(row.created_at),
-        instructor_id: row.instructor_id ?? '',
+        instructor_id: row.instructor_id ?? 0,
         instructor_name: toStringValue(instructor?.name),
         instructor_image: this.toFileUrl(instructor?.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
         is_liked: userLikedFeedIds.has(row.id) ? 1 : 0,
@@ -746,8 +748,9 @@ export class EngagementService {
 
     return {
       id: row.id,
-      course_id: row.course_id ?? '',
-      user_id: row.user_id ?? '',
+      // Ansaba UAT 2026-05-22 — numeric ids default to 0, not '', so Flutter int models don't crash.
+      course_id: row.course_id ?? 0,
+      user_id: row.user_id ?? 0,
       rating: row.rating ?? 0,
       review: toStringValue(row.review),
     };
@@ -1152,10 +1155,10 @@ export class EngagementService {
           zoom_id: toStringValue(liveClass.zoom_id),
           password: toStringValue(liveClass.password),
           video_url: toStringValue(liveClass.video_url),
-          instructor_id: cohort.instructor_id ?? '',
+          instructor_id: cohort.instructor_id ?? 0,
           fromDate: toDateOnly(liveClass.date),
           toDate: toDateOnly(liveClass.date),
-          course_id: cohort.course_id ?? '',
+          course_id: cohort.course_id ?? 0,
           type: 'Live',
         };
 
@@ -1215,8 +1218,8 @@ export class EngagementService {
             cohort_id: cohort.id,
             cohort_title: toStringValue(cohort.title),
             cohort_code: toStringValue(cohort.cohort_id),
-            course_id: cohort.course_id ?? '',
-            cohort_instructor: cohort.instructor_id ?? '',
+            course_id: cohort.course_id ?? 0,
+            cohort_instructor: cohort.instructor_id ?? 0,
             cohort_start_date: toDateOnly(cohort.start_date),
             cohort_end_date: toDateOnly(cohort.end_date),
           }
