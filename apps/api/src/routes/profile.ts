@@ -4,6 +4,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth } from '../auth/middleware.js';
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import type { StorageProvider } from '../integrations/contracts.js';
 
 interface RegisterProfileRoutesOptions {
@@ -59,6 +60,19 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     return {};
   }
 
+  // Ansaba UAT 2026-05-22 — the Flutter mobile app crashes the Profile
+  // tab with `NoSuchMethodError ["user_image"]` because the legacy PHP
+  // LMS exposed the avatar as `user_image`, but the Node port renamed
+  // it to `image`. Surface BOTH for the Flutter app (user_image as a
+  // resolved URL) while keeping `image` for newer consumers.
+  const rawImage =
+    typeof row.profile_picture === 'string' && row.profile_picture
+      ? row.profile_picture
+      : typeof row.image === 'string'
+        ? row.image
+        : '';
+  const userImageUrl = toLegacyFileUrl(rawImage);
+
   return {
     id: row.id,
     student_id: row.student_id,
@@ -69,7 +83,9 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     country_code: row.country_code,
     role_id: row.role_id,
     course_id: row.course_id,
-    image: row.image,
+    image: rawImage,
+    user_image: userImageUrl,
+    profile_picture: userImageUrl,
     academic_year: row.academic_year,
     username: row.username,
     date_of_birth: row.dob,
@@ -117,11 +133,21 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
     try {
       const userId = requestUserId(request);
       const profile = await readProfile(userId);
+      const normalized = normalizeProfileRow(profile);
 
+      // Ansaba UAT 2026-05-22 — Flutter mobile app reads the profile
+      // payload in two layouts depending on the screen: some screens
+      // read `data["user_image"]` (flat), others read
+      // `data["user"]["user_image"]` (nested). Surface both so neither
+      // path null-crashes. The flat keys are preserved for any other
+      // consumer (web/admin) that already expects them.
       reply.code(200).send({
         status: 1,
         message: 'success',
-        data: normalizeProfileRow(profile),
+        data: {
+          ...normalized,
+          user: normalized,
+        },
       });
     } catch (error: unknown) {
       sendProfileError(reply, error);

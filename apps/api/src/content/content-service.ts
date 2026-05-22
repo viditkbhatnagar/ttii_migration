@@ -785,12 +785,14 @@ export class ContentService {
     const downloadUrl = toNullableString(file.download_url);
     const attachmentType = toStringValue(file.attachment_type);
 
+    // Ansaba UAT 2026-05-22 — same int-id fix; LessonFile model in
+    // Flutter types id / lesson_id / parent_file_id as int.
     return {
-      id: fileId,
+      id: toNullableIntId(fileId) ?? 0,
       sub_title: toStringValue(file.sub_title),
       title: toStringValue(file.title),
-      lesson_id: lessonId,
-      parent_file_id: toStringValue(file.parent_file_id),
+      lesson_id: toNullableIntId(lessonId) ?? 0,
+      parent_file_id: toNullableIntId(toStringValue(file.parent_file_id)) ?? 0,
       description: toStringValue(file.summary),
       duration: toStringValue(file.duration),
       lesson_provider: toStringValue(file.lesson_provider),
@@ -956,8 +958,16 @@ export class ContentService {
 
     const featuresRaw = toStringValue(course.features);
 
+    // Ansaba UAT 2026-05-22 — Flutter "My course" tab crashed with
+    // `type 'String' is not a subtype of type 'int' of 'index'`. The
+    // legacy PHP LMS returned `id` as a native int (json_encode of an
+    // int column), and the mobile app's Dart model types `id` as int.
+    // The Node port stringified it, which Dart rejects when the value
+    // is later used to index into a Map<int, …>. Surface `id` as int
+    // and keep the rest of the response shape unchanged.
+    const courseIdInt = toNullableIntId(courseId) ?? 0;
     return {
-      id: courseId,
+      id: courseIdInt,
       title: toStringValue(course.title),
       label: toStringValue(course.label),
       status: toStringValue(course.status),
@@ -1521,11 +1531,14 @@ export class ContentService {
 
     const lessonCourseId = toStringValue(lesson.course_id);
 
+    // Ansaba UAT 2026-05-22 — same int-id fix as buildCourseData; the
+    // Flutter mobile app's Lesson model types id/course_id/subject_id
+    // as int. Stringifying broke Dart's Map<int,…> indexing.
     return {
-      id: lessonId,
+      id: toNullableIntId(lessonId) ?? 0,
       title: toStringValue(lesson.title),
-      course_id: lessonCourseId,
-      subject_id: toStringValue(lesson.subject_id),
+      course_id: toNullableIntId(lessonCourseId) ?? 0,
+      subject_id: toNullableIntId(toStringValue(lesson.subject_id)) ?? 0,
       summary: toStringValue(lesson.summary),
       free: toStringValue(lesson.free) === 'on' ? 'on' : purchaseStatus,
       thumbnail: this.toFileUrl(lesson.thumbnail),
@@ -2369,8 +2382,14 @@ export class ContentService {
       linksBySubject.set(link.subject_id, list);
     }
 
+    // Naji UAT 2026-05-22 — previously we filtered out any subject that
+    // wasn't linked to at least one course. That hid freshly-created
+    // subjects (created via Admin > Subjects without picking a course)
+    // even though the create succeeded — "Foundations of AI" and
+    // "Generative AI for Lesson Design" both ghosted this way. Surface
+    // every live subject; the courses column shows "—" until the admin
+    // links them via Course > Add Subject.
     return subjects
-      .filter((s) => (linksBySubject.get(s.id)?.length ?? 0) > 0)
       .map((s) => {
         const linked = linksBySubject.get(s.id) ?? [];
         const primary = linked[0];
@@ -2463,8 +2482,13 @@ export class ContentService {
       },
     });
 
-    // Mirror into the course_subject pivot so reads through the M:N model
-    // see the new subject immediately.
+    // Mirror into the course_subject pivot so reads through the M:N
+    // model see the new subject immediately. Naji UAT 2026-05-22 —
+    // skip the pivot write when no course was supplied (courseIdInt=0
+    // because the admin Subjects page doesn't require a course). The
+    // standalone subject row is still created; admin links it to a
+    // course separately via Course > Add Subject.
+    if (courseIdInt > 0) {
     await this.prisma.course_subject.upsert({
       where: { course_id_subject_id: { course_id: courseIdInt, subject_id: subject.id } },
       create: {
@@ -2481,6 +2505,7 @@ export class ContentService {
         updated_at: new Date(),
       },
     });
+    }
 
     return { id: subject.id };
   }
