@@ -1429,6 +1429,12 @@ export class AdminPortalApi {
     });
   }
 
+  // Naji UAT 2026-05-22 — admin verification publishes a Pending
+  // Verification submission to Result Published.
+  async verifySubmission(authToken: string, submissionId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/assignment/verify', authToken, { id: submissionId });
+  }
+
   // ─── Phase 2: Exam Results ─────────────────────────────────────────────
 
   async loadAdminExamResults(

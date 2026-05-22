@@ -4391,22 +4391,72 @@ export class OperationsService {
     const courseIds = [...new Set(assignments.map(a => a.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const cohortIds = [...new Set(assignments.map(a => a.cohort_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, cohorts, submissionCounts] = await Promise.all([
+    // Naji UAT 2026-05-22 — Assignment Summary now surfaces Total
+    // Students / Submissions / Evaluated counts per row so coordinators
+    // can see grading progress at a glance. We also pull every
+    // submission with its marks state so we can split "submitted" vs
+    // "evaluated" client-side (the legacy table doesn't have an
+    // evaluation_status column — marks present == evaluated).
+    const [courses, cohorts, submissionCounts, submissions, cohortStudentRows] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
-      cohortIds.length > 0 ? this.prisma.cohorts.findMany({ where: { id: { in: cohortIds } }, select: { id: true, title: true } }) : [],
+      cohortIds.length > 0 ? this.prisma.cohorts.findMany({ where: { id: { in: cohortIds } }, select: { id: true, title: true, course_id: true } }) : [],
       assignmentIds.length > 0 ? this.prisma.assignment_submissions.groupBy({ by: ['assignment_id'], where: { assignment_id: { in: assignmentIds }, deleted_at: null }, _count: { id: true } }) : [],
+      assignmentIds.length > 0 ? this.prisma.assignment_submissions.findMany({
+        where: { assignment_id: { in: assignmentIds }, deleted_at: null },
+        select: { assignment_id: true, marks: true },
+      }) : [],
+      cohortIds.length > 0 ? this.prisma.cohort_students.groupBy({
+        // cohort_students.cohort_id is stored as a string in the legacy
+        // table; convert numeric cohort ids to strings for the IN clause.
+        by: ['cohort_id'],
+        where: { cohort_id: { in: cohortIds.map((id) => String(id)) }, deleted_at: null },
+        _count: { id: true },
+      }) : [],
     ]);
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const cohortMap = new Map(cohorts.map(c => [c.id, c]));
     const subCountMap = new Map(submissionCounts.map((sc) => [sc.assignment_id, sc._count?.id ?? 0]));
 
-    return assignments.map(a => ({
-      ...a,
-      course_title: a.course_id ? courseMap.get(a.course_id)?.title ?? null : null,
-      cohort_title: a.cohort_id ? cohortMap.get(a.cohort_id)?.title ?? null : null,
-      submission_count: subCountMap.get(a.id) ?? 0,
-    })) as unknown as SqlRow[];
+    // Build evaluated count per assignment (marks non-empty).
+    const evaluatedMap = new Map<number, number>();
+    for (const s of submissions) {
+      if (s.assignment_id == null) continue;
+      const hasMarks = s.marks != null && String(s.marks).trim() !== '';
+      if (!hasMarks) continue;
+      evaluatedMap.set(s.assignment_id, (evaluatedMap.get(s.assignment_id) ?? 0) + 1);
+    }
+
+    // cohort_students.cohort_id is text in the DB.
+    const cohortStudentMap = new Map<number, number>();
+    for (const cs of cohortStudentRows) {
+      const cidNum = Number(cs.cohort_id);
+      if (!Number.isFinite(cidNum)) continue;
+      cohortStudentMap.set(cidNum, cs._count?.id ?? 0);
+    }
+
+    // If an assignment is tied to a cohort but not a course, surface the
+    // cohort's course as a fallback so the Course column never reads "-".
+    return assignments.map(a => {
+      const courseFromAssignment = a.course_id ? courseMap.get(a.course_id)?.title ?? null : null;
+      const courseFromCohort = a.cohort_id && courseFromAssignment == null
+        ? (() => {
+            const cohort = cohortMap.get(a.cohort_id);
+            return cohort?.course_id ? courseMap.get(cohort.course_id)?.title ?? null : null;
+          })()
+        : null;
+      const submissionCount = subCountMap.get(a.id) ?? 0;
+      const evaluatedCount = evaluatedMap.get(a.id) ?? 0;
+      const totalStudents = a.cohort_id ? cohortStudentMap.get(a.cohort_id) ?? 0 : 0;
+      return {
+        ...a,
+        course_title: courseFromAssignment ?? courseFromCohort ?? null,
+        cohort_title: a.cohort_id ? cohortMap.get(a.cohort_id)?.title ?? null : null,
+        submission_count: submissionCount,
+        evaluated_count: evaluatedCount,
+        total_students: totalStudents,
+      };
+    }) as unknown as SqlRow[];
   }
 
   async addAssignment(actorUserId: string, input: AssignmentInput): Promise<Record<string, unknown>> {
@@ -4750,11 +4800,47 @@ export class OperationsService {
     remarks?: string,
   ): Promise<Record<string, unknown>> {
     const now = new Date();
+    // Naji UAT 2026-05-22 — saving marks (re)opens verification:
+    // verified_at is cleared so the row returns to Pending Verification.
+    // Admin must explicitly click Verify to publish.
     await this.prisma.assignment_submissions.updateMany({
       where: { id: toIntId(submissionId), deleted_at: null },
-      data: { marks, remarks: remarks ?? null, updated_by: toNullableIntId(actorUserId), updated_at: now },
+      data: {
+        marks,
+        remarks: remarks ?? null,
+        verified_at: null,
+        verified_by: null,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
     });
-    return { status: 1, message: 'Submission evaluated successfully.' };
+    return { status: 1, message: 'Submission evaluated. Awaiting admin verification.' };
+  }
+
+  // Naji UAT 2026-05-22 — admin verification step. Flips a Pending
+  // Verification row to Result Published by stamping verified_at/by.
+  async verifySubmission(
+    actorUserId: string,
+    submissionId: string,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(submissionId);
+    const sub = await this.prisma.assignment_submissions.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, marks: true, verified_at: true },
+    });
+    if (!sub) return { status: 0, message: 'Submission not found.' };
+    if (!sub.marks || String(sub.marks).trim() === '') {
+      return { status: 0, message: 'Cannot verify a submission that has not been evaluated.' };
+    }
+    if (sub.verified_at) {
+      return { status: 1, message: 'Submission was already verified.' };
+    }
+    const now = new Date();
+    await this.prisma.assignment_submissions.update({
+      where: { id },
+      data: { verified_at: now, verified_by: toNullableIntId(actorUserId), updated_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    return { status: 1, message: 'Submission verified and published.' };
   }
 
   // Naji UAT 2026-05-13 — Assignment Evaluation page. Pulls every
@@ -4899,9 +4985,15 @@ export class OperationsService {
 
       const marksStr = String(s.marks ?? '').trim();
       const evaluated = marksStr !== '';
-      // Without verification/return columns on assignment_submissions, we
-      // only differentiate Pending Evaluation vs Result Published.
-      const status: 'pending_evaluation' | 'pending_verification' | 'result_published' | 'returned' = evaluated ? 'result_published' : 'pending_evaluation';
+      // Naji UAT 2026-05-22 — three-state workflow now powered by the
+      // verified_at column. marks empty → Pending Evaluation; marks
+      // present + not verified → Pending Verification; both → Result
+      // Published. Returned isn't wired yet (lower-priority Naji ask).
+      const verified = evaluated && s.verified_at !== null && s.verified_at !== undefined;
+      let status: 'pending_evaluation' | 'pending_verification' | 'result_published' | 'returned';
+      if (!evaluated) status = 'pending_evaluation';
+      else if (!verified) status = 'pending_verification';
+      else status = 'result_published';
 
       return {
         id: s.id,
@@ -4933,6 +5025,7 @@ export class OperationsService {
         marks: s.marks,
         remarks: s.remarks,
         evaluated_at: evaluated ? s.updated_at : null,
+        verified_at: s.verified_at ?? null,
         total_marks: assignment?.total_marks ?? null,
         due_date: assignment?.due_date ?? null,
       } as SqlRow;

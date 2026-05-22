@@ -459,7 +459,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     if (tab === 'enrollments' || tab === 'enrollment') {
       setActiveTab(1);
       if (enrolIdParam) {
-        const idx = enrolments.findIndex((e) => asString((e as Record<string, unknown>).id) === enrolIdParam);
+        const idx = enrolments.findIndex((e) => asString(e.id) === enrolIdParam);
         if (idx >= 0) {
           setSelectedEnrollmentIdx(idx);
           setEnrollmentSubTab(0);

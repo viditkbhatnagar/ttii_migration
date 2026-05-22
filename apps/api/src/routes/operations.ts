@@ -1790,6 +1790,21 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Naji UAT 2026-05-22 — admin verification step for the three-state
+  // Assignment Evaluation workflow.
+  app.post('/admin/assignment/verify', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.verifySubmission(
+        requestUserId(request),
+        toStringValue(payload.id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.post('/admin/users/toggle-status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

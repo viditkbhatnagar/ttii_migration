@@ -154,6 +154,31 @@ export default function InstructorsPage({ api, session, onNavigate }: AdminPageP
   void onNavigate;
   const columns: DataTableColumn[] = useMemo(
     () => [
+      {
+        // Naji UAT 2026-05-22 — surface the instructor's profile photo as
+        // the first column. Falls back to an initials badge so the row
+        // stays scannable even without an uploaded picture.
+        key: 'image',
+        label: 'Photo',
+        render: (_v, row) => {
+          const src = asString(row.image) || asString(row.profile_picture);
+          const name = asString(row.name);
+          const initial = name ? name.trim().charAt(0).toUpperCase() : '?';
+          return src ? (
+            <img
+              loading="lazy"
+              decoding="async"
+              src={src}
+              alt=""
+              className="size-9 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex size-9 items-center justify-center rounded-full bg-ttii-primary/10 text-xs font-semibold text-ttii-primary">
+              {initial}
+            </div>
+          );
+        },
+      },
       { key: 'name', label: 'Name', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'phone', label: 'Phone', sortable: true, render: (v) => asString(v) || '-' },
       { key: 'user_email', label: 'Email', sortable: true, render: (v) => asString(v) || '-' },

@@ -824,6 +824,32 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
                       type="button"
                       variant="outline"
                       size="sm"
+                      onClick={() => {
+                        // Naji UAT 2026-05-22 — let users grab the
+                        // expected CSV format with a single click. Two
+                        // sample rows demonstrate the correct_answer
+                        // convention (A/B/C/D).
+                        const sample =
+                          'question,option_a,option_b,option_c,option_d,correct_answer\n' +
+                          '"What is 2 + 2?",3,4,5,6,B\n' +
+                          '"Capital of France?",Berlin,Madrid,Paris,Rome,C\n';
+                        const blob = new Blob([sample], { type: 'text/csv;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'quiz-questions-template.csv';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download CSV Template
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => document.getElementById('quiz-csv-upload')?.click()}
                     >
                       Upload CSV

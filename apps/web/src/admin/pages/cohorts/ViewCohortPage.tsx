@@ -1751,7 +1751,7 @@ function AddLiveSessionModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <form
           onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}
         >
@@ -1917,7 +1917,11 @@ function AddLiveSessionModal({
                             <th className="px-2 py-2">#</th>
                             <th className="px-2 py-2">Date</th>
                             <th className="px-2 py-2">Day</th>
-                            <th className="px-2 py-2">Time</th>
+                            {/* Naji UAT 2026-05-22 — From/To Time editable per row so
+                                instructors can fine-tune a single session out of the bulk
+                                generated set without regenerating everything. */}
+                            <th className="px-2 py-2">From Time</th>
+                            <th className="px-2 py-2">To Time</th>
                             <th className="px-2 py-2">Title</th>
                           </tr>
                         </thead>
@@ -1932,7 +1936,12 @@ function AddLiveSessionModal({
                                 <td className="px-2 py-1.5">{idx + 1}</td>
                                 <td className="px-2 py-1.5">{formatSessionDate(e.date)}</td>
                                 <td className="px-2 py-1.5">{day}</td>
-                                <td className="px-2 py-1.5">{format12hTime(e.fromTime)} – {format12hTime(e.toTime)}</td>
+                                <td className="px-2 py-1.5">
+                                  <Input type="time" value={e.fromTime} onChange={(ev) => updateEntry(idx, { fromTime: ev.target.value })} className="h-7 w-24 text-xs" />
+                                </td>
+                                <td className="px-2 py-1.5">
+                                  <Input type="time" value={e.toTime} onChange={(ev) => updateEntry(idx, { toTime: ev.target.value })} className="h-7 w-24 text-xs" />
+                                </td>
                                 <td className="px-2 py-1.5">
                                   <Input value={e.title} onChange={(ev) => updateEntry(idx, { title: ev.target.value })} onBlur={titleCaseOnBlur((value) => updateEntry(idx, { title: value }))} className="h-7 text-xs" />
                                 </td>

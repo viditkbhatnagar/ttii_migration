@@ -238,6 +238,13 @@ model assignment_submissions {
   assignment_files String?   @db.LongText
   marks            String?   @db.VarChar(10)
   remarks          String?   @db.Text
+  // Naji UAT 2026-05-22 — three-state evaluation workflow. Instructor
+  // saves marks (→ pending_verification), admin clicks Verify
+  // (→ result_published). verified_at/verified_by are NULL until the
+  // admin approves the evaluation; re-evaluating clears them so the
+  // row returns to Pending Verification.
+  verified_at      DateTime? @db.DateTime(0)
+  verified_by      Int?
   created_by       Int?
   updated_by       Int?
   deleted_by       Int?

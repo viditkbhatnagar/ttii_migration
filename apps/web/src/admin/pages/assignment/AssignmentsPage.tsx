@@ -19,7 +19,8 @@ import { titleCaseEachWord } from '@/lib/text-format';
 export default function AssignmentsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [courseFilter, setCourseFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  // Default to Evaluation Pending so coordinators land on actionable rows.
+  const [activeTab, setActiveTab] = useState('pending');
 
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
 
@@ -52,48 +53,63 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
     });
   }, [data]);
 
-  const now = new Date().toISOString().slice(0, 10);
-
-  const current = useMemo(
+  // Naji UAT 2026-05-22 — tabs now reflect grading progress rather than
+  // calendar position. "Evaluation Pending" = at least one submission
+  // still ungraded; "Evaluation Completed" = every submission has marks;
+  // "All" = everything. Empty (no submissions yet) assignments land in
+  // Pending so the queue surface them.
+  const pending = useMemo(
     () => allAssignments.filter((a) => {
-      const due = asString(a.due_date).slice(0, 10);
-      const added = asString(a.added_date).slice(0, 10);
-      return added <= now && due >= now;
+      const subs = asNumber(a.submission_count);
+      const evald = asNumber(a.evaluated_count);
+      return subs === 0 || evald < subs;
     }),
-    [allAssignments, now],
+    [allAssignments],
   );
 
-  const upcoming = useMemo(
-    () => allAssignments.filter((a) => asString(a.added_date).slice(0, 10) > now),
-    [allAssignments, now],
-  );
-
-  const completed = useMemo(
-    () => allAssignments.filter((a) => asString(a.due_date).slice(0, 10) < now),
-    [allAssignments, now],
+  const completedEval = useMemo(
+    () => allAssignments.filter((a) => {
+      const subs = asNumber(a.submission_count);
+      const evald = asNumber(a.evaluated_count);
+      return subs > 0 && evald >= subs;
+    }),
+    [allAssignments],
   );
 
   const filteredAssignments = useMemo(() => {
-    if (activeTab === 'current') return current;
-    if (activeTab === 'upcoming') return upcoming;
-    if (activeTab === 'completed') return completed;
+    if (activeTab === 'pending') return pending;
+    if (activeTab === 'completed') return completedEval;
     return allAssignments;
-  }, [allAssignments, current, upcoming, completed, activeTab]);
+  }, [allAssignments, pending, completedEval, activeTab]);
 
   const tabs: AdminTab[] = useMemo(() => [
+    { id: 'pending', label: 'Evaluation Pending', count: pending.length },
+    { id: 'completed', label: 'Evaluation Completed', count: completedEval.length },
     { id: 'all', label: 'All', count: allAssignments.length },
-    { id: 'current', label: 'Current', count: current.length },
-    { id: 'upcoming', label: 'Upcoming', count: upcoming.length },
-    { id: 'completed', label: 'Completed', count: completed.length },
-  ], [allAssignments.length, current.length, upcoming.length, completed.length]);
+  ], [pending.length, completedEval.length, allAssignments.length]);
 
   const columns: DataTableColumn[] = useMemo(() => [
     { key: 'title', label: 'Title', sortable: true },
-    { key: 'course_title', label: 'Course' },
-    { key: 'cohort_title', label: 'Cohort' },
+    {
+      // Naji UAT 2026-05-22 — when an assignment row doesn't carry a
+      // direct course_id (multi-cohort drafts), fall back to the cohort's
+      // course; show '-' only if neither path resolves. The backend
+      // already does the lookup; this render keeps the empty-state clean.
+      key: 'course_title',
+      label: 'Course',
+      render: (v) => asString(v) || '-',
+    },
+    { key: 'cohort_title', label: 'Cohort', render: (v) => asString(v) || '-' },
     { key: 'total_marks', label: 'Marks', sortable: true },
     { key: 'added_date', label: 'Added', render: (v) => formatDate(v) },
     { key: 'due_date', label: 'Due Date', render: (v) => formatDate(v) },
+    // Naji UAT 2026-05-22 — three progress columns right after Due Date.
+    {
+      key: 'total_students',
+      label: 'Total Students',
+      sortable: true,
+      render: (v) => <span className="font-medium text-gray-700">{asNumber(v)}</span>,
+    },
     {
       key: 'submission_count',
       label: 'Submissions',
@@ -106,6 +122,16 @@ export default function AssignmentsPage({ api, session, onNavigate }: AdminPageP
           {asNumber(value)}
         </button>
       ),
+    },
+    {
+      key: 'evaluated_count',
+      label: 'Evaluated',
+      render: (value, row) => {
+        const evald = asNumber(value);
+        const subs = asNumber(row.submission_count);
+        const tone = subs > 0 && evald >= subs ? 'text-emerald-700' : 'text-amber-700';
+        return <span className={`font-medium ${tone}`}>{evald} / {subs}</span>;
+      },
     },
   ], [onNavigate]);
 
