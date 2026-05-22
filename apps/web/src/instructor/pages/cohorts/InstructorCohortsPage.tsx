@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
-import { Calendar, GraduationCap, Loader2, Users, Video } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { BookOpen, Calendar, Loader2, Search, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
@@ -18,9 +19,28 @@ import type {
 } from '../../instructor-portal-api.js';
 import type { InstructorPageProps } from '../../routing/instructor-routes.js';
 
+// Naji UAT 2026-05-22 — Cohorts page restyled to match the
+// ttiifaculty.lovable.app mockup: white sidebar already provided by the
+// layout shell, and the grid now renders cohort cards with a small
+// purple subject tag, a violet book-icon chip, two stat tiles, and a
+// course-progress bar with NEXT SESSION footer.
+
 function formatRange(start: string | null, end: string | null): string {
   if (!start && !end) return '—';
   return `${start ? formatDate(start) : '—'} → ${end ? formatDate(end) : '—'}`;
+}
+
+function nextSessionLabel(value: string | null): string {
+  if (!value) return 'TBD';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const datePart = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : (weekdays[d.getDay()] ?? formatDate(value));
+  return `${datePart} · ${formatDate(value)}`;
 }
 
 function statusToneClass(label: string): string {
@@ -38,55 +58,94 @@ function statusToneClass(label: string): string {
   }
 }
 
+// Approximate course progress from dates. cohort.startDate / endDate are
+// usually populated; if either is missing we fall back to 0 so the bar
+// still renders cleanly. This mirrors how the Lovable mockup shows a
+// progress %, without us needing a separate completion table.
+function computeProgressPercent(start: string | null, end: string | null): number {
+  if (!start || !end) return 0;
+  const s = new Date(start).getTime();
+  const e = new Date(end).getTime();
+  const now = Date.now();
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return 0;
+  if (now <= s) return 0;
+  if (now >= e) return 100;
+  return Math.round(((now - s) / (e - s)) * 100);
+}
+
 function CohortCard({
   cohort,
   onView,
+  attendanceByCohort,
+  nextSessionByCohort,
 }: {
   cohort: InstructorCohortSummary;
   onView: (cohort: InstructorCohortSummary) => void;
+  attendanceByCohort: Map<number, number>;
+  nextSessionByCohort: Map<number, string | null>;
 }) {
+  const progress = computeProgressPercent(cohort.startDate, cohort.endDate);
+  const attendance = attendanceByCohort.get(cohort.id) ?? 0;
+  const nextSession = nextSessionByCohort.get(cohort.id) ?? null;
   return (
-    <button
-      type="button"
-      onClick={() => onView(cohort)}
-      className="group flex w-full flex-col rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-student-primary/40 hover:shadow-md"
-    >
+    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-student-text group-hover:text-student-primary">
-            {cohort.title || 'Untitled cohort'}
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-violet-600">
+            {cohort.courseTitle || 'Cohort'}
           </p>
-          <p className="mt-0.5 truncate text-xs text-student-muted">
-            {cohort.cohortCode || `Cohort #${cohort.id}`}
+          <p className="mt-1 truncate text-base font-bold text-slate-900">
+            {cohort.title || `Cohort #${cohort.id}`}
           </p>
         </div>
-        <div className="rounded-lg bg-student-primary/10 p-2 text-student-primary">
-          <GraduationCap className="h-5 w-5" />
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+          <BookOpen className="size-5" />
         </div>
       </div>
 
-      {cohort.courseTitle ? (
-        <p className="mt-3 text-sm text-student-text">{cohort.courseTitle}</p>
-      ) : null}
-
-      <div className="mt-4 flex items-center gap-2 text-xs text-student-muted">
-        <Calendar className="h-3.5 w-3.5" />
-        {formatRange(cohort.startDate, cohort.endDate)}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-slate-50 p-3">
+          <p className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Users className="size-3" /> Learners
+          </p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{cohort.learnerCount}</p>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-3">
+          <p className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Calendar className="size-3" /> Attendance
+          </p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{attendance > 0 ? `${attendance}%` : '—'}</p>
+        </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3 text-xs text-student-muted">
-        <span className="flex items-center gap-1">
-          <Users className="h-3.5 w-3.5" />
-          {cohort.learnerCount} learner{cohort.learnerCount === 1 ? '' : 's'}
-        </span>
-        {cohort.upcomingSessionCount > 0 ? (
-          <span className="flex items-center gap-1">
-            <Video className="h-3.5 w-3.5" />
-            {cohort.upcomingSessionCount} upcoming
-          </span>
-        ) : null}
+      <div className="mt-4">
+        <div className="mb-1 flex items-center justify-between text-xs">
+          <span className="text-slate-500">Course Progress</span>
+          <span className="font-semibold text-slate-700">{progress}%</span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full bg-violet-600 transition-all" style={{ width: `${progress}%` }} />
+        </div>
       </div>
-    </button>
+
+      <div className="mt-4 flex items-end justify-between border-t border-slate-100 pt-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Next Session
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-700">
+            {nextSession ? nextSessionLabel(nextSession) : 'TBD'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onView(cohort)}
+          className="text-sm font-semibold text-violet-600 hover:text-violet-700"
+        >
+          Open →
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -95,10 +154,15 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
     () => api.loadCohorts(session.token),
     [api, session.token],
   );
+  const { data: dashboardData } = useAdminPageData(
+    () => api.loadDashboard(session.token),
+    [api, session.token],
+  );
 
   const [activeCohort, setActiveCohort] = useState<InstructorCohortSummary | null>(null);
   const [detail, setDetail] = useState<InstructorCohortDetailSnapshot | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [search, setSearch] = useState('');
 
   const openDetail = useCallback(
     async (cohort: InstructorCohortSummary) => {
@@ -119,13 +183,64 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
 
   const cohorts = data ?? [];
 
+  // Pull per-cohort attendance from the dashboard payload (we already
+  // compute weekly attendance there; here we surface the latest single
+  // weekly average as the cohort's attendance number).
+  const attendanceByCohort = useMemo(() => {
+    const map = new Map<number, number>();
+    const cohortPerf = dashboardData?.cohortPerformance ?? [];
+    for (const c of cohortPerf) {
+      map.set(c.cohortId, c.avgPercent);
+    }
+    return map;
+  }, [dashboardData]);
+
+  const nextSessionByCohort = useMemo(() => {
+    const map = new Map<number, string | null>();
+    const upcoming = dashboardData?.upcomingLiveClasses ?? [];
+    for (const cls of upcoming) {
+      if (cls.cohortId == null) continue;
+      if (!map.has(cls.cohortId)) map.set(cls.cohortId, cls.date);
+    }
+    return map;
+  }, [dashboardData]);
+
+  const filtered = useMemo(() => {
+    if (!search) return cohorts;
+    const q = search.toLowerCase();
+    return cohorts.filter((c) =>
+      c.title.toLowerCase().includes(q)
+      || c.cohortCode.toLowerCase().includes(q)
+      || (c.courseTitle ?? '').toLowerCase().includes(q),
+    );
+  }, [cohorts, search]);
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-student-text">My Cohorts</h1>
-        <p className="mt-1 text-sm text-student-muted">
-          Cohorts you teach. Click into one to see the learner roster.
-        </p>
+        <h1 className="text-2xl font-bold text-slate-900">Cohorts</h1>
+        <p className="mt-0.5 text-sm text-slate-500">Your assigned learner groups</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[240px] max-w-xl">
+          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-400" aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search cohorts"
+            placeholder="Search cohorts…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-full border border-slate-200 bg-white px-10 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+          />
+        </div>
+        <Button
+          variant="ghost"
+          className="ml-auto rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 hover:text-white"
+          onClick={() => window.open('mailto:admissions@teachersindia.in?subject=New%20Cohort%20Request', '_blank')}
+        >
+          + New Cohort Request
+        </Button>
       </div>
 
       {loading ? (
@@ -134,14 +249,20 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
         <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-sm text-red-600">
           {error}
         </div>
-      ) : cohorts.length === 0 ? (
-        <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-student-muted">
-          You aren't assigned to any cohorts yet.
+      ) : filtered.length === 0 ? (
+        <div role="status" className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-sm text-slate-400">
+          {search ? 'No cohorts match that search.' : "You aren't assigned to any cohorts yet."}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {cohorts.map((cohort) => (
-            <CohortCard key={cohort.id} cohort={cohort} onView={(c) => void openDetail(c)} />
+          {filtered.map((cohort) => (
+            <CohortCard
+              key={cohort.id}
+              cohort={cohort}
+              onView={(c) => void openDetail(c)}
+              attendanceByCohort={attendanceByCohort}
+              nextSessionByCohort={nextSessionByCohort}
+            />
           ))}
         </div>
       )}
@@ -158,15 +279,15 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
           </DialogHeader>
 
           {detailLoading ? (
-            <div className="flex items-center justify-center p-8 text-student-muted">
+            <div className="flex items-center justify-center p-8 text-slate-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading learners...
             </div>
           ) : !detail ? (
-            <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-student-muted">
+            <div role="status" className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
               Could not load learner roster.
             </div>
           ) : detail.learners.length === 0 ? (
-            <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-student-muted">
+            <div role="status" className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
               No learners enrolled in this cohort yet.
             </div>
           ) : (
@@ -183,13 +304,13 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
                 <TableBody>
                   {detail.learners.map((learner) => (
                     <TableRow key={learner.id}>
-                      <TableCell className="font-medium text-student-text">
+                      <TableCell className="font-medium text-slate-900">
                         {learner.name || '—'}
                       </TableCell>
-                      <TableCell className="text-sm text-student-muted">
+                      <TableCell className="text-sm text-slate-500">
                         {learner.enrollmentId || '—'}
                       </TableCell>
-                      <TableCell className="text-sm text-student-muted">
+                      <TableCell className="text-sm text-slate-500">
                         {learner.email || '—'}
                       </TableCell>
                       <TableCell>
