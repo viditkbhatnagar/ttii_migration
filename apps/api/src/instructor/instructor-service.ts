@@ -952,11 +952,17 @@ export class InstructorService {
     const remarks = input.remarks.trim();
     const now = new Date();
 
+    // Naji UAT 2026-05-22 — re-grading via the instructor portal must
+    // reopen verification, exactly like the admin's evaluateSubmission
+    // path does. Otherwise an admin-verified row could end up with
+    // mismatched marks if the instructor changes them after publishing.
     await this.prisma.assignment_submissions.update({
       where: { id: submissionId },
       data: {
         marks: marks === '' ? null : marks,
         remarks: remarks === '' ? null : remarks,
+        verified_at: null,
+        verified_by: null,
         updated_by: instructorId,
         updated_at: now,
       },

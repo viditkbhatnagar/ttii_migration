@@ -168,7 +168,10 @@ export function InstructorSidebar({ pathname, session: _session, onNavigate, onL
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{displayName}</p>
-                <p className="text-xs text-white/50 truncate">Instructor Portal</p>
+                {/* Naji UAT 2026-05-22 — match the "Senior Faculty" subtitle
+                    from the Lovable mockup. Kept generic ("Faculty") here
+                    since we don't carry a separate seniority field yet. */}
+                <p className="text-xs text-white/50 truncate">Faculty</p>
               </div>
             </div>
             {onLogout ? (
