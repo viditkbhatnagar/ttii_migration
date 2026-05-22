@@ -4388,7 +4388,12 @@ export class OperationsService {
     const assignments = await this.prisma.assignment.findMany({ where: where as Prisma.assignmentWhereInput, orderBy: { id: 'desc' } });
 
     const assignmentIds = assignments.map(a => a.id);
-    const courseIds = [...new Set(assignments.map(a => a.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    // Legacy quirk: assignment.course_id can be `0` instead of NULL when
+    // an instructor only set the cohort. Treat 0 as "unset" so we fall
+    // through to the cohort-course lookup.
+    const directCourseIds = [...new Set(assignments
+      .map(a => a.course_id)
+      .filter((x): x is number => x !== null && x !== undefined && x > 0))];
     const cohortIds = [...new Set(assignments.map(a => a.cohort_id).filter((x): x is number => x !== null && x !== undefined))];
 
     // Naji UAT 2026-05-22 — Assignment Summary now surfaces Total
@@ -4397,8 +4402,7 @@ export class OperationsService {
     // submission with its marks state so we can split "submitted" vs
     // "evaluated" client-side (the legacy table doesn't have an
     // evaluation_status column — marks present == evaluated).
-    const [courses, cohorts, submissionCounts, submissions, cohortStudentRows] = await Promise.all([
-      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+    const [cohorts, submissionCounts, submissions, cohortStudentRows] = await Promise.all([
       cohortIds.length > 0 ? this.prisma.cohorts.findMany({ where: { id: { in: cohortIds } }, select: { id: true, title: true, course_id: true } }) : [],
       assignmentIds.length > 0 ? this.prisma.assignment_submissions.groupBy({ by: ['assignment_id'], where: { assignment_id: { in: assignmentIds }, deleted_at: null }, _count: { id: true } }) : [],
       assignmentIds.length > 0 ? this.prisma.assignment_submissions.findMany({
@@ -4413,6 +4417,17 @@ export class OperationsService {
         _count: { id: true },
       }) : [],
     ]);
+
+    // Pull every course we might need — those referenced directly by
+    // assignments AND those referenced via cohorts. Without this second
+    // pass an assignment with course_id=0 + cohort_id pointing at a
+    // cohort whose course_id is 16 would render an empty Course column,
+    // because course 16 was never in the original IN clause.
+    const cohortCourseIds = cohorts.map((c) => c.course_id).filter((x): x is number => x != null && x > 0);
+    const allCourseIds = [...new Set([...directCourseIds, ...cohortCourseIds])];
+    const courses = allCourseIds.length > 0
+      ? await this.prisma.course.findMany({ where: { id: { in: allCourseIds } }, select: { id: true, title: true } })
+      : [];
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const cohortMap = new Map(cohorts.map(c => [c.id, c]));
@@ -4437,8 +4452,10 @@ export class OperationsService {
 
     // If an assignment is tied to a cohort but not a course, surface the
     // cohort's course as a fallback so the Course column never reads "-".
+    // Legacy course_id=0 is treated as unset (same as NULL).
     return assignments.map(a => {
-      const courseFromAssignment = a.course_id ? courseMap.get(a.course_id)?.title ?? null : null;
+      const hasDirectCourse = a.course_id != null && a.course_id > 0;
+      const courseFromAssignment = hasDirectCourse ? courseMap.get(a.course_id as number)?.title ?? null : null;
       const courseFromCohort = a.cohort_id && courseFromAssignment == null
         ? (() => {
             const cohort = cohortMap.get(a.cohort_id);
