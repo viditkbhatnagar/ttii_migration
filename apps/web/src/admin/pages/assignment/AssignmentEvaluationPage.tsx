@@ -191,15 +191,19 @@ export default function AssignmentEvaluationPage({ api, session, onNavigate }: A
         <CardContent className="p-0">
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-gray-400">No submissions in this tab.</p>
-          ) : (
+          ) : active === 'pending_verification' ? (
+            // Naji UAT 2026-05-22 — single-click row open for verification
+            // preview when on Pending Verification. exactOptionalPropertyTypes
+            // makes the optional onRowClick prop strict, so we render two
+            // variants of the table rather than passing `undefined` through.
             <AdminDataTable
               columns={columns}
               rows={filtered}
               actions={actions}
-              // Naji UAT 2026-05-22 — single-click row open for verification
-              // preview when on Pending Verification.
-              onRowClick={active === 'pending_verification' ? (row) => setVerifyRow(row) : undefined}
+              onRowClick={(row) => setVerifyRow(row)}
             />
+          ) : (
+            <AdminDataTable columns={columns} rows={filtered} actions={actions} />
           )}
         </CardContent>
       </Card>
