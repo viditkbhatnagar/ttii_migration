@@ -71,6 +71,33 @@ export interface InstructorDashboardSnapshot {
   upcomingLiveClasses: InstructorDashboardLiveClass[];
   pastLiveClasses: InstructorDashboardLiveClass[];
   cohortCount: number;
+  // Naji UAT 2026-05-22 — extra payload for the redesigned dashboard
+  // (matches the ttiifaculty.lovable.app reference).
+  metrics: {
+    assignedCohorts: number;
+    assignedCohortsDelta: string;
+    upcomingClassesCount: number;
+    upcomingClassesNextLabel: string;
+    pendingEvaluations: number;
+    pendingEvaluationsOverdue: number;
+    totalLearners: number;
+    avgPerformancePercent: number;
+    avgPerformanceDelta: number;
+  };
+  performanceTrend: { week: string; score: number }[];
+  cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
+  todaysSchedule: InstructorDashboardLiveClass[];
+  recentActivities: {
+    kind: 'submission' | 'evaluation' | 'class' | 'announcement';
+    title: string;
+    subtitle: string;
+    when: string;
+  }[];
+  aiInsights: {
+    tone: 'positive' | 'warning' | 'info';
+    title: string;
+    body: string;
+  }[];
 }
 
 export type InstructorLiveClassFilter = 'upcoming' | 'past' | 'all';
@@ -522,6 +549,50 @@ export class InstructorPortalApi {
     const upcoming = Array.isArray(data.upcomingLiveClasses) ? data.upcomingLiveClasses : [];
     const past = Array.isArray(data.pastLiveClasses) ? data.pastLiveClasses : [];
 
+    // Naji UAT 2026-05-22 — dashboard payload extended for the redesign.
+    // Older API responses (before this commit hit prod) won't carry the
+    // new fields, so default each to a safe empty value rather than
+    // throwing — that lets the page render gracefully across versions.
+    const metricsRaw = asRecord(data.metrics) ?? {};
+    const performanceTrend = Array.isArray(data.performanceTrend)
+      ? (data.performanceTrend as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          return { week: asString(r.week), score: asNumber(r.score) };
+        })
+      : [];
+    const cohortPerformance = Array.isArray(data.cohortPerformance)
+      ? (data.cohortPerformance as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          return {
+            cohortId: asNumber(r.cohortId),
+            cohortTitle: asString(r.cohortTitle),
+            avgPercent: asNumber(r.avgPercent),
+            learners: asNumber(r.learners),
+          };
+        })
+      : [];
+    const todaysSchedule = Array.isArray(data.todaysSchedule) ? (data.todaysSchedule as unknown[]).map(asLiveClassRow) : [];
+    const recentActivities = Array.isArray(data.recentActivities)
+      ? (data.recentActivities as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          const kindRaw = asString(r.kind);
+          const kind: 'submission' | 'evaluation' | 'class' | 'announcement' =
+            kindRaw === 'submission' || kindRaw === 'evaluation' || kindRaw === 'class' || kindRaw === 'announcement'
+              ? kindRaw
+              : 'submission';
+          return { kind, title: asString(r.title), subtitle: asString(r.subtitle), when: asString(r.when) };
+        })
+      : [];
+    const aiInsights = Array.isArray(data.aiInsights)
+      ? (data.aiInsights as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          const toneRaw = asString(r.tone);
+          const tone: 'positive' | 'warning' | 'info' =
+            toneRaw === 'positive' || toneRaw === 'warning' || toneRaw === 'info' ? toneRaw : 'info';
+          return { tone, title: asString(r.title), body: asString(r.body) };
+        })
+      : [];
+
     return {
       profile: profile
         ? {
@@ -534,6 +605,22 @@ export class InstructorPortalApi {
       upcomingLiveClasses: upcoming.map(asLiveClassRow),
       pastLiveClasses: past.map(asLiveClassRow),
       cohortCount: asNumber(data.cohortCount),
+      metrics: {
+        assignedCohorts: asNumber(metricsRaw.assignedCohorts),
+        assignedCohortsDelta: asString(metricsRaw.assignedCohortsDelta),
+        upcomingClassesCount: asNumber(metricsRaw.upcomingClassesCount),
+        upcomingClassesNextLabel: asString(metricsRaw.upcomingClassesNextLabel),
+        pendingEvaluations: asNumber(metricsRaw.pendingEvaluations),
+        pendingEvaluationsOverdue: asNumber(metricsRaw.pendingEvaluationsOverdue),
+        totalLearners: asNumber(metricsRaw.totalLearners),
+        avgPerformancePercent: asNumber(metricsRaw.avgPerformancePercent),
+        avgPerformanceDelta: asNumber(metricsRaw.avgPerformanceDelta),
+      },
+      performanceTrend,
+      cohortPerformance,
+      todaysSchedule,
+      recentActivities,
+      aiInsights,
     };
   }
 }

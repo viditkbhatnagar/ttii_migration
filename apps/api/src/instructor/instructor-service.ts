@@ -28,6 +28,33 @@ export interface InstructorDashboardPayload {
   upcomingLiveClasses: InstructorLiveClassSummary[];
   pastLiveClasses: InstructorLiveClassSummary[];
   cohortCount: number;
+  // Naji UAT 2026-05-22 — Faculty dashboard redesign to match the
+  // ttiifaculty.lovable.app reference. Extra metrics + chart data.
+  metrics: {
+    assignedCohorts: number;
+    assignedCohortsDelta: string;
+    upcomingClassesCount: number;
+    upcomingClassesNextLabel: string;
+    pendingEvaluations: number;
+    pendingEvaluationsOverdue: number;
+    totalLearners: number;
+    avgPerformancePercent: number;
+    avgPerformanceDelta: number;
+  };
+  performanceTrend: { week: string; score: number }[]; // last 8 weeks
+  cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
+  todaysSchedule: InstructorLiveClassSummary[];
+  recentActivities: {
+    kind: 'submission' | 'evaluation' | 'class' | 'announcement';
+    title: string;
+    subtitle: string;
+    when: string; // ISO timestamp
+  }[];
+  aiInsights: {
+    tone: 'positive' | 'warning' | 'info';
+    title: string;
+    body: string;
+  }[];
 }
 
 export type LiveClassFilter = 'upcoming' | 'past' | 'all';
@@ -145,6 +172,29 @@ function isoString(value: Date | null | undefined): string | null {
   return value.toISOString();
 }
 
+// Render a short "Today 4 PM" / "Tue 9 AM" label for the dashboard's
+// "next upcoming class" chip. Falls back to a date string when both
+// date and time are missing.
+function formatScheduleLabel(isoDateValue: string | null, hhmm: string | null): string {
+  if (!isoDateValue) return 'Date TBD';
+  const d = new Date(isoDateValue);
+  if (Number.isNaN(d.getTime())) return 'Date TBD';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const datePart = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : (weekdays[d.getDay()] ?? 'Soon');
+  if (!hhmm) return datePart;
+  const [hRaw, mRaw] = hhmm.split(':');
+  const h = Number(hRaw ?? 0);
+  const m = Number(mRaw ?? 0);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const timePart = m === 0 ? `${h12} ${period}` : `${h12}:${String(m).padStart(2, '0')} ${period}`;
+  return `${datePart} ${timePart}`;
+}
+
 export class InstructorService {
   private prisma: PrismaClient;
 
@@ -180,6 +230,26 @@ export class InstructorService {
         upcomingLiveClasses: [],
         pastLiveClasses: [],
         cohortCount: 0,
+        metrics: {
+          assignedCohorts: 0,
+          assignedCohortsDelta: 'No cohorts assigned yet',
+          upcomingClassesCount: 0,
+          upcomingClassesNextLabel: 'Nothing scheduled',
+          pendingEvaluations: 0,
+          pendingEvaluationsOverdue: 0,
+          totalLearners: 0,
+          avgPerformancePercent: 0,
+          avgPerformanceDelta: 0,
+        },
+        performanceTrend: [],
+        cohortPerformance: [],
+        todaysSchedule: [],
+        recentActivities: [],
+        aiInsights: [{
+          tone: 'info',
+          title: 'No cohorts yet',
+          body: 'Once a coordinator assigns you a cohort, this dashboard will surface progress and recommendations.',
+        }],
       };
     }
 
@@ -256,6 +326,178 @@ export class InstructorService {
       recordingStorageKey: row.recording_storage_key ?? null,
     });
 
+    // Naji UAT 2026-05-22 — extra dashboard metrics for the redesigned
+    // Faculty home page (ttiifaculty.lovable.app reference).
+    const upcomingMapped = upcoming.map(mapRow);
+    const pastMapped = past.map(mapRow);
+
+    // Pull cohort_students rows so we can count learners + per-cohort
+    // size. cohort_students.cohort_id is a string column in the legacy
+    // schema, so we look up by both pk and any text code.
+    const cohortIdStrs = cohortIds.map((id) => String(id));
+    const learnerRows = await this.prisma.cohort_students.findMany({
+      where: { cohort_id: { in: cohortIdStrs }, deleted_at: null },
+      select: { cohort_id: true, user_id: true },
+    });
+    const totalLearners = new Set(learnerRows.map((r) => r.user_id)).size;
+    const learnersPerCohort = new Map<number, number>();
+    for (const r of learnerRows) {
+      const cid = Number(r.cohort_id);
+      if (!Number.isFinite(cid)) continue;
+      learnersPerCohort.set(cid, (learnersPerCohort.get(cid) ?? 0) + 1);
+    }
+
+    // Pending evaluations = submissions tied to this instructor's cohorts
+    // that still have no marks. Overdue = pending AND the parent
+    // assignment's due_date has passed.
+    const allCohortAssignments = await this.prisma.assignment.findMany({
+      where: { cohort_id: { in: cohortIds }, deleted_at: null },
+      select: { id: true, cohort_id: true, due_date: true, total_marks: true },
+    });
+    const assignmentIds = allCohortAssignments.map((a) => a.id);
+    const assignmentDueMap = new Map(allCohortAssignments.map((a) => [a.id, a.due_date]));
+    const assignmentTotalMap = new Map(allCohortAssignments.map((a) => [a.id, a.total_marks ?? 0]));
+
+    const submissions = assignmentIds.length > 0
+      ? await this.prisma.assignment_submissions.findMany({
+          where: { assignment_id: { in: assignmentIds }, deleted_at: null },
+          select: { id: true, assignment_id: true, marks: true, user_id: true, updated_at: true, cohort_id: true },
+        })
+      : [];
+    let pendingEvaluations = 0;
+    let pendingOverdue = 0;
+    const totalScores: number[] = [];
+    const scoresByCohort = new Map<number, number[]>();
+    for (const s of submissions) {
+      const isPending = s.marks === null || String(s.marks).trim() === '';
+      if (isPending) {
+        pendingEvaluations += 1;
+        const due = s.assignment_id ? assignmentDueMap.get(s.assignment_id) : null;
+        if (due && due < now) pendingOverdue += 1;
+        continue;
+      }
+      const total = s.assignment_id ? Number(assignmentTotalMap.get(s.assignment_id) ?? 0) : 0;
+      const scored = Number(String(s.marks).trim());
+      if (total > 0 && Number.isFinite(scored)) {
+        const pct = Math.max(0, Math.min(100, Math.round((scored / total) * 100)));
+        totalScores.push(pct);
+        if (s.cohort_id) {
+          const arr = scoresByCohort.get(s.cohort_id) ?? [];
+          arr.push(pct);
+          scoresByCohort.set(s.cohort_id, arr);
+        }
+      }
+    }
+    const avg = (xs: number[]): number => (xs.length === 0 ? 0 : Math.round(xs.reduce((a, b) => a + b, 0) / xs.length));
+    const avgPerformancePercent = avg(totalScores);
+
+    // 8-week performance trend — bucket evaluated submissions by their
+    // updated_at into weekly windows ending today.
+    const performanceTrend: { week: string; score: number }[] = [];
+    const week = 7 * 24 * 60 * 60 * 1000;
+    for (let i = 7; i >= 0; i -= 1) {
+      const end = new Date(today.getTime() - i * week + week);
+      const start = new Date(end.getTime() - week);
+      const bucket: number[] = [];
+      for (const s of submissions) {
+        if (!s.updated_at || !s.marks || String(s.marks).trim() === '') continue;
+        const t = new Date(s.updated_at);
+        if (t < start || t >= end) continue;
+        const total = s.assignment_id ? Number(assignmentTotalMap.get(s.assignment_id) ?? 0) : 0;
+        const scored = Number(String(s.marks).trim());
+        if (total > 0 && Number.isFinite(scored)) bucket.push(Math.round((scored / total) * 100));
+      }
+      const label = `W${8 - i}`;
+      performanceTrend.push({ week: label, score: bucket.length === 0 ? avgPerformancePercent : avg(bucket) });
+    }
+    // Approximate delta vs last month = current avg minus avg of weeks 1-4.
+    const recentAvg = avg(performanceTrend.slice(-4).map((p) => p.score));
+    const priorAvg = avg(performanceTrend.slice(0, 4).map((p) => p.score));
+    const avgPerformanceDelta = recentAvg - priorAvg;
+
+    // Per-cohort performance for the bar chart.
+    const cohortPerformance = cohorts.map((c) => ({
+      cohortId: c.id,
+      cohortTitle: c.title ?? '',
+      avgPercent: avg(scoresByCohort.get(c.id) ?? []),
+      learners: learnersPerCohort.get(c.id) ?? 0,
+    }));
+
+    // Today's schedule is upcoming sessions whose date is today.
+    const todaysSchedule = upcomingMapped.filter((row) => {
+      if (!row.date) return false;
+      const d = new Date(row.date);
+      return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+    });
+
+    // Recent Activities — newest evaluations + recent submissions + recent classes.
+    const recentActivities: InstructorDashboardPayload['recentActivities'] = [];
+    const recentEvaluated = submissions
+      .filter((s) => s.marks && String(s.marks).trim() !== '' && s.updated_at)
+      .sort((a, b) => (b.updated_at?.getTime() ?? 0) - (a.updated_at?.getTime() ?? 0))
+      .slice(0, 5);
+    for (const s of recentEvaluated) {
+      recentActivities.push({
+        kind: 'evaluation',
+        title: `Submission evaluated · ${String(s.marks).trim()} / ${assignmentTotalMap.get(s.assignment_id ?? 0) ?? '-'}`,
+        subtitle: 'Marks saved — awaiting verification',
+        when: (s.updated_at ?? new Date()).toISOString(),
+      });
+    }
+    for (const row of pastMapped.slice(0, 3)) {
+      recentActivities.push({
+        kind: 'class',
+        title: `Live class · ${row.title}`,
+        subtitle: row.cohortTitle ?? 'Cohort',
+        when: row.date ?? new Date().toISOString(),
+      });
+    }
+    recentActivities.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
+
+    // AI Insights — simple heuristics so the section feels alive
+    // without LLM cost. (Hooks to a real model can replace these later.)
+    const aiInsights: InstructorDashboardPayload['aiInsights'] = [];
+    if (pendingOverdue > 0) {
+      aiInsights.push({
+        tone: 'warning',
+        title: `${pendingOverdue} overdue evaluation${pendingOverdue === 1 ? '' : 's'}`,
+        body: 'These submissions are past their due date. Catching up unblocks the verification queue downstream.',
+      });
+    }
+    if (avgPerformanceDelta >= 5) {
+      aiInsights.push({
+        tone: 'positive',
+        title: `Performance up ${avgPerformanceDelta} pts vs early term`,
+        body: 'Recent cohort scores are trending up. Consider noting which content shifted to keep the momentum.',
+      });
+    } else if (avgPerformanceDelta <= -5) {
+      aiInsights.push({
+        tone: 'warning',
+        title: `Performance down ${Math.abs(avgPerformanceDelta)} pts vs early term`,
+        body: 'Recent scores have slipped. A quick check-in or a remedial live session may help reset the trajectory.',
+      });
+    }
+    const lowCohorts = cohortPerformance.filter((c) => c.avgPercent > 0 && c.avgPercent < 60);
+    if (lowCohorts.length > 0) {
+      aiInsights.push({
+        tone: 'info',
+        title: `${lowCohorts.length} cohort${lowCohorts.length === 1 ? '' : 's'} below 60%`,
+        body: `Lowest: ${lowCohorts[0]!.cohortTitle} (${lowCohorts[0]!.avgPercent}%). Targeted feedback could move the needle.`,
+      });
+    }
+    if (aiInsights.length === 0) {
+      aiInsights.push({
+        tone: 'positive',
+        title: 'All clear',
+        body: 'No overdue evaluations and cohort performance is steady. Great work keeping things on track.',
+      });
+    }
+
+    const nextClass = upcomingMapped[0];
+    const upcomingClassesNextLabel = nextClass
+      ? `Next: ${formatScheduleLabel(nextClass.date, nextClass.fromTime)}`
+      : 'Nothing scheduled';
+
     return {
       profile: profile
         ? {
@@ -265,9 +507,25 @@ export class InstructorService {
             image: profile.image ?? null,
           }
         : null,
-      upcomingLiveClasses: upcoming.map(mapRow),
-      pastLiveClasses: past.map(mapRow),
+      upcomingLiveClasses: upcomingMapped,
+      pastLiveClasses: pastMapped,
       cohortCount: cohorts.length,
+      metrics: {
+        assignedCohorts: cohorts.length,
+        assignedCohortsDelta: `${cohorts.length} active`,
+        upcomingClassesCount: upcomingMapped.length,
+        upcomingClassesNextLabel,
+        pendingEvaluations,
+        pendingEvaluationsOverdue: pendingOverdue,
+        totalLearners,
+        avgPerformancePercent,
+        avgPerformanceDelta,
+      },
+      performanceTrend,
+      cohortPerformance,
+      todaysSchedule,
+      recentActivities: recentActivities.slice(0, 6),
+      aiInsights,
     };
   }
 
