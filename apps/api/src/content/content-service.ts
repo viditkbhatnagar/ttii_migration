@@ -1800,10 +1800,15 @@ export class ContentService {
 
     const currentVideoId = toStringValue(video.id);
 
+    // Naji UAT 2026-05-22 follow-up — buildLessonVideoData still emitted
+    // `id` and `lesson_id` as strings; Flutter LessonVideo model expects
+    // both as int and crashes with "type 'String' is not a subtype of
+    // type 'int' of 'index'" when it indexes by id. Match the int shape
+    // used elsewhere in this file (buildLessonData / buildLessonFileData).
     return {
-      id: currentVideoId,
+      id: toNullableIntId(currentVideoId) ?? 0,
       title: toStringValue(video.title),
-      lesson_id: lessonId,
+      lesson_id: toNullableIntId(lessonId) ?? 0,
       description: toStringValue(video.summary),
       duration: toStringValue(video.duration),
       video_type: toStringValue(video.video_type),
@@ -1854,10 +1859,13 @@ export class ContentService {
     const courseId = idString(lesson?.course_id);
     const purchaseStatus = courseId ? await this.getUserPurchaseStatus(userId, courseId) : 'off';
 
+    // Naji UAT 2026-05-22 follow-up — same int-id fix for the material
+    // builder so /lesson_file/index and friends do not crash the Flutter
+    // mobile client.
     return {
-      id: toStringValue(material.id),
+      id: toNullableIntId(toStringValue(material.id)) ?? 0,
       title: toStringValue(material.title),
-      lesson_id: lessonId,
+      lesson_id: toNullableIntId(lessonId) ?? 0,
       attachment: this.toFileUrl(material.attachment),
       thumbnail: this.toFileUrl(material.thumbnail),
       lesson_type: toStringValue(material.lesson_type),
