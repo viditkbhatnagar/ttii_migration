@@ -96,6 +96,36 @@ function toNullableString(value: unknown): string | null {
   return normalized === '' ? null : normalized;
 }
 
+// Ishfaq UAT 2026-05-22 — lesson_files.languages has a json_valid CHECK
+// constraint on the MySQL side (legacy PHP LMS quirk). Accept either a
+// single string ("English") or an array; write a JSON array string or
+// NULL so the DB never rejects the insert.
+function toLanguagesJson(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((v) => toStringValue(v).trim())
+      .filter((v) => v !== '');
+    return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+  }
+  const normalized = toStringValue(value).trim();
+  if (normalized === '') return null;
+  // Accept a value already JSON-encoded (e.g. '["English"]') — round-trip
+  // through parse+stringify so we never end up with double-encoded strings.
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(normalized) as unknown;
+      if (Array.isArray(parsed)) {
+        const cleaned = parsed.map((v) => toStringValue(v).trim()).filter((v) => v !== '');
+        return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+      }
+    } catch {
+      // fall through and treat as a plain string
+    }
+  }
+  return JSON.stringify([normalized]);
+}
+
 function stripHtml(input: string): string {
   return input.replace(/<[^>]*>/g, '').trim();
 }
@@ -2994,6 +3024,13 @@ export class ContentService {
       _max: { order: true },
     });
 
+    // Ishfaq UAT 2026-05-22 — lesson_files.languages has a MySQL CHECK
+    // constraint (json_valid(languages)) at the DB level — the schema
+    // column is LongText so Prisma can't enforce it, but any insert
+    // with a plain string blows up with MySQL error 4025. Wrap the
+    // form's single-language value in a JSON array, matching the
+    // legacy PHP LMS behaviour. Same pattern as practice_attempt
+    // lesson_id / question_id columns elsewhere in the codebase.
     const file = await this.prisma.lesson_files.create({
       data: {
         lesson_id: lessonIdInt,
@@ -3005,7 +3042,7 @@ export class ContentService {
         attachment: toNullableString(input.attachment),
         audio_file: toNullableString(input.audio_file),
         thumbnail: toNullableString(input.thumbnail) ?? '',
-        languages: toNullableString(input.language),
+        languages: toLanguagesJson(input.language),
         free: input.free ? 'on' : 'off',
         order: (maxOrder._max?.order ?? 0) + 1,
         lesson_provider: '',
@@ -3032,7 +3069,8 @@ export class ContentService {
       updated_at: new Date(),
     };
     if (input.thumbnail !== undefined) data.thumbnail = input.thumbnail;
-    if (input.language !== undefined) data.languages = input.language;
+    // Ishfaq UAT 2026-05-22 — same json_valid(languages) CHECK as create.
+    if (input.language !== undefined) data.languages = toLanguagesJson(input.language);
     await this.prisma.lesson_files.update({
       where: { id: toIntId(fileId) },
       data,

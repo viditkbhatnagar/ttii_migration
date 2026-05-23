@@ -114,9 +114,12 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
 
   // Bulk upload helpers
   const downloadTemplate = () => {
-    const headers = ['type (MCQ or Descriptive)', 'question_title', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_option (A/B/C/D)', 'hint', 'solution'];
-    const sample1 = ['MCQ', 'What is 2 + 2?', '3', '4', '5', '6', 'B', '', 'Basic addition'];
-    const sample2 = ['Descriptive', 'Explain the principle of separation of powers in 200 words.', '', '', '', '', '', '', ''];
+    // Risha UAT 2026-05-22 — dropped the hint + solution columns from
+    // the template; the team doesn't capture those for question bank
+    // imports, so seeing them in the CSV was confusing.
+    const headers = ['type (MCQ or Descriptive)', 'question_title', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_option (A/B/C/D)'];
+    const sample1 = ['MCQ', 'What is 2 + 2?', '3', '4', '5', '6', 'B'];
+    const sample2 = ['Descriptive', 'Explain the principle of separation of powers in 200 words.', '', '', '', '', ''];
     const csv = [headers, sample1, sample2].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -144,9 +147,26 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
         const opts = [r[2], r[3], r[4], r[5]].map((v) => (v ?? '').trim()).filter((v) => v.length > 0);
         const correctLetter = (r[6] ?? '').trim().toUpperCase();
         const correctIdx = correctLetter ? correctLetter.charCodeAt(0) - 65 : -1;
-        parsed.push({ qType: 0, title, options: opts, correctAnswers: correctIdx >= 0 && correctIdx < opts.length ? [correctIdx] : [], hint: (r[7] ?? '').trim(), solution: (r[8] ?? '').trim() });
+        // Risha UAT 2026-05-22 — hint/solution dropped from template;
+        // still tolerate them when present (legacy CSVs) but default
+        // to empty when the column is absent.
+        parsed.push({
+          qType: 0,
+          title,
+          options: opts,
+          correctAnswers: correctIdx >= 0 && correctIdx < opts.length ? [correctIdx] : [],
+          hint: (r[7] ?? '').trim(),
+          solution: (r[8] ?? '').trim(),
+        });
       } else if (type === 'descriptive') {
-        parsed.push({ qType: 1, title, options: [], correctAnswers: [], hint: (r[7] ?? '').trim(), solution: (r[8] ?? '').trim() });
+        parsed.push({
+          qType: 1,
+          title,
+          options: [],
+          correctAnswers: [],
+          hint: (r[7] ?? '').trim(),
+          solution: (r[8] ?? '').trim(),
+        });
       }
     }
     if (parsed.length === 0) { toast.error('No valid rows in CSV.'); return; }
@@ -194,8 +214,11 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
   return (
     <div className="space-y-4">
       <AdminPageHeader title="Question Bank">
+        {/* Risha UAT 2026-05-22 — renamed from "Bulk Upload" to make the
+            CSV intent explicit. The dialog still hosts both Download
+            Template and Upload CSV inline. */}
         <Button variant="outline" onClick={() => { setBulkRows([]); setBulkCourseId(''); setBulkSubjectId(''); setBulkOpen(true); }}>
-          Bulk Upload
+          Upload CSV
         </Button>
       </AdminPageHeader>
 
@@ -213,7 +236,7 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
       <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
         <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))]">
           <DialogHeader>
-            <DialogTitle>Bulk Upload Questions</DialogTitle>
+            <DialogTitle>Upload Questions via CSV</DialogTitle>
             <DialogDescription>Pick course + subject, download the template, fill it in, then upload to review before saving.</DialogDescription>
           </DialogHeader>
           <div className="w-full min-w-0 space-y-4">

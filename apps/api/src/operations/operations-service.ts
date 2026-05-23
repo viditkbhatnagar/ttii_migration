@@ -3774,24 +3774,50 @@ export class OperationsService {
       // Pull all assignments scoped to the involved courses (assignment.course_id).
       // assignment table doesn't have course_id directly — it ties through cohort.
       // We'll fetch via a left join; here use raw SQL because cohort→course is loose.
+      // Naji UAT 2026-05-22 — also return cohort_id so we can restrict
+      // "required assignments" to the cohorts each student is in, not
+      // every cohort in the course. Two cohorts of the same course can
+      // have different assignment sets, and Priya V (TTS0004) regressed
+      // from Eligible to Not Eligible when a sibling cohort added a new
+      // assignment she was never expected to submit.
       courseIds.length > 0
-        ? this.prisma.$queryRaw<Array<{ id: number; course_id: number }>>`
+        ? this.prisma.$queryRaw<Array<{ id: number; cohort_id: number; course_id: number }>>`
             SELECT a.id, COALESCE(a.cohort_id, 0) AS cohort_id, c.course_id
             FROM assignment a
             LEFT JOIN cohorts c ON c.id = a.cohort_id
             WHERE c.course_id IN (${Prisma.join(courseIds)})
               AND (a.deleted_at IS NULL)
           `.catch(() => [])
-        : Promise.resolve([] as Array<{ id: number; course_id: number }>),
+        : Promise.resolve([] as Array<{ id: number; cohort_id: number; course_id: number }>),
     ]);
 
     const userMap = new Map(users.map((u) => [u.id, u]));
     const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
-    const assignmentsByCourse = new Map<number, number[]>();
+    // Map a (course_id) → list of {assignmentId, cohortId} so we can
+    // intersect with the student's cohort memberships per-enrolment.
+    const assignmentsByCourse = new Map<number, Array<{ id: number; cohortId: number }>>();
     for (const a of assignments) {
       const arr = assignmentsByCourse.get(a.course_id) ?? [];
-      arr.push(a.id);
+      arr.push({ id: a.id, cohortId: a.cohort_id });
       assignmentsByCourse.set(a.course_id, arr);
+    }
+
+    // Per-user cohort membership. cohort_students.cohort_id is text in
+    // the legacy schema; coerce to int for the lookup.
+    const cohortMembershipByUser = new Map<number, Set<number>>();
+    if (userIds.length > 0) {
+      const memberships = await this.prisma.cohort_students.findMany({
+        where: { user_id: { in: userIds }, deleted_at: null },
+        select: { user_id: true, cohort_id: true },
+      });
+      for (const m of memberships) {
+        if (m.user_id === null) continue;
+        const cidNum = Number(m.cohort_id);
+        if (!Number.isFinite(cidNum) || cidNum <= 0) continue;
+        const set = cohortMembershipByUser.get(m.user_id) ?? new Set<number>();
+        set.add(cidNum);
+        cohortMembershipByUser.set(m.user_id, set);
+      }
     }
 
     // Offering lookup: users.application_id -> applications.offering_id ->
@@ -3885,12 +3911,25 @@ export class OperationsService {
       // all of them evaluated. A course with zero assignments cannot make
       // a student eligible, even if their fee is fully paid (Naji UAT
       // 2026-05-12).
-      const assignmentIds = e.course_id ? assignmentsByCourse.get(e.course_id) ?? [] : [];
+      //
+      // Naji UAT 2026-05-22 — assignments are scoped to the student's
+      // cohort, NOT the entire course. Two cohorts of the same course
+      // can have different assignment sets; counting both against any
+      // student was making them look incomplete unfairly. We still fall
+      // back to the full-course set when we have no cohort membership
+      // on file (better than zero — preserves the eligibility signal
+      // for legacy data that predates cohort assignment).
+      const courseAssignments = e.course_id ? assignmentsByCourse.get(e.course_id) ?? [] : [];
+      const myCohorts = e.user_id ? cohortMembershipByUser.get(e.user_id) ?? new Set<number>() : new Set<number>();
+      const scopedAssignments = myCohorts.size > 0
+        ? courseAssignments.filter((a) => a.cohortId > 0 && myCohorts.has(a.cohortId))
+        : courseAssignments;
+      const assignmentIds = scopedAssignments.map((a) => a.id);
       const totalAssignments = assignmentIds.length;
       const evaluatedCount = e.user_id ? assignmentIds.filter((aid) => evaluatedKeys.has(`${e.user_id}:${aid}`)).length : 0;
       const assignmentsOk = totalAssignments > 0 && evaluatedCount === totalAssignments;
       if (totalAssignments === 0) {
-        reasons.push('No assignments configured for this course');
+        reasons.push('No assignments configured for this cohort');
       } else if (evaluatedCount < totalAssignments) {
         reasons.push(`${totalAssignments - evaluatedCount} assignment(s) pending evaluation`);
       }
