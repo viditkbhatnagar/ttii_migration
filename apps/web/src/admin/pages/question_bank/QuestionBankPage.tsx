@@ -240,13 +240,16 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
       />
 
       {/* Bulk upload dialog */}
+      {/* Risha UAT 2026-05-25 — a 50-row CSV review pushed the footer
+          off-screen so the Upload button was unreachable. Cap the dialog
+          height at 90vh, pin header + footer, and scroll the middle body. */}
       <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
-        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))]">
+        <DialogContent className="flex max-h-[90vh] w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] flex-col">
           <DialogHeader>
             <DialogTitle>Upload Questions via CSV</DialogTitle>
             <DialogDescription>Pick course + subject, download the template, fill it in, then upload to review before saving.</DialogDescription>
           </DialogHeader>
-          <div className="w-full min-w-0 space-y-4">
+          <div className="w-full min-w-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Course *</Label>
@@ -274,7 +277,7 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
             {bulkRows.length > 0 ? (
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-3 py-2 text-left">Type</th>
                       <th className="px-3 py-2 text-left">Question</th>
@@ -298,7 +301,7 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
               </div>
             ) : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 pt-3">
             <Button type="button" variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkUploading}>Cancel</Button>
             <Button type="button" className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleBulkUpload(); }} disabled={bulkUploading || bulkRows.length === 0 || !bulkCourseId || !bulkSubjectId}>
               {bulkUploading ? 'Uploading…' : `Upload ${bulkRows.length} Question(s)`}
