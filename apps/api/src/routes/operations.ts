@@ -1321,6 +1321,21 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Risha UAT 2026-05-25 — bulk-delete every question for a subject from
+  // the Question Bank list. course_id is optional; when present, mirrors
+  // the listing's course filter so we only soft-delete what the user sees.
+  app.post('/admin/question_bank/delete-by-subject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const subjectId = toStringValue(payload.subject_id);
+      const courseId = toStringValue(payload.course_id) || undefined;
+      const result = await operationsService.deleteQuestionsBySubject(requestUserId(request), subjectId, courseId);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   // ─── Phase 2: Exams ─────────────────────────────────────────────────────
 
   app.get('/admin/exam/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {

@@ -1155,6 +1155,19 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/question_bank/delete', authToken, { id });
   }
 
+  // Risha UAT 2026-05-25 — delete every question under a subject in one shot.
+  // courseId optional; mirrors the listing's course filter when set.
+  async deleteQuestionBankSubject(
+    authToken: string,
+    subjectId: string,
+    courseId?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/delete-by-subject', authToken, {
+      subject_id: subjectId,
+      ...(courseId ? { course_id: courseId } : {}),
+    });
+  }
+
   // ─── Phase 2: Exams ────────────────────────────────────────────────────
 
   async loadAdminExams(

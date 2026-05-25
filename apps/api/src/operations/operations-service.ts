@@ -3209,6 +3209,32 @@ export class OperationsService {
     return { status: 1, message: 'Question deleted successfully.' };
   }
 
+  // Risha UAT 2026-05-25 — bulk-delete every question for a subject from
+  // the Question Bank list. Mirrors the listing's filter shape so the
+  // delete is scoped to the same (subject, course) view the user sees.
+  async deleteQuestionsBySubject(
+    actorUserId: string,
+    subjectId: string,
+    courseId?: string,
+  ): Promise<Record<string, unknown>> {
+    const sid = toNullableIntId(subjectId);
+    if (!sid) return { status: 0, message: 'Subject id is required.' };
+    const where: Record<string, unknown> = { subject_id: sid, deleted_at: null };
+    if (courseId) {
+      const cid = toNullableIntId(courseId);
+      if (cid) where.course_id = cid;
+    }
+    const result = await this.prisma.question_bank.updateMany({
+      where: where as Prisma.question_bankWhereInput,
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: new Date() },
+    });
+    return {
+      status: 1,
+      message: `${result.count} question(s) deleted.`,
+      data: { deleted: result.count },
+    };
+  }
+
   // Naji UAT 2026-05-18 — Question Bank rebuilt to group by Subject:
   // top-level list shows one row per subject with MCQ + Descriptive counts
   // and the courses the subject belongs to (course_subject pivot). The

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -19,6 +20,7 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 // the subject + type are pre-filled from context. Bulk upload stays here
 // since the CSV upload already picks its own course/subject per batch.
 export default function QuestionBankPage({ api, session, onNavigate }: AdminPageProps) {
+  const confirm = useConfirm();
   // Filters
   const [courseFilter, setCourseFilter] = useState('');
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
@@ -111,6 +113,35 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
     if (!id) return;
     onNavigate(`/admin/question_bank/view/${id}`);
   }, [onNavigate]);
+
+  // Risha UAT 2026-05-25 — bulk-delete every question under a subject from
+  // the list page. Confirms first, then calls the new delete-by-subject
+  // endpoint scoped by the active course filter (when set).
+  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+    const id = asString(row.id);
+    if (!id) return;
+    const subjectName = asString(row.title) || asString(row.subject_code) || 'this subject';
+    const mcq = asNumber(row.mcq_count);
+    const desc = asNumber(row.descriptive_count);
+    const total = mcq + desc;
+    const ok = await confirm({
+      title: `Delete all questions from ${subjectName}?`,
+      description: `This soft-deletes ${total} question(s) (${mcq} MCQ + ${desc} Descriptive) from this subject${courseFilter ? ' under the selected course' : ''}. They will no longer appear in the bank.`,
+      confirmText: 'Delete All',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.deleteQuestionBankSubject(session.token, id, courseFilter || undefined);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Deleted.';
+      if (status === 1) { toast.success(message); reload(); }
+      else toast.error(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, session.token, confirm, courseFilter]);
 
   // Bulk upload helpers
   const downloadTemplate = () => {
@@ -236,6 +267,7 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
         rows={rows}
         actions={[
           { label: 'View', onClick: (row) => handleView(row) },
+          { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
         ]}
       />
 
