@@ -3969,9 +3969,13 @@ export class OperationsService {
     });
   }
 
-  // Naji 2026-05-09 — bulk Question Bank upload. Validates each row,
-  // saves all in one transaction. Used by the new "Bulk Upload"
-  // dialog on the Question Bank page (CSV template + review + save).
+  // Naji 2026-05-09 — bulk Question Bank upload, hardened 2026-05-25
+  // after Risha hit "MCQ:1, Descriptive:1" on a 50-row CSV. The original
+  // version had `catch { /* skip individual failures */ }` which swallowed
+  // every DB error — so the user saw silent dedup. Now we collect each
+  // row's error and surface it back to the UI. We also strip MCQ-only
+  // fields server-side when q_type=1 so a Descriptive row carrying
+  // leftover options can never persist orphan data.
   async bulkAddQuestions(
     actorUserId: string,
     rows: Array<{
@@ -3991,18 +3995,24 @@ export class OperationsService {
     if (valid.length === 0) return { status: 0, message: 'No valid rows to upload.' };
     const now = new Date();
     let created = 0;
-    for (const r of valid) {
+    const failures: Array<{ row: number; title: string; error: string }> = [];
+    for (let i = 0; i < valid.length; i++) {
+      const r = valid[i];
+      if (!r) continue;
+      const isDescriptive = (r.qType ?? 0) === 1;
+      const opts = isDescriptive ? [] : (r.options ?? []);
+      const correct = isDescriptive ? [] : (r.correctAnswers ?? []);
       try {
         await this.prisma.question_bank.create({
           data: {
             course_id: toNullableIntId(r.courseId),
             subject_id: toNullableIntId(r.subjectId),
             lesson_id: toNullableIntId(r.lessonId),
-            q_type: r.qType ?? 0,
+            q_type: isDescriptive ? 1 : 0,
             title: r.title.trim(),
-            number_of_options: r.options?.length ?? 0,
-            options: r.options ? JSON.stringify(r.options) : '[]',
-            correct_answers: r.correctAnswers ? JSON.stringify(r.correctAnswers) : '[]',
+            number_of_options: opts.length,
+            options: JSON.stringify(opts),
+            correct_answers: JSON.stringify(correct),
             hint: r.hint ?? null,
             solution: r.solution ?? null,
             created_by: actor,
@@ -4011,9 +4021,17 @@ export class OperationsService {
           },
         });
         created += 1;
-      } catch { /* skip individual failures */ }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[bulkAddQuestions] row %d (%s) failed: %s', i + 1, r.title.slice(0, 60), message);
+        failures.push({ row: i + 1, title: r.title.slice(0, 80), error: message });
+      }
     }
-    return { status: 1, message: `${created} question(s) uploaded.`, data: { created } };
+    const ok = failures.length === 0;
+    const summary = ok
+      ? `${created} question(s) uploaded.`
+      : `${created} of ${valid.length} uploaded — ${failures.length} failed.`;
+    return { status: ok ? 1 : 0, message: summary, data: { created, attempted: valid.length, failures } };
   }
 
   // Naji 2026-05-09 — Step 2: scheduling-suggestions returns one row

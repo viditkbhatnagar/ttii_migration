@@ -193,11 +193,18 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
       const res = await api.bulkAddQuestions(session.token, payload as unknown as Record<string, unknown>[]);
       const status = (res as { status?: number }).status;
       const message = asString((res as { message?: unknown }).message) || 'Uploaded.';
+      const data = (res as { data?: { failures?: Array<{ row: number; title: string; error: string }> } }).data;
+      const failures = Array.isArray(data?.failures) ? data.failures : [];
       if (status === 1) {
         toast.success(message);
         setBulkOpen(false);
         setBulkRows([]);
         reload();
+      } else if (failures.length > 0) {
+        const first = failures[0];
+        const sample = first ? ` First error (row ${first.row}): ${first.error}` : '';
+        toast.error(`${message}${sample}`);
+        console.error('[QuestionBank.bulkUpload] per-row failures:', failures);
       } else {
         toast.error(message);
       }
