@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { CheckCircle2, Eye } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,6 +28,11 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
 
   // Bulk upload state
   const [bulkOpen, setBulkOpen] = useState(false);
+  // Naji UAT 2026-05-26 — Eye-icon preview for each parsed bulk row so
+  // admins can spot-check a question's options + correct answer before
+  // committing the upload. Re-uses the same lightweight modal we render
+  // on ViewSubjectQuestionsPage for already-saved questions.
+  const [bulkPreviewIdx, setBulkPreviewIdx] = useState<number | null>(null);
   const [bulkCourseId, setBulkCourseId] = useState('');
   const [bulkSubjectId, setBulkSubjectId] = useState('');
   const [bulkSubjects, setBulkSubjects] = useState<Record<string, unknown>[]>([]);
@@ -325,7 +331,28 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
                         <td className="px-3 py-2"><p className="text-sm text-gray-900">{r.title.length > 80 ? r.title.slice(0, 80) + '…' : r.title}</p></td>
                         <td className="px-3 py-2 text-xs text-gray-600">{r.options.length > 0 ? r.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join(' · ') : '—'}</td>
                         <td className="px-3 py-2 text-xs text-emerald-700">{r.qType === 0 && r.correctAnswers.length > 0 && r.correctAnswers[0] !== undefined ? String.fromCharCode(65 + r.correctAnswers[0]) : '—'}</td>
-                        <td className="px-3 py-2 text-right"><button type="button" onClick={() => removeBulkRow(idx)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600">×</button></td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setBulkPreviewIdx(idx)}
+                              className="rounded-md p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                              aria-label="Preview question"
+                              title="Preview question"
+                            >
+                              <Eye className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeBulkRow(idx)}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                              aria-label="Remove row"
+                              title="Remove row"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -339,6 +366,85 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
               {bulkUploading ? 'Uploading…' : `Upload ${bulkRows.length} Question(s)`}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk-row preview modal — Naji UAT 2026-05-26. Shows the parsed
+          question + options + correct answer (highlighted in green) so
+          admins can verify the CSV row before committing the upload. */}
+      <Dialog open={bulkPreviewIdx !== null} onOpenChange={(o) => !o && setBulkPreviewIdx(null)}>
+        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
+          {(() => {
+            const row = bulkPreviewIdx !== null ? bulkRows[bulkPreviewIdx] : null;
+            if (!row) return null;
+            const correctSet = new Set(row.correctAnswers);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${row.qType === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                      {row.qType === 0 ? 'MCQ' : 'Descriptive'}
+                    </span>
+                    <span>Question Preview</span>
+                  </DialogTitle>
+                  <DialogDescription>
+                    Row {(bulkPreviewIdx ?? 0) + 1} of {bulkRows.length} parsed from your CSV.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2 text-sm">
+                  <div>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question</p>
+                    <p className="whitespace-pre-wrap leading-relaxed text-gray-900">{row.title || '—'}</p>
+                  </div>
+                  {row.qType === 0 && row.options.length > 0 ? (
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Options</p>
+                      <ul className="space-y-1.5">
+                        {row.options.map((o, i) => {
+                          const isCorrect = correctSet.has(i);
+                          return (
+                            <li
+                              key={i}
+                              className={`flex items-start gap-2 rounded-md border px-3 py-2 ${
+                                isCorrect ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                isCorrect ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {String.fromCharCode(65 + i)}
+                              </span>
+                              <span className="flex-1 leading-relaxed text-gray-900">{o}</span>
+                              {isCorrect ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                                  <CheckCircle2 className="size-4" /> Correct
+                                </span>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {row.hint ? (
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Hint</p>
+                      <p className="whitespace-pre-wrap rounded-md bg-amber-50 px-3 py-2 leading-relaxed text-amber-900">{row.hint}</p>
+                    </div>
+                  ) : null}
+                  {row.solution ? (
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Solution</p>
+                      <p className="whitespace-pre-wrap rounded-md bg-sky-50 px-3 py-2 leading-relaxed text-sky-900">{row.solution}</p>
+                    </div>
+                  ) : null}
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setBulkPreviewIdx(null)}>Close</Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

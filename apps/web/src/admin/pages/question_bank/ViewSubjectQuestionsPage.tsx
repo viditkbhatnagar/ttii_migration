@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Eye } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { useConfirm } from '@/components/confirm-dialog';
@@ -35,6 +35,14 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
   }, []);
 
   const [activeTab, setActiveTab] = useState<0 | 1>(0); // 0 = MCQ, 1 = Descriptive
+
+  // Naji UAT 2026-05-26 — Preview modal lets admins eyeball a question
+  // (full text + options + correct answer + hint + solution) without
+  // touching the Edit form. Opens via the eye-icon button on each row
+  // and via the kebab "Preview" action.
+  const [previewRow, setPreviewRow] = useState<Record<string, unknown> | null>(null);
+  const openPreview = useCallback((row: Record<string, unknown>) => setPreviewRow(row), []);
+  const closePreview = useCallback(() => setPreviewRow(null), []);
 
   // Subject header — comes from the same /subjects endpoint, filtered to one row.
   const { data: subjectData, loading: subjectLoading, error: subjectError } = useAdminPageData(
@@ -164,26 +172,48 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
     }
   }, [api, session.token, confirm, reloadQuestions]);
 
+  // Inline eye-icon button rendered inside the Question cell so the
+  // preview is one click away (instead of buried in the kebab menu).
+  // Naji UAT 2026-05-26.
+  const renderQuestionCell = useCallback((v: unknown, row: Record<string, unknown>, maxLen: number) => {
+    const t = asString(v);
+    const truncated = t.length > maxLen ? `${t.slice(0, maxLen)}…` : t;
+    return (
+      <div className="flex items-start gap-2">
+        <span className="min-w-0 flex-1">{truncated}</span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openPreview(row); }}
+          className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+          aria-label="Preview question"
+          title="Preview question"
+        >
+          <Eye className="size-4" />
+        </button>
+      </div>
+    );
+  }, [openPreview]);
+
   const mcqColumns: DataTableColumn[] = useMemo(() => [
     {
       key: 'title',
       label: 'Question',
       sortable: true,
-      render: (v) => { const t = asString(v); return t.length > 100 ? `${t.slice(0, 100)}…` : t; },
+      render: (v, row) => renderQuestionCell(v, row, 100),
     },
     { key: 'number_of_options', label: 'Options', render: (v) => asNumber(v) || '—' },
     { key: 'created_at', label: 'Created', render: (v) => formatDate(v) },
-  ], []);
+  ], [renderQuestionCell]);
 
   const descColumns: DataTableColumn[] = useMemo(() => [
     {
       key: 'title',
       label: 'Question',
       sortable: true,
-      render: (v) => { const t = asString(v); return t.length > 140 ? `${t.slice(0, 140)}…` : t; },
+      render: (v, row) => renderQuestionCell(v, row, 140),
     },
     { key: 'created_at', label: 'Created', render: (v) => formatDate(v) },
-  ], []);
+  ], [renderQuestionCell]);
 
   if (subjectLoading) return <PageLoader label="Loading subject…" />;
   if (subjectError || !subject) {
@@ -281,11 +311,122 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
           columns={activeTab === 0 ? mcqColumns : descColumns}
           rows={questions}
           actions={[
+            // Naji UAT 2026-05-26 — Preview shows full question content,
+            // options, correct answer, hint, solution in a modal so
+            // admins can spot-check bulk-uploaded questions without
+            // opening the Edit form.
+            { label: 'Preview', onClick: (row) => openPreview(row) },
             { label: 'Edit', onClick: (row) => openEditModal(row) },
             { label: 'Delete', onClick: (row) => { void handleDelete(row); }, variant: 'destructive' },
           ]}
         />
       )}
+
+      {/* Question preview modal */}
+      <Dialog open={previewRow !== null} onOpenChange={(o) => !o && closePreview()}>
+        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${activeTab === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                {activeTab === 0 ? 'MCQ' : 'Descriptive'}
+              </span>
+              <span>Question Preview</span>
+            </DialogTitle>
+            <DialogDescription>
+              {subject.title || '—'}
+              {subject.subject_code ? ` · ${subject.subject_code}` : ''}
+              {previewRow ? <> · Added {formatDate(previewRow.created_at)}</> : null}
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewRow ? (
+            <div className="space-y-4 py-2 text-sm">
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question</p>
+                <p className="whitespace-pre-wrap leading-relaxed text-gray-900">{asString(previewRow.title) || '—'}</p>
+              </div>
+
+              {(() => {
+                // Parse options + correct answers from the JSON-encoded strings
+                // (legacy schema; same parsing used by the Edit modal).
+                let opts: string[] = [];
+                let correct: number[] = [];
+                try {
+                  const raw = JSON.parse(asString(previewRow.options) || '[]') as unknown;
+                  if (Array.isArray(raw)) opts = raw.map((v) => asString(v));
+                } catch { /* leave empty */ }
+                try {
+                  const raw = JSON.parse(asString(previewRow.correct_answers) || '[]') as unknown;
+                  if (Array.isArray(raw)) correct = raw.map((v) => asNumber(v));
+                } catch { /* leave empty */ }
+                if (activeTab !== 0 || opts.length === 0) return null;
+                const correctSet = new Set(correct);
+                return (
+                  <div>
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Options</p>
+                    <ul className="space-y-1.5">
+                      {opts.map((o, i) => {
+                        const isCorrect = correctSet.has(i);
+                        return (
+                          <li
+                            key={i}
+                            className={`flex items-start gap-2 rounded-md border px-3 py-2 ${
+                              isCorrect ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              isCorrect ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {String.fromCharCode(65 + i)}
+                            </span>
+                            <span className="flex-1 leading-relaxed text-gray-900">{o}</span>
+                            {isCorrect ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                                <CheckCircle2 className="size-4" /> Correct
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
+
+              {asString(previewRow.hint) ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Hint</p>
+                  <p className="whitespace-pre-wrap rounded-md bg-amber-50 px-3 py-2 leading-relaxed text-amber-900">{asString(previewRow.hint)}</p>
+                </div>
+              ) : null}
+
+              {asString(previewRow.solution) ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Solution</p>
+                  <p className="whitespace-pre-wrap rounded-md bg-sky-50 px-3 py-2 leading-relaxed text-sky-900">{asString(previewRow.solution)}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closePreview}>Close</Button>
+            {previewRow ? (
+              <Button
+                type="button"
+                className="bg-ttii-primary hover:bg-ttii-primary/90"
+                onClick={() => {
+                  const row = previewRow;
+                  closePreview();
+                  openEditModal(row);
+                }}
+              >
+                Edit this question
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
