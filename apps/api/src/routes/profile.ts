@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
-import { requireLegacyAuth } from '../auth/middleware.js';
+import { buildLegacyUserData } from '../auth/legacy-user-data.js';
+import { extractAuthToken, requireLegacyAuth } from '../auth/middleware.js';
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
@@ -60,18 +61,13 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     return {};
   }
 
-  // Ansaba UAT 2026-05-22 — the Flutter mobile app crashes the Profile
-  // tab with `NoSuchMethodError ["user_image"]` because the legacy PHP
-  // LMS exposed the avatar as `user_image`, but the Node port renamed
-  // it to `image`. Surface BOTH for the Flutter app (user_image as a
-  // resolved URL) while keeping `image` for newer consumers.
+  // Web/admin consumers (newer) — keep the camel/snake-mixed shape.
   const rawImage =
     typeof row.profile_picture === 'string' && row.profile_picture
       ? row.profile_picture
       : typeof row.image === 'string'
         ? row.image
         : '';
-  const userImageUrl = toLegacyFileUrl(rawImage);
 
   return {
     id: row.id,
@@ -84,8 +80,8 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     role_id: row.role_id,
     course_id: row.course_id,
     image: rawImage,
-    user_image: userImageUrl,
-    profile_picture: userImageUrl,
+    user_image: toLegacyFileUrl(rawImage),
+    profile_picture: toLegacyFileUrl(rawImage),
     academic_year: row.academic_year,
     username: row.username,
     date_of_birth: row.dob,
@@ -94,6 +90,7 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
     pincode: row.pin_code,
   };
 }
+
 
 export function registerProfileRoutes(app: FastifyInstance, options: RegisterProfileRoutesOptions = {}): void {
   const authService = options.authService ?? new AuthService();
@@ -117,12 +114,16 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
         role_id: true,
         course_id: true,
         image: true,
+        profile_picture: true,
         academic_year: true,
         username: true,
         dob: true,
         gender: true,
         place: true,
         pin_code: true,
+        // Ansaba UAT 2026-05-26 — mobile-app payload needs these too.
+        device_id: true,
+        status: true,
       },
     });
 
@@ -135,18 +136,25 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
       const profile = await readProfile(userId);
       const normalized = normalizeProfileRow(profile);
 
-      // Ansaba UAT 2026-05-22 — Flutter mobile app reads the profile
-      // payload in two layouts depending on the screen: some screens
-      // read `data["user_image"]` (flat), others read
-      // `data["user"]["user_image"]` (nested). Surface both so neither
-      // path null-crashes. The flat keys are preserved for any other
-      // consumer (web/admin) that already expects them.
+      // Ansaba UAT 2026-05-26 — Flutter mobile app reads the profile
+      // payload as `data["user_data"]["user_image"]`, `["user_name"]`,
+      // etc. The PHP LMS at lms.teachersindia.in/api/profile/index also
+      // surfaces `call_us` and `whatsapp` sibling fields (both default
+      // to the user's phone number). Surface the legacy shape AS WELL
+      // AS the flat normalised fields so any newer web/admin caller
+      // that already reads from data.* keeps working.
+      const sessionToken = extractAuthToken(request) ?? '';
+      const userData = buildLegacyUserData(profile, sessionToken);
+      const phone = typeof userData.user_phone === 'string' ? userData.user_phone : '';
       reply.code(200).send({
         status: 1,
         message: 'success',
         data: {
           ...normalized,
-          user: normalized,
+          user_data: userData,
+          user: userData,
+          call_us: phone,
+          whatsapp: phone,
         },
       });
     } catch (error: unknown) {

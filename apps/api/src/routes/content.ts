@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
-import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
+import { extractAuthToken, requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
+import { buildLegacyUserData } from '../auth/legacy-user-data.js';
+import { getPrismaClient } from '../data/prisma-client.js';
 import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
 import { ProgramService, type ProgramInput } from '../content/program-service.js';
 import { OfferingService, type OfferingInput } from '../content/offering-service.js';
@@ -218,18 +220,82 @@ export function registerContentRoutes(
     }
   });
 
-  // Naji UAT 2026-05-18 — Mobile app expects /course/my_course on the new
-  // LMS (was on legacy PHP). Returns the signed-in student's enrolled
-  // courses with the same shape buildCourseData() already produces for the
-  // web portal. Auth supports both Bearer header and ?auth_token= query
-  // string (requireLegacyAuth handles both).
+  // Naji UAT 2026-05-18 / Ansaba UAT 2026-05-26 — Mobile app expects
+  // /course/my_course in the legacy PHP shape:
+  //   { status: 1, message, data: { userdata: {...}, course: {
+  //       ongoing_course: [...], completed_course: [...] } } }
+  // Flutter reads `data['userdata']['user_image']` and
+  // `data['course']['ongoing_course']`, so the previous flat-array
+  // response crashed with "String not subtype of int of index" because
+  // it tried to index a List with a String key.
   app.get('/course/my_course', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
-      const courses = await contentService.listCourses(requestUserId(request), { enrolledOnly: true });
+      const userId = requestUserId(request);
+      const prisma = getPrismaClient();
+
+      const userIdInt = Number.parseInt(userId, 10);
+      const userRow = Number.isFinite(userIdInt)
+        ? await prisma.users.findFirst({
+            where: { id: userIdInt, deleted_at: null },
+            select: {
+              id: true, student_id: true, name: true, role_id: true,
+              course_id: true, email: true, user_email: true, phone: true,
+              device_id: true, status: true, academic_year: true, image: true,
+              profile_picture: true, dob: true,
+            },
+          })
+        : null;
+
+      const userData = buildLegacyUserData(userRow as Record<string, unknown> | null, extractAuthToken(request) ?? '');
+
+      // Pull enrolments so we can split courses into ongoing vs
+      // completed by enrollment_status (legacy: NULL/Active/On Hold
+      // count as ongoing; Completed/Graduated count as completed).
+      const enrolments = Number.isFinite(userIdInt)
+        ? await prisma.enrol.findMany({
+            where: { user_id: userIdInt, deleted_at: null },
+            select: { course_id: true, enrollment_status: true },
+          })
+        : [];
+      const ongoingCourseIds = new Set<number>();
+      const completedCourseIds = new Set<number>();
+      for (const e of enrolments) {
+        if (e.course_id == null) continue;
+        const s = String(e.enrollment_status ?? '').trim().toLowerCase();
+        if (s === 'completed' || s === 'graduated') completedCourseIds.add(e.course_id);
+        else ongoingCourseIds.add(e.course_id);
+      }
+
+      const allEnrolledIds = new Set<number>([...ongoingCourseIds, ...completedCourseIds]);
+      const allCourses = allEnrolledIds.size > 0
+        ? await contentService.listCourses(userId, { enrolledOnly: true })
+        : [];
+
+      const courseIdOf = (c: Record<string, unknown>): number => {
+        const raw = c.id;
+        if (typeof raw === 'number') return raw;
+        if (typeof raw === 'string') return Number.parseInt(raw, 10);
+        return Number.NaN;
+      };
+      const ongoing = allCourses.filter((c) => {
+        const id = courseIdOf(c);
+        return Number.isFinite(id) && ongoingCourseIds.has(id);
+      });
+      const completed = allCourses.filter((c) => {
+        const id = courseIdOf(c);
+        return Number.isFinite(id) && completedCourseIds.has(id);
+      });
+
       reply.code(200).send({
         status: 1,
         message: 'success',
-        data: courses,
+        data: {
+          userdata: userData,
+          course: {
+            ongoing_course: ongoing,
+            completed_course: completed,
+          },
+        },
       });
     } catch (error: unknown) {
       sendContentError(reply, error);

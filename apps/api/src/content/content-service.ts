@@ -815,8 +815,9 @@ export class ContentService {
     const downloadUrl = toNullableString(file.download_url);
     const attachmentType = toStringValue(file.attachment_type);
 
-    // Ansaba UAT 2026-05-22 — same int-id fix; LessonFile model in
-    // Flutter types id / lesson_id / parent_file_id as int.
+    // Ansaba UAT 2026-05-22 — Flutter LessonFile model types id /
+    // lesson_id / parent_file_id as int. Same reasoning as the sibling
+    // Video/Material builders (commit ba2ecc9d).
     return {
       id: toNullableIntId(fileId) ?? 0,
       sub_title: toStringValue(file.sub_title),
@@ -988,13 +989,10 @@ export class ContentService {
 
     const featuresRaw = toStringValue(course.features);
 
-    // Ansaba UAT 2026-05-22 — Flutter "My course" tab crashed with
-    // `type 'String' is not a subtype of type 'int' of 'index'`. The
-    // legacy PHP LMS returned `id` as a native int (json_encode of an
-    // int column), and the mobile app's Dart model types `id` as int.
-    // The Node port stringified it, which Dart rejects when the value
-    // is later used to index into a Map<int, …>. Surface `id` as int
-    // and keep the rest of the response shape unchanged.
+    // Ansaba UAT 2026-05-22 — Flutter Course model types `id` as int.
+    // Sibling builders (buildLessonVideoData / buildLessonMaterialData)
+    // were also converted in commit ba2ecc9d for the same reason. Web
+    // consumers wrap reads with asString() so int/string is transparent.
     const courseIdInt = toNullableIntId(courseId) ?? 0;
     return {
       id: courseIdInt,
@@ -1561,9 +1559,9 @@ export class ContentService {
 
     const lessonCourseId = toStringValue(lesson.course_id);
 
-    // Ansaba UAT 2026-05-22 — same int-id fix as buildCourseData; the
-    // Flutter mobile app's Lesson model types id/course_id/subject_id
-    // as int. Stringifying broke Dart's Map<int,…> indexing.
+    // Ansaba UAT 2026-05-22 — Flutter Lesson model types id /
+    // course_id / subject_id as int. Same reasoning as buildCourseData
+    // and the sibling Video/Material builders.
     return {
       id: toNullableIntId(lessonId) ?? 0,
       title: toStringValue(lesson.title),
