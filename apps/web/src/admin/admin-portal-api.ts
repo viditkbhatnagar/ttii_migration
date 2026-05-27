@@ -1210,6 +1210,9 @@ export class AdminPortalApi {
       to_time: string;
       duration_minutes?: number;
       description?: string;
+      // Risha UAT 2026-05-27 — when true, every student attempting the
+      // exam gets the questions in a random order.
+      shuffle_questions?: boolean;
     },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/draft/save', authToken, input);

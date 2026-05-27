@@ -42,6 +42,9 @@ interface DraftState {
   from_time: string;
   to_time: string;
   duration_minutes: number;
+  // Risha UAT 2026-05-27 — per-exam toggle. ON randomizes question
+  // order for every student attempting the exam.
+  shuffle_questions: boolean;
 }
 
 const emptyDraft: DraftState = {
@@ -55,6 +58,7 @@ const emptyDraft: DraftState = {
   from_time: '',
   to_time: '',
   duration_minutes: 0,
+  shuffle_questions: false,
 };
 
 export default function AddExamPage({ api, session, onNavigate }: AdminPageProps) {
@@ -129,6 +133,13 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
           from_time: extractTime(asString(d.from_time)),
           to_time: extractTime(asString(d.to_time)),
           duration_minutes: dur ? Math.max(0, Number.parseInt(dur, 10) || 0) : 0,
+          // Risha UAT 2026-05-27 — pre-fill the toggle. Tolerate the
+          // value arriving as boolean / 1 / "1" / "true" depending on
+          // the legacy MySQL driver.
+          shuffle_questions: d.shuffle_questions === true
+            || d.shuffle_questions === 1
+            || d.shuffle_questions === '1'
+            || d.shuffle_questions === 'true',
         });
       })
       .catch(() => { /* leave empty */ })
@@ -196,6 +207,8 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
         from_time: draft.from_time,
         to_time: draft.to_time,
         duration_minutes: draft.duration_minutes,
+        // Risha UAT 2026-05-27 — persist the shuffle toggle.
+        shuffle_questions: draft.shuffle_questions,
       });
       const status = (res as { status?: number }).status;
       const data = (res as { data?: Record<string, unknown> }).data ?? {};
@@ -319,6 +332,28 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
                   {draft.duration_minutes > 0 ? `${draft.duration_minutes} minute${draft.duration_minutes === 1 ? '' : 's'}` : 'Computed from Start + End once both are set.'}
                 </div>
               </div>
+            </div>
+
+            {/* Risha UAT 2026-05-27 — Shuffle Questions toggle. ON makes
+                every student get a fresh random order of the same
+                questions; OFF (default) keeps the saved sequence. */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={draft.shuffle_questions}
+                  onChange={(e) => setDraft((p) => ({ ...p, shuffle_questions: e.target.checked }))}
+                  className="mt-0.5 size-4 cursor-pointer rounded border-slate-300 text-ttii-primary focus:ring-2 focus:ring-ttii-primary"
+                />
+                <div className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-slate-900">
+                    Shuffle questions for each student
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    When on, every learner attempting this exam sees the questions in a different random order. Off (default) keeps the saved sequence the same for everyone. The order is locked in once a learner starts the attempt, so resuming the same attempt shows the same order.
+                  </span>
+                </div>
+              </label>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
