@@ -1457,4 +1457,150 @@ export class EngagementService {
 
     return true;
   }
+
+  // Ansaba UAT 2026-05-27 — the Flutter mobile-app home tab was stuck on a
+  // buffering spinner because /home/index returned 404 on the new API.
+  // Side-by-side curl against the legacy PHP showed the expected shape
+  // (data.userdata + banner[] + ongoing_course[] + today_tasks[] +
+  // courses[] + upcoming_schedules.{live_class,events,exams} +
+  // learning_progress.{individual_courses,total_assignments,badge_earned,
+  // practice,payment,exam}). This builder returns the exact shape; the
+  // sections we don't compute yet ship as empty arrays / zero scalars so
+  // Flutter parses cleanly. Real numbers can land in follow-up commits
+  // without changing the keys.
+  async getHomeIndex(userId: string, sessionToken: string): Promise<Record<string, unknown>> {
+    const { buildLegacyUserData } = await import('../auth/legacy-user-data.js');
+    const userIdInt = toNullableIntId(userId);
+
+    const [userRow, banners] = await Promise.all([
+      userIdInt
+        ? this.prisma.users.findFirst({
+            where: { id: userIdInt, deleted_at: null },
+            select: {
+              id: true, student_id: true, name: true, role_id: true,
+              course_id: true, email: true, user_email: true, phone: true,
+              device_id: true, status: true, academic_year: true, image: true,
+              profile_picture: true, dob: true,
+            },
+          })
+        : Promise.resolve(null),
+      this.prisma.banners.findMany({
+        where: { deleted_at: null },
+        orderBy: { id: 'asc' },
+        take: 10,
+      }),
+    ]);
+
+    const userdata = buildLegacyUserData(userRow as Record<string, unknown> | null, sessionToken);
+
+    // Enrolments — drives both ongoing_course and the list of course
+    // ids we use for upcoming schedules + featured courses fallback.
+    const enrolments = userIdInt
+      ? await this.prisma.enrol.findMany({
+          where: { user_id: userIdInt, deleted_at: null },
+          select: { course_id: true, enrollment_status: true },
+        })
+      : [];
+    const ongoingCourseIds = new Set<number>();
+    for (const e of enrolments) {
+      if (e.course_id == null) continue;
+      const s = String(e.enrollment_status ?? '').trim().toLowerCase();
+      if (s !== 'completed' && s !== 'graduated') ongoingCourseIds.add(e.course_id);
+    }
+
+    // Pull lightweight course rows for both the ongoing block and the
+    // featured "courses" list. PHP returned a small set of fields per row.
+    const courseRows = await this.prisma.course.findMany({
+      where: { deleted_at: null },
+      select: { id: true, title: true, thumbnail: true, total_amount: true, sale_price: true, status: true },
+      orderBy: { id: 'desc' },
+      take: 20,
+    });
+
+    // Lesson counts for the featured courses (PHP returned `lessons`).
+    const courseIds = courseRows.map((c) => c.id);
+    const lessonCounts = courseIds.length > 0
+      ? await this.prisma.lesson.groupBy({
+          by: ['course_id'],
+          where: { course_id: { in: courseIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const lessonCountMap = new Map<number, number>();
+    for (const lc of lessonCounts) {
+      if (lc.course_id == null) continue;
+      lessonCountMap.set(lc.course_id, lc._count?.id ?? 0);
+    }
+
+    // Resolve banner URL via the same legacy-asset helper used everywhere
+    // else so /uploads/banners/... paths come out fully qualified.
+    const { toLegacyFileUrl } = await import('../data/legacy-asset-url.js');
+    const bannerOut = banners.map((b) => ({
+      id: String(b.id),
+      title: String(b.title ?? ''),
+      image: toLegacyFileUrl(b.image),
+      url: String(b.url ?? ''),
+      type: String(b.type ?? ''),
+      is_course_banner: String(b.is_course_banner ?? 0),
+      course_id: String(b.course_id ?? 0),
+      is_enrolled: b.course_id != null && ongoingCourseIds.has(b.course_id) ? 1 : 0,
+    }));
+
+    const courseToTiny = (c: typeof courseRows[number]): Record<string, unknown> => ({
+      id: String(c.id),
+      title: String(c.title ?? ''),
+      thumbnail: toLegacyFileUrl(c.thumbnail),
+      price: String(c.total_amount ?? '0'),
+      discounted_price: String(c.sale_price ?? c.total_amount ?? '0'),
+      lessons: lessonCountMap.get(c.id) ?? 0,
+    });
+
+    const ongoingCourses = courseRows
+      .filter((c) => ongoingCourseIds.has(c.id))
+      .map(courseToTiny);
+    // PHP "courses" was the featured/all-published list (NOT the user's
+    // own enrolled ones). Match that: exclude the user's ongoing courses
+    // so the section reads as "courses you might enrol in next".
+    const featuredCourses = courseRows
+      .filter((c) => !ongoingCourseIds.has(c.id) && String(c.status ?? '').toLowerCase() === 'published')
+      .slice(0, 12)
+      .map(courseToTiny);
+
+    // Upcoming schedules — placeholders today so the shape parses
+    // cleanly; live_class + exam buckets will fill in once we wire the
+    // student-facing schedule view. PHP returns empty arrays for users
+    // with no upcoming items anyway, so the parser is happy.
+    const upcomingSchedules = {
+      live_class: [] as Record<string, unknown>[],
+      events: [] as Record<string, unknown>[],
+      exams: [] as Record<string, unknown>[],
+    };
+
+    // Learning progress block — PHP returned strings for all values,
+    // with `score` formatted as "X/Y" for badge_earned + exam and a
+    // numeric-looking string for the rest. Zero defaults render as
+    // dashes in the UI; real numbers land in a follow-up.
+    const learningProgress = {
+      individual_courses: { score: '0', progress: '0' },
+      total_assignments: { score: '0', progress: 0 },
+      badge_earned: { score: '0/0', progress: '0' },
+      practice: { score: '0', progress: 0 },
+      payment: { score: 0, progress: '0' },
+      exam: { score: '0/0', progress: '0' },
+    };
+
+    return {
+      status: 1,
+      message: 'successfully',
+      data: {
+        userdata,
+        banner: bannerOut,
+        ongoing_course: ongoingCourses,
+        today_tasks: [] as Record<string, unknown>[],
+        courses: featuredCourses,
+        upcoming_schedules: upcomingSchedules,
+        learning_progress: learningProgress,
+      },
+    };
+  }
 }

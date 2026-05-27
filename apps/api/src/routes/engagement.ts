@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
-import { requireLegacyAuth } from '../auth/middleware.js';
+import { extractAuthToken, requireLegacyAuth } from '../auth/middleware.js';
 import {
   EngagementService,
   type AddEventFeedbackInput,
@@ -203,6 +203,22 @@ export function registerEngagementRoutes(
   app.get('/home/app_version', async (_request, reply) => {
     try {
       const data = await engagementService.getAppVersion();
+      reply.code(200).send(data);
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
+  // Ansaba UAT 2026-05-27 — /home/index drives the mobile-app landing
+  // tab. Was missing on the new API → Flutter sat on a buffering spinner.
+  // Returns the same shape the legacy PHP returned so the existing app
+  // parses cleanly: data.userdata + banner + ongoing_course + today_tasks
+  // + courses + upcoming_schedules + learning_progress.
+  app.get('/home/index', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const userId = requestUserId(request);
+      const token = extractAuthToken(request) ?? '';
+      const data = await engagementService.getHomeIndex(userId, token);
       reply.code(200).send(data);
     } catch (error: unknown) {
       sendEngagementError(reply, error);
