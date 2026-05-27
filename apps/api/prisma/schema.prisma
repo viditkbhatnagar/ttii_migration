@@ -910,6 +910,10 @@ model exam {
   have_minus_mark     Int       @default(0)
   minus_mark          Float?    @db.Float
   publish_result      Boolean   @default(false)
+  // Risha UAT 2026-05-27 — when true, exam_questions are randomized
+  // per student on attempt-start (the random order is locked into
+  // exam_attempt.question_id once issued, so resuming preserves it).
+  shuffle_questions   Boolean   @default(false)
   order               Int?
   from_date           DateTime? @db.Date
   from_time           DateTime? @db.Time(0)
