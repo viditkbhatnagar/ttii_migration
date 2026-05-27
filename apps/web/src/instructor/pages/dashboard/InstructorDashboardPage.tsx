@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   ArrowUpRight,
   Calendar,
@@ -13,8 +13,10 @@ import {
   Video,
   type LucideIcon,
 } from 'lucide-react';
+import type { EChartsOption } from 'echarts';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
+import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useInstructorLayout } from '../../layout/InstructorLayoutContext.js';
@@ -95,175 +97,146 @@ function MetricTile({
   );
 }
 
+// Twin-line area chart (avg score in violet + attendance in cyan) over weeks.
+// Apache ECharts — built-in tooltip + axis pointer replaces the hand-rolled
+// hover overlay.
 function PerformanceChart({ data }: { data: { week: string; score: number; attendance: number }[] }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const option = useMemo<EChartsOption>(() => ({
+    grid: { left: 40, right: 16, top: 32, bottom: 32, containLabel: false },
+    legend: {
+      top: 0,
+      right: 0,
+      icon: 'roundRect',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: '#475569', fontSize: 11 },
+      data: ['avg score', 'attendance'],
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#ffffff',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      textStyle: { color: '#0f172a', fontSize: 12 },
+      axisPointer: { type: 'line', lineStyle: { color: '#cbd5e1', type: 'dashed', width: 1 } },
+    },
+    xAxis: {
+      type: 'category',
+      data: data.map((d) => d.week),
+      boundaryGap: false,
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#64748b', fontSize: 11 },
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      interval: 25,
+      splitLine: { lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 },
+    },
+    series: [
+      {
+        name: 'attendance',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: data.map((d) => d.attendance),
+        itemStyle: { color: '#06b6d4' },
+        lineStyle: { color: '#06b6d4', width: 2.4 },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(6,182,212,0.22)' },
+              { offset: 1, color: 'rgba(6,182,212,0.02)' },
+            ],
+          },
+        },
+      },
+      {
+        name: 'avg score',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: data.map((d) => d.score),
+        itemStyle: { color: '#7c3aed' },
+        lineStyle: { color: '#7c3aed', width: 2.4 },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(124,58,237,0.25)' },
+              { offset: 1, color: 'rgba(124,58,237,0.02)' },
+            ],
+          },
+        },
+      },
+    ],
+  }), [data]);
+
   if (!data || data.length === 0) {
     return <p className="py-12 text-center text-xs text-slate-400">No performance data yet.</p>;
   }
-  const max = 100;
-  const width = 720;
-  const height = 280;
-  const padX = 40;
-  const padY = 24;
-  const innerW = width - padX * 2;
-  const innerH = height - padY * 2;
-  const stepX = data.length > 1 ? innerW / (data.length - 1) : innerW;
-
-  const scorePts = data.map((d, i) => ({
-    x: padX + i * stepX,
-    y: padY + innerH - (d.score / max) * innerH,
-  }));
-  const attendancePts = data.map((d, i) => ({
-    x: padX + i * stepX,
-    y: padY + innerH - (d.attendance / max) * innerH,
-  }));
-
-  const smooth = (pts: { x: number; y: number }[]) =>
-    pts.reduce<string>((acc, p, i) => {
-      if (i === 0) return `M${p.x},${p.y}`;
-      const prev = pts[i - 1]!;
-      const cx = (prev.x + p.x) / 2;
-      return `${acc} C${cx},${prev.y} ${cx},${p.y} ${p.x},${p.y}`;
-    }, '');
-
-  const scoreLine = smooth(scorePts);
-  const attendanceLine = smooth(attendancePts);
-  const scoreArea = `${scoreLine} L${scorePts[scorePts.length - 1]!.x},${padY + innerH} L${scorePts[0]!.x},${padY + innerH} Z`;
-  const attendanceArea = `${attendanceLine} L${attendancePts[attendancePts.length - 1]!.x},${padY + innerH} L${attendancePts[0]!.x},${padY + innerH} Z`;
-  const yTicks = [0, 25, 50, 75, 100];
-
-  return (
-    <div className="relative">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-72 w-full">
-        {yTicks.map((t) => {
-          const y = padY + innerH - (t / max) * innerH;
-          return (
-            <g key={t}>
-              <line x1={padX} y1={y} x2={width - padX / 2} y2={y} stroke="#e2e8f0" strokeWidth={0.7} strokeDasharray="3,4" />
-              <text x={padX - 10} y={y + 3} textAnchor="end" fontSize="11" fill="#94a3b8">{t}</text>
-            </g>
-          );
-        })}
-        <defs>
-          <linearGradient id="gradScore" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.25} />
-            <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.02} />
-          </linearGradient>
-          <linearGradient id="gradAttendance" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.22} />
-            <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <path d={attendanceArea} fill="url(#gradAttendance)" />
-        <path d={attendanceLine} fill="none" stroke="#06b6d4" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-        <path d={scoreArea} fill="url(#gradScore)" />
-        <path d={scoreLine} fill="none" stroke="#7c3aed" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-        {/* Hover dots */}
-        {(() => {
-          if (hover === null) return null;
-          const sp = scorePts[hover];
-          const ap = attendancePts[hover];
-          if (!sp || !ap) return null;
-          return (
-            <g>
-              <line x1={sp.x} x2={sp.x} y1={padY} y2={padY + innerH} stroke="#cbd5e1" strokeWidth={1} strokeDasharray="2,3" />
-              <circle cx={sp.x} cy={sp.y} r={5} fill="#7c3aed" />
-              <circle cx={ap.x} cy={ap.y} r={5} fill="#06b6d4" />
-            </g>
-          );
-        })()}
-        {/* X-axis labels */}
-        {data.map((p, i) => (
-          <text key={p.week} x={padX + i * stepX} y={height - padY / 2 + 6} textAnchor="middle" fontSize="11" fill="#64748b">
-            {p.week}
-          </text>
-        ))}
-        {/* Hover capture overlay */}
-        {data.map((_, i) => (
-          <rect
-            key={`hit-${i}`}
-            x={padX + i * stepX - stepX / 2}
-            y={padY}
-            width={stepX}
-            height={innerH}
-            fill="transparent"
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
-          />
-        ))}
-      </svg>
-      {(() => {
-        if (hover === null) return null;
-        const d = data[hover];
-        const sp = scorePts[hover];
-        const ap = attendancePts[hover];
-        if (!d || !sp || !ap) return null;
-        return (
-          <div
-            className="pointer-events-none absolute rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg"
-            style={{
-              left: `${((sp.x + 16) / width) * 100}%`,
-              top: `${(Math.min(sp.y, ap.y) / height) * 100}%`,
-              transform: 'translateY(-50%)',
-            }}
-          >
-            <p className="font-semibold text-slate-900">{d.week}</p>
-            <p className="mt-1 text-violet-600">avg : {d.score}</p>
-            <p className="text-cyan-600">attendance : {d.attendance}</p>
-          </div>
-        );
-      })()}
-    </div>
-  );
+  return <EChart option={option} className="h-72 w-full" ariaLabel="Average score and attendance by week" />;
 }
 
+// Vertical bar chart of avg cohort performance percentage. Apache ECharts.
 function CohortBarChart({ data }: { data: { cohortTitle: string; avgPercent: number }[] }) {
+  const trimmed = useMemo(() => data.slice(0, 6), [data]);
+  // Trim long cohort titles so the x-axis labels stay readable.
+  const shortLabel = (s: string) => (s.length <= 10 ? s : `${s.slice(0, 8)}…`);
+  const option = useMemo<EChartsOption>(() => ({
+    grid: { left: 32, right: 16, top: 16, bottom: 32, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: '#ffffff',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      textStyle: { color: '#0f172a', fontSize: 12 },
+      formatter: (params) => {
+        const arr = Array.isArray(params) ? params : [params];
+        const p = arr[0] as { axisValue?: string; data?: number } | undefined;
+        if (!p) return '';
+        const full = trimmed.find((t) => shortLabel(t.cohortTitle) === p.axisValue)?.cohortTitle ?? p.axisValue ?? '';
+        return `<strong>${full}</strong><br/>avg : ${p.data ?? 0}%`;
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: trimmed.map((c) => shortLabel(c.cohortTitle)),
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#64748b', fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      interval: 25,
+      splitLine: { lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+      axisLabel: { color: '#94a3b8', fontSize: 11 },
+    },
+    series: [
+      {
+        type: 'bar',
+        barMaxWidth: 36,
+        data: trimmed.map((c) => Math.max(0, Math.min(100, c.avgPercent))),
+        itemStyle: { color: '#7c3aed', borderRadius: [6, 6, 0, 0] },
+      },
+    ],
+  }), [trimmed]);
+
   if (!data || data.length === 0) {
     return <p className="py-12 text-center text-xs text-slate-400">No cohort data yet.</p>;
   }
-  const trimmed = data.slice(0, 6);
-  const max = 100;
-  const width = 360;
-  const height = 280;
-  const padX = 32;
-  const padY = 24;
-  const innerW = width - padX * 2;
-  const innerH = height - padY * 2;
-  const barSlot = innerW / trimmed.length;
-  const barW = Math.min(36, barSlot * 0.55);
-  const yTicks = [0, 25, 50, 75, 100];
-  // Trim long cohort titles so the x-axis labels stay readable.
-  const shortLabel = (s: string) => {
-    if (s.length <= 10) return s;
-    return s.slice(0, 8) + '…';
-  };
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-72 w-full">
-      {yTicks.map((t) => {
-        const y = padY + innerH - (t / max) * innerH;
-        return (
-          <g key={t}>
-            <line x1={padX} y1={y} x2={width - padX / 2} y2={y} stroke="#e2e8f0" strokeWidth={0.7} strokeDasharray="3,4" />
-            <text x={padX - 8} y={y + 3} textAnchor="end" fontSize="11" fill="#94a3b8">{t}</text>
-          </g>
-        );
-      })}
-      {trimmed.map((c, i) => {
-        const pct = Math.max(0, Math.min(100, c.avgPercent));
-        const h = (pct / max) * innerH;
-        const x = padX + i * barSlot + (barSlot - barW) / 2;
-        const y = padY + innerH - h;
-        return (
-          <g key={c.cohortTitle}>
-            <rect x={x} y={y} width={barW} height={h} rx={6} fill="#7c3aed" />
-            <text x={x + barW / 2} y={height - padY / 2 + 6} textAnchor="middle" fontSize="10" fill="#64748b">
-              {shortLabel(c.cohortTitle)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
+  return <EChart option={option} className="h-72 w-full" ariaLabel="Average performance percentage by cohort" />;
 }
 
 function ScheduleRow({

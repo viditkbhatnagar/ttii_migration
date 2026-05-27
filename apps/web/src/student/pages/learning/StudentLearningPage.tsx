@@ -24,9 +24,11 @@ import {
   CircleDot,
   FileType2,
 } from 'lucide-react';
+import type { EChartsOption } from 'echarts';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -940,29 +942,44 @@ function formatTimeLeft(target: Date): string {
 
 // Circular progress indicator shown in the course detail hero banner.
 // Naji 2026-05-07 — visual reskin of the course summary strip.
+// 2026-05-27 — rebuilt on Apache ECharts (gauge series). The hero sits on TTII
+// purple so the ring is white-on-translucent; the percentage label is layered
+// on top of the gauge via an absolutely-positioned overlay (ECharts'
+// `detail.color: 'white'` works, but the smaller "Complete" caption is HTML).
 function CourseProgressRing({ percentage }: { percentage: number }) {
   const clamped = Math.max(0, Math.min(100, percentage));
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (clamped / 100) * circumference;
+  const option = useMemo<EChartsOption>(() => ({
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 90,
+        endAngle: -270,
+        radius: '90%',
+        min: 0,
+        max: 100,
+        progress: {
+          show: true,
+          width: 5,
+          roundCap: true,
+          itemStyle: { color: '#ffffff' },
+        },
+        axisLine: { lineStyle: { width: 5, color: [[1, 'rgba(255,255,255,0.18)']] } },
+        pointer: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: { show: false },
+        anchor: { show: false },
+        detail: { show: false },
+        data: [{ value: clamped }],
+      },
+    ],
+    animationDuration: 600,
+  }), [clamped]);
+
   return (
     <div className="relative flex size-20 shrink-0 items-center justify-center sm:size-24">
-      <svg className="size-full -rotate-90" viewBox="0 0 80 80">
-        <circle cx="40" cy="40" r={radius} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={5} />
-        <circle
-          cx="40"
-          cy="40"
-          r={radius}
-          fill="none"
-          stroke="white"
-          strokeWidth={5}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 600ms ease-out' }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
+      <EChart option={option} className="size-full" ariaLabel={`Course complete: ${clamped}%`} />
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-lg font-bold text-white sm:text-xl">{clamped}%</span>
         <span className="text-[9px] font-medium uppercase tracking-wider text-white/75">Complete</span>
       </div>

@@ -1,10 +1,12 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import {
   BookOpen, Clock, Flame, Target, CheckCircle,
   Sparkles, Calendar, Trophy, Zap, type LucideIcon,
 } from 'lucide-react';
+import type { EChartsOption } from 'echarts';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
+import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type { StudentDashboardSnapshot } from '../../student-portal-api.js';
@@ -377,71 +379,76 @@ function SparklineStatCard({
   );
 }
 
-// Semicircular gauge used by the Overall Progress card.
+// Semicircular gauge used by the Overall Progress card. Apache ECharts.
+//
+// Track has the TTII blue→purple→orange gradient; needle + central dot match the
+// previous SVG version's TTII purple. Tick marks every 10%.
 function SemicircleGauge({ percentage }: { percentage: number }) {
   const clamped = Math.max(0, Math.min(100, percentage));
-  const angle = (clamped / 100) * 180 - 90; // -90deg = far left, 90deg = far right
-  const radius = 72;
-  const circumference = Math.PI * radius;
-  const offset = circumference - (clamped / 100) * circumference;
-
-  const [animate, setAnimate] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setAnimate(true), 40);
-    return () => clearTimeout(t);
-  }, []);
+  const option = useMemo<EChartsOption>(() => ({
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 180,
+        endAngle: 0,
+        center: ['50%', '78%'],
+        radius: '100%',
+        min: 0,
+        max: 100,
+        progress: {
+          show: true,
+          width: 14,
+          roundCap: true,
+          itemStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [
+                { offset: 0, color: '#3B5BBE' },
+                { offset: 0.6, color: '#8F2774' },
+                { offset: 1, color: '#F06543' },
+              ],
+            },
+          },
+        },
+        axisLine: { lineStyle: { width: 14, color: [[1, '#e2e8f0']] } },
+        axisTick: {
+          show: true,
+          length: 6,
+          distance: -22,
+          lineStyle: { color: '#cbd5e1', width: 1 },
+          splitNumber: 1,
+        },
+        splitLine: { show: false },
+        axisLabel: { show: false },
+        anchor: {
+          show: true,
+          size: 16,
+          itemStyle: { color: '#ffffff', borderColor: '#8F2774', borderWidth: 3 },
+        },
+        pointer: {
+          show: true,
+          length: '70%',
+          width: 6,
+          itemStyle: { color: '#8F2774' },
+        },
+        detail: {
+          valueAnimation: true,
+          offsetCenter: [0, '-5%'],
+          formatter: (v) => `${Math.round(Number(v))}%`,
+          color: '#0f172a',
+          fontSize: 28,
+          fontWeight: 700,
+        },
+        data: [{ value: clamped }],
+      },
+    ],
+    animationDuration: 800,
+  }), [clamped]);
 
   return (
     <div className="relative w-full max-w-[260px]">
-      <svg viewBox="0 0 200 110" className="w-full">
-        <defs>
-          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#3B5BBE" />
-            <stop offset="60%" stopColor="#8F2774" />
-            <stop offset="100%" stopColor="#F06543" />
-          </linearGradient>
-        </defs>
-        {/* Background track */}
-        <path
-          d={`M 14 100 A ${radius} ${radius} 0 0 1 186 100`}
-          fill="none"
-          stroke="#e2e8f0"
-          strokeWidth="14"
-          strokeLinecap="round"
-        />
-        {/* Filled arc */}
-        <path
-          d={`M 14 100 A ${radius} ${radius} 0 0 1 186 100`}
-          fill="none"
-          stroke="url(#gaugeGrad)"
-          strokeWidth="14"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={animate ? offset : circumference}
-          style={{ transition: 'stroke-dashoffset 800ms ease-out' }}
-        />
-        {/* Tick marks */}
-        {Array.from({ length: 11 }).map((_, i) => {
-          const tickAngle = -180 + (i * 18);
-          const rad = (tickAngle * Math.PI) / 180;
-          const x1 = 100 + Math.cos(rad) * (radius + 12);
-          const y1 = 100 + Math.sin(rad) * (radius + 12);
-          const x2 = 100 + Math.cos(rad) * (radius + 18);
-          const y2 = 100 + Math.sin(rad) * (radius + 18);
-          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#cbd5e1" strokeWidth="1" />;
-        })}
-        {/* Needle */}
-        <g transform={`rotate(${animate ? angle : -90} 100 100)`} style={{ transition: 'transform 800ms ease-out' }}>
-          <path
-            d="M 100 100 L 96 100 L 100 30 L 104 100 Z"
-            fill="url(#gaugeGrad)"
-          />
-          <circle cx="100" cy="100" r="8" fill="#ffffff" stroke="#8F2774" strokeWidth="3" />
-        </g>
-      </svg>
-      <div className="absolute inset-x-0 bottom-2 text-center">
-        <span className="text-3xl font-bold text-student-text">{clamped}%</span>
-      </div>
+      <EChart option={option} className="h-32 w-full" ariaLabel={`Overall progress: ${clamped}%`} />
     </div>
   );
 }

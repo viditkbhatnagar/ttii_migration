@@ -3,8 +3,10 @@ import {
   Users, BookOpen, GraduationCap, Calendar, TrendingUp, TrendingDown,
   Sparkles, type LucideIcon,
 } from 'lucide-react';
+import type { EChartsOption } from 'echarts';
 import { Card, CardContent } from '@/components/ui/card';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
+import { EChart } from '@/components/EChart';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
@@ -263,89 +265,111 @@ function TrendChip({ percent }: { percent: number }) {
   );
 }
 
-// Inline SVG sparkline. Builds a smooth area + line from a 7-value series.
+// 7-day mini sparkline (line + soft area fill). Apache ECharts.
 function Sparkline({ values, colour }: { values: number[]; colour: string }) {
+  const option = useMemo<EChartsOption>(() => {
+    const lineSeries: NonNullable<EChartsOption['series']> = [
+      {
+        type: 'line',
+        data: values,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { color: colour, width: 1.5 },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: `${colour}33` },
+              { offset: 1, color: `${colour}00` },
+            ],
+          },
+        },
+        // Last-point highlight dot — only attach when we have data.
+        ...(values.length > 0
+          ? {
+              markPoint: {
+                symbol: 'circle',
+                symbolSize: 4,
+                itemStyle: { color: colour, borderColor: '#ffffff', borderWidth: 1 },
+                data: [{ name: 'latest', coord: [values.length - 1, values[values.length - 1] ?? 0] }],
+                animation: false,
+              },
+            }
+          : {}),
+      },
+    ];
+    return {
+      grid: { left: 0, right: 0, top: 2, bottom: 2 },
+      xAxis: { type: 'category', show: false, boundaryGap: false, data: values.map((_, i) => String(i)) },
+      yAxis: { type: 'value', show: false, min: 0 },
+      tooltip: { show: false },
+      animationDuration: 600,
+      series: lineSeries,
+    };
+  }, [values, colour]);
+
   if (!values || values.length === 0) {
     return <span className="block h-6 flex-1" />;
   }
-  const max = Math.max(...values, 1);
-  const width = 100;
-  const height = 24;
-  const stepX = values.length > 1 ? width / (values.length - 1) : width;
-  const points = values.map((v, i) => ({
-    x: i * stepX,
-    y: height - (v / max) * (height - 2) - 1,
-  }));
-  const pathLine = points.map((p, i) => (i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`)).join(' ');
-  const pathArea = `${pathLine} L${width},${height} L0,${height} Z`;
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-6 flex-1" preserveAspectRatio="none">
-      <path d={pathArea} fill={colour} fillOpacity={0.12} />
-      <path d={pathLine} fill="none" stroke={colour} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      {points.length > 0 ? (
-        <circle cx={points[points.length - 1]!.x} cy={points[points.length - 1]!.y} r={1.5} fill={colour} />
-      ) : null}
-    </svg>
-  );
+  return <EChart option={option} className="h-6 flex-1" ariaLabel="7-day trend" />;
 }
 
-// 6-month enrolment trend area chart. Pure SVG (no recharts dep).
+// 6-month enrolment trend — smoothed area chart with gridlines + tooltip.
 function EnrollmentTrendChart({ data }: { data: Record<string, unknown>[] }) {
+  const labels = useMemo(() => data.map((d) => (typeof d.label === 'string' ? d.label : '')), [data]);
+  const counts = useMemo(() => data.map((d) => asNumber(d.count)), [data]);
+  const option = useMemo<EChartsOption>(() => ({
+    grid: { left: 40, right: 16, top: 16, bottom: 28, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(15,23,42,0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#f8fafc', fontSize: 12 },
+      axisPointer: { lineStyle: { color: '#cbd5e1' } },
+      valueFormatter: (v) => String(v ?? 0),
+    },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      boundaryGap: false,
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#64748b', fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      splitLine: { lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+      axisLabel: { color: '#94a3b8', fontSize: 10 },
+    },
+    series: [
+      {
+        type: 'line',
+        data: counts,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        itemStyle: { color: '#5a6cee', borderColor: '#ffffff', borderWidth: 2 },
+        lineStyle: { color: '#5a6cee', width: 2.4 },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(90,108,238,0.35)' },
+              { offset: 1, color: 'rgba(90,108,238,0.02)' },
+            ],
+          },
+        },
+      },
+    ],
+  }), [labels, counts]);
+
   if (!data || data.length === 0) {
     return <p className="py-8 text-center text-xs text-slate-400">No enrolment data yet.</p>;
   }
-  const counts = data.map((d) => asNumber(d.count));
-  const labels = data.map((d) => (typeof d.label === 'string' ? d.label : ''));
-  const max = Math.max(...counts, 1);
-  const width = 600;
-  const height = 220;
-  const padX = 40;
-  const padY = 24;
-  const innerW = width - padX * 2;
-  const innerH = height - padY * 2;
-  const stepX = counts.length > 1 ? innerW / (counts.length - 1) : innerW;
-  const points = counts.map((v, i) => ({
-    x: padX + i * stepX,
-    y: padY + innerH - (v / max) * innerH,
-  }));
-  // Smoothed bezier path (tension via average control points).
-  const pathLine = points.reduce<string>((acc, p, i) => {
-    if (i === 0) return `M${p.x},${p.y}`;
-    const prev = points[i - 1]!;
-    const cx = (prev.x + p.x) / 2;
-    return `${acc} C${cx},${prev.y} ${cx},${p.y} ${p.x},${p.y}`;
-  }, '');
-  const pathArea = `${pathLine} L${points[points.length - 1]!.x},${padY + innerH} L${points[0]!.x},${padY + innerH} Z`;
-  const yTicks = [0, Math.ceil(max / 4), Math.ceil(max / 2), Math.ceil((3 * max) / 4), max];
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full">
-      {/* Y-axis grid lines + labels */}
-      {yTicks.map((t, i) => {
-        const y = padY + innerH - (t / max) * innerH;
-        return (
-          <g key={i}>
-            <line x1={padX} y1={y} x2={width - padX / 2} y2={y} stroke="#e2e8f0" strokeWidth={0.6} strokeDasharray="2,3" />
-            <text x={padX - 8} y={y + 3} textAnchor="end" fontSize="10" fill="#94a3b8">{t}</text>
-          </g>
-        );
-      })}
-      {/* Area + line */}
-      <path d={pathArea} fill="url(#gradEnrolment)" />
-      <path d={pathLine} fill="none" stroke="#5a6cee" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-      <defs>
-        <linearGradient id="gradEnrolment" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#5a6cee" stopOpacity={0.35} />
-          <stop offset="100%" stopColor="#5a6cee" stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      {/* X-axis labels */}
-      {labels.map((label, i) => (
-        <text key={i} x={padX + i * stepX} y={height - padY / 2 + 4} textAnchor="middle" fontSize="10" fill="#64748b">
-          {label}
-        </text>
-      ))}
-    </svg>
-  );
+  return <EChart option={option} className="h-56 w-full" ariaLabel="6-month enrolment trend" />;
 }
 
 // Three-ring progress distribution for the Student Progress Snapshot.
@@ -365,33 +389,47 @@ function ProgressSnapshot({ dist }: { dist: { low: number; mid: number; high: nu
   );
 }
 
+// Single ring (gauge) for a category in the progress snapshot.
 function ProgressRing({ label, count, percent, colour }: { label: string; count: number; percent: number; colour: string }) {
-  const radius = 38;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percent / 100) * circumference;
+  const option = useMemo<EChartsOption>(() => ({
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 90,
+        endAngle: -270,
+        radius: '90%',
+        center: ['50%', '50%'],
+        min: 0,
+        max: 100,
+        progress: { show: true, width: 6, roundCap: true, itemStyle: { color: colour } },
+        axisLine: { lineStyle: { width: 6, color: [[1, '#f1f5f9']], opacity: 1 } },
+        pointer: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: { show: false },
+        anchor: { show: false },
+        detail: {
+          valueAnimation: true,
+          offsetCenter: [0, '-12%'],
+          formatter: (v) => `${Math.round(Number(v))}%`,
+          color: colour,
+          fontSize: 16,
+          fontWeight: 700,
+        },
+        title: {
+          offsetCenter: [0, '28%'],
+          color: '#64748b',
+          fontSize: 11,
+        },
+        data: [{ value: percent, name: String(count) }],
+      },
+    ],
+    animationDuration: 800,
+  }), [percent, count, colour]);
+
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="relative size-24">
-        <svg className="size-full -rotate-90" viewBox="0 0 90 90">
-          <circle cx="45" cy="45" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={6} />
-          <circle
-            cx="45"
-            cy="45"
-            r={radius}
-            fill="none"
-            stroke={colour}
-            strokeWidth={6}
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 600ms ease-out' }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-bold" style={{ color: colour }}>{percent}%</span>
-          <span className="text-xs text-slate-500">{count}</span>
-        </div>
-      </div>
+      <EChart option={option} className="size-24" ariaLabel={`${label}: ${percent}%`} />
       <p className="text-center text-xs font-medium text-slate-600">{label}</p>
     </div>
   );
