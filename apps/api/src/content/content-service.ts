@@ -994,6 +994,17 @@ export class ContentService {
     // were also converted in commit ba2ecc9d for the same reason. Web
     // consumers wrap reads with asString() so int/string is transparent.
     const courseIdInt = toNullableIntId(courseId) ?? 0;
+    // Ansaba UAT 2026-05-27 — Flutter Course model also types
+    // `subjects`, `lessons`, and `progress` as int. Previously we only
+    // exposed `subject_count` / `lessons_count` (PHP-snake-case) and
+    // never sent `progress` — Flutter's null-safety threw "type 'Null'
+    // is not a subtype of type 'int'" the moment those fields were
+    // read on the My Course / Home Ongoing Courses cards. Add the
+    // mobile aliases as native ints. Web consumers reading the legacy
+    // *_count names keep working unchanged.
+    const progressPct = isEnrolled
+      ? (await this.calculateUserProgress(userId, courseId)).progress
+      : 0;
     return {
       id: courseIdInt,
       title: toStringValue(course.title),
@@ -1012,6 +1023,10 @@ export class ContentService {
       is_enrolled: isEnrolled ? 1 : 0,
       lessons_count: lessonsCount,
       subject_count: subjectCount,
+      // Mobile-app aliases (Flutter Dart types these as int).
+      lessons: lessonsCount,
+      subjects: subjectCount,
+      progress: progressPct,
       total_reviews: totalReviews,
       total_rating: totalRating,
     };

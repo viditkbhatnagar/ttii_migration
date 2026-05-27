@@ -1546,13 +1546,100 @@ export class EngagementService {
       is_enrolled: b.course_id != null && ongoingCourseIds.has(b.course_id) ? 1 : 0,
     }));
 
+    // Ansaba UAT 2026-05-27 — Flutter Home + My Course cards type
+    // `subjects`, `lessons`, and `progress` as int. Without these the
+    // app crashed with "type 'Null' is not a subtype of int" / showed
+    // "null Subjects | null Lessons | null%". Compute counts here in
+    // one shot for the courses we're about to surface.
+    // course_subject is a composite-key pivot (no `id` column) — use
+    // _count._all and group by course_id.
+    const subjectCounts = courseIds.length > 0
+      ? await this.prisma.course_subject.groupBy({
+          by: ['course_id'],
+          where: { course_id: { in: courseIds }, deleted_at: null },
+          _count: { _all: true },
+        })
+      : [];
+    const subjectCountMap = new Map<number, number>();
+    for (const sc of subjectCounts) {
+      if (sc.course_id == null) continue;
+      subjectCountMap.set(sc.course_id, sc._count?._all ?? 0);
+    }
+
+    // Per-course progress for the user — completed lesson_files /
+    // total lesson_files. Only computed for courses the user is
+    // actively enrolled in; non-enrolled featured courses get 0.
+    // Table is video_progress_status (status=1 ⇒ completed).
+    const completedByCourse = userIdInt && ongoingCourseIds.size > 0
+      ? await this.prisma.video_progress_status.groupBy({
+          by: ['course_id'],
+          where: {
+            user_id: userIdInt,
+            course_id: { in: [...ongoingCourseIds] },
+            status: 1,
+            deleted_at: null,
+          },
+          _count: { id: true },
+        })
+      : [];
+    const completedMap = new Map<number, number>();
+    for (const c of completedByCourse) {
+      if (c.course_id == null) continue;
+      completedMap.set(c.course_id, c._count?.id ?? 0);
+    }
+    // Total lesson_files per ongoing course (denominator). One query.
+    const ongoingIdsArr = [...ongoingCourseIds];
+    const lessonsForOngoing = ongoingIdsArr.length > 0
+      ? await this.prisma.lesson.findMany({
+          where: { course_id: { in: ongoingIdsArr }, deleted_at: null },
+          select: { id: true, course_id: true },
+        })
+      : [];
+    const lessonIdsByCourse = new Map<number, number[]>();
+    for (const l of lessonsForOngoing) {
+      if (l.course_id == null) continue;
+      const arr = lessonIdsByCourse.get(l.course_id) ?? [];
+      arr.push(l.id);
+      lessonIdsByCourse.set(l.course_id, arr);
+    }
+    const allLessonIds = lessonsForOngoing.map((l) => l.id);
+    const lessonFilesByLesson = allLessonIds.length > 0
+      ? await this.prisma.lesson_files.groupBy({
+          by: ['lesson_id'],
+          where: { lesson_id: { in: allLessonIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const filesPerLesson = new Map<number, number>();
+    for (const f of lessonFilesByLesson) {
+      if (f.lesson_id == null) continue;
+      filesPerLesson.set(f.lesson_id, f._count?.id ?? 0);
+    }
+    const totalFilesByCourse = new Map<number, number>();
+    for (const [cid, lessonIds] of lessonIdsByCourse) {
+      let total = 0;
+      for (const lid of lessonIds) total += filesPerLesson.get(lid) ?? 0;
+      totalFilesByCourse.set(cid, total);
+    }
+    const progressForCourse = (courseId: number): number => {
+      if (!ongoingCourseIds.has(courseId)) return 0;
+      const total = totalFilesByCourse.get(courseId) ?? 0;
+      if (total === 0) return 0;
+      const done = completedMap.get(courseId) ?? 0;
+      return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+    };
+
     const courseToTiny = (c: typeof courseRows[number]): Record<string, unknown> => ({
       id: String(c.id),
       title: String(c.title ?? ''),
       thumbnail: toLegacyFileUrl(c.thumbnail),
       price: String(c.total_amount ?? '0'),
       discounted_price: String(c.sale_price ?? c.total_amount ?? '0'),
+      // Flutter mobile aliases — see comment above. Always native int,
+      // never null, so Dart's null-safety doesn't throw.
       lessons: lessonCountMap.get(c.id) ?? 0,
+      subjects: subjectCountMap.get(c.id) ?? 0,
+      progress: progressForCourse(c.id),
     });
 
     const ongoingCourses = courseRows
