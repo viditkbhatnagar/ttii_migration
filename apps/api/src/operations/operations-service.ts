@@ -3398,6 +3398,10 @@ export class OperationsService {
       toTime: string;
       durationMinutes?: number | undefined;
       description?: string | undefined;
+      // Risha UAT 2026-05-27 — admin toggle. true means each student
+      // gets a random question order on attempt-start; false means
+      // questions are served in their saved question_no order.
+      shuffleQuestions?: boolean | undefined;
     },
   ): Promise<Record<string, unknown>> {
     const title = input.title.trim();
@@ -3423,6 +3427,9 @@ export class OperationsService {
       // existing list/edit pages keep working until they migrate.
       course_id: courseIdsInt[0] ?? null,
       status: 'draft',
+      // Risha UAT 2026-05-27 — only persist when the admin explicitly
+      // sent a value; otherwise leave the existing setting untouched.
+      ...(input.shuffleQuestions !== undefined ? { shuffle_questions: input.shuffleQuestions } : {}),
       updated_at: now,
       updated_by: actor,
     } as const;
@@ -3497,6 +3504,9 @@ export class OperationsService {
         to_time: row.to_time,
         duration: row.duration,
         status: row.status,
+        // Risha UAT 2026-05-27 — surface the shuffle setting so the
+        // Edit Exam form can pre-fill the toggle.
+        shuffle_questions: row.shuffle_questions,
         course_ids: courseLinks.map((c) => c.course_id),
         offering_ids: offeringLinks.map((o) => o.offering_id),
       },

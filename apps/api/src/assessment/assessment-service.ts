@@ -701,9 +701,22 @@ export class AssessmentService {
       return { attemptId: '', questionNo: 0 };
     }
 
+    // Risha UAT 2026-05-27 — when exam.shuffle_questions is ON, randomize
+    // the question order per student. The order is then locked into
+    // exam_attempt.question_id as a JSON array, so resuming preserves
+    // the same shuffled sequence for the same student.
+    const examIdInt = toNullableIntId(input.examId);
+    const examRow = examIdInt
+      ? await this.prisma.exam.findFirst({
+          where: { id: examIdInt, deleted_at: null },
+          select: { shuffle_questions: true },
+        })
+      : null;
+    const shuffle = examRow?.shuffle_questions === true;
+
     const questions = await this.prisma.exam_questions.findMany({
       where: {
-        exam_id: toNullableIntId(input.examId),
+        exam_id: examIdInt,
         deleted_at: null,
       },
       select: {
@@ -717,9 +730,22 @@ export class AssessmentService {
       ],
     });
 
-    const questionIds = questions
+    let questionIds = questions
       .map((q) => toStringValue(q.question_id).trim())
       .filter((id) => id !== '');
+    if (shuffle && questionIds.length > 1) {
+      // Fisher–Yates shuffle. Each student's attempt gets a fresh order;
+      // resuming reads it back from exam_attempt.question_id so the
+      // same student sees the same order across sessions.
+      const arr = questionIds.slice();
+      for (let i = arr.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = arr[i] as string;
+        arr[i] = arr[j] as string;
+        arr[j] = tmp;
+      }
+      questionIds = arr;
+    }
 
     const now = new Date();
 

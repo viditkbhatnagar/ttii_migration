@@ -1363,6 +1363,13 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const courseIdsRaw = Array.isArray(payload.course_ids) ? payload.course_ids : [];
       const offeringIdsRaw = Array.isArray(payload.offering_ids) ? payload.offering_ids : [];
+      // Risha UAT 2026-05-27 — accept the new shuffle_questions flag
+      // (boolean, may also arrive as "1" / "0" / "true" / "false" from
+      // form-encoded payloads).
+      const shuffleRaw = payload.shuffle_questions;
+      const shuffleQuestions = shuffleRaw === undefined
+        ? undefined
+        : shuffleRaw === true || shuffleRaw === 1 || shuffleRaw === '1' || shuffleRaw === 'true';
       const result = await operationsService.saveExamDraft(requestUserId(request), {
         id: toStringValue(payload.id) || null,
         title: toStringValue(payload.title),
@@ -1374,6 +1381,7 @@ export function registerOperationsRoutes(
         toTime: toStringValue(payload.to_time),
         durationMinutes: toInteger(payload.duration_minutes),
         description: toStringValue(payload.description) || undefined,
+        ...(shuffleQuestions !== undefined ? { shuffleQuestions } : {}),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
