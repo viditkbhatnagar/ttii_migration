@@ -204,6 +204,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/fee_management/course_fee_structure', aliases: ['/admin/fee_management/structure'], pageComponent: CourseFeeStructurePage, title: 'Course Fee Structure' },
   { path: '/admin/fee_management/fee_summary', aliases: ['/admin/fee_management/summary'], pageComponent: FeeSummaryPage, title: 'Fee Summary' },
   { path: '/admin/cohorts/add', pageComponent: AddCohortPage, title: 'Add Cohorts' },
+  // Risha UAT 2026-05-27 — Edit reuses the Add page in URL-detected edit mode.
+  { path: '/admin/cohorts/edit/:id', pageComponent: AddCohortPage, title: 'Edit Cohort' },
   { path: '/admin/cohorts/view/:id', pageComponent: ViewCohortPage, title: 'View Cohort' },
   { path: '/admin/live_class/index', aliases: ['/admin/live_class'], pageComponent: LiveClassPage, title: 'Live Sessions' },
   { path: '/admin/cohorts/attendance', pageComponent: AttendancePage, title: 'Attendance Management' },

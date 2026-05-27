@@ -32,6 +32,16 @@ function buildCohortCode(subjectShort: string, dateStr: string): string {
 }
 
 export default function AddCohortPage({ api, session, onNavigate }: AdminPageProps) {
+  // Risha UAT 2026-05-27 — reused for /admin/cohorts/edit/:id too.
+  // When the URL carries an id we load the existing cohort, pre-fill
+  // every field, lock the course picker to that one course (editing
+  // never spawns N cohorts), and POST to editAdminCohort on save.
+  const editCohortId = useMemo(() => {
+    const m = window.location.pathname.match(/\/admin\/cohorts\/edit\/([^/?#]+)/);
+    return m?.[1] ?? null;
+  }, []);
+  const isEditMode = editCohortId !== null;
+
   const [title, setTitle] = useState('');
   const [cohortCode, setCohortCode] = useState('');
   const [subjectId, setSubjectId] = useState('');
@@ -42,6 +52,11 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   const [endDate, setEndDate] = useState('');
   const [offeringIds, setOfferingIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(isEditMode);
+  // Once the existing-cohort row has been hydrated we suppress the
+  // auto-generate Name + Code effect (otherwise editing the dates
+  // would clobber a hand-edited title).
+  const [hydrated, setHydrated] = useState(!isEditMode);
 
   const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
   const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
@@ -69,17 +84,24 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     return toRecords(selectedSubject.courses);
   }, [selectedSubject]);
 
-  // Subject change → clear courses & offerings.
+  // Subject change → clear courses & offerings. Skipped on the first
+  // pass while we hydrate the existing cohort in edit mode — otherwise
+  // the loader's setSubjectId() would wipe the courseIds we just set.
   useEffect(() => {
+    if (!hydrated) return;
     setCourseIds(new Set());
     setOfferingIds(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId]);
 
   // Load offerings for ALL selected courses (multi-course) and union them.
+  // In edit mode we keep the loaded selection until the user actually
+  // changes the course; otherwise hydrate would wipe the offering ticks
+  // we just restored.
   useEffect(() => {
     if (courseIds.size === 0) {
       setOfferings([]);
-      setOfferingIds(new Set());
+      if (hydrated) setOfferingIds(new Set());
       return;
     }
     let cancelled = false;
@@ -101,14 +123,18 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       }
       setOfferings(merged);
     });
-    setOfferingIds(new Set());
+    if (hydrated) setOfferingIds(new Set());
     return () => {
       cancelled = true;
     };
-  }, [api, session.token, courseIds]);
+  }, [api, session.token, courseIds, hydrated]);
 
   // Auto-generate Name + Code as soon as Subject + Start Date are both set.
+  // Skipped while we're still loading the existing cohort in edit mode
+  // — otherwise the auto-fill would overwrite the values we just loaded.
   useEffect(() => {
+    if (!hydrated) return;
+    if (isEditMode) return;
     if (!subjectId || !startDate) return;
     const subject = subjects.find((s) => asString(s.id) === subjectId);
     if (!subject) return;
@@ -138,6 +164,55 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     });
   }, []);
 
+  // Risha UAT 2026-05-27 — load the cohort being edited and pre-fill
+  // every field. Runs once on mount when an :id is on the URL.
+  useEffect(() => {
+    if (!isEditMode || !editCohortId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const detail = await api.getCohortDetail(session.token, editCohortId);
+        if (cancelled) return;
+        const c = (detail?.data as Record<string, unknown> | undefined) ?? detail;
+        if (!c || typeof c !== 'object') {
+          toast.error('Could not load this cohort.');
+          setLoadingEdit(false);
+          setHydrated(true);
+          return;
+        }
+        const row = c;
+        const inner = row.cohort;
+        const cohort: Record<string, unknown> =
+          typeof inner === 'object' && inner !== null ? (inner as Record<string, unknown>) : row;
+        setTitle(asString(cohort.title));
+        setCohortCode(asString(cohort.cohort_id) || asString(cohort.cohort_code));
+        setSubjectId(asString(cohort.subject_id));
+        const cId = asString(cohort.course_id);
+        if (cId) setCourseIds(new Set([cId]));
+        setInstructorId(asString(cohort.instructor_id));
+        setLanguageId(asString(cohort.language_id));
+        const sd = asString(cohort.start_date);
+        const ed = asString(cohort.end_date);
+        setStartDate(sd ? sd.slice(0, 10) : '');
+        setEndDate(ed ? ed.slice(0, 10) : '');
+        // Offerings — backend returns `offering_ids` array on the detail
+        // (mirrored from cohort_offerings pivot).
+        const offIds = Array.isArray(cohort.offering_ids)
+          ? (cohort.offering_ids as unknown[]).map((v) => asString(v)).filter(Boolean)
+          : [];
+        setOfferingIds(new Set(offIds));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load cohort.');
+      } finally {
+        if (!cancelled) {
+          setLoadingEdit(false);
+          setHydrated(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, session.token, editCohortId, isEditMode]);
+
   const handleSubmit = async () => {
     if (!title.trim()) {
       toast.error('Cohort name is required.');
@@ -148,11 +223,42 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       return;
     }
     setSubmitting(true);
+    const courseIdList = Array.from(courseIds);
+    const offeringIdList = Array.from(offeringIds);
+
+    // Risha UAT 2026-05-27 — edit mode updates a single existing row;
+    // we never spawn N new cohorts when editing.
+    if (isEditMode && editCohortId) {
+      const cid = courseIdList[0] ?? '';
+      try {
+        const res = await api.editAdminCohort(session.token, editCohortId, {
+          title,
+          cohortCode,
+          courseId: cid,
+          subjectId,
+          centreId: '',
+          instructorId,
+          languageId,
+          startDate,
+          endDate,
+          offeringIds: offeringIdList,
+        });
+        if (res && (res as { status?: number }).status === 0) {
+          toast.error(asString((res as { message?: unknown }).message) || 'Failed to update cohort.');
+        } else {
+          toast.success('Cohort updated.');
+          onNavigate('/admin/cohorts/index');
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to update cohort.');
+      }
+      setSubmitting(false);
+      return;
+    }
+
     // Multi-course = one cohort row per course. The cohorts schema stores a
     // single course_id, so picking N courses creates N cohort rows that
     // share metadata (subject, dates, code, offerings, instructor).
-    const courseIdList = Array.from(courseIds);
-    const offeringIdList = Array.from(offeringIds);
     let createdCount = 0;
     let firstError: string | null = null;
     for (const cid of courseIdList) {
@@ -193,7 +299,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Add Cohort" />
+      <AdminPageHeader title={isEditMode ? 'Edit Cohort' : 'Add Cohort'} />
 
       <Card className="mx-auto max-w-2xl">
         <CardContent className="space-y-4 p-6">
@@ -374,14 +480,16 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
             </Button>
             <Button
               onClick={() => { void handleSubmit(); }}
-              disabled={submitting || !title.trim() || courseIds.size === 0}
+              disabled={submitting || loadingEdit || !title.trim() || courseIds.size === 0}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
-              {submitting
-                ? 'Creating...'
-                : courseIds.size > 1
-                  ? `Create ${courseIds.size} Cohorts`
-                  : 'Create Cohort'}
+              {isEditMode
+                ? (submitting ? 'Saving…' : 'Save Changes')
+                : (submitting
+                  ? 'Creating...'
+                  : courseIds.size > 1
+                    ? `Create ${courseIds.size} Cohorts`
+                    : 'Create Cohort')}
             </Button>
           </div>
         </CardContent>
