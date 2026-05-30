@@ -1937,8 +1937,16 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase 2: Re-Examination ────────────────────────────────────────────
+  //
+  // 2026-05-30 — Renamed from `/admin/Re_exam/index` + `/admin/Re_exam/grant`
+  // (CamelCase) to `/admin/re_exam/manage_list` + `/admin/re_exam/manage_grant`
+  // when the API switched to case-insensitive routing (Flutter mobile sends
+  // PHP-style CamelCase URLs that 404'd under Fastify's case-sensitive default).
+  // The CamelCase paths collided with the Naji 2026-05-09 lowercase
+  // `/admin/re_exam/*` family above; these renamed routes preserve the older
+  // filtered-list + grant implementation for callers that need them.
 
-  app.get('/admin/Re_exam/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/re_exam/manage_list', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const filters: AdminReExamFilters = {
@@ -1952,7 +1960,7 @@ export function registerOperationsRoutes(
     }
   });
 
-  app.post('/admin/Re_exam/grant', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/re_exam/manage_grant', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.grantReExam(

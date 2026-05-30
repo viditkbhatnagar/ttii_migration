@@ -40,6 +40,18 @@ export function buildApp(options: BuildAppOptions = {}) {
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
+    // PHP CodeIgniter (the legacy LMS) was case-insensitive for controller
+    // names, so the Flutter app sends URLs like `/api/Course/get_subjects`,
+    // `/api/Profile/index`, `/api/Home/index`. Fastify's default is
+    // case-sensitive, which 404s every CamelCase URL on the new API.
+    // Switch to case-insensitive so the same registered lowercase route
+    // (`/course/get_subjects`) matches every casing the app may send.
+    //
+    // (Top-level `caseSensitive` works in Fastify 5 but emits FSTDEP022; the
+    // forward-compatible spelling for Fastify 6 is `routerOptions.caseSensitive`.)
+    routerOptions: {
+      caseSensitive: false,
+    },
   });
 
   app.register(cors, {

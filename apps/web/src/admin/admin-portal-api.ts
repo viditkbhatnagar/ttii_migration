@@ -1503,7 +1503,11 @@ export class AdminPortalApi {
     authToken: string,
     filters: { courseId?: string; batchId?: string } = {},
   ): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/Re_exam/index', authToken, {
+    // Server route was renamed from /admin/Re_exam/index → /admin/re_exam/manage_list
+    // on 2026-05-30 when the API switched to case-insensitive routing (the
+    // CamelCase path collided with the Naji 2026-05-09 /admin/re_exam/index
+    // overview endpoint).
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/re_exam/manage_list', authToken, {
       ...(filters.courseId ? { course_id: filters.courseId } : {}),
       ...(filters.batchId ? { batch_id: filters.batchId } : {}),
     });
@@ -1511,7 +1515,7 @@ export class AdminPortalApi {
   }
 
   async grantReExam(authToken: string, examId: string, userIds: string[]): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/Re_exam/grant', authToken, {
+    return this.post<Record<string, unknown>>('/admin/re_exam/manage_grant', authToken, {
       exam_id: examId,
       user_ids: userIds,
     });
