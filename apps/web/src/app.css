@@ -218,3 +218,16 @@
     transform: translateY(0);
   }
 }
+
+/* Preserve authored blank lines in rich-text article bodies.
+   Risha UAT 2026-05-30 — spacing she added between paragraphs in the editor
+   wasn't showing in the preview. The TipTap editor serializes an empty line
+   as <p></p>, which collapses to zero height under Tailwind `prose`, so the
+   vertical gap disappears in the rendered/preview article (and the student
+   reading view). Giving empty paragraphs a non-breaking space restores the
+   blank line everywhere the HTML is rendered. In the editor itself ProseMirror
+   keeps a <br> inside empty paragraphs, so they are not `:empty` there and
+   this rule does not double the spacing while typing. */
+.prose p:empty::before {
+  content: "\00a0";
+}
