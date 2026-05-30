@@ -2672,6 +2672,7 @@ model content_asset {
   asset_type         String    @db.VarChar(30)
   subject_tag        String?   @db.VarChar(100)
   lesson_tag         String?   @db.VarChar(100)
+  lesson_id          Int?
   language           String?   @db.VarChar(50)
   duration           String?   @db.VarChar(30)
   provider           String?   @db.VarChar(30)
@@ -2694,6 +2695,7 @@ model content_asset {
 
   @@index([asset_type])
   @@index([subject_tag])
+  @@index([lesson_id])
 }
 
 model quiz_question {

@@ -55,6 +55,7 @@ export type ContentAssetInput = {
   asset_type: string;
   subject_tag?: string | undefined;
   lesson_tag?: string | undefined;
+  lesson_id?: number | null | undefined;
   language?: string | undefined;
   duration?: string | undefined;
   provider?: string | undefined;
@@ -124,6 +125,7 @@ function serializeAsset(
     asset_type: row.asset_type,
     subject_tag: row.subject_tag ?? '',
     lesson_tag: row.lesson_tag ?? '',
+    lesson_id: row.lesson_id ?? null,
     language: row.language ?? '',
     duration: row.duration ?? '',
     provider: row.provider ?? '',
@@ -238,6 +240,7 @@ export class ContentAssetService {
           asset_type: input.asset_type,
           subject_tag: input.subject_tag ?? null,
           lesson_tag: input.lesson_tag ?? null,
+          lesson_id: input.lesson_id ?? null,
           language: input.language ?? null,
           duration: input.duration ?? null,
           provider: input.provider ?? null,
@@ -292,6 +295,7 @@ export class ContentAssetService {
           asset_type: input.asset_type,
           subject_tag: input.subject_tag ?? null,
           lesson_tag: input.lesson_tag ?? null,
+          lesson_id: input.lesson_id ?? null,
           language: input.language ?? null,
           duration: input.duration ?? null,
           provider: input.provider ?? null,

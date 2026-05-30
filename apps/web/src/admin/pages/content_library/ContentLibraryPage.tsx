@@ -16,6 +16,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
+import { SearchableSelect } from '../../shared/components/SearchableSelect.js';
 import { useConfirm } from '@/components/confirm-dialog';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
@@ -44,6 +45,7 @@ interface AssetForm {
   asset_type: string;
   subject_tag: string;
   lesson_tag: string;
+  lesson_id: string;
   language: string;
   duration: string;
   video_url: string;
@@ -63,11 +65,20 @@ const emptyQuestion: QuestionForm = {
 };
 
 const emptyForm: AssetForm = {
-  title: '', summary: '', asset_type: 'video', subject_tag: '', lesson_tag: '', language: '',
+  title: '', summary: '', asset_type: 'video', subject_tag: '', lesson_tag: '', lesson_id: '', language: '',
   duration: '', video_url: '', attachment: '', audio_file: '', thumbnail: '', tags: '',
   time_limit_minutes: '', attempts_allowed: '', pass_marks: '', shuffle_questions: false,
   questions: [],
 };
+
+// "Subject › Lesson" label for a lesson row from listAllLessonsAdmin. Two
+// lessons can share a title across subjects, so the subject prefix
+// disambiguates; collisions beyond that are handled by the caller.
+function lessonLabel(row: Record<string, unknown>): string {
+  const subject = asString(row.subject_title).trim();
+  const lesson = asString(row.title).trim() || `Lesson ${asString(row.id)}`;
+  return subject ? `${subject} › ${lesson}` : lesson;
+}
 
 function isDocPdf(url: string): boolean {
   return /\.pdf($|\?)/i.test(url);
@@ -141,9 +152,48 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     [filterType],
   );
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
+  // All lessons (across subjects/courses) for the "Linked Lesson" picker.
+  const { data: lessonsData } = useAdminPageData(() => api.listAllLessonsAdmin(session.token), []);
 
   const allRows = useMemo(() => toRecords(data), [data]);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+
+  // Build the lesson option list + bidirectional maps between the display
+  // label ("Subject › Lesson") and the numeric lesson id. Labels are made
+  // unique by appending " · #id" only when the same label repeats, so the
+  // dropdown stays readable for the common (unique-title) case.
+  const { lessonOptions, labelToLessonId, lessonIdToLabel } = useMemo(() => {
+    const rows = toRecords(lessonsData);
+    const labelToId = new Map<string, string>();
+    const idToLabel = new Map<string, string>();
+    const seen = new Map<string, number>();
+    const opts: string[] = [];
+    for (const row of rows) {
+      const id = asString(row.id);
+      if (!id) continue;
+      let label = lessonLabel(row);
+      const count = seen.get(label) ?? 0;
+      seen.set(label, count + 1);
+      if (count > 0) label = `${label} · #${id}`;
+      opts.push(label);
+      labelToId.set(label, id);
+      idToLabel.set(id, label);
+    }
+    return { lessonOptions: opts, labelToLessonId: labelToId, lessonIdToLabel: idToLabel };
+  }, [lessonsData]);
+
+  // Quick lookups from lesson id → its lesson title / subject title, used to
+  // auto-fill the denormalized Lesson Tag + Subject Tag when a lesson is picked.
+  const { lessonIdToTitle, lessonIdToSubject } = useMemo(() => {
+    const title = new Map<string, string>();
+    const subject = new Map<string, string>();
+    for (const row of toRecords(lessonsData)) {
+      const id = asString(row.id);
+      title.set(id, asString(row.title));
+      subject.set(id, asString(row.subject_title));
+    }
+    return { lessonIdToTitle: title, lessonIdToSubject: subject };
+  }, [lessonsData]);
 
   const rows = useMemo(() => {
     return allRows.filter((r) => {
@@ -202,6 +252,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
       asset_type: asString(asset.asset_type) || 'video',
       subject_tag: asString(asset.subject_tag),
       lesson_tag: asString(asset.lesson_tag),
+      lesson_id: asString(asset.lesson_id),
       language: asString(asset.language),
       duration: asString(asset.duration),
       video_url: asString(asset.video_url),
@@ -229,6 +280,7 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
         asset_type: form.asset_type,
         subject_tag: form.subject_tag.trim() || undefined,
         lesson_tag: form.lesson_tag.trim() || undefined,
+        lesson_id: form.lesson_id ? Number(form.lesson_id) : null,
         language: form.language || undefined,
         duration: form.duration.trim() || undefined,
         video_url: form.video_url.trim() || undefined,
@@ -570,6 +622,35 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 </select>
               </div>
             </div>
+            {/* Risha UAT 2026-05-30 — link an asset to a real lesson. Picking
+                a lesson here stores its id AND auto-fills the Subject/Lesson
+                tags below (kept for filtering, the table column, and mobile).
+                The tags remain editable for legacy/manual tagging or assets
+                not tied to any lesson. */}
+            <div className="space-y-1.5">
+              <SearchableSelect
+                label="Linked Lesson"
+                value={form.lesson_id ? (lessonIdToLabel.get(form.lesson_id) ?? '') : ''}
+                options={lessonOptions}
+                placeholder="Search a lesson to link…"
+                hint="Optional — links this asset to a specific lesson and fills the tags below."
+                onChange={(label) => {
+                  const id = labelToLessonId.get(label);
+                  if (id) {
+                    setForm((f) => ({
+                      ...f,
+                      lesson_id: id,
+                      lesson_tag: lessonIdToTitle.get(id) || f.lesson_tag,
+                      subject_tag: lessonIdToSubject.get(id) || f.subject_tag,
+                    }));
+                  } else {
+                    // Cleared or free-typed text that doesn't match a lesson →
+                    // drop the hard link but leave the text tags untouched.
+                    setForm((f) => ({ ...f, lesson_id: '' }));
+                  }
+                }}
+              />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Subject Tag</Label>
@@ -626,6 +707,10 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 <RichTextEditor
                   value={form.summary}
                   onChange={(html) => setForm((f) => ({ ...f, summary: html }))}
+                  onUploadImage={async (file) => {
+                    const r = await api.uploadFile(session.token, file);
+                    return r.url;
+                  }}
                 />
               </div>
             ) : form.asset_type !== 'quiz' ? (

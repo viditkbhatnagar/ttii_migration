@@ -115,6 +115,7 @@ function buildContentAssetInput(payload: Record<string, unknown>): ContentAssetI
     asset_type: toStringValue(payload.asset_type) || 'video',
     subject_tag: toStringValue(payload.subject_tag) || undefined,
     lesson_tag: toStringValue(payload.lesson_tag) || undefined,
+    lesson_id: toOptionalNumber(payload.lesson_id) ?? null,
     language: toStringValue(payload.language) || undefined,
     duration: toStringValue(payload.duration) || undefined,
     provider: toStringValue(payload.provider) || undefined,
