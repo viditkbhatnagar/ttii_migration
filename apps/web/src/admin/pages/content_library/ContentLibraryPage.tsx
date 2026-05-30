@@ -152,11 +152,28 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
     [filterType],
   );
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
-  // All lessons (across subjects/courses) for the "Linked Lesson" picker.
+  // Subjects + lessons (across all courses) power the Subject Tag / Lesson Tag
+  // dropdowns — Risha 2026-05-30 wanted both tag fields to be pick-from-list
+  // rather than free text.
+  const { data: subjectsData } = useAdminPageData(() => api.listAllSubjects(session.token), []);
   const { data: lessonsData } = useAdminPageData(() => api.listAllLessonsAdmin(session.token), []);
 
   const allRows = useMemo(() => toRecords(data), [data]);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+
+  // Distinct subject titles for the Subject Tag dropdown.
+  const subjectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: string[] = [];
+    for (const row of toRecords(subjectsData)) {
+      const title = asString(row.title).trim();
+      if (title && !seen.has(title.toLowerCase())) {
+        seen.add(title.toLowerCase());
+        opts.push(title);
+      }
+    }
+    return opts;
+  }, [subjectsData]);
 
   // Build the lesson option list + bidirectional maps between the display
   // label ("Subject › Lesson") and the numeric lesson id. Labels are made
@@ -622,44 +639,41 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
                 </select>
               </div>
             </div>
-            {/* Risha UAT 2026-05-30 — link an asset to a real lesson. Picking
-                a lesson here stores its id AND auto-fills the Subject/Lesson
-                tags below (kept for filtering, the table column, and mobile).
-                The tags remain editable for legacy/manual tagging or assets
-                not tied to any lesson. */}
-            <div className="space-y-1.5">
+            {/* Risha UAT 2026-05-30 — both tag fields are now pick-from-list
+                dropdowns. The Lesson Tag dropdown spans every subject (labelled
+                "Subject › Lesson") and, on pick, stores the real lesson_id link
+                under the hood + auto-fills the Subject Tag. Free typing is still
+                allowed so legacy text tags keep working. */}
+            <div className="grid gap-3 sm:grid-cols-2">
               <SearchableSelect
-                label="Linked Lesson"
-                value={form.lesson_id ? (lessonIdToLabel.get(form.lesson_id) ?? '') : ''}
+                label="Subject Tag"
+                value={form.subject_tag}
+                options={subjectOptions}
+                placeholder="Choose or type a subject…"
+                onChange={(v) => setForm((f) => ({ ...f, subject_tag: v }))}
+              />
+              <SearchableSelect
+                label="Lesson Tag"
+                value={form.lesson_id ? (lessonIdToLabel.get(form.lesson_id) ?? form.lesson_tag) : form.lesson_tag}
                 options={lessonOptions}
-                placeholder="Search a lesson to link…"
-                hint="Optional — links this asset to a specific lesson and fills the tags below."
+                placeholder="Choose or type a lesson…"
                 onChange={(label) => {
                   const id = labelToLessonId.get(label);
                   if (id) {
+                    // Picked a real lesson → store the link + fill both tags.
                     setForm((f) => ({
                       ...f,
                       lesson_id: id,
-                      lesson_tag: lessonIdToTitle.get(id) || f.lesson_tag,
+                      lesson_tag: lessonIdToTitle.get(id) || label,
                       subject_tag: lessonIdToSubject.get(id) || f.subject_tag,
                     }));
                   } else {
-                    // Cleared or free-typed text that doesn't match a lesson →
-                    // drop the hard link but leave the text tags untouched.
-                    setForm((f) => ({ ...f, lesson_id: '' }));
+                    // Free-typed text that doesn't match a lesson → keep it as
+                    // a plain text tag and drop any previous hard link.
+                    setForm((f) => ({ ...f, lesson_tag: label, lesson_id: '' }));
                   }
                 }}
               />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Subject Tag</Label>
-                <Input value={form.subject_tag} onChange={(e) => setForm((f) => ({ ...f, subject_tag: e.target.value }))} placeholder="e.g. Child Development" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Lesson Tag</Label>
-                <Input value={form.lesson_tag} onChange={(e) => setForm((f) => ({ ...f, lesson_tag: e.target.value }))} placeholder="e.g. Introduction" />
-              </div>
             </div>
             {form.asset_type === 'video' && (
               <div className="space-y-1.5">
