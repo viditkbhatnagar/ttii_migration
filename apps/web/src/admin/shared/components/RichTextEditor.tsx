@@ -27,7 +27,16 @@ export function RichTextEditor({ value, onChange, onUploadImage }: RichTextEdito
       // inline:false keeps images on their own line (block), which reads
       // better in article bodies; allowBase64 stays off so we never bloat
       // the stored HTML with data URIs — images go through the uploader.
-      Image.configure({ inline: false, allowBase64: false }),
+      // referrerpolicy=no-referrer lets images hosted on sites that block
+      // hot-linking by Referer header still render in our preview/student
+      // view; loading=lazy defers off-screen images. Both are baked into the
+      // stored HTML so every render surface gets them. (Risha 2026-05-30 —
+      // images added by URL weren't showing in the preview.)
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+        HTMLAttributes: { referrerpolicy: 'no-referrer', loading: 'lazy' },
+      }),
     ],
     content: value,
     onUpdate: ({ editor: e }) => {
@@ -46,10 +55,26 @@ export function RichTextEditor({ value, onChange, onUploadImage }: RichTextEdito
   const btn = (active: boolean) =>
     `px-2 py-1 text-xs rounded transition-colors ${active ? 'bg-ttii-primary/10 text-ttii-primary font-semibold' : 'text-gray-600 hover:bg-gray-100'}`;
 
+  // Normalise a pasted image URL. The #1 reason an "Image URL" doesn't show
+  // is a missing scheme: a link like "www.site.com/x.jpg" or "site.com/x.jpg"
+  // is treated by the browser as a path RELATIVE to admin.teachersindia.in,
+  // so it 404s and renders blank. Prepend https:// in that case. Leave
+  // absolute (http/https), root-relative (/...), data: and protocol-relative
+  // (//...) URLs untouched.
+  const normalizeImageUrl = (raw: string): string => {
+    const url = raw.trim();
+    if (!url) return '';
+    if (/^(https?:)?\/\//i.test(url) || url.startsWith('/') || url.startsWith('data:')) {
+      return url;
+    }
+    return `https://${url}`;
+  };
+
   const insertImageByUrl = (): void => {
-    const url = window.prompt('Image URL');
-    if (url && url.trim()) {
-      editor.chain().focus().setImage({ src: url.trim() }).run();
+    const raw = window.prompt('Paste a direct image link (must start with https://)');
+    const url = normalizeImageUrl(raw ?? '');
+    if (url) {
+      editor.chain().focus().setImage({ src: url }).run();
     }
   };
 
