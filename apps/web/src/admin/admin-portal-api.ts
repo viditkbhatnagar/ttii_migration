@@ -3004,4 +3004,19 @@ export class AdminPortalApi {
   async sendPaymentReminder(authToken: string, installmentId: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/fee_management/send_reminder', authToken, { installment_id: installmentId });
   }
+
+  // ── Payment Approval (Finance) ────────────────────────────────────────
+
+  async listPaymentApprovals(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/fee_management/payment_approvals', authToken);
+    return toRecords(payload.data);
+  }
+
+  async approvePayment(authToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/fee_management/payment_approvals/approve', authToken, { id });
+  }
+
+  async rejectPayment(authToken: string, id: string, reason: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/fee_management/payment_approvals/reject', authToken, { id, reason });
+  }
 }

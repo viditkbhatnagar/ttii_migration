@@ -101,6 +101,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'fee-summary', label: 'Fee Summary', href: '/admin/fee_management/fee_summary' },
       { id: 'fee-installments', label: 'Fee Installments', href: '/admin/fee_management/installments' },
       { id: 'payment-status', label: 'Payment Status', href: '/admin/fee_management/payment_status' },
+      { id: 'payment-approval', label: 'Payment Approval', href: '/admin/fee_management/payment_approvals' },
     ],
   },
   {

@@ -2167,6 +2167,30 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Payment Approval (Finance) — Naji UAT 2026-05-31.
+  app.get('/admin/fee_management/payment_approvals', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listPaymentApprovals();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/fee_management/payment_approvals/approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.approveManualPayment(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/fee_management/payment_approvals/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.rejectManualPayment(requestUserId(request), toStringValue(payload.id), toStringValue(payload.reason));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/fee_management/payment_status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

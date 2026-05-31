@@ -106,6 +106,7 @@ const SessionFeedbacksPage = lazy(() => import('../pages/cohorts/SessionFeedback
 const CourseFeePage = lazy(() => import('../pages/fee/CourseFeePage.js'));
 const FeeInstallmentsPage = lazy(() => import('../pages/fee/FeeInstallmentsPage.js'));
 const PaymentStatusPage = lazy(() => import('../pages/fee/PaymentStatusPage.js'));
+const PaymentApprovalPage = lazy(() => import('../pages/fee/PaymentApprovalPage.js'));
 const ScholarshipsPage = lazy(() => import('../pages/scholarships/ScholarshipsPage.js'));
 const InstructorsPage = lazy(() => import('../pages/instructor/InstructorsPage.js'));
 const AdminUsersPage = lazy(() => import('../pages/users/AdminUsersPage.js'));
@@ -217,6 +218,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/course_fee/index', aliases: ['/admin/course_fee'], pageComponent: CourseFeePage, title: 'Course Fee Status' },
   { path: '/admin/fee_management/installments', pageComponent: FeeInstallmentsPage, title: 'Fee Installments' },
   { path: '/admin/fee_management/payment_status', pageComponent: PaymentStatusPage, title: 'Payment Status' },
+  { path: '/admin/fee_management/payment_approvals', pageComponent: PaymentApprovalPage, title: 'Payment Approval' },
   { path: '/admin/scholarships/index', pageComponent: ScholarshipsPage, title: 'Scholarships' },
 
   // Instructors

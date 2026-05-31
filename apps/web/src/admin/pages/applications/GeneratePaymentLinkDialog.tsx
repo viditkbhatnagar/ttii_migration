@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FileUpload } from '../../shared/components/FileUpload.js';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 
 type Mode = 'full' | 'installment';
@@ -139,6 +140,13 @@ export function GeneratePaymentLinkDialog({
   // is clicked; each row is editable inline.
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Manual (offline) payment capture — Naji 2026-05-31. Recording this
+  // doesn't send a Razorpay link; it logs the payment for Finance approval.
+  const [manualMode, setManualMode] = useState('Cash');
+  const [manualReference, setManualReference] = useState('');
+  const [manualReceiptUrl, setManualReceiptUrl] = useState('');
+  const [manualSubmitting, setManualSubmitting] = useState(false);
 
   // Did the (offering, combination) package lookup match a row? Used to
   // surface a clear "no pricing set" notice so admins know to enter
@@ -459,6 +467,27 @@ export function GeneratePaymentLinkDialog({
     }
   };
 
+  // Record an offline payment. Goes to Finance as pending approval (the
+  // server returns a message saying so) rather than reflecting immediately.
+  const recordManualPayment = async () => {
+    setManualSubmitting(true);
+    try {
+      const res = await api.markApplicationPaid(authToken, applicationId, {
+        mode: manualMode,
+        reference: manualReference.trim(),
+        receipt_url: manualReceiptUrl.trim(),
+      });
+      const m = (res as { message?: string }).message ?? '';
+      if ((res as { status?: number }).status === 1) {
+        toast.success(m || 'Manual payment recorded — pending finance approval.');
+        onOpenChange(false);
+        onSent?.();
+      } else toast.error(m || 'Could not record payment.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed.');
+    } finally { setManualSubmitting(false); }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Naji UAT 2026-05-16 — went 960 → 1120 → fluid. The dialog now
@@ -685,6 +714,55 @@ export function GeneratePaymentLinkDialog({
               value={linkExpiryDays}
               onChange={(e) => setLinkExpiryDays(Math.max(1, Number(e.target.value) || 7))}
             />
+          </div>
+
+          {/* Manual payment — Naji 2026-05-31. Already paid offline? Record it
+              here instead of sending a link. It goes to Finance for approval
+              (Fee Information → Payment Approval) before reflecting. */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Or record a manual payment</p>
+            <p className="mb-3 text-[11px] text-slate-400">Paid by cash / bank / cheque / UPI offline. Sent to Finance for approval before it reflects.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Mode</Label>
+                <select
+                  value={manualMode}
+                  onChange={(e) => setManualMode(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {['Cash', 'Bank Transfer', 'Cheque', 'UPI', 'Card', 'Other'].map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Reference Number</Label>
+                <Input
+                  value={manualReference}
+                  onChange={(e) => setManualReference(e.target.value)}
+                  placeholder="Txn / cheque / UTR no."
+                />
+              </div>
+            </div>
+            <div className="mt-3 space-y-1">
+              <Label className="text-xs">Receipt (optional)</Label>
+              <FileUpload
+                value={manualReceiptUrl}
+                onChange={setManualReceiptUrl}
+                onUpload={async (file) => { const r = await api.uploadFile(authToken, file); return r.url; }}
+                accept=".pdf,image/*"
+                placeholder="Upload receipt or paste a URL"
+              />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => { void recordManualPayment(); }}
+                disabled={manualSubmitting}
+              >
+                {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
+              </Button>
+            </div>
           </div>
         </div>
 

@@ -8293,26 +8293,124 @@ export class OperationsService {
       marked_by: actor,
     };
 
+    // Naji UAT 2026-05-31 — manual payments no longer reflect immediately.
+    // They enter `pending_approval`; the Finance team approves them under
+    // Fee Information → Payment Approval, and only then does the application
+    // flip to paid + notify. Razorpay (auto) payments bypass this via the
+    // webhook handler below. We deliberately DON'T touch `stage` or
+    // `payment_marked_paid_at` here — those are set on approval.
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        payment_status: 'pending_approval',
+        payment_method: input.mode || 'manual',
+        payment_plan: JSON.stringify(planObj),
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    await this.recordEvent(id, 'payment_pending_approval', `Manual payment recorded via ${input.mode || 'manual'}${input.reference ? ` (ref: ${input.reference})` : ''} — awaiting finance approval`, actorUserId, {
+      mode: input.mode,
+      reference: input.reference,
+      receipt_url: input.receiptUrl,
+    });
+    return { status: 1, message: 'Manual payment recorded — pending finance approval.' };
+  }
+
+  // ── Payment Approval (Finance) ────────────────────────────────────────
+  // Naji UAT 2026-05-31 — Finance reviews manual (Mark Paid) payments before
+  // they reflect to the student. Razorpay payments never appear here.
+
+  async listPaymentApprovals(): Promise<Record<string, unknown>[]> {
+    const apps = await this.prisma.applications.findMany({
+      where: { payment_status: 'pending_approval', deleted_at: null },
+      orderBy: { updated_at: 'desc' },
+    });
+    if (apps.length === 0) return [];
+    const courseIds = [...new Set(apps.map((a) => a.course_id).filter((c): c is number => !!c))];
+    const courses = courseIds.length
+      ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
+    return apps.map((a) => {
+      let manual: Record<string, unknown> = {};
+      let totalMinor = 0;
+      if (a.payment_plan) {
+        try {
+          const plan = JSON.parse(a.payment_plan) as Record<string, unknown>;
+          manual = (plan.manual_payment as Record<string, unknown>) ?? {};
+          totalMinor = Number(plan.total_amount_minor ?? 0);
+        } catch { /* ignore malformed plan */ }
+      }
+      return {
+        id: String(a.id),
+        application_id: a.application_id ?? '',
+        name: a.name ?? '',
+        email: a.user_email ?? '',
+        course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
+        amount: totalMinor > 0 ? totalMinor / 100 : null,
+        mode: toStringValue(manual.mode) || a.payment_method || 'manual',
+        reference: toStringValue(manual.reference),
+        receipt_url: toStringValue(manual.receipt_url) ? toLegacyFileUrl(toStringValue(manual.receipt_url)) : '',
+        note: toStringValue(manual.note),
+        marked_at: toStringValue(manual.marked_at),
+        updated_at: a.updated_at,
+      };
+    });
+  }
+
+  async approveManualPayment(actorUserId: string, applicationId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { payment_status: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (app.payment_status !== 'pending_approval') {
+      return { status: 0, message: 'This payment is not awaiting approval.' };
+    }
+    const now = new Date();
     await this.prisma.applications.update({
       where: { id },
       data: {
         stage: 'paid',
         payment_status: 'paid',
-        payment_method: input.mode || 'manual',
-        payment_plan: JSON.stringify(planObj),
         payment_marked_paid_at: now,
         payment_marked_paid_by: actor,
         updated_at: now,
         updated_by: actor,
       },
     });
-    await this.recordEvent(id, 'marked_as_paid', `Marked as paid via ${input.mode || 'manual'}${input.reference ? ` (ref: ${input.reference})` : ''}`, actorUserId, {
-      mode: input.mode,
-      reference: input.reference,
-      receipt_url: input.receiptUrl,
-    });
+    await this.recordEvent(id, 'payment_approved', 'Manual payment approved by finance', actorUserId, {});
     await this.notifyApplicationEvent(id, 'payment_received');
-    return { status: 1, message: 'Marked as paid.' };
+    return { status: 1, message: 'Payment approved.' };
+  }
+
+  async rejectManualPayment(actorUserId: string, applicationId: string, reason: string): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { payment_status: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (app.payment_status !== 'pending_approval') {
+      return { status: 0, message: 'This payment is not awaiting approval.' };
+    }
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        payment_status: 'payment_rejected',
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    await this.recordEvent(id, 'payment_rejected', `Manual payment rejected by finance${reason ? `: ${reason}` : ''}`, actorUserId, { reason });
+    return { status: 1, message: 'Payment rejected.' };
   }
 
   // Razorpay webhook handler — `payment_link.paid` flips paid + advances
