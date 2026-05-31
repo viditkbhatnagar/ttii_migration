@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+import { env } from '../env.js';
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
@@ -99,5 +100,69 @@ export function registerTelephonyRoutes(app: FastifyInstance, options: RegisterT
     } catch (error: unknown) {
       sendAinvoxError(reply, error);
     }
+  });
+
+  // ── PUBLIC call-flow endpoint ─────────────────────────────────────────────
+  // Ainvox POSTs here when a server-placed call is answered, to fetch the
+  // call-control JSON. It can't carry our auth token, so it's guarded by an
+  // unguessable token in the query string. Both key casings are emitted
+  // because the Ainvox docs disagree (snake_case vs camelCase).
+  const flowToken = env.AINVOX_FLOW_TOKEN;
+  const flowBase = env.AINVOX_PUBLIC_BASE_URL.replace(/\/+$/, '');
+  const hangupUrl = `${flowBase}/api/calls/flow/hangup`;
+
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/calls/flow',
+    handler: (request: FastifyRequest, reply: FastifyReply) => {
+      const token = queryValue(request, 'token');
+      if (!flowToken || token !== flowToken) {
+        reply.code(403).send({ action: 'hangup' });
+        return;
+      }
+      const action = queryValue(request, 'action');
+      if (action === 'record') {
+        // Single-leg recording (proves capture works on an answered call).
+        reply.send({
+          action: 'record',
+          maxLength: 60,
+          max_length: 60,
+          playBeep: true,
+          play_beep: true,
+          flowUrl: hangupUrl,
+          flow_url: hangupUrl,
+        });
+        return;
+      }
+      if (action === 'dial') {
+        // Connect the answered agent leg to the student, recording both sides.
+        const to = queryValue(request, 'to');
+        const callerId = env.AINVOX_VIRTUAL_NUMBER ?? '';
+        reply.send({
+          action: 'Dial',
+          callerId,
+          caller_id: callerId,
+          numbers: to ? [to] : [],
+          timeout: 30,
+          record: 'true',
+          recordStatusUrl: '',
+          record_status_url: '',
+          callStatusUrl: '',
+          call_status_url: '',
+          flowUrl: hangupUrl,
+          flow_url: hangupUrl,
+        });
+        return;
+      }
+      reply.send({ action: 'hangup' });
+    },
+  });
+
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/calls/flow/hangup',
+    handler: (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send({ action: 'hangup' });
+    },
   });
 }

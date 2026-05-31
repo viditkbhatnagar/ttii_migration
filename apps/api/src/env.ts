@@ -133,6 +133,12 @@ const envSchema = z.object({
   AINVOX_ACCOUNT_ID: optionalStringFromEnv,
   AINVOX_VIRTUAL_NUMBER: optionalStringFromEnv,
   AINVOX_TIMEOUT_MS: z.coerce.number().int().min(100).default(15000),
+  // Server-side click-to-call: Ainvox fetches call-control JSON from a PUBLIC
+  // flow endpoint on our API (it can't send our auth token), so it's guarded by
+  // this unguessable token instead. AINVOX_PUBLIC_BASE_URL must be a host Ainvox
+  // can reach (NOT APP_BASE_URL — that points at a dead host in prod).
+  AINVOX_FLOW_TOKEN: optionalStringFromEnv,
+  AINVOX_PUBLIC_BASE_URL: z.string().url().default('https://admin.teachersindia.in'),
 });
 
 export const env = envSchema.parse(process.env);
