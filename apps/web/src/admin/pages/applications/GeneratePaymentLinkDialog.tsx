@@ -470,6 +470,10 @@ export function GeneratePaymentLinkDialog({
   // Record an offline payment. Goes to Finance as pending approval (the
   // server returns a message saying so) rather than reflecting immediately.
   const recordManualPayment = async () => {
+    // Naji 2026-05-31 — Reference + Receipt are both mandatory for a manual
+    // payment (Finance needs proof to approve it).
+    if (!manualReference.trim()) { toast.error('Reference number is required.'); return; }
+    if (!manualReceiptUrl.trim()) { toast.error('Receipt is required.'); return; }
     setManualSubmitting(true);
     try {
       const res = await api.markApplicationPaid(authToken, applicationId, {
@@ -736,7 +740,7 @@ export function GeneratePaymentLinkDialog({
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Reference Number</Label>
+                <Label className="text-xs">Reference Number *</Label>
                 <Input
                   value={manualReference}
                   onChange={(e) => setManualReference(e.target.value)}
@@ -745,7 +749,7 @@ export function GeneratePaymentLinkDialog({
               </div>
             </div>
             <div className="mt-3 space-y-1">
-              <Label className="text-xs">Receipt (optional)</Label>
+              <Label className="text-xs">Receipt *</Label>
               <FileUpload
                 value={manualReceiptUrl}
                 onChange={setManualReceiptUrl}

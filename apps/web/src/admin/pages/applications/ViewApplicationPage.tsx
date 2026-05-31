@@ -153,6 +153,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const handleSubmitMarkPaid = useCallback(async () => {
     if (!applicationId) return;
     if (!markPaidReference.trim()) { toast.error('Reference number is required.'); return; }
+    if (!markPaidReceiptUrl.trim()) { toast.error('Receipt is required.'); return; }
     setSubmitting(true);
     try {
       const res = await api.markApplicationPaid(session.token, applicationId, {
@@ -1005,7 +1006,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="mp-receipt">Receipt</Label>
+              <Label htmlFor="mp-receipt">Receipt *</Label>
               {markPaidReceiptUrl ? (
                 <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                   <span className="truncate">Uploaded: {markPaidReceiptUrl.split('/').pop()}</span>
