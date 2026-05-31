@@ -20,6 +20,8 @@ import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/ad
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
+import { CallButton } from '../../shared/components/CallButton.js';
+import { CallHistoryPanel } from '../../shared/components/CallHistoryPanel.js';
 
 // Naji UAT 2026-05-13 — Student Profile page modelled on the
 // regal-folio-kit reference. Each main tab now carries an icon for
@@ -735,6 +737,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <CallButton phone={asString(student.phone)} />
               <Button
                 variant="outline"
                 size="sm"
@@ -1311,28 +1314,31 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         </Card>
       )}
 
-      {/* Tab 7: Communication — Email + WhatsApp + In-app Notifications */}
+      {/* Tab 7: Communication — Call History + In-app Notifications */}
       {activeTab === 6 && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Communication</CardTitle></CardHeader>
-          <CardContent>
-            {notifications.length === 0 ? (
-              <p className="text-sm text-gray-500">No in-app notifications yet.</p>
-            ) : (
-              <ul className="space-y-2 border-l border-gray-200 pl-4">
-                {notifications.slice(0, 50).map((n, idx) => (
-                  <li key={idx} className="relative">
-                    <span className="absolute -left-[17px] top-1.5 h-2 w-2 rounded-full bg-blue-500" />
-                    <div className="text-sm font-medium text-gray-900">{asString(n.title)}</div>
-                    <div className="text-xs text-gray-500">{asString(n.description)}</div>
-                    <div className="mt-0.5 text-[11px] text-gray-400">{formatDate(n.sent_at)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="mt-3 text-xs text-gray-400 italic">Email and WhatsApp logs not yet available — will be wired once provider integrations land.</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <CallHistoryPanel api={api} authToken={session.token} phone={asString(student.phone)} />
+          <Card>
+            <CardHeader><CardTitle className="text-base">Notifications</CardTitle></CardHeader>
+            <CardContent>
+              {notifications.length === 0 ? (
+                <p className="text-sm text-gray-500">No in-app notifications yet.</p>
+              ) : (
+                <ul className="space-y-2 border-l border-gray-200 pl-4">
+                  {notifications.slice(0, 50).map((n, idx) => (
+                    <li key={idx} className="relative">
+                      <span className="absolute -left-[17px] top-1.5 h-2 w-2 rounded-full bg-blue-500" />
+                      <div className="text-sm font-medium text-gray-900">{asString(n.title)}</div>
+                      <div className="text-xs text-gray-500">{asString(n.description)}</div>
+                      <div className="mt-0.5 text-[11px] text-gray-400">{formatDate(n.sent_at)}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-3 text-xs text-gray-400 italic">Email and WhatsApp logs not yet available — will be wired once provider integrations land.</p>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Tab 8: Activity Log */}

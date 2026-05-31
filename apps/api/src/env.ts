@@ -119,6 +119,20 @@ const envSchema = z.object({
   OPENAI_TIMEOUT_MS: z.coerce.number().int().min(100).default(15000),
   OPENAI_RETRY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(6).default(3),
   OPENAI_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(25).default(250),
+
+  // Ainvox cloud-telephony (admin click-to-call + recorded call history).
+  // Outbound calls are placed from the browser Dialer SDK; call logs and
+  // recordings are pulled server-side via Basic Auth (public:secret) — the
+  // secret key NEVER reaches the browser. Defaults to 'noop' so the routes
+  // refuse with 503 until the keys are generated from the Ainvox dashboard.
+  AINVOX_PROVIDER: z.enum(['ainvox', 'noop']).default('noop'),
+  AINVOX_BASE_URL: z.string().url().default('https://app.ainvox.com'),
+  AINVOX_PUBLIC_KEY: optionalStringFromEnv,
+  AINVOX_SECRET_KEY: optionalStringFromEnv,
+  // Required by the call-log API (verified live — the endpoint 400s without it).
+  AINVOX_ACCOUNT_ID: optionalStringFromEnv,
+  AINVOX_VIRTUAL_NUMBER: optionalStringFromEnv,
+  AINVOX_TIMEOUT_MS: z.coerce.number().int().min(100).default(15000),
 });
 
 export const env = envSchema.parse(process.env);

@@ -16,6 +16,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { placeCall } from '../../shared/ainvox-dialer.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
 
@@ -268,6 +269,14 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       {
         label: 'Edit',
         onClick: (row) => openEditDialog(row),
+      },
+      {
+        label: 'Call',
+        onClick: (row) => {
+          void placeCall(asString(row.phone)).catch((err: unknown) =>
+            toast.error(err instanceof Error ? err.message : 'Could not start the call'),
+          );
+        },
       },
       {
         label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),

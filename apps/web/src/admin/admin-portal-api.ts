@@ -268,6 +268,29 @@ export interface AdminPaymentStatusSnapshot {
   installments: Record<string, unknown>[];
 }
 
+// ── Ainvox call history (admin-only) ──────────────────────────────
+export interface AdminCallLog {
+  uuid: string;
+  direction: string | null;
+  phoneNumber: string | null;
+  virtualNumber: string | null;
+  status: string | null;
+  durationSeconds: number | null;
+  recordingUrl: string | null;
+  startedAt: string | null;
+  answeredAt: string | null;
+  endedAt: string | null;
+  hangupCause: string | null;
+  cost: number | null;
+}
+
+export interface AdminCallLogPage {
+  pageNumber: number;
+  perPage: number;
+  totalRows: number | null;
+  data: AdminCallLog[];
+}
+
 export class AdminPortalApi {
   private readonly apiClient: LegacyApiClient;
 
@@ -2383,6 +2406,22 @@ export class AdminPortalApi {
       throw new Error(message);
     }
     return data.url;
+  }
+
+  // ── Ainvox call history ───────────────────────────────────────────
+  // Pull a student's call log (filtered by their phone, +E.164) from Ainvox
+  // via our server-side proxy. Empty/inert until AINVOX_PROVIDER=ainvox.
+  async getStudentCallLogs(authToken: string, phone: string): Promise<AdminCallLogPage> {
+    const payload = await this.get<LegacyEnvelope<AdminCallLogPage>>('/admin/calls/log', authToken, { phone });
+    return payload.data ?? { pageNumber: 1, perPage: 20, totalRows: null, data: [] };
+  }
+
+  // Direct URL for an <audio> element. The auth token rides in the query so
+  // the browser can stream it; the server proxies the file from Ainvox with
+  // Basic Auth (the Ainvox secret never reaches the browser).
+  getCallRecordingUrl(authToken: string, recordingPath: string): string {
+    const base = this.apiClient.getBaseUrl();
+    return `${base}admin/calls/recording?path=${encodeURIComponent(recordingPath)}&auth_token=${encodeURIComponent(authToken)}`;
   }
 
   async deleteResource(authToken: string, id: string, type: string): Promise<Record<string, unknown>> {

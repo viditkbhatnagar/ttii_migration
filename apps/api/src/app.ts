@@ -23,6 +23,7 @@ import { registerOperationsRoutes } from './routes/operations.js';
 import { registerInstructorRoutes } from './routes/instructor.js';
 import { registerCertificationRoutes } from './routes/certification.js';
 import { registerProfileRoutes } from './routes/profile.js';
+import { registerTelephonyRoutes } from './routes/telephony.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -125,6 +126,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     prefix: '/api',
     authService,
     storage: integrations.storage,
+  });
+
+  // Ainvox telephony — admin-only call history + recordings (outbound calls
+  // are placed from the browser Dialer SDK; this surfaces the logs/recordings).
+  app.register(registerTelephonyRoutes, {
+    prefix: '/api',
+    authService,
   });
 
   // --- Background cron jobs ---
