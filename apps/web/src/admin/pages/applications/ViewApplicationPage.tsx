@@ -278,6 +278,15 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       gstPercent?: number;
       gst_percent?: number;
     }>;
+    // Naji 2026-05-31 — manual (Mark Paid) payment details stashed by the
+    // server so the Payment Plan tab can show what was actually paid.
+    manual_payment?: {
+      mode?: string;
+      reference?: string;
+      receipt_url?: string;
+      note?: string;
+      marked_at?: string;
+    };
   };
   const savedPlan: SavedPlan | null = (() => {
     const raw = app.payment_plan;
@@ -291,6 +300,44 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const paymentLinkUrl = asString(app.payment_link_url);
   const paymentStatus = asString(app.payment_status);
   const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
+
+  // Naji 2026-05-31 — Payment Plan must reflect the actual payment, not just a
+  // badge. A colour-coded status chip + a "Payment Received / Manual Payment
+  // Recorded" block (mode / reference / receipt / date) are shown in both the
+  // lead-stage Payment Plan tab and the non-lead inline card.
+  const manual = savedPlan?.manual_payment;
+  const paymentStatusBadge = paymentStatus ? (
+    <span className={`rounded-md px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${
+      paymentStatus === 'paid' ? 'bg-emerald-100 text-emerald-800'
+        : paymentStatus === 'pending_approval' ? 'bg-amber-100 text-amber-800'
+          : paymentStatus === 'payment_rejected' ? 'bg-red-100 text-red-700'
+            : 'bg-slate-100 text-slate-700'}`}>
+      {paymentStatus === 'pending_approval' ? 'Pending Approval'
+        : paymentStatus === 'payment_rejected' ? 'Rejected'
+          : paymentStatus.replace(/_/g, ' ')}
+    </span>
+  ) : null;
+  const manualPaymentBlock = manual && (asString(manual.reference) || asString(manual.mode)) ? (
+    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
+        {paymentStatus === 'paid' ? 'Payment Received' : 'Manual Payment Recorded'}
+      </p>
+      <div className="grid gap-x-8 sm:grid-cols-2">
+        <InfoRow label="Mode" value={asString(manual.mode) || '-'} />
+        <InfoRow label="Reference" value={asString(manual.reference) || '-'} />
+        <InfoRow label="Recorded" value={manual.marked_at ? formatDate(manual.marked_at) : '-'} />
+        {asString(manual.receipt_url) ? (
+          <div className="flex justify-between gap-4 py-1.5 text-sm">
+            <span className="text-gray-500">Receipt</span>
+            <a href={asString(manual.receipt_url)} target="_blank" rel="noreferrer" className="font-medium text-ttii-primary hover:underline">View</a>
+          </div>
+        ) : null}
+      </div>
+      {paymentStatus === 'pending_approval' ? (
+        <p className="mt-2 text-xs text-amber-700">Awaiting Finance approval before it reflects to the student.</p>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-4">
@@ -506,11 +553,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between text-base">
                     <span>Payment Plan</span>
-                    {paymentStatus ? (
-                      <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
-                        {paymentStatus}
-                      </span>
-                    ) : null}
+                    {paymentStatusBadge}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -596,6 +639,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                       </table>
                     </div>
                   ) : null}
+                  {manualPaymentBlock}
                 </CardContent>
               </Card>
             ) : (
@@ -656,11 +700,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
               <span>Payment Plan</span>
-              {paymentStatus ? (
-                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-800">
-                  {paymentStatus}
-                </span>
-              ) : null}
+              {paymentStatusBadge}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -685,6 +725,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                 )}
               </div>
             </div>
+            {manualPaymentBlock}
           </CardContent>
         </Card>
       )}
