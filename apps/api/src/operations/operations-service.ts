@@ -7869,11 +7869,42 @@ export class OperationsService {
     }
     // Naji 2026-05-08 — also surface education_pathway so the public
     // form can prefill the editor on load.
-    const educationPathway = await this.prisma.application_education_pathway.findMany({
-      where: { application_id: row.application_id },
-      orderBy: [{ position: 'asc' }, { id: 'asc' }],
-    });
-    return { status: 1, data: { application: app, draft, education_pathway: educationPathway } };
+    // Naji UAT 2026-05-31 — the public form must show the Course +
+    // Offering read-only at the top, and drive the Documents section
+    // from the course's required-documents config. Look up the course
+    // title, offering title, and the per-course required document slots.
+    const [educationPathway, course, offering, reqLinks, docTypes] = await Promise.all([
+      this.prisma.application_education_pathway.findMany({
+        where: { application_id: row.application_id },
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      }),
+      app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id }, select: { id: true, title: true } }) : null,
+      app.offering_id ? this.prisma.offerings.findFirst({ where: { id: app.offering_id }, select: { id: true, title: true, offering_code: true } }) : null,
+      app.course_id
+        ? this.prisma.course_required_documents.findMany({
+            where: { course_id: app.course_id, deleted_at: null },
+            orderBy: [{ position: 'asc' }, { document_type_id: 'asc' }],
+          })
+        : [],
+      this.prisma.document_types.findMany({ where: { deleted_at: null }, select: { id: true, label: true } }),
+    ]);
+    const docTypeLabelById = new Map(docTypes.map((t) => [t.id, t.label]));
+    const requiredDocuments = reqLinks.map((l) => ({
+      document_type_id: l.document_type_id,
+      label: docTypeLabelById.get(l.document_type_id) ?? `#${l.document_type_id}`,
+      is_mandatory: Boolean(l.is_mandatory),
+    }));
+    return {
+      status: 1,
+      data: {
+        application: app,
+        draft,
+        education_pathway: educationPathway,
+        course: course ? { id: String(course.id), title: course.title ?? '' } : null,
+        offering: offering ? { id: String(offering.id), title: offering.title ?? '', offering_code: offering.offering_code ?? '' } : null,
+        required_documents: requiredDocuments,
+      },
+    };
   }
 
   async saveApplicationFormDraft(token: string, draftJson: string): Promise<Record<string, unknown>> {

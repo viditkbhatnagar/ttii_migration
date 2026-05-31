@@ -7,11 +7,37 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
+// Naji UAT 2026-05-31 — Country / State / District as cascading
+// dropdowns sourced from the shared location dataset.
+import { COUNTRIES, INDIAN_STATES, getDistrictsForState } from '@/lib/locations';
 
 type ApiOk = { status: 1; data?: Record<string, unknown> };
 type ApiErr = { status: number; message?: string };
 
 const API_BASE = '/api';
+
+// Naji UAT 2026-05-31 — Highest Qualification is now a fixed dropdown
+// instead of free text so the data stays clean.
+const QUALIFICATION_OPTIONS: readonly string[] = [
+  '10th / SSLC',
+  '12th / HSC',
+  'Diploma',
+  'Undergraduate (Bachelor’s)',
+  'Postgraduate (Master’s)',
+  'Doctorate (PhD)',
+  'Other',
+];
+
+// Year of Passing dropdown — current year down to 1970.
+const YEAR_OPTIONS: readonly string[] = (() => {
+  const current = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = current; y >= 1970; y--) years.push(String(y));
+  return years;
+})();
+
+// Country name list for the Nationality + Country dropdowns.
+const COUNTRY_NAMES: readonly string[] = COUNTRIES.map((c) => c.name);
 
 function asString(v: unknown): string {
   if (typeof v !== 'string') return '';
@@ -21,9 +47,39 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
+// Naji UAT 2026-05-31 — DOB must read + accept dd/mm/yyyy (the native
+// <input type="date"> renders in the browser locale, which can't be
+// overridden). We display/accept dd/mm/yyyy and keep the canonical
+// yyyy-mm-dd internally so the backend is unaffected. Same pattern as
+// GeneratePaymentLinkDialog.tsx.
+function isoToDmy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+function dmyToIso(dmy: string): string {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dmy.trim());
+  if (!m) return '';
+  return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
+}
+
+// Age in whole years from an ISO yyyy-mm-dd date of birth.
+function computeAge(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return '';
+  const dob = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(dob.getTime())) return '';
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const monthDiff = now.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dob.getDate())) age--;
+  return age >= 0 && age < 150 ? String(age) : '';
+}
+
 interface FormState {
-  first_name: string;
-  last_name: string;
+  // Naji UAT 2026-05-31 — single Full Name field (was First + Last).
+  // Split back into first_name / last_name on save/submit so the
+  // backend payload is unchanged.
+  full_name: string;
   date_of_birth: string;
   gender: string;
   nationality: string;
@@ -34,6 +90,8 @@ interface FormState {
   aadhar_no: string;
   passport_no: string;
   // Naji 2026-05-08: contact info section — was missing entirely.
+  // Naji UAT 2026-05-31 — email + phone are now read-only (prefilled
+  // from the lead).
   email: string;
   phone: string;
   // Naji 2026-05-09 — phone + WhatsApp country codes (the admin form
@@ -53,11 +111,14 @@ interface FormState {
   specialization: string;
   previous_school: string;
   year_of_passing: string;
-  percentage_or_grade: string;
+  // percentage_or_grade removed from the UI (Naji UAT 2026-05-31) but
+  // still sent as '' so the backend column stays tolerant.
   teaching_experience: string;
   employment_status: string;
   organization_name: string;
   experience_years: string;
+  // Mapped to the "Current Occupation" label in the UI; backend field
+  // name stays `designation`.
   designation: string;
 }
 
@@ -70,16 +131,72 @@ interface EducationPathwayRow {
   marks: string;
 }
 
+// Course / offering / required-documents context surfaced by the
+// /apply loader (Naji UAT 2026-05-31).
+interface RequiredDocument {
+  document_type_id: number;
+  label: string;
+  is_mandatory: boolean;
+}
+
 function emptyForm(): FormState {
   return {
-    first_name: '', last_name: '', date_of_birth: '', gender: '', nationality: 'India',
+    full_name: '', date_of_birth: '', gender: '', nationality: 'India',
     marital_status: '', father_name: '', mother_name: '', guardian_name: '',
     aadhar_no: '', passport_no: '',
     email: '', phone: '', country_code: '91', alternate_phone: '', whatsapp_no: '', whatsapp_country_code: '91', photo_url: '', country: 'India',
     address: '', native_address: '', state: '', district: '',
     highest_qualification: '', specialization: '', previous_school: '', year_of_passing: '',
-    percentage_or_grade: '', teaching_experience: '', employment_status: '',
+    teaching_experience: '', employment_status: '',
     organization_name: '', experience_years: '', designation: '',
+  };
+}
+
+// Split a single full name into first + remainder for the backend.
+function splitName(full: string): { first_name: string; last_name: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  return { first_name: parts[0] ?? '', last_name: parts.slice(1).join(' ') };
+}
+
+// Build the backend payload from form state — maps Full Name → first/last
+// and keeps percentage_or_grade as '' (removed from UI). Used by both
+// save-draft and submit so the two stay in sync.
+function toBackendForm(form: FormState): Record<string, string> {
+  const { first_name, last_name } = splitName(form.full_name);
+  return {
+    first_name,
+    last_name,
+    date_of_birth: form.date_of_birth,
+    gender: form.gender,
+    nationality: form.nationality,
+    marital_status: form.marital_status,
+    father_name: form.father_name,
+    mother_name: form.mother_name,
+    guardian_name: form.guardian_name,
+    aadhar_no: form.aadhar_no,
+    passport_no: form.passport_no,
+    email: form.email,
+    phone: form.phone,
+    country_code: form.country_code,
+    alternate_phone: form.alternate_phone,
+    whatsapp_no: form.whatsapp_no,
+    whatsapp_country_code: form.whatsapp_country_code,
+    photo_url: form.photo_url,
+    country: form.country,
+    address: form.address,
+    native_address: form.native_address,
+    state: form.state,
+    district: form.district,
+    highest_qualification: form.highest_qualification,
+    specialization: form.specialization,
+    previous_school: form.previous_school,
+    year_of_passing: form.year_of_passing,
+    percentage_or_grade: '',
+    teaching_experience: form.teaching_experience,
+    employment_status: form.employment_status,
+    organization_name: form.organization_name,
+    experience_years: form.experience_years,
+    designation: form.designation,
   };
 }
 
@@ -108,6 +225,12 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [appName, setAppName] = useState<string>('');
   const [form, setForm] = useState<FormState>(emptyForm());
+  // Naji UAT 2026-05-31 — Course + Offering shown read-only at the top.
+  const [courseTitle, setCourseTitle] = useState<string>('');
+  const [offeringTitle, setOfferingTitle] = useState<string>('');
+  // Course-driven document slots (Naji UAT 2026-05-31). When the loader
+  // returns these, the Documents section renders one upload per slot.
+  const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
   const [signature, setSignature] = useState<string>('');
   // Naji UAT 2026-05-17 — five-point Student Declaration block as
   // explicit checkboxes the student must tick before they can submit.
@@ -138,18 +261,23 @@ export default function PublicApplyPage({ token }: { token: string }) {
         const next = emptyForm();
         // Hydrate from app (server fields have snake_case names matching FormState).
         const fields: Array<keyof FormState> = [
-          'first_name', 'last_name', 'date_of_birth', 'gender', 'nationality', 'marital_status',
+          'date_of_birth', 'gender', 'nationality', 'marital_status',
           'father_name', 'mother_name', 'guardian_name', 'aadhar_no', 'passport_no',
           'email', 'phone', 'country_code', 'alternate_phone', 'whatsapp_no', 'whatsapp_country_code', 'photo_url', 'country',
           'address', 'native_address', 'state', 'district',
-          'highest_qualification', 'specialization', 'previous_school', 'year_of_passing', 'percentage_or_grade',
+          'highest_qualification', 'specialization', 'previous_school', 'year_of_passing',
           'teaching_experience', 'employment_status', 'organization_name',
           'experience_years', 'designation',
         ];
-        if (asString(app.name)) {
-          const parts = asString(app.name).split(/\s+/);
-          next.first_name = parts[0] ?? '';
-          next.last_name = parts.slice(1).join(' ');
+        // Naji UAT 2026-05-31 — single Full Name field. Hydrate from the
+        // saved draft's full_name if present, else from the application's
+        // name (or first_name + last_name).
+        if (asString(draft.full_name)) {
+          next.full_name = asString(draft.full_name);
+        } else if (asString(app.name)) {
+          next.full_name = asString(app.name);
+        } else {
+          next.full_name = `${asString(app.first_name)} ${asString(app.last_name)}`.trim();
         }
         // Pre-fill contact + email from the application's existing fields.
         if (asString(app.user_email)) next.email = asString(app.user_email);
@@ -188,6 +316,28 @@ export default function PublicApplyPage({ token }: { token: string }) {
           }
           if (rows.length > 0) setEducationPathway(rows);
         }
+        // Naji UAT 2026-05-31 — course/offering read-only context +
+        // course-driven required document slots.
+        const courseInfo = asRecord(data.course);
+        const offeringInfo = asRecord(data.offering);
+        setCourseTitle(asString(courseInfo.title));
+        setOfferingTitle(asString(offeringInfo.title) || asString(offeringInfo.offering_code));
+        const reqDocsRaw = data.required_documents;
+        if (Array.isArray(reqDocsRaw)) {
+          const docs: RequiredDocument[] = [];
+          for (const entry of reqDocsRaw) {
+            if (!entry || typeof entry !== 'object') continue;
+            const r = entry as Record<string, unknown>;
+            const label = asString(r.label);
+            if (!label) continue;
+            docs.push({
+              document_type_id: typeof r.document_type_id === 'number' ? r.document_type_id : 0,
+              label,
+              is_mandatory: Boolean(r.is_mandatory),
+            });
+          }
+          setRequiredDocs(docs);
+        }
         setForm(next);
         setAppName(asString(app.name) || asString(app.user_email));
         setPhase('ready');
@@ -207,10 +357,15 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
+      // Persist the raw form (incl. the single full_name field) so the
+      // draft round-trips exactly when the student reopens the link. Also
+      // include the split first_name/last_name so any consumer reading the
+      // draft as an application snapshot still sees them.
+      const { first_name, last_name } = splitName(form.full_name);
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/save-draft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft: { ...form, education_pathway: educationPathway } }),
+        body: JSON.stringify({ draft: { ...form, first_name, last_name, percentage_or_grade: '', education_pathway: educationPathway } }),
       });
       const json = (await res.json()) as ApiOk | ApiErr;
       if (json.status === 1) toast.success('Draft saved.');
@@ -226,21 +381,18 @@ export default function PublicApplyPage({ token }: { token: string }) {
     // Naji UAT 2026-05-13 — public form now enforces the same required
     // fields as the admin Add Application form so leads can't submit a
     // blank application via the magic-link.
+    // Naji UAT 2026-05-31 — Profile Photo + Signature are mandatory;
+    // Full Name replaces First/Last; Aadhaar/Passport are conditionally
+    // required (at least one); Percentage/Grade removed.
+    if (!form.photo_url.trim()) { toast.error('Profile Photo is required.'); return; }
     const required: { value: string; label: string }[] = [
-      { value: form.photo_url, label: 'Profile Photo' },
-      { value: form.first_name.trim(), label: 'First Name' },
+      { value: form.full_name.trim(), label: 'Full Name' },
       { value: form.date_of_birth, label: 'Date of Birth' },
       { value: form.gender, label: 'Gender' },
       { value: form.nationality.trim(), label: 'Nationality' },
       { value: form.marital_status, label: 'Marital Status' },
       { value: form.father_name.trim(), label: "Father's Name" },
       { value: form.mother_name.trim(), label: "Mother's Name" },
-      { value: form.aadhar_no.trim(), label: 'Aadhaar No' },
-      { value: form.passport_no.trim(), label: 'Passport No' },
-      { value: form.email.trim(), label: 'Email' },
-      { value: form.phone.trim(), label: 'Phone' },
-      { value: form.alternate_phone.trim(), label: 'Alternate Phone' },
-      { value: form.whatsapp_no.trim(), label: 'WhatsApp Number' },
       { value: form.country.trim(), label: 'Country' },
       { value: form.state.trim(), label: 'State' },
       { value: form.district.trim(), label: 'District' },
@@ -253,8 +405,12 @@ export default function PublicApplyPage({ token }: { token: string }) {
     ];
     const missing = required.find((r) => !r.value);
     if (missing) { toast.error(`${missing.label} is required.`); return; }
-    const EMAIL_REGEX = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-    if (!EMAIL_REGEX.test(form.email.trim())) { toast.error('Email is invalid.'); return; }
+    // At least one of Aadhaar / Passport must be present. If Aadhaar is
+    // given, Passport isn't mandatory, and vice-versa.
+    if (!form.aadhar_no.trim() && !form.passport_no.trim()) {
+      toast.error('Please provide either an Aadhaar number or a Passport number.');
+      return;
+    }
     if (!signature.trim()) { toast.error('Please sign in the signature box.'); return; }
     if (declarations.some((checked) => !checked)) {
       toast.error('Please read and accept every declaration before submitting.');
@@ -265,7 +421,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form, signature: signature.trim(), documents, education_pathway: educationPathway }),
+        body: JSON.stringify({ form: toBackendForm(form), signature: signature.trim(), documents, education_pathway: educationPathway }),
       });
       const json = (await res.json()) as ApiOk | ApiErr;
       if (json.status === 1) {
@@ -314,8 +470,22 @@ export default function PublicApplyPage({ token }: { token: string }) {
             <p className="text-sm text-slate-500">{appName ? `Hi ${appName} — please review and complete the details below.` : 'Please complete the details below.'}</p>
           </div>
 
-          {/* Profile Photo — Naji 2026-05-09 — was admin-only. */}
-          <h2 className="pt-2 text-sm font-semibold text-slate-700">Profile Photo</h2>
+          {/* Course & Offering — Naji UAT 2026-05-31 — shown read-only at
+              the top so the applicant can confirm what they're applying for.
+              These are NOT editable. */}
+          {courseTitle || offeringTitle ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">You are applying for</p>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ReadOnlyField label="Course" value={courseTitle || '—'} />
+                <ReadOnlyField label="Offering" value={offeringTitle || '—'} />
+              </div>
+            </div>
+          ) : null}
+
+          {/* Profile Photo — Naji 2026-05-09 — was admin-only. Naji UAT
+              2026-05-31 — mandatory, plain file upload (no crop step). */}
+          <h2 className="pt-2 text-sm font-semibold text-slate-700">Profile Photo *</h2>
           <PhotoUploader
             token={token}
             value={form.photo_url}
@@ -324,61 +494,83 @@ export default function PublicApplyPage({ token }: { token: string }) {
 
           <h2 className="pt-2 text-sm font-semibold text-slate-700">Personal</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="First Name *" value={form.first_name} onChange={update('first_name')} titleCase />
-            <FieldText label="Last Name" value={form.last_name} onChange={update('last_name')} titleCase />
-            <FieldText label="Date of Birth *" type="date" value={form.date_of_birth} onChange={update('date_of_birth')} />
+            {/* Naji UAT 2026-05-31 — single Full Name field. */}
+            <FieldText label="Full Name *" value={form.full_name} onChange={update('full_name')} titleCase />
+            {/* DOB in dd/mm/yyyy + auto-computed read-only Age. */}
+            <FieldDmyDate label="Date of Birth *" value={form.date_of_birth} onChange={(iso) => setForm((p) => ({ ...p, date_of_birth: iso }))} />
+            <ReadOnlyField label="Age" value={computeAge(form.date_of_birth) || '—'} />
             <FieldSelect label="Gender *" value={form.gender} onChange={update('gender')} options={['', 'Male', 'Female', 'Other']} />
-            <FieldText label="Nationality *" value={form.nationality} onChange={update('nationality')} titleCase />
+            <FieldSelect label="Nationality *" value={form.nationality} onChange={update('nationality')} options={['', ...COUNTRY_NAMES]} />
             <FieldSelect label="Marital Status *" value={form.marital_status} onChange={update('marital_status')} options={['', 'Single', 'Married', 'Divorced', 'Widowed']} />
             <FieldText label="Father's Name *" value={form.father_name} onChange={update('father_name')} titleCase />
             <FieldText label="Mother's Name *" value={form.mother_name} onChange={update('mother_name')} titleCase />
             <FieldText label="Guardian's Name" value={form.guardian_name} onChange={update('guardian_name')} titleCase />
-            <FieldText label="Aadhaar No *" value={form.aadhar_no} onChange={update('aadhar_no')} />
-            <FieldText label="Passport No *" value={form.passport_no} onChange={update('passport_no')} />
+            {/* Naji UAT 2026-05-31 — at least one of Aadhaar / Passport is
+                required (validated on submit); neither is individually marked
+                mandatory. */}
+            <FieldText label="Aadhaar No" value={form.aadhar_no} onChange={update('aadhar_no')} />
+            <FieldText label="Passport No" value={form.passport_no} onChange={update('passport_no')} />
           </div>
+          <p className="-mt-2 text-xs text-slate-500">Provide at least one of Aadhaar No or Passport No.</p>
 
           {/* Contact Information — Naji 2026-05-08: was missing entirely;
               public form now mirrors the admin Add Application contact group.
-              Naji 2026-05-09 — phone + WhatsApp split into country code +
-              number to match the admin Add Application form. */}
+              Naji UAT 2026-05-31 — Email + Phone (incl. country code) are
+              read-only, prefilled from the lead. */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Contact Information</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="Email *" type="email" value={form.email} onChange={update('email')} />
+            <ReadOnlyField label="Email" value={form.email || '—'} />
+            <ReadOnlyField label="Phone" value={form.phone ? `+${form.country_code} ${form.phone}` : '—'} />
+            <FieldText label="Alternate Phone" value={form.alternate_phone} onChange={update('alternate_phone')} />
             <PhoneFieldGroup
-              label="Phone *"
-              code={form.country_code}
-              onCodeChange={update('country_code')}
-              number={form.phone}
-              onNumberChange={update('phone')}
-            />
-            <FieldText label="Alternate Phone *" value={form.alternate_phone} onChange={update('alternate_phone')} />
-            <PhoneFieldGroup
-              label="WhatsApp Number *"
+              label="WhatsApp Number"
               code={form.whatsapp_country_code}
               onCodeChange={update('whatsapp_country_code')}
               number={form.whatsapp_no}
               onNumberChange={update('whatsapp_no')}
             />
-            <FieldText label="Country *" value={form.country} onChange={update('country')} titleCase />
           </div>
 
+          {/* Address — Naji UAT 2026-05-31 — Country / State / District are
+              cascading dropdowns placed together; Country first, then State,
+              then District. */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Address</h2>
           <div className="grid grid-cols-1 gap-4">
             <FieldTextArea label="Permanent Address *" value={form.address} onChange={update('address')} />
             <FieldTextArea label="Correspondence / Native Address *" value={form.native_address} onChange={update('native_address')} />
-            <div className="grid grid-cols-2 gap-4">
-              <FieldText label="State *" value={form.state} onChange={update('state')} titleCase />
-              <FieldText label="District *" value={form.district} onChange={update('district')} titleCase />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <FieldSelect
+                label="Country *"
+                value={form.country}
+                options={['', ...COUNTRY_NAMES]}
+                onChange={(e) => {
+                  const country = e.target.value;
+                  // Changing Country resets State + District.
+                  setForm((p) => ({ ...p, country, state: '', district: '' }));
+                }}
+              />
+              <StateField
+                country={form.country}
+                value={form.state}
+                onChange={(state) => setForm((p) => ({ ...p, state, district: '' }))}
+              />
+              <DistrictField
+                country={form.country}
+                state={form.state}
+                value={form.district}
+                onChange={(district) => setForm((p) => ({ ...p, district }))}
+              />
             </div>
           </div>
 
+          {/* Qualification — Naji UAT 2026-05-31 — Highest Qualification +
+              Year of Passing are dropdowns; Percentage / Grade removed. */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Qualification</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldText label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} titleCase />
+            <FieldSelect label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} options={['', ...QUALIFICATION_OPTIONS]} />
             <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} titleCase />
             <FieldText label="School / College *" value={form.previous_school} onChange={update('previous_school')} titleCase />
-            <FieldText label="Year of Passing *" value={form.year_of_passing} onChange={update('year_of_passing')} />
-            <FieldText label="Percentage / Grade" value={form.percentage_or_grade} onChange={update('percentage_or_grade')} />
+            <FieldSelect label="Year of Passing *" value={form.year_of_passing} onChange={update('year_of_passing')} options={['', ...YEAR_OPTIONS]} />
           </div>
 
           {/* Education Pathway — multi-row repeater, mirrors the admin
@@ -388,19 +580,46 @@ export default function PublicApplyPage({ token }: { token: string }) {
           <p className="text-xs text-slate-500">Add one row per qualification (school, diploma, bachelor's, etc.).</p>
           <EducationPathwayEditor rows={educationPathway} onChange={setEducationPathway} />
 
+          {/* Employment — Naji UAT 2026-05-31 — only Employment Status,
+              Current Occupation (designation), Experience, and Teaching
+              Experience. Organisation removed from the UI (still sent as ''
+              by toBackendForm so the backend column is untouched). */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Employment</h2>
           <div className="grid grid-cols-2 gap-4">
-            <FieldSelect label="Employment Status *" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-Employed', 'Unemployed', 'Student']} />
-            <FieldText label="Organisation" value={form.organization_name} onChange={update('organization_name')} titleCase />
-            <FieldText label="Designation" value={form.designation} onChange={update('designation')} titleCase />
-            <FieldText label="Years of Experience" value={form.experience_years} onChange={update('experience_years')} />
-            <FieldTextArea label="Teaching Experience (optional)" value={form.teaching_experience} onChange={update('teaching_experience')} />
+            <FieldSelect label="Employment Status *" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-employed', 'Unemployed', 'Student', 'Other']} />
+            <FieldText label="Current Occupation" value={form.designation} onChange={update('designation')} titleCase />
+            <FieldText label="Experience" value={form.experience_years} onChange={update('experience_years')} />
+            <FieldText label="Teaching Experience" value={form.teaching_experience} onChange={update('teaching_experience')} titleCase />
           </div>
 
+          {/* Documents — Naji UAT 2026-05-31 — driven by the course's
+              required-documents config when the loader returns it; otherwise
+              the generic multi-file uploader. */}
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Documents</h2>
-          <p className="text-xs text-slate-500">
-            Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
-          </p>
+          {requiredDocs.length > 0 ? (
+            <>
+              <p className="text-xs text-slate-500">
+                Upload the documents required for your course. PDF / JPG / PNG; up to 10 MB each.
+              </p>
+              <ul className="mb-1 list-disc space-y-0.5 pl-5 text-xs text-slate-500">
+                {requiredDocs.map((d) => (
+                  <li key={d.document_type_id || d.label}>
+                    {d.label}{d.is_mandatory ? ' (required)' : ' (optional)'}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
+            </p>
+          )}
+          {/* TODO (Naji UAT 2026-05-31): when course_required_documents are
+              present we currently list the required slots but still use the
+              single multi-file uploader (each file is tagged by filename, not
+              by document-type slot). If per-slot uploads + per-slot
+              enforcement are needed, extend the submit payload to carry the
+              document_type_id per file and validate mandatory slots here. */}
           <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
 
           {/* Naji UAT 2026-05-17 — Declarations as checkboxes BEFORE
@@ -539,6 +758,76 @@ function FieldTextArea({ label, value, onChange }: { label: string; value: strin
       <textarea className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={onChange} />
     </div>
   );
+}
+
+// Naji UAT 2026-05-31 — read-only display field (Course, Offering, Email,
+// Phone, Age). Renders as a disabled-looking box, not an editable input.
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// Naji UAT 2026-05-31 — Date of Birth shown + accepted as dd/mm/yyyy while
+// the form stores the canonical ISO yyyy-mm-dd internally.
+function FieldDmyDate({ label, value, onChange }: { label: string; value: string; onChange: (iso: string) => void }) {
+  const [text, setText] = useState(isoToDmy(value));
+  useEffect(() => { setText(isoToDmy(value)); }, [value]);
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Input
+        type="text"
+        inputMode="numeric"
+        placeholder="dd/mm/yyyy"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          const iso = dmyToIso(e.target.value);
+          if (iso) onChange(iso);
+        }}
+      />
+    </div>
+  );
+}
+
+// Naji UAT 2026-05-31 — State input. Dropdown of Indian states when Country
+// is India; free-text otherwise.
+function StateField({ country, value, onChange }: { country: string; value: string; onChange: (state: string) => void }) {
+  if (country === 'India') {
+    return (
+      <FieldSelect
+        label="State *"
+        value={value}
+        options={['', ...INDIAN_STATES]}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+  return <FieldText label="State *" value={value} onChange={(e) => onChange(e.target.value)} titleCase />;
+}
+
+// Naji UAT 2026-05-31 — District input. Dropdown sourced from the selected
+// Indian state when available; free-text fallback otherwise (non-India, or
+// a state with no district list).
+function DistrictField({ country, state, value, onChange }: { country: string; state: string; value: string; onChange: (district: string) => void }) {
+  const districts = country === 'India' ? getDistrictsForState(state) : null;
+  if (districts && districts.length > 0) {
+    return (
+      <FieldSelect
+        label="District *"
+        value={value}
+        options={['', ...districts]}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+  return <FieldText label="District *" value={value} onChange={(e) => onChange(e.target.value)} titleCase />;
 }
 
 interface UploadedDoc {
