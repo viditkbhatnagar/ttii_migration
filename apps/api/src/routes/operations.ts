@@ -3109,6 +3109,23 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji UAT 2026-05-31 — admin verification gate. Toggles one verification
+  // key ("basic" / "qualification" / "documents" / "doc:<index>") on or off.
+  app.post('/admin/applications/verify', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const verifiedRaw = payload.verified;
+      const verified = verifiedRaw === true || verifiedRaw === 1 || verifiedRaw === '1' || verifiedRaw === 'true';
+      const result = await operationsService.setApplicationVerification(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toStringValue(payload.key),
+        verified,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/applications/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

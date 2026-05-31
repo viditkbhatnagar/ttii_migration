@@ -1,0 +1,21 @@
+-- Naji UAT 2026-05-31 — application verification gate.
+-- Adds a nullable JSON column to `applications` that stores which sections
+-- and documents an Admin has verified, shaped as:
+--   { "verified": ["basic", "qualification", "documents", "doc:0", "doc:1", …] }
+-- Section keys are "basic" (Basic Information), "qualification", and
+-- "documents"; per-document keys are "doc:<index>" indexing into the
+-- documents array (parsed from the legacy `biography` JSON column).
+-- adminApproveApplication refuses to enrol until EVERY required key is
+-- present, so an application can't be approved until all stages and all
+-- uploaded documents have been verified. NULL → nothing verified yet
+-- (backward compatible for applications predating this column).
+--
+-- Apply on prod (PHP droplet, root creds):
+--   ssh root@143.110.240.210
+--   PASS=$(tr -d '[:space:]' < /etc/cyberpanel/mysqlPassword)
+--   TMPCNF=$(mktemp); chmod 600 "$TMPCNF"
+--   printf '[client]\nuser=root\npassword=%s\n' "$PASS" > "$TMPCNF"
+--   mysql --defaults-file="$TMPCNF" lms_ttii < 2026-05-31-application-verification.sql
+--   rm -f "$TMPCNF"
+
+ALTER TABLE applications ADD COLUMN verification LONGTEXT NULL;

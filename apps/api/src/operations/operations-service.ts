@@ -7004,6 +7004,68 @@ export class OperationsService {
   // Used by getApplication to decide whether to look up a country /
   // nationality / language by id, or treat the column as raw text.
 
+  // Naji UAT 2026-05-31 — application documents live in the legacy
+  // `biography` JSON column (`{ documents: [{ name, url, label?,
+  // document_type_id? }], … }`). This is the single source of truth for
+  // both the View page Documents tab AND the verification gate, so the
+  // per-document key indices (`doc:0`, `doc:1`, …) line up between
+  // getApplication and adminApproveApplication. URLs are rewritten to the
+  // live host so the "View" link actually resolves.
+  private parseApplicationDocuments(biography: string | null | undefined): Array<{
+    name: string;
+    label: string;
+    url: string;
+    document_type_id: string | null;
+  }> {
+    if (!biography) return [];
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      const obj: unknown = JSON.parse(biography);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) parsed = obj as Record<string, unknown>;
+    } catch { return []; }
+    const raw = parsed?.documents;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === 'object')
+      .map((d) => {
+        const name = toStringValue(d.name);
+        const label = toStringValue(d.label) || name;
+        const docTypeId = toStringValue(d.document_type_id) || null;
+        return {
+          name,
+          label,
+          url: d.url ? toLegacyFileUrl(toStringValue(d.url)) : '',
+          document_type_id: docTypeId,
+        };
+      });
+  }
+
+  // Parse applications.verification → `{ verified: string[] }`. Null /
+  // malformed → empty set (backward compatible — applications predating
+  // the verification gate behave as "nothing verified yet").
+  private parseApplicationVerification(verification: string | null | undefined): { verified: string[] } {
+    if (!verification) return { verified: [] };
+    try {
+      const obj: unknown = JSON.parse(verification);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const v = (obj as Record<string, unknown>).verified;
+        if (Array.isArray(v)) {
+          return { verified: v.map((k) => String(k)).filter((k) => k.length > 0) };
+        }
+      }
+    } catch { /* malformed → empty */ }
+    return { verified: [] };
+  }
+
+  // The full set of verification keys an application must have before it
+  // can be approved: the three section keys plus one `doc:<index>` per
+  // uploaded document.
+  private requiredVerificationKeys(documentCount: number): string[] {
+    const keys = ['basic', 'qualification', 'documents'];
+    for (let i = 0; i < documentCount; i += 1) keys.push(`doc:${i}`);
+    return keys;
+  }
+
   async getApplication(id: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
 
@@ -7098,6 +7160,12 @@ export class OperationsService {
         // / EditStudent / AddApplication displays that still read
         // `whatsapp_no` continue to work without per-page changes.
         whatsapp_no: app.whatsapp || (app.whatsapp_no ? String(app.whatsapp_no) : null),
+        // Naji UAT 2026-05-31 — surface the uploaded documents (parsed
+        // from biography JSON) so the View page Documents tab can list
+        // them, and the verification state so the Verify buttons can
+        // reflect what's already been checked off.
+        documents: this.parseApplicationDocuments(app.biography),
+        verification: this.parseApplicationVerification(app.verification),
       },
       education_pathway: educationPathway,
       payments,
@@ -7644,6 +7712,53 @@ export class OperationsService {
       metadata: r.metadata,
       created_at: r.created_at,
     }));
+  }
+
+  // Naji UAT 2026-05-31 — admin verification gate. Toggles a single
+  // verification key on / off and persists the updated set back to
+  // applications.verification. Keys are section names ("basic",
+  // "qualification", "documents") or per-document keys ("doc:0", …).
+  // Every toggle is journalled to the Lead History timeline.
+  async setApplicationVerification(
+    actorUserId: string,
+    applicationId: string,
+    key: string,
+    verified: boolean,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    const cleanKey = (key ?? '').trim();
+    if (!cleanKey) return { status: 0, message: 'Verification key is required.' };
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true, verification: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+
+    const current = this.parseApplicationVerification(app.verification).verified;
+    const set = new Set(current);
+    if (verified) set.add(cleanKey);
+    else set.delete(cleanKey);
+    const next = Array.from(set);
+
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        verification: JSON.stringify({ verified: next }),
+        updated_at: new Date(),
+        updated_by: toNullableIntId(actorUserId),
+      },
+    });
+
+    await this.recordEvent(
+      id,
+      'verification_changed',
+      `${verified ? 'Verified' : 'Unverified'} ${cleanKey}`,
+      actorUserId,
+      { key: cleanKey, verified },
+    );
+
+    return { status: 1, message: verified ? 'Marked as verified.' : 'Verification removed.', data: { verified: next } };
   }
 
   // Phase G (Naji 2026-05-05): notification dispatcher. Single entry
@@ -8511,7 +8626,7 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true },
+      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     // Accept legacy 'form_submitted' too — the counsellor-approve step was
@@ -8522,6 +8637,19 @@ export class OperationsService {
     }
     if (!app.user_email) return { status: 0, message: 'Application has no email — cannot enrol.' };
     if (!app.course_id) return { status: 0, message: 'Application has no course — cannot enrol.' };
+
+    // Naji UAT 2026-05-31 — verification gate. Until the admin has verified
+    // every section ("basic", "qualification", "documents") AND every
+    // uploaded document ("doc:0".."doc:N-1"), the application cannot be
+    // approved. The document set is derived from the SAME source the View
+    // page Documents tab uses (biography JSON), so the indices line up.
+    const documentCount = this.parseApplicationDocuments(app.biography).length;
+    const requiredKeys = this.requiredVerificationKeys(documentCount);
+    const verifiedSet = new Set(this.parseApplicationVerification(app.verification).verified);
+    const allVerified = requiredKeys.every((k) => verifiedSet.has(k));
+    if (!allVerified) {
+      return { status: 0, message: 'Verify all sections and documents before approving.' };
+    }
 
     // Find or create the student `users` row.
     let student = await this.prisma.users.findFirst({

@@ -2586,6 +2586,17 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/admin-approve', authToken, { id });
   }
 
+  // Naji UAT 2026-05-31 — toggle an application verification key
+  // ("basic" / "qualification" / "documents" / "doc:<index>").
+  async setApplicationVerification(
+    authToken: string,
+    id: string,
+    key: string,
+    verified: boolean,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/verify', authToken, { id, key, verified });
+  }
+
   async rejectApplication(authToken: string, id: string, reason: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/reject', authToken, { id, reason });
   }
