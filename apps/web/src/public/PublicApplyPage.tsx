@@ -412,6 +412,11 @@ export default function PublicApplyPage({ token }: { token: string }) {
       return;
     }
     if (!signature.trim()) { toast.error('Please sign in the signature box.'); return; }
+    // Naji UAT 2026-05-31 — every mandatory course document must be uploaded.
+    const missingDoc = requiredDocs.find(
+      (d) => d.is_mandatory && !documents.some((doc) => doc.document_type_id === d.document_type_id),
+    );
+    if (missingDoc) { toast.error(`Please upload: ${missingDoc.label}.`); return; }
     if (declarations.some((checked) => !checked)) {
       toast.error('Please read and accept every declaration before submitting.');
       return;
@@ -598,29 +603,22 @@ export default function PublicApplyPage({ token }: { token: string }) {
           <h2 className="pt-4 text-sm font-semibold text-slate-700">Documents</h2>
           {requiredDocs.length > 0 ? (
             <>
+              {/* Naji UAT 2026-05-31 — one upload box per document the course
+                  requires (course_required_documents). Mandatory slots are
+                  enforced on submit. */}
               <p className="text-xs text-slate-500">
-                Upload the documents required for your course. PDF / JPG / PNG; up to 10 MB each.
+                Upload each document required for your course. PDF / JPG / PNG; up to 10 MB each.
               </p>
-              <ul className="mb-1 list-disc space-y-0.5 pl-5 text-xs text-slate-500">
-                {requiredDocs.map((d) => (
-                  <li key={d.document_type_id || d.label}>
-                    {d.label}{d.is_mandatory ? ' (required)' : ' (optional)'}
-                  </li>
-                ))}
-              </ul>
+              <PerDocumentUploads token={token} requiredDocs={requiredDocs} documents={documents} setDocuments={setDocuments} />
             </>
           ) : (
-            <p className="text-xs text-slate-500">
-              Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
-            </p>
+            <>
+              <p className="text-xs text-slate-500">
+                Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
+              </p>
+              <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
+            </>
           )}
-          {/* TODO (Naji UAT 2026-05-31): when course_required_documents are
-              present we currently list the required slots but still use the
-              single multi-file uploader (each file is tagged by filename, not
-              by document-type slot). If per-slot uploads + per-slot
-              enforcement are needed, extend the submit payload to carry the
-              document_type_id per file and validate mandatory slots here. */}
-          <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
 
           {/* Naji UAT 2026-05-17 — Declarations as checkboxes BEFORE
               the signature so the student explicitly acknowledges each
@@ -836,6 +834,11 @@ interface UploadedDoc {
   key: string;
   size: number;
   contentType: string;
+  // Naji UAT 2026-05-31 — when the course defines required documents, each
+  // upload is tagged with its slot so the admin can see which doc is which
+  // and the form can enforce mandatory slots.
+  document_type_id?: number;
+  label?: string;
 }
 
 /**
@@ -1043,6 +1046,98 @@ function DocumentUploads({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+// Naji UAT 2026-05-31 — one upload box per document the course requires
+// (course_required_documents, surfaced by the /apply loader). Each upload is
+// tagged with its document_type_id so the admin sees which file is which and
+// the submit step can enforce the mandatory slots. Uploading again replaces
+// that slot's file. Uses the same public /apply/:token/upload endpoint.
+function PerDocumentUploads({
+  token,
+  requiredDocs,
+  documents,
+  setDocuments,
+}: {
+  token: string;
+  requiredDocs: RequiredDocument[];
+  documents: UploadedDoc[];
+  setDocuments: (next: UploadedDoc[]) => void;
+}) {
+  const [busyTypeId, setBusyTypeId] = useState<number | null>(null);
+
+  const uploadFor = async (doc: RequiredDocument, file: File | null) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} is larger than 10 MB.`); return; }
+    setBusyTypeId(doc.document_type_id);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/upload`, { method: 'POST', body: fd });
+      const json = (await res.json()) as { status: number; message?: string; data?: Record<string, unknown> };
+      if (json.status !== 1) { toast.error(json.message ?? `Failed to upload ${file.name}.`); return; }
+      const data = json.data ?? {};
+      const uploaded: UploadedDoc = {
+        name: file.name,
+        url: typeof data.url === 'string' ? data.url : '',
+        key: typeof data.key === 'string' ? data.key : '',
+        size: file.size,
+        contentType: file.type,
+        document_type_id: doc.document_type_id,
+        label: doc.label,
+      };
+      // Replace any existing upload for this slot; keep the others.
+      const next = documents.filter((x) => x.document_type_id !== doc.document_type_id);
+      next.push(uploaded);
+      setDocuments(next);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setBusyTypeId(null);
+    }
+  };
+
+  const removeFor = (typeId: number) => setDocuments(documents.filter((x) => x.document_type_id !== typeId));
+
+  return (
+    <div className="space-y-2">
+      {requiredDocs.map((d) => {
+        const uploaded = documents.find((x) => x.document_type_id === d.document_type_id);
+        const busy = busyTypeId === d.document_type_id;
+        return (
+          <div key={d.document_type_id || d.label} className="rounded-md border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-700">
+                  {d.label}{d.is_mandatory ? ' *' : <span className="font-normal text-slate-400"> (optional)</span>}
+                </p>
+                {uploaded ? (
+                  <p className="truncate text-xs text-emerald-600">Uploaded: {uploaded.name}</p>
+                ) : (
+                  <p className="text-xs text-slate-400">PDF / JPG / PNG, up to 10 MB</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {uploaded ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => removeFor(d.document_type_id)}>Remove</Button>
+                ) : null}
+                <label className={`inline-flex cursor-pointer items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-slate-50 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                  {busy ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}
+                  <input
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/jpg"
+                    className="hidden"
+                    disabled={busy}
+                    onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void uploadFor(d, f); }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
