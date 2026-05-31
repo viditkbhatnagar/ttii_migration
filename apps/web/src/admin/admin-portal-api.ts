@@ -2410,11 +2410,11 @@ export class AdminPortalApi {
 
   // ── Ainvox click-to-call (server-side, no widget/login) ───────────
   // Rings the admin's callback phone, then connects + records the student.
-  async startServerCall(authToken: string, studentPhone: string, agentPhone: string): Promise<{ uuid: string | null }> {
+  async startServerCall(authToken: string, studentPhone: string, agentPhone?: string): Promise<{ uuid: string | null }> {
     const payload = await this.post<LegacyEnvelope<{ uuid: string | null }>>(
       '/admin/calls/create',
       authToken,
-      { studentPhone, agentPhone },
+      { studentPhone, ...(agentPhone ? { agentPhone } : {}) },
     );
     if (!payload.data) {
       throw new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Could not start the call.');

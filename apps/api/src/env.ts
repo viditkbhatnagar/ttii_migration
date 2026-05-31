@@ -139,6 +139,9 @@ const envSchema = z.object({
   // can reach (NOT APP_BASE_URL — that points at a dead host in prod).
   AINVOX_FLOW_TOKEN: optionalStringFromEnv,
   AINVOX_PUBLIC_BASE_URL: z.string().url().default('https://admin.teachersindia.in'),
+  // Click-to-call callback: the agent leg rings the logged-in admin's profile
+  // phone; this is the global fallback when an admin has no phone on file.
+  AINVOX_DEFAULT_AGENT_PHONE: optionalStringFromEnv,
 });
 
 export const env = envSchema.parse(process.env);

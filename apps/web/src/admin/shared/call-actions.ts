@@ -1,6 +1,7 @@
 // Admin click-to-call (server-side). The Call button asks our API to place the
-// call: Ainvox rings the admin's callback phone, then Dials the student and
-// records both legs. No embedded softphone, no per-browser Ainvox login.
+// call: Ainvox rings the admin's callback phone (resolved server-side from the
+// admin's profile phone), then Dials the student and records both legs. No
+// embedded softphone, no per-browser Ainvox login, no per-call prompt.
 import { toast } from 'sonner';
 
 import type { AdminPortalApi } from '../admin-portal-api.js';
@@ -20,28 +21,8 @@ export function toDialableNumber(raw: string, defaultCountryCode = '91'): string
   return null;
 }
 
-// The admin's callback number ("ring me on") — asked once per browser, stored.
-const AGENT_PHONE_KEY = 'ttii.callback_phone';
-
-export function getStoredAgentPhone(): string | null {
-  try {
-    return window.localStorage.getItem(AGENT_PHONE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setStoredAgentPhone(phone: string): void {
-  try {
-    window.localStorage.setItem(AGENT_PHONE_KEY, phone);
-  } catch {
-    /* localStorage unavailable — fall back to per-call prompt */
-  }
-}
-
-// Orchestrates a click-to-call: resolves the student number + the admin's
-// callback number (prompting once per browser), then asks the API to place
-// the call. Surfaces all outcomes via toast.
+// Place a click-to-call. The server resolves which phone to ring the admin on
+// (their profile phone), so there is nothing to prompt for here.
 export async function startAdminCall(
   api: Pick<AdminPortalApi, 'startServerCall'>,
   authToken: string,
@@ -52,23 +33,9 @@ export async function startAdminCall(
     toast.error('No valid phone number for this contact.');
     return;
   }
-  let agent = getStoredAgentPhone();
-  if (!agent) {
-    const entered = window.prompt(
-      'Enter your phone number with country code. We will ring you, then connect you to the student.',
-      '+91',
-    );
-    if (entered === null) return; // cancelled
-    agent = toDialableNumber(entered);
-    if (!agent) {
-      toast.error('Please enter a valid phone number with country code.');
-      return;
-    }
-    setStoredAgentPhone(agent);
-  }
   try {
-    await api.startServerCall(authToken, studentPhone, agent);
-    toast.success(`Calling you on ${agent} — answer your phone to connect to the student.`);
+    await api.startServerCall(authToken, studentPhone);
+    toast.success('Calling you now — answer your phone to connect to the student.');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Could not start the call.');
   }

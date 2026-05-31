@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { env } from '../env.js';
+import { getPrismaClient } from '../data/prisma-client.js';
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
@@ -21,6 +22,36 @@ function queryValue(request: FastifyRequest, key: string): string {
   const query = (request.query as Record<string, unknown>) ?? {};
   const value = query[key];
   return typeof value === 'string' ? value.trim() : '';
+}
+
+// Normalise a phone string to +E.164 (defaults to India), matching the
+// frontend's toDialableNumber so admin profile numbers resolve consistently.
+function toE164(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('+')) {
+    const digits = trimmed.slice(1).replace(/\D/g, '');
+    return digits.length >= 10 ? `+${digits}` : null;
+  }
+  const digits = trimmed.replace(/\D/g, '').replace(/^0+/, '');
+  if (!digits) return null;
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length > 10) return `+${digits}`;
+  return null;
+}
+
+// Resolve the agent's callback number: explicit override, else the logged-in
+// admin's profile phone, else the global fallback. No per-call prompt.
+async function resolveAgentPhone(request: FastifyRequest, override: string): Promise<string | null> {
+  const fromOverride = toE164(override);
+  if (fromOverride) return fromOverride;
+  const userId = Number(request.authContext?.user.id);
+  if (Number.isFinite(userId)) {
+    const admin = await getPrismaClient().users.findUnique({ where: { id: userId }, select: { phone: true } });
+    const fromProfile = toE164(admin?.phone ?? null);
+    if (fromProfile) return fromProfile;
+  }
+  return toE164(env.AINVOX_DEFAULT_AGENT_PHONE ?? null);
 }
 
 function sendAinvoxError(reply: FastifyReply, error: unknown): void {
@@ -113,13 +144,13 @@ export function registerTelephonyRoutes(app: FastifyInstance, options: RegisterT
       }
       const body = (request.body as Record<string, unknown>) ?? {};
       const studentPhone = typeof body.studentPhone === 'string' ? body.studentPhone.trim() : '';
-      const agentPhone = typeof body.agentPhone === 'string' ? body.agentPhone.trim() : '';
-      if (!/^\+\d{10,15}$/.test(agentPhone)) {
-        reply.code(400).send({ status: 0, message: 'A valid callback number (+countrycode...) is required.' });
-        return;
-      }
       if (!/^\+\d{10,15}$/.test(studentPhone)) {
         reply.code(400).send({ status: 0, message: 'This contact has no valid phone number to call.' });
+        return;
+      }
+      const agentPhone = await resolveAgentPhone(request, typeof body.agentPhone === 'string' ? body.agentPhone : '');
+      if (!agentPhone) {
+        reply.code(400).send({ status: 0, message: 'Add your phone number to your profile (Edit profile) so we can ring you for calls.' });
         return;
       }
       const callerId = env.AINVOX_VIRTUAL_NUMBER ?? '';
