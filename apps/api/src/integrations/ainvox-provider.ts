@@ -80,6 +80,15 @@ interface AinvoxConfig {
   accountId: string;
   virtualNumber: string | null;
   timeoutMs: number;
+  /** Account login used to mint browser-dialer tokens (device-login). */
+  loginEmail: string | null;
+  loginPassword: string | null;
+}
+
+export interface AinvoxDialerToken {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
 }
 
 function asString(value: unknown): string | null {
@@ -149,6 +158,42 @@ export class AinvoxService {
     if (!response.ok) this.failFor(response.status);
     const payload = (await response.json()) as Record<string, unknown>;
     return { uuid: asString(payload.uuid), message: asString(payload.message) };
+  }
+
+  /**
+   * Mint short-lived tokens to pre-authenticate the embedded browser dialer.
+   * Uses the account's email/password (device-login) — NOT Basic auth. The
+   * tokens (not the password) are handed to the browser to load the widget
+   * already logged in.
+   */
+  async getDialerToken(): Promise<AinvoxDialerToken> {
+    if (!this.config.loginEmail || !this.config.loginPassword) {
+      throw new AinvoxError('not_configured', 'Dialer login credentials are not configured.');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`${this.config.baseUrl}/api/users/device-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: this.config.loginEmail, password: this.config.loginPassword }),
+        signal: controller.signal,
+      });
+    } catch (error: unknown) {
+      throw new AinvoxError('network', error instanceof Error ? error.message : 'Network error reaching Ainvox');
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) this.failFor(response.status);
+    const payload = (await response.json()) as Record<string, unknown>;
+    const accessToken = asString(payload.access_token);
+    const refreshToken = asString(payload.refresh_token);
+    const expiresAt = asString(payload.expires_at) ?? (typeof payload.expires_at === 'number' ? String(payload.expires_at) : null);
+    if (!accessToken || !refreshToken || !expiresAt) {
+      throw new AinvoxError('unknown', 'Ainvox device-login did not return the expected tokens.');
+    }
+    return { accessToken, refreshToken, expiresAt };
   }
 
   private failFor(status: number): never {
@@ -232,5 +277,7 @@ export function createAinvoxService(): AinvoxService | null {
     accountId: env.AINVOX_ACCOUNT_ID,
     virtualNumber: env.AINVOX_VIRTUAL_NUMBER ?? null,
     timeoutMs: env.AINVOX_TIMEOUT_MS,
+    loginEmail: env.AINVOX_LOGIN_EMAIL ?? null,
+    loginPassword: env.AINVOX_LOGIN_PASSWORD ?? null,
   });
 }

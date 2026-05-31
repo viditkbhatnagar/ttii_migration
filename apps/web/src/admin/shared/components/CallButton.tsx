@@ -1,11 +1,14 @@
-// Click-to-call button (server-side). On click, our API rings the admin's
-// callback phone and connects them to the student — no widget, no login.
-// Admin-only; disabled when the contact has no usable phone number.
+// Click-to-call button. Opens the Ainvox browser dialer (pre-authenticated,
+// no login) and dials the student — you talk through the dashboard, the
+// student sees our virtual number as caller ID. Admin-only; disabled when the
+// contact has no usable phone number.
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
-import { startAdminCall, toDialableNumber } from '../call-actions.js';
+import { toDialableNumber } from '../call-actions.js';
+import { placeBrowserCall } from '../call-widget.js';
 
 interface CallButtonProps {
   api: AdminPortalApi;
@@ -23,9 +26,15 @@ export function CallButton({ api, authToken, phone, iconOnly = false, label = 'C
   const title = dialable ? `Call ${dialable}` : 'No phone number on file';
 
   async function handleClick() {
+    if (!dialable) {
+      toast.error('No valid phone number for this contact.');
+      return;
+    }
     setCalling(true);
     try {
-      await startAdminCall(api, authToken, phone);
+      await placeBrowserCall(() => api.getDialerIframeUrl(authToken), dialable);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not open the dialer.');
     } finally {
       setCalling(false);
     }
@@ -45,7 +54,7 @@ export function CallButton({ api, authToken, phone, iconOnly = false, label = 'C
       className={className}
     >
       <Phone className={iconOnly ? 'h-4 w-4' : 'mr-1.5 h-4 w-4'} />
-      {iconOnly ? null : calling ? 'Calling…' : label}
+      {iconOnly ? null : calling ? 'Opening…' : label}
     </Button>
   );
 }

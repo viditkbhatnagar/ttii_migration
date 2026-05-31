@@ -142,6 +142,11 @@ const envSchema = z.object({
   // Click-to-call callback: the agent leg rings the logged-in admin's profile
   // phone; this is the global fallback when an admin has no phone on file.
   AINVOX_DEFAULT_AGENT_PHONE: optionalStringFromEnv,
+  // Browser dialer (talk in the dashboard, no login): our server logs in with
+  // these account credentials to mint short-lived tokens that pre-authenticate
+  // the embedded widget. Never sent to the browser except as the minted tokens.
+  AINVOX_LOGIN_EMAIL: optionalStringFromEnv,
+  AINVOX_LOGIN_PASSWORD: optionalStringFromEnv,
 });
 
 export const env = envSchema.parse(process.env);

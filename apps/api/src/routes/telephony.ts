@@ -168,6 +168,28 @@ export function registerTelephonyRoutes(app: FastifyInstance, options: RegisterT
     }
   });
 
+  // POST /api/admin/calls/dialer-token — mint a pre-authenticated iframe URL
+  // for the browser dialer (talk in the dashboard, no login). The raw account
+  // password never leaves the server; only short-lived tokens (in the URL) do.
+  app.post('/admin/calls/dialer-token', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      if (!ainvox) {
+        reply.code(503).send({ status: 0, message: 'Calling provider is not configured yet.' });
+        return;
+      }
+      const token = await ainvox.getDialerToken();
+      const base = env.AINVOX_BASE_URL.replace(/\/+$/, '');
+      const params = new URLSearchParams({
+        access_token: token.accessToken,
+        refresh_token: token.refreshToken,
+        expires_at: token.expiresAt,
+      });
+      reply.code(200).send({ status: 1, message: 'success', data: { iframeUrl: `${base}/web-client/?${params.toString()}` } });
+    } catch (error: unknown) {
+      sendAinvoxError(reply, error);
+    }
+  });
+
   // ── PUBLIC call-flow endpoint ─────────────────────────────────────────────
   // Ainvox POSTs here when a server-placed call is answered, to fetch the
   // call-control JSON. It can't carry our auth token, so it's guarded by an

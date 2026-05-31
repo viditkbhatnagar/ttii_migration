@@ -2408,7 +2408,19 @@ export class AdminPortalApi {
     return data.url;
   }
 
-  // ── Ainvox click-to-call (server-side, no widget/login) ───────────
+  // ── Ainvox browser dialer (talk in the dashboard, no login) ───────
+  // Returns a pre-authenticated iframe URL so the widget opens already
+  // logged in (server mints short-lived tokens from the account creds).
+  async getDialerIframeUrl(authToken: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<{ iframeUrl: string }>>('/admin/calls/dialer-token', authToken, {});
+    const url = payload.data?.iframeUrl;
+    if (!url) {
+      throw new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Could not open the dialer.');
+    }
+    return url;
+  }
+
+  // ── Ainvox click-to-call (server-side phone fallback) ─────────────
   // Rings the admin's callback phone, then connects + records the student.
   async startServerCall(authToken: string, studentPhone: string, agentPhone?: string): Promise<{ uuid: string | null }> {
     const payload = await this.post<LegacyEnvelope<{ uuid: string | null }>>(

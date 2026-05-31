@@ -16,7 +16,8 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { startAdminCall } from '../../shared/call-actions.js';
+import { toDialableNumber } from '../../shared/call-actions.js';
+import { placeBrowserCall } from '../../shared/call-widget.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
 
@@ -273,7 +274,14 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
       {
         label: 'Call',
         onClick: (row) => {
-          void startAdminCall(api, session.token, asString(row.phone));
+          const num = toDialableNumber(asString(row.phone));
+          if (!num) {
+            toast.error('No valid phone number for this contact.');
+            return;
+          }
+          void placeBrowserCall(() => api.getDialerIframeUrl(session.token), num).catch((err: unknown) =>
+            toast.error(err instanceof Error ? err.message : 'Could not open the dialer.'),
+          );
         },
       },
       {
