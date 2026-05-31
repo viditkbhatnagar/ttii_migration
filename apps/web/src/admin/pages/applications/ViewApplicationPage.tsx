@@ -161,10 +161,13 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         receipt_url: markPaidReceiptUrl,
       });
       if ((res as { status?: number }).status === 1) {
-        toast.success('Marked as paid.');
+        // Manual payments now go to Finance for approval — surface the server
+        // message ("…pending finance approval") rather than a hardcoded
+        // "Marked as paid" so the user knows it isn't reflected yet.
+        toast.success(asString((res as { message?: unknown }).message) || 'Manual payment recorded — pending finance approval.');
         setMarkPaidOpen(false);
         reload();
-      } else toast.error('Could not mark paid.');
+      } else toast.error(asString((res as { message?: unknown }).message) || 'Could not mark paid.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed.');
     } finally { setSubmitting(false); }
