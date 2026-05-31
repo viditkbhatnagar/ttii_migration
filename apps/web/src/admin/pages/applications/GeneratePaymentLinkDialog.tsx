@@ -83,6 +83,39 @@ function fmtInr(amount: number): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 }
 
+// Naji UAT 2026-05-31 — dates must read dd/mm/yyyy. Native <input type="date">
+// renders in the browser locale (mm/dd/yyyy on en-US machines), which can't be
+// overridden, so we use a text field that displays + accepts dd/mm/yyyy and
+// stores the canonical yyyy-mm-dd internally.
+function isoToDmy(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+function dmyToIso(dmy: string): string {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dmy.trim());
+  if (!m) return '';
+  return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
+}
+
+function DmyDateInput({ value, onChange, className }: { value: string; onChange: (iso: string) => void; className?: string }) {
+  const [text, setText] = useState(isoToDmy(value));
+  useEffect(() => { setText(isoToDmy(value)); }, [value]);
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="dd/mm/yyyy"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const iso = dmyToIso(e.target.value);
+        if (iso) onChange(iso);
+      }}
+      className={className}
+    />
+  );
+}
+
 export function GeneratePaymentLinkDialog({
   open, onOpenChange, api, authToken, applicationId, studentName,
   offeringId, combinationId, initialBaseFee, initialDiscount,
@@ -328,6 +361,16 @@ export function GeneratePaymentLinkDialog({
     return { excl, gst, incl };
   }, [plan]);
 
+  // Naji UAT 2026-05-31 — the instalment plan must reconcile to the course
+  // fee (inc-GST). If the rows have been edited so they no longer sum to the
+  // total, block "Send the Payment Link" and surface the gap. A ₹1 tolerance
+  // absorbs rounding from equal-splitting.
+  const planMismatch = useMemo(() => {
+    if (mode !== 'installment' || !plan || plan.length === 0) return 0;
+    return planTotals.incl - breakdown.feeIncGst;
+  }, [mode, plan, planTotals.incl, breakdown.feeIncGst]);
+  const planMatchesTotal = Math.abs(planMismatch) <= 1;
+
   const sendPaymentLink = async () => {
     if (mode === 'full') {
       const total = breakdown.feeIncGst;
@@ -459,37 +502,21 @@ export function GeneratePaymentLinkDialog({
               <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 No pricing is set for this Offering and Combination pair.
                 Set Base Fee, Discount, GST and Registration Fee under
-                Courses → Course Offerings → Packages, or enter the
-                values manually below.
+                Courses → Course Offerings → Packages, then reopen this dialog.
               </div>
             ) : null}
             <table className="w-full text-sm">
               <tbody>
+                {/* Base Fee + Discount are read-only — Naji 2026-05-31: they
+                    come from the offering's package and shouldn't be edited
+                    here. Set them under Course Offerings → Packages. */}
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">Base Fee</td>
-                  <td className="py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      value={baseFee || ''}
-                      onChange={(e) => setBaseFee(Number(e.target.value) || 0)}
-                      className="w-32 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
-                      placeholder="0"
-                    />
-                  </td>
+                  <td className="py-2 text-right font-medium text-slate-700">{fmtInr(breakdown.baseFee)}</td>
                 </tr>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">Discount</td>
-                  <td className="py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      value={discount || ''}
-                      onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-                      className="w-32 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
-                      placeholder="0"
-                    />
-                  </td>
+                  <td className="py-2 text-right font-medium text-slate-700">{fmtInr(breakdown.discount)}</td>
                 </tr>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 font-semibold text-slate-700">Final Fee</td>
@@ -506,16 +533,7 @@ export function GeneratePaymentLinkDialog({
                 {mode === 'installment' ? (
                   <tr>
                     <td className="py-2 text-slate-500">Registration Fee</td>
-                    <td className="py-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        value={registrationFee || ''}
-                        onChange={(e) => setRegistrationFee(Number(e.target.value) || 0)}
-                        className="w-32 rounded-md border border-slate-200 px-2 py-1 text-right text-sm"
-                        placeholder="0"
-                      />
-                    </td>
+                    <td className="py-2 text-right font-medium text-slate-700">{fmtInr(registrationFee)}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -558,10 +576,10 @@ export function GeneratePaymentLinkDialog({
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Preferred Due Date (first instalment)</Label>
-                  <Input
-                    type="date"
+                  <DmyDateInput
                     value={firstDueDate}
-                    onChange={(e) => setFirstDueDate(e.target.value)}
+                    onChange={setFirstDueDate}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   />
                 </div>
               </div>
@@ -609,23 +627,18 @@ export function GeneratePaymentLinkDialog({
                                   className="w-20 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm"
                                 />
                               </td>
-                              <td className="px-1.5 py-1.5 text-right">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={r.gstPercent}
-                                  onChange={(e) => updatePlanRow(idx, { gstPercent: Number(e.target.value) || 0 })}
-                                  className="w-14 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm"
-                                />
+                              {/* GST % is read-only — Naji 2026-05-31: it's
+                                  fixed by the offering, not per-row editable. */}
+                              <td className="px-1.5 py-1.5 text-right text-slate-600 whitespace-nowrap">
+                                {r.gstPercent}%
                               </td>
                               <td className="px-1.5 py-1.5 text-right font-medium text-slate-900 whitespace-nowrap">
                                 {fmtInr(incGst)}
                               </td>
                               <td className="px-1.5 py-1.5">
-                                <input
-                                  type="date"
+                                <DmyDateInput
                                   value={r.dueDate}
-                                  onChange={(e) => updatePlanRow(idx, { dueDate: e.target.value })}
+                                  onChange={(iso) => updatePlanRow(idx, { dueDate: iso })}
                                   className="w-32 rounded-md border border-slate-200 px-1.5 py-1 text-sm"
                                 />
                               </td>
@@ -652,6 +665,13 @@ export function GeneratePaymentLinkDialog({
                       </tbody>
                     </table>
                   </div>
+                  {!planMatchesTotal ? (
+                    <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                      Plan total {fmtInr(planTotals.incl)} doesn&apos;t match the course fee {fmtInr(breakdown.feeIncGst)}
+                      {' '}({planMismatch > 0 ? 'over' : 'short'} by {fmtInr(Math.abs(planMismatch))}). Adjust the
+                      instalment amounts so they add up before sending.
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </>
@@ -686,7 +706,7 @@ export function GeneratePaymentLinkDialog({
           ) : null}
           <Button
             onClick={() => { void sendPaymentLink(); }}
-            disabled={submitting || (mode === 'installment' && (!plan || plan.length === 0))}
+            disabled={submitting || (mode === 'installment' && (!plan || plan.length === 0 || !planMatchesTotal))}
             className="bg-ttii-primary hover:bg-ttii-primary/90"
           >
             {submitting ? 'Sending…' : 'Send the Payment Link'}

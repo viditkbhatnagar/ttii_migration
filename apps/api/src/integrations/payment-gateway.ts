@@ -148,8 +148,13 @@ export class RazorpayPaymentGateway implements PaymentGateway {
         email: input.customer.email,
         ...(input.customer.phone ? { contact: input.customer.phone } : {}),
       },
-      notify: { email: true, sms: Boolean(input.customer.phone) },
-      reminder_enable: true,
+      // Naji UAT 2026-05-31 — students were getting TWO emails: Razorpay's own
+      // "Requesting payment of INR …" (no-reply@razorpay.com) plus our branded
+      // TTII email that carries the plan summary. Suppress Razorpay's email +
+      // reminder emails so only the TTII email goes out. SMS stays on (a
+      // separate channel our email doesn't cover) when a phone is present.
+      notify: { email: false, sms: Boolean(input.customer.phone) },
+      reminder_enable: false,
       ...(input.expireBy ? { expire_by: input.expireBy } : {}),
       ...(input.notes ? { notes: input.notes } : {}),
     };

@@ -303,6 +303,13 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     if (!email.trim()) { toast.error('Email is required.'); return; }
     if (!phone.trim()) { toast.error('Phone is required.'); return; }
     if (!courseId) { toast.error('Course is required.'); return; }
+    // Naji UAT 2026-05-31 — Offering, Certificate Combination and Source are
+    // now mandatory. Combination is only enforced when the course actually has
+    // combinations to pick (otherwise "None" is the only option and blocking
+    // would be wrong).
+    if (!offeringId) { toast.error('Offering is required.'); return; }
+    if (combinationOptions.length > 0 && !combinationId) { toast.error('Certificate Combination is required.'); return; }
+    if (!source.trim()) { toast.error('Source is required.'); return; }
     setSubmitting(true);
     setDuplicate(null);
     try {
@@ -422,7 +429,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="offering">Offering</Label>
+              <Label htmlFor="offering">Offering *</Label>
               <select
                 id="offering"
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -437,7 +444,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="combination">Certificate Combination</Label>
+              <Label htmlFor="combination">Certificate Combination{combinationOptions.length > 0 ? ' *' : ''}</Label>
               <select
                 id="combination"
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -445,7 +452,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                 onChange={(e) => setCombinationId(e.target.value)}
                 disabled={!courseId}
               >
-                <option value="">{courseId ? 'None' : 'Pick a course first'}</option>
+                <option value="">{courseId ? (combinationOptions.length > 0 ? 'Select Combination' : 'None') : 'Pick a course first'}</option>
                 {combinationOptions.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
@@ -453,7 +460,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="source">Source</Label>
+            <Label htmlFor="source">Source *</Label>
             <select
               id="source"
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
