@@ -8001,7 +8001,9 @@ export class OperationsService {
         designation: toNullableString(f.designation),
         signature_data: signature || null,
         ...(biographyJson !== null ? { biography: biographyJson } : {}),
-        stage: 'form_submitted',
+        // Naji UAT 2026-05-31 — the counsellor-approve step is removed.
+        // A submitted form goes straight to approval_waiting for Admin review.
+        stage: 'approval_waiting',
         updated_at: now,
       },
     });
@@ -8481,7 +8483,10 @@ export class OperationsService {
       select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
-    if (app.stage !== 'approval_waiting') {
+    // Accept legacy 'form_submitted' too — the counsellor-approve step was
+    // removed (Naji 2026-05-31), so older apps stuck at form_submitted can
+    // still be approved directly by Admin.
+    if (app.stage !== 'approval_waiting' && app.stage !== 'form_submitted') {
       return { status: 0, message: 'Application is not awaiting admin approval.' };
     }
     if (!app.user_email) return { status: 0, message: 'Application has no email — cannot enrol.' };

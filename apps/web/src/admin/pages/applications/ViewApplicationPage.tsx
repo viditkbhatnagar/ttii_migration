@@ -202,21 +202,6 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     } finally { setSubmitting(false); }
   }, [api, session.token, applicationId, reload]);
 
-  const handleCounsellorApprove = useCallback(async () => {
-    if (!applicationId) return;
-    setSubmitting(true);
-    try {
-      const res = await api.counsellorApproveApplication(session.token, applicationId);
-      const m = asString((res as { message?: unknown }).message) || '';
-      if ((res as { status?: number }).status === 1) {
-        toast.success(m || 'Approved by counsellor.');
-        reload();
-      } else toast.error(m || 'Could not approve.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to approve.');
-    } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, reload]);
-
   const handleAdminApproveAndEnrol = useCallback(async () => {
     if (!applicationId) return;
     setSubmitting(true);
@@ -273,6 +258,9 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const currentStatus = asString(app.status) || 'pending';
   const stage = asString(app.stage) || 'lead';
   const isLeadStage = LEAD_STAGES.has(stage);
+  // Naji UAT 2026-05-31 — application approve/reject is an Admin-only action
+  // (roles 1 Super Admin, 8/9 Admin). Counsellors no longer approve.
+  const isAdmin = [1, 8, 9].includes(session.roleId);
 
   // Naji 2026-05-08 — Lead Snapshot also surfaces the payment plan
   // summary so admins/counsellors can see at a glance that one was
@@ -391,25 +379,20 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   </Button>,
                 );
               }
-              if (stage === 'form_submitted') {
-                buttons.push(
-                  <Button key="capp" size="sm" disabled={submitting} className="bg-blue-600 hover:bg-blue-700" onClick={() => void handleCounsellorApprove()}>
-                    Counsellor Approve
-                  </Button>,
-                );
-              }
-              if (stage === 'approval_waiting') {
+              // Admin Approve & Enrol — Naji 2026-05-31: shown for both the
+              // current approval_waiting stage and legacy form_submitted apps,
+              // and only to Admin (the counsellor-approve step is removed).
+              if ((stage === 'approval_waiting' || stage === 'form_submitted') && isAdmin) {
                 buttons.push(
                   <Button key="aapp" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleAdminApproveAndEnrol()}>
                     Admin Approve &amp; Enrol
                   </Button>,
                 );
               }
-              // Naji 2026-05-08 — Reject only makes sense once the
-              // applicant has actually submitted something. Hide it for
-              // pre-submission stages (lead / payment_pending / paid /
-              // form_pending) so the Lead view stays minimal.
-              if (stage !== 'rejected' && stage !== 'enrolled' && !isLeadStage) {
+              // Naji 2026-05-08 — Reject only makes sense once the applicant
+              // has submitted something. Naji 2026-05-31 — approve/reject is
+              // Admin-only, so gate it behind isAdmin too.
+              if (stage !== 'rejected' && stage !== 'enrolled' && !isLeadStage && isAdmin) {
                 buttons.push(
                   <Button key="rej" size="sm" variant="destructive" disabled={submitting} onClick={() => setRejectDialogOpen(true)}>
                     Reject
