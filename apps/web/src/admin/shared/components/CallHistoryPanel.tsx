@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { PhoneIncoming, PhoneOutgoing, RefreshCw, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AdminPortalApi, AdminCallLog } from '../../admin-portal-api.js';
-import { toDialableNumber } from '../ainvox-dialer.js';
+import { toDialableNumber } from '../call-actions.js';
 import { CallButton } from './CallButton.js';
 
 interface CallHistoryPanelProps {
@@ -91,7 +91,7 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <CallButton phone={phone} />
+          <CallButton api={api} authToken={authToken} phone={phone} />
           <Button
             type="button"
             variant="ghost"

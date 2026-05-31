@@ -102,6 +102,41 @@ export function registerTelephonyRoutes(app: FastifyInstance, options: RegisterT
     }
   });
 
+  // POST /api/admin/calls/create — server-side click-to-call (no widget/login).
+  // Rings the agent's callback phone; on answer, the flow Dials the student and
+  // records both legs. agentPhone + studentPhone are +E.164 from the frontend.
+  app.post('/admin/calls/create', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      if (!ainvox) {
+        reply.code(503).send({ status: 0, message: 'Calling provider is not configured yet.' });
+        return;
+      }
+      const body = (request.body as Record<string, unknown>) ?? {};
+      const studentPhone = typeof body.studentPhone === 'string' ? body.studentPhone.trim() : '';
+      const agentPhone = typeof body.agentPhone === 'string' ? body.agentPhone.trim() : '';
+      if (!/^\+\d{10,15}$/.test(agentPhone)) {
+        reply.code(400).send({ status: 0, message: 'A valid callback number (+countrycode...) is required.' });
+        return;
+      }
+      if (!/^\+\d{10,15}$/.test(studentPhone)) {
+        reply.code(400).send({ status: 0, message: 'This contact has no valid phone number to call.' });
+        return;
+      }
+      const callerId = env.AINVOX_VIRTUAL_NUMBER ?? '';
+      if (!callerId || !env.AINVOX_FLOW_TOKEN) {
+        reply.code(503).send({ status: 0, message: 'Calling is not fully configured (caller ID / flow token).' });
+        return;
+      }
+      const base = env.AINVOX_PUBLIC_BASE_URL.replace(/\/+$/, '');
+      const flowUrl = `${base}/api/calls/flow?token=${encodeURIComponent(env.AINVOX_FLOW_TOKEN)}&action=dial&to=${encodeURIComponent(studentPhone)}`;
+      const callStatusUrl = `${base}/api/calls/status`;
+      const result = await ainvox.createCall({ phoneNumber: agentPhone, callerId, flowUrl, callStatusUrl });
+      reply.code(200).send({ status: 1, message: 'Call started — your phone will ring shortly.', data: { uuid: result.uuid } });
+    } catch (error: unknown) {
+      sendAinvoxError(reply, error);
+    }
+  });
+
   // ── PUBLIC call-flow endpoint ─────────────────────────────────────────────
   // Ainvox POSTs here when a server-placed call is answered, to fetch the
   // call-control JSON. It can't carry our auth token, so it's guarded by an
@@ -163,6 +198,16 @@ export function registerTelephonyRoutes(app: FastifyInstance, options: RegisterT
     url: '/calls/flow/hangup',
     handler: (_request: FastifyRequest, reply: FastifyReply) => {
       reply.send({ action: 'hangup' });
+    },
+  });
+
+  // PUBLIC noop receiver for Ainvox call-status callbacks (we read status from
+  // the call log instead, so this just needs to 200).
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/calls/status',
+    handler: (_request: FastifyRequest, reply: FastifyReply) => {
+      reply.send({ status: 1 });
     },
   });
 }

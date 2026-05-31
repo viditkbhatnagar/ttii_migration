@@ -737,7 +737,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <CallButton phone={asString(student.phone)} />
+              <CallButton api={api} authToken={session.token} phone={asString(student.phone)} />
               <Button
                 variant="outline"
                 size="sm"

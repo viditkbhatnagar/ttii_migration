@@ -1,13 +1,15 @@
-// Click-to-call button backed by the Ainvox dialer widget. Admin-only
-// (student support + payment follow-ups). Disabled when the contact has no
-// usable phone number.
+// Click-to-call button (server-side). On click, our API rings the admin's
+// callback phone and connects them to the student — no widget, no login.
+// Admin-only; disabled when the contact has no usable phone number.
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { placeCall, toDialableNumber } from '../ainvox-dialer.js';
+import type { AdminPortalApi } from '../../admin-portal-api.js';
+import { startAdminCall, toDialableNumber } from '../call-actions.js';
 
 interface CallButtonProps {
+  api: AdminPortalApi;
+  authToken: string;
   phone: string | null | undefined;
   /** Compact icon-only variant for dense surfaces (table rows, chips). */
   iconOnly?: boolean;
@@ -15,23 +17,17 @@ interface CallButtonProps {
   className?: string;
 }
 
-export function CallButton({ phone, iconOnly = false, label = 'Call', className }: CallButtonProps) {
-  const [connecting, setConnecting] = useState(false);
+export function CallButton({ api, authToken, phone, iconOnly = false, label = 'Call', className }: CallButtonProps) {
+  const [calling, setCalling] = useState(false);
   const dialable = toDialableNumber(phone ?? '');
   const title = dialable ? `Call ${dialable}` : 'No phone number on file';
 
   async function handleClick() {
-    if (!dialable) {
-      toast.error('No valid phone number for this contact');
-      return;
-    }
-    setConnecting(true);
+    setCalling(true);
     try {
-      await placeCall(dialable);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not start the call');
+      await startAdminCall(api, authToken, phone);
     } finally {
-      setConnecting(false);
+      setCalling(false);
     }
   }
 
@@ -40,7 +36,7 @@ export function CallButton({ phone, iconOnly = false, label = 'Call', className 
       type="button"
       variant={iconOnly ? 'ghost' : 'outline'}
       size="sm"
-      disabled={!dialable || connecting}
+      disabled={!dialable || calling}
       onClick={() => {
         void handleClick();
       }}
@@ -49,7 +45,7 @@ export function CallButton({ phone, iconOnly = false, label = 'Call', className 
       className={className}
     >
       <Phone className={iconOnly ? 'h-4 w-4' : 'mr-1.5 h-4 w-4'} />
-      {iconOnly ? null : connecting ? 'Connecting…' : label}
+      {iconOnly ? null : calling ? 'Calling…' : label}
     </Button>
   );
 }

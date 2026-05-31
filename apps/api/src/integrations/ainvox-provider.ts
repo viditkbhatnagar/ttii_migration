@@ -107,13 +107,14 @@ export class AinvoxService {
     return `Basic ${token}`;
   }
 
-  private async request(path: string): Promise<Response> {
+  private async request(path: string, init?: { method?: string; body?: string }): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
       return await fetch(`${this.config.baseUrl}${path}`, {
-        method: 'GET',
+        method: init?.method ?? 'GET',
         headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
+        ...(init?.body ? { body: init.body } : {}),
         signal: controller.signal,
       });
     } catch (error: unknown) {
@@ -122,6 +123,32 @@ export class AinvoxService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Place an outbound call (server-side click-to-call). Rings `phoneNumber`
+   * (the agent's phone); when answered, Ainvox fetches `flowUrl` for the
+   * call-control JSON (which Dials the student + records). Both flowUrl and
+   * callStatusUrl are required by the API (verified live).
+   */
+  async createCall(input: {
+    phoneNumber: string;
+    callerId: string;
+    flowUrl: string;
+    callStatusUrl: string;
+  }): Promise<{ uuid: string | null; message: string | null }> {
+    const response = await this.request('/api/calls', {
+      method: 'POST',
+      body: JSON.stringify({
+        phoneNumber: input.phoneNumber,
+        callerId: input.callerId,
+        flowUrl: input.flowUrl,
+        callStatusUrl: input.callStatusUrl,
+      }),
+    });
+    if (!response.ok) this.failFor(response.status);
+    const payload = (await response.json()) as Record<string, unknown>;
+    return { uuid: asString(payload.uuid), message: asString(payload.message) };
   }
 
   private failFor(status: number): never {
