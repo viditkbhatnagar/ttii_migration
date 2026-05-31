@@ -59,8 +59,8 @@ const envSchema = z.object({
   AUTH_OTP_VERIFY_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
 
   EMAIL_PROVIDER: z.enum(['console', 'noop', 'brevo', 'smtp', 'msgraph']).default('console'),
-  EMAIL_FROM_ADDRESS: z.string().default('noreply@ttii.local'),
-  EMAIL_FROM_NAME: z.string().default('TTII'),
+  EMAIL_FROM_ADDRESS: z.string().default('hello@teachersindia.in'),
+  EMAIL_FROM_NAME: z.string().default("Teachers' Training Institute of India"),
   EMAIL_BREVO_API_KEY: optionalStringFromEnv,
   EMAIL_BREVO_BASE_URL: z.string().url().default('https://api.brevo.com/v3'),
   EMAIL_SMTP_HOST: optionalStringFromEnv,

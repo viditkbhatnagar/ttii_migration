@@ -24,15 +24,19 @@ const STAGE_TABS: Array<{ id: string; label: string }> = [
   { id: 'payment_pending', label: 'Payment Pending' },
   { id: 'paid', label: 'Paid' },
   { id: 'form_pending', label: 'Form Pending' },
-  { id: 'form_submitted', label: 'Form Submitted' },
   { id: 'approval_waiting', label: 'Approval Waiting' },
   { id: 'rejected', label: 'Rejected' },
   { id: 'all', label: 'All' },
 ];
 
-const STAGE_LABEL: Record<string, string> = Object.fromEntries(
-  STAGE_TABS.filter((t) => t.id !== 'all').map((t) => [t.id, t.label]),
-);
+// 'form_submitted' no longer gets its own tab — the counsellor-approve step was
+// removed (Naji 2026-05-31), so applications now go straight to Approval Waiting.
+// Keep the label so any legacy application still parked at that stage renders
+// cleanly in the Stage column instead of showing the raw id.
+const STAGE_LABEL: Record<string, string> = {
+  ...Object.fromEntries(STAGE_TABS.filter((t) => t.id !== 'all').map((t) => [t.id, t.label])),
+  form_submitted: 'Form Submitted',
+};
 
 export default function ApplicationsPage({ api, session, onNavigate }: AdminPageProps) {
   const [fromDate, setFromDate] = useState('');
