@@ -64,7 +64,7 @@ const emptyForm: SubjectFormState = {
   status: 'draft',
 };
 
-export default function SubjectsPage({ api, session }: AdminPageProps) {
+export default function SubjectsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
@@ -233,7 +233,21 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
 
   const columns: DataTableColumn[] = [
     { key: 'subject_code', label: 'Code', sortable: true, render: (v) => asString(v) || '—' },
-    { key: 'title', label: 'Subject Title', sortable: true },
+    {
+      key: 'title',
+      label: 'Subject Title',
+      sortable: true,
+      // Click the title to open the subject's content (lessons + items).
+      render: (v, row) => (
+        <button
+          type="button"
+          onClick={() => onNavigate(`/admin/subjects/view/${asString(row.id)}`)}
+          className="text-left font-medium text-[#8F2774] hover:underline"
+        >
+          {asString(v) || '—'}
+        </button>
+      ),
+    },
     {
       key: 'courses',
       label: 'Courses',
@@ -265,6 +279,8 @@ export default function SubjectsPage({ api, session }: AdminPageProps) {
   ];
 
   const actions: DataTableAction[] = [
+    // Risha 2026-05-30 — open a subject to see/manage all its lessons + content.
+    { label: 'Manage Content', onClick: (row) => onNavigate(`/admin/subjects/view/${asString(row.id)}`) },
     { label: 'Edit', onClick: (row) => handleOpenEdit(row) },
     { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
   ];

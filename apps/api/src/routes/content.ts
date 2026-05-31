@@ -1393,6 +1393,29 @@ export function registerContentRoutes(
     }
   });
 
+  // Persist drag-to-sort order of content within a lesson.
+  app.post('/admin/content-assets/lesson/reorder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const assetIds = Array.isArray(payload.asset_ids) ? (payload.asset_ids as string[]) : [];
+      await contentAssetService.reorderLessonAssets(toStringValue(payload.lesson_id), assetIds);
+      reply.code(200).send({ status: 1, message: 'Content reordered', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  // Subject Detail page — subject + its lessons + each lesson's linked content.
+  app.get('/admin/subjects/content-tree', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const tree = await contentAssetService.getSubjectContentTree(toStringValue(payload.subject_id));
+      reply.code(200).send({ status: 1, message: 'success', data: tree });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // ── Admin Completion Policies & Certificates routes ───────────────
 
   const certificateService = new CertificateService();

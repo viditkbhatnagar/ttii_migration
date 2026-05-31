@@ -126,6 +126,7 @@ function serializeAsset(
     subject_tag: row.subject_tag ?? '',
     lesson_tag: row.lesson_tag ?? '',
     lesson_id: row.lesson_id ?? null,
+    sort_order: row.sort_order ?? 0,
     language: row.language ?? '',
     duration: row.duration ?? '',
     provider: row.provider ?? '',
@@ -347,20 +348,154 @@ export class ContentAssetService {
     });
   }
 
-  listLessonAssets(_lessonId: string): Promise<Record<string, unknown>[]> {
-    // lesson_content table not created in this session — returns empty.
-    return Promise.resolve([]);
+  // Content Library assets linked to a lesson via content_asset.lesson_id,
+  // in display order. (Replaces the old lesson_content-junction stub — the
+  // M:N table was never created; a single asset belongs to one lesson.)
+  async listLessonAssets(lessonId: string): Promise<Record<string, unknown>[]> {
+    const id = toIntId(lessonId);
+    if (!id) return [];
+    const rows = await this.prisma.content_asset.findMany({
+      where: { lesson_id: id, deleted_at: null },
+      orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+    });
+    const quizIds = rows.filter((r) => r.asset_type === 'quiz').map((r) => r.id);
+    const counts = quizIds.length
+      ? await this.prisma.quiz_question.groupBy({
+          by: ['asset_id'],
+          where: { asset_id: { in: quizIds } },
+          _count: { id: true },
+        })
+      : [];
+    const countMap = new Map(counts.map((c) => [c.asset_id, c._count?.id ?? 0] as const));
+    return rows.map((r) =>
+      serializeAsset(r, {
+        question_count: r.asset_type === 'quiz' ? countMap.get(r.id) ?? 0 : undefined,
+      }),
+    );
   }
 
-  linkAssetToLesson(
-    _actorUserId: string,
-    _lessonId: string,
-    _assetId: string,
+  // Link an existing Content Library asset to a lesson (sets lesson_id and
+  // appends it to the end of that lesson's content order).
+  async linkAssetToLesson(
+    actorUserId: string,
+    lessonId: string,
+    assetId: string,
   ): Promise<Record<string, unknown>> {
-    return Promise.reject(new Error('lesson_content table not present in MySQL schema'));
+    const lid = toIntId(lessonId);
+    const aid = toIntId(assetId);
+    if (!lid || !aid) throw new Error('Invalid lesson or asset id');
+    const max = await this.prisma.content_asset.aggregate({
+      where: { lesson_id: lid, deleted_at: null },
+      _max: { sort_order: true },
+    });
+    await this.prisma.content_asset.update({
+      where: { id: aid },
+      data: {
+        lesson_id: lid,
+        sort_order: (max._max?.sort_order ?? 0) + 1,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
+    return { id: String(aid), lesson_id: String(lid) };
   }
 
-  unlinkAssetFromLesson(_lessonId: string, _assetId: string): Promise<void> {
-    return Promise.reject(new Error('lesson_content table not present in MySQL schema'));
+  // Unlink an asset from a lesson (clears lesson_id). The asset stays in the
+  // Content Library, just no longer attached to the lesson.
+  async unlinkAssetFromLesson(lessonId: string, assetId: string): Promise<void> {
+    const lid = toIntId(lessonId);
+    const aid = toIntId(assetId);
+    if (!aid) throw new Error('Invalid asset id');
+    await this.prisma.content_asset.updateMany({
+      where: { id: aid, lesson_id: lid },
+      data: { lesson_id: null, updated_at: new Date() },
+    });
+  }
+
+  // Persist a new display order for content within a lesson. Takes the asset
+  // ids in the desired order; writes sequential sort_order values.
+  async reorderLessonAssets(lessonId: string, assetIds: string[]): Promise<void> {
+    const lid = toIntId(lessonId);
+    if (!lid) throw new Error('Invalid lesson id');
+    const now = new Date();
+    await this.prisma.$transaction(
+      assetIds
+        .map((aid) => toIntId(aid))
+        .filter((aid) => aid > 0)
+        .map((aid, index) =>
+          this.prisma.content_asset.updateMany({
+            where: { id: aid, lesson_id: lid },
+            data: { sort_order: index, updated_at: now },
+          }),
+        ),
+    );
+  }
+
+  // Subject Detail page payload: the subject, its lessons (in order), and for
+  // each lesson the Content Library assets attached to it (in order). One
+  // round-trip drives the whole "click a subject, see/manage everything" view.
+  async getSubjectContentTree(subjectId: string): Promise<Record<string, unknown>> {
+    const sid = toIntId(subjectId);
+    if (!sid) throw new Error('Invalid subject id');
+
+    const subject = await this.prisma.subject.findFirst({
+      where: { id: sid, deleted_at: null },
+    });
+    if (!subject) throw new Error('Subject not found');
+
+    const lessons = await this.prisma.lesson.findMany({
+      where: { subject_id: sid, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+    const lessonIds = lessons.map((l) => l.id);
+
+    const assets = lessonIds.length
+      ? await this.prisma.content_asset.findMany({
+          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+
+    // Quiz question counts in one query.
+    const quizIds = assets.filter((a) => a.asset_type === 'quiz').map((a) => a.id);
+    const counts = quizIds.length
+      ? await this.prisma.quiz_question.groupBy({
+          by: ['asset_id'],
+          where: { asset_id: { in: quizIds } },
+          _count: { id: true },
+        })
+      : [];
+    const countMap = new Map(counts.map((c) => [c.asset_id, c._count?.id ?? 0] as const));
+
+    const assetsByLesson = new Map<number, Record<string, unknown>[]>();
+    for (const a of assets) {
+      const list = assetsByLesson.get(a.lesson_id!) ?? [];
+      list.push(
+        serializeAsset(a, {
+          question_count: a.asset_type === 'quiz' ? countMap.get(a.id) ?? 0 : undefined,
+        }),
+      );
+      assetsByLesson.set(a.lesson_id!, list);
+    }
+
+    return {
+      subject: {
+        id: String(subject.id),
+        title: subject.title ?? '',
+        subject_code: subject.subject_code ?? '',
+        subject_type: subject.subject_type ?? '',
+        duration_hours: subject.duration_hours ?? null,
+        status: subject.status ?? '',
+        course_id: subject.course_id ?? null,
+      },
+      lessons: lessons.map((l) => ({
+        id: String(l.id),
+        title: l.title ?? '',
+        summary: l.summary ?? '',
+        order: l.order ?? 0,
+        free: l.free ?? 'off',
+        content: assetsByLesson.get(l.id) ?? [],
+      })),
+    };
   }
 }

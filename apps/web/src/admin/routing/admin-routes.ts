@@ -65,6 +65,7 @@ const AddCoursePage = lazy(() => import('../pages/course/AddCoursePage.js'));
 const ViewCoursePage = lazy(() => import('../pages/course/ViewCoursePage.js'));
 const CourseSubjectsPage = lazy(() => import('../pages/course/CourseSubjectsPage.js'));
 const SubjectsPage = lazy(() => import('../pages/course/SubjectsPage.js'));
+const SubjectDetailPage = lazy(() => import('../pages/subject/SubjectDetailPage.js'));
 const AddLessonPage = lazy(() => import('../pages/course_new/AddLessonPage.js'));
 const LessonsListPage = lazy(() => import('../pages/course_new/LessonsListPage.js'));
 const AppVersionPage = lazy(() => import('../pages/settings/AppVersionPage.js'));
@@ -192,6 +193,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/course/view/:id', pageComponent: ViewCoursePage, title: 'View Course' },
   { path: '/admin/course/subjects/:id', pageComponent: CourseSubjectsPage, title: 'Course Subjects' },
   { path: '/admin/subjects/index', aliases: ['/admin/subjects'], pageComponent: SubjectsPage, title: 'Subjects' },
+  { path: '/admin/subjects/view/:id', pageComponent: SubjectDetailPage, title: 'Subject Content' },
   // Lessons section (Naji 2026-04-30): the index lands on a flat
   // table view of every lesson; the wizard-style builder is reachable
   // from the Open Builder action and the "+ Add Lesson" button.

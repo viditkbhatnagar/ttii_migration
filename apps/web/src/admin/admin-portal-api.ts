@@ -2919,6 +2919,24 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/course/lessons/reorder', authToken, { lesson_ids: lessonIds });
   }
 
+  // ── Subject Detail (manage lessons + their content in one place) ──────
+
+  async loadSubjectContentTree(authToken: string, subjectId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      '/admin/subjects/content-tree',
+      authToken,
+      { subject_id: subjectId },
+    );
+    return (payload.data ?? {}) as Record<string, unknown>;
+  }
+
+  async reorderLessonContent(authToken: string, lessonId: string, assetIds: string[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/content-assets/lesson/reorder', authToken, {
+      lesson_id: lessonId,
+      asset_ids: assetIds,
+    });
+  }
+
   async reorderCourseSubjects(authToken: string, courseId: string, subjectIds: string[]): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/course/subjects/reorder', authToken, {
       course_id: courseId,
