@@ -2927,7 +2927,7 @@ export class AdminPortalApi {
       authToken,
       { subject_id: subjectId },
     );
-    return (payload.data ?? {}) as Record<string, unknown>;
+    return payload.data ?? {};
   }
 
   async reorderLessonContent(authToken: string, lessonId: string, assetIds: string[]): Promise<Record<string, unknown>> {
