@@ -477,13 +477,26 @@ export class AssessmentService {
     const examId = toStringValue(exam.id);
     const courseId = toStringValue(exam.course_id);
 
+    // Count only questions that still resolve to a live question_bank row.
+    // A question removed from the bank after being added to the exam leaves a
+    // dangling exam_questions link; counting those would wrongly mark a broken
+    // exam "available" with questions the student can never actually see.
+    const examQuestionRows = await this.prisma.exam_questions.findMany({
+      where: { exam_id: toNullableIntId(examId), deleted_at: null },
+      select: { question_id: true },
+    });
+    const questionBankIds = [
+      ...new Set(
+        examQuestionRows
+          .map((row) => row.question_id)
+          .filter((id): id is number => id !== null && id !== undefined),
+      ),
+    ];
+
     const [questionCount, isAttempted, allocationCount, purchaseStatus] = await Promise.all([
-      this.prisma.exam_questions.count({
-        where: {
-          exam_id: toNullableIntId(examId),
-          deleted_at: null,
-        },
-      }),
+      questionBankIds.length > 0
+        ? this.prisma.question_bank.count({ where: { id: { in: questionBankIds }, deleted_at: null } })
+        : Promise.resolve(0),
       this.prisma.exam_attempt.count({
         where: {
           exam_id: toNullableIntId(examId),
@@ -924,6 +937,13 @@ export class AssessmentService {
         };
       })
       .filter((q) => q.question !== '' || q.options.length > 0);
+
+    // The locked question ids can all point at deleted question_bank rows
+    // (e.g. a question removed from the bank after it was added to the exam).
+    // Don't open an empty exam — surface a clear message instead.
+    if (questions.length === 0) {
+      return { status: 0, message: 'This exam has no questions available yet. Please contact your institute.' };
+    }
 
     return {
       status: 1,
