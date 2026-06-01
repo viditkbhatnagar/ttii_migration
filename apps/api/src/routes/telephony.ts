@@ -40,18 +40,21 @@ function toE164(raw: string | null | undefined): string | null {
   return null;
 }
 
-// Resolve the agent's callback number: explicit override, else the logged-in
-// admin's profile phone, else the global fallback. No per-call prompt.
+// Resolve the agent's callback number: explicit override, else the configured
+// global callback (AINVOX_DEFAULT_AGENT_PHONE — the pinned support number),
+// else the logged-in admin's profile phone. No per-call prompt.
 async function resolveAgentPhone(request: FastifyRequest, override: string): Promise<string | null> {
   const fromOverride = toE164(override);
   if (fromOverride) return fromOverride;
+  const fromDefault = toE164(env.AINVOX_DEFAULT_AGENT_PHONE ?? null);
+  if (fromDefault) return fromDefault;
   const userId = Number(request.authContext?.user.id);
   if (Number.isFinite(userId)) {
     const admin = await getPrismaClient().users.findUnique({ where: { id: userId }, select: { phone: true } });
     const fromProfile = toE164(admin?.phone ?? null);
     if (fromProfile) return fromProfile;
   }
-  return toE164(env.AINVOX_DEFAULT_AGENT_PHONE ?? null);
+  return null;
 }
 
 function sendAinvoxError(reply: FastifyReply, error: unknown): void {
