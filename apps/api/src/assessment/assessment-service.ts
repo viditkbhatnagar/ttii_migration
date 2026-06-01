@@ -880,32 +880,70 @@ export class AssessmentService {
       return { status: 0, message: 'You have already submitted this exam.' };
     }
 
-    // Resume an in-progress attempt (preserving its locked order) or start one.
+    // Resume an in-progress attempt (preserving its locked order). If the
+    // resumed attempt's locked questions no longer resolve to live
+    // question_bank rows — e.g. an admin edited the exam after the student
+    // started — abandon it and start a fresh attempt against the current
+    // questions, rather than stranding the student in an empty exam.
     let attempt = await this.prisma.exam_attempt.findFirst({
       where: { exam_id: examIdInt, user_id: userIdInt, submit_status: false, deleted_at: null },
       orderBy: { id: 'desc' },
       select: { id: true, question_id: true },
     });
-    if (!attempt) {
-      const started = await this.startExamAttempt(userId, { examId });
-      if (!started.attemptId) {
-        return { status: 0, message: 'This exam has no questions yet.' };
-      }
-      attempt = await this.prisma.exam_attempt.findFirst({
-        where: { id: toIntId(started.attemptId) },
-        select: { id: true, question_id: true },
+    let questions = attempt ? await this.buildExamQuestions(attempt.question_id) : [];
+
+    if (attempt && questions.length === 0) {
+      await this.prisma.exam_attempt.update({
+        where: { id: attempt.id },
+        data: { deleted_at: new Date(), updated_at: new Date() },
       });
-    }
-    if (!attempt) {
-      return { status: 0, message: 'Could not start the exam. Please try again.' };
+      attempt = null;
     }
 
-    const orderedIds = toNormalizedStringArray(attempt.question_id)
+    if (!attempt) {
+      const started = await this.startExamAttempt(userId, { examId });
+      if (started.attemptId) {
+        attempt = await this.prisma.exam_attempt.findFirst({
+          where: { id: toIntId(started.attemptId) },
+          select: { id: true, question_id: true },
+        });
+        questions = attempt ? await this.buildExamQuestions(attempt.question_id) : [];
+      }
+    }
+
+    // No live questions exist for this exam (all deleted, or none added yet).
+    if (!attempt || questions.length === 0) {
+      return { status: 0, message: 'This exam has no questions available yet. Please contact your institute.' };
+    }
+
+    return {
+      status: 1,
+      data: {
+        attempt_id: idString(attempt.id),
+        exam_id: idString(exam.id),
+        title: toStringValue(exam.title),
+        duration: toStringValue(exam.duration),
+        total_mark: toDbNumber(exam.mark),
+        total_questions: questions.length,
+        questions,
+      },
+    };
+  }
+
+  /**
+   * Resolve an attempt's locked question_id list to renderable questions
+   * (text + options, NO answer keys), dropping any that point at a deleted
+   * question_bank row. Order follows the locked/shuffled sequence.
+   */
+  private async buildExamQuestions(
+    questionIdJson: unknown,
+  ): Promise<Array<{ question_id: string; q_type: number; question: string; options: string[] }>> {
+    const orderedIds = toNormalizedStringArray(questionIdJson)
       .map((id) => id.trim())
       .filter((id) => id !== '');
     const qbIdInts = toIntArray(orderedIds);
     if (qbIdInts.length === 0) {
-      return { status: 0, message: 'This exam has no questions yet.' };
+      return [];
     }
 
     const qbRows = await this.prisma.question_bank.findMany({
@@ -917,7 +955,7 @@ export class AssessmentService {
       qbMap.set(idString(row.id), row);
     }
 
-    const questions = orderedIds
+    return orderedIds
       .map((qid) => {
         const row = qbMap.get(qid);
         let options: string[] = [];
@@ -937,26 +975,6 @@ export class AssessmentService {
         };
       })
       .filter((q) => q.question !== '' || q.options.length > 0);
-
-    // The locked question ids can all point at deleted question_bank rows
-    // (e.g. a question removed from the bank after it was added to the exam).
-    // Don't open an empty exam — surface a clear message instead.
-    if (questions.length === 0) {
-      return { status: 0, message: 'This exam has no questions available yet. Please contact your institute.' };
-    }
-
-    return {
-      status: 1,
-      data: {
-        attempt_id: idString(attempt.id),
-        exam_id: idString(exam.id),
-        title: toStringValue(exam.title),
-        duration: toStringValue(exam.duration),
-        total_mark: toDbNumber(exam.mark),
-        total_questions: questions.length,
-        questions,
-      },
-    };
   }
 
   private async finalizeExamAttempt(
