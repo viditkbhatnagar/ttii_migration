@@ -172,6 +172,12 @@ function combineDateAndTime(dateValue: unknown, timeValue: unknown): Date | null
   return fallback;
 }
 
+// End of the given calendar day (23:59:59). Exam `to_date` is a DATE column
+// with no time, so an exam is open through the end of its closing day.
+function endOfDay(dateValue: unknown): Date | null {
+  return combineDateAndTime(dateValue, '23:59:59');
+}
+
 function format12HourTime(value: unknown): string {
   const raw = toNullableString(value);
   if (!raw) {
@@ -471,7 +477,7 @@ export class AssessmentService {
     const examId = toStringValue(exam.id);
     const courseId = toStringValue(exam.course_id);
 
-    const [questionCount, isAttempted, purchaseStatus] = await Promise.all([
+    const [questionCount, isAttempted, allocationCount, purchaseStatus] = await Promise.all([
       this.prisma.exam_questions.count({
         where: {
           exam_id: toNullableIntId(examId),
@@ -486,8 +492,37 @@ export class AssessmentService {
           deleted_at: null,
         },
       }),
+      this.prisma.exam_student_allocations.count({
+        where: {
+          exam_id: toNullableIntId(examId) ?? 0,
+          user_id: toNullableIntId(userId) ?? 0,
+        },
+      }),
       this.userPurchaseStatus(userId, courseId),
     ]);
+
+    // Naji UAT 2026-06-01 — native in-portal exam taking. Derive a single
+    // `state` the student UI can switch on, plus the window timestamps it
+    // needs to render "starts on"/"closed". These fields are ADDITIVE: the
+    // mobile app keeps reading the legacy fields below untouched.
+    const isSubmitted = isAttempted > 0;
+    const isAllocated = allocationCount > 0;
+    const status = toStringValue(exam.status);
+    const start = combineDateAndTime(exam.from_date, exam.from_time);
+    const end = endOfDay(exam.to_date);
+    const nowMs = Date.now();
+    let state: 'submitted' | 'available' | 'upcoming' | 'closed';
+    if (isSubmitted) {
+      state = 'submitted';
+    } else if (status !== 'published' || !isAllocated || questionCount === 0) {
+      state = 'closed';
+    } else if (start && nowMs < start.getTime()) {
+      state = 'upcoming';
+    } else if (end && nowMs > end.getTime()) {
+      state = 'closed';
+    } else {
+      state = 'available';
+    }
 
     // Ansaba UAT 2026-05-22 — Flutter Exam model types `id` as int.
     // Send the raw int so Map<int,Exam> indexing doesn't crash.
@@ -500,7 +535,15 @@ export class AssessmentService {
       date: formatDateSlash(exam.from_date),
       free: toStringValue(exam.free) === '1' ? 'on' : purchaseStatus,
       questions_count: `${questionCount} Questions`,
-      is_attempted: isAttempted > 0 ? 1 : 0,
+      total_questions: questionCount,
+      is_attempted: isSubmitted ? 1 : 0,
+      // Native exam-taking metadata (web portal).
+      status,
+      state,
+      is_allocated: isAllocated ? 1 : 0,
+      is_submitted: isSubmitted ? 1 : 0,
+      start_datetime: start ? start.toISOString() : null,
+      end_datetime: end ? end.toISOString() : null,
       exam_link: `${this.appBaseUrl}/exam/exam_web_view/${examId}/${userId}`,
     };
   }
@@ -765,6 +808,134 @@ export class AssessmentService {
     return {
       attemptId: idString(created.id),
       questionNo: questionIds.length,
+    };
+  }
+
+  /**
+   * Naji UAT 2026-06-01 — serve a formal exam for native in-portal taking.
+   * Validates the student is allowed to take it (published + assigned +
+   * inside the open window + not already submitted), starts or resumes the
+   * attempt (so the locked/shuffled question order is preserved), and
+   * returns the questions WITHOUT correct answers. Mirrors the quiz player's
+   * contract so the frontend can reuse the same UI shape.
+   */
+  async getExamForTaking(
+    userId: string,
+    examId: string,
+  ): Promise<{ status: number; message?: string; data?: Record<string, unknown> }> {
+    const userIdInt = toNullableIntId(userId);
+    const examIdInt = toNullableIntId(examId);
+    if (!userIdInt || !examIdInt) {
+      return { status: 0, message: 'Invalid request.' };
+    }
+
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examIdInt, deleted_at: null },
+      select: {
+        id: true, title: true, duration: true, mark: true,
+        from_date: true, from_time: true, to_date: true, status: true,
+      },
+    });
+    if (!exam) {
+      return { status: 0, message: 'Exam not found.' };
+    }
+    if (toStringValue(exam.status) !== 'published') {
+      return { status: 0, message: 'This exam is not open yet.' };
+    }
+
+    const allocated = await this.prisma.exam_student_allocations.count({
+      where: { exam_id: examIdInt, user_id: userIdInt },
+    });
+    if (allocated === 0) {
+      return { status: 0, message: 'You are not assigned to this exam.' };
+    }
+
+    const nowMs = Date.now();
+    const start = combineDateAndTime(exam.from_date, exam.from_time);
+    const end = endOfDay(exam.to_date);
+    if (start && nowMs < start.getTime()) {
+      return { status: 0, message: 'This exam has not started yet.' };
+    }
+    if (end && nowMs > end.getTime()) {
+      return { status: 0, message: 'This exam has closed.' };
+    }
+
+    const submitted = await this.prisma.exam_attempt.count({
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+    });
+    if (submitted > 0) {
+      return { status: 0, message: 'You have already submitted this exam.' };
+    }
+
+    // Resume an in-progress attempt (preserving its locked order) or start one.
+    let attempt = await this.prisma.exam_attempt.findFirst({
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: false, deleted_at: null },
+      orderBy: { id: 'desc' },
+      select: { id: true, question_id: true },
+    });
+    if (!attempt) {
+      const started = await this.startExamAttempt(userId, { examId });
+      if (!started.attemptId) {
+        return { status: 0, message: 'This exam has no questions yet.' };
+      }
+      attempt = await this.prisma.exam_attempt.findFirst({
+        where: { id: toIntId(started.attemptId) },
+        select: { id: true, question_id: true },
+      });
+    }
+    if (!attempt) {
+      return { status: 0, message: 'Could not start the exam. Please try again.' };
+    }
+
+    const orderedIds = toNormalizedStringArray(attempt.question_id)
+      .map((id) => id.trim())
+      .filter((id) => id !== '');
+    const qbIdInts = toIntArray(orderedIds);
+    if (qbIdInts.length === 0) {
+      return { status: 0, message: 'This exam has no questions yet.' };
+    }
+
+    const qbRows = await this.prisma.question_bank.findMany({
+      where: { id: { in: qbIdInts }, deleted_at: null },
+      select: { id: true, title: true, q_type: true, number_of_options: true, options: true },
+    });
+    const qbMap = new Map<string, (typeof qbRows)[number]>();
+    for (const row of qbRows) {
+      qbMap.set(idString(row.id), row);
+    }
+
+    const questions = orderedIds
+      .map((qid) => {
+        const row = qbMap.get(qid);
+        let options: string[] = [];
+        if (row?.options) {
+          try {
+            const parsed: unknown = JSON.parse(row.options);
+            if (Array.isArray(parsed)) options = parsed.map((o) => String(o));
+          } catch {
+            options = [];
+          }
+        }
+        return {
+          question_id: qid,
+          q_type: row?.q_type ?? 1,
+          question: toStringValue(row?.title),
+          options,
+        };
+      })
+      .filter((q) => q.question !== '' || q.options.length > 0);
+
+    return {
+      status: 1,
+      data: {
+        attempt_id: idString(attempt.id),
+        exam_id: idString(exam.id),
+        title: toStringValue(exam.title),
+        duration: toStringValue(exam.duration),
+        total_mark: toDbNumber(exam.mark),
+        total_questions: questions.length,
+        questions,
+      },
     };
   }
 

@@ -45,6 +45,27 @@ function asNumber(value: unknown): number {
   return 0;
 }
 
+// Group a student's exams by the backend-derived `state` for the Exams tab.
+// Only exams the student is assigned to (is_allocated) are shown, so the tab
+// reflects "your exams", not every exam on the course.
+function groupExamsByState(exams: Record<string, unknown>[]): {
+  available: Record<string, unknown>[];
+  upcoming: Record<string, unknown>[];
+  expired: Record<string, unknown>[];
+} {
+  const available: Record<string, unknown>[] = [];
+  const upcoming: Record<string, unknown>[] = [];
+  const expired: Record<string, unknown>[] = [];
+  for (const exam of exams) {
+    if (asNumber(exam.is_allocated) !== 1) continue;
+    const state = asString(exam.state);
+    if (state === 'available') available.push(exam);
+    else if (state === 'upcoming') upcoming.push(exam);
+    else expired.push(exam); // 'closed' | 'submitted' | legacy
+  }
+  return { available, upcoming, expired };
+}
+
 function asBooleanFromLegacy(value: unknown): boolean {
   if (value === 1 || value === true || value === '1' || value === 'true' || value === 'on') {
     return true;
@@ -141,6 +162,7 @@ export interface StudentAssessmentSnapshot {
     completed: Record<string, unknown>[];
   };
   exams: {
+    available: Record<string, unknown>[];
     upcoming: Record<string, unknown>[];
     expired: Record<string, unknown>[];
   };
@@ -663,10 +685,10 @@ export class StudentPortalApi {
         upcoming: asArray(assignments.upcoming).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
         completed: asArray(assignments.completed).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
       },
-      exams: {
-        upcoming: asArray(exams.upcoming_exams).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
-        expired: asArray(exams.expired_exams).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
-      },
+      exams: groupExamsByState([
+        ...asArray(exams.upcoming_exams).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
+        ...asArray(exams.expired_exams).map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry !== null),
+      ]),
       examCalendar: asRecord(examCalendarPayload.data) ?? {},
       quizLessonFileId: quizCandidate.lessonFileId,
       quizLessonId: quizCandidate.lessonId,
@@ -699,6 +721,55 @@ export class StudentPortalApi {
       attempt_id: attemptId,
       user_answers: userAnswers,
     });
+  }
+
+  // Native in-portal exam taking (Naji 2026-06-01). Loads an eligible exam's
+  // questions (no answer keys) and starts/resumes the attempt. Returns an
+  // `error` string when the exam isn't takeable (not assigned, closed, etc.).
+  async loadExamForTaking(
+    authToken: string,
+    examId: string,
+  ): Promise<{
+    attemptId: string;
+    examId: string;
+    title: string;
+    duration: string;
+    totalQuestions: number;
+    questions: Array<{ questionId: string; qType: number; question: string; options: string[] }>;
+    error?: string;
+  }> {
+    const payload = await this.post<Record<string, unknown>>('/exams/exam_take', authToken, {
+      exam_id: examId,
+    });
+    const data = asRecord(payload.data);
+    if (asNumber(payload.status) !== 1 || !data) {
+      return {
+        attemptId: '',
+        examId,
+        title: '',
+        duration: '',
+        totalQuestions: 0,
+        questions: [],
+        error: asString(payload.message) || 'This exam is not available right now.',
+      };
+    }
+    const questions = asArray(data.questions)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((q) => ({
+        questionId: asString(q.question_id),
+        qType: asNumber(q.q_type) || 1,
+        question: asString(q.question),
+        options: asArray(q.options).map((o) => asString(o)),
+      }));
+    return {
+      attemptId: asString(data.attempt_id),
+      examId: asString(data.exam_id) || examId,
+      title: asString(data.title),
+      duration: asString(data.duration),
+      totalQuestions: asNumber(data.total_questions) || questions.length,
+      questions,
+    };
   }
 
   async startQuizAttempt(authToken: string, lessonFileId: string): Promise<string> {

@@ -22,10 +22,11 @@ import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import { FormalExamPlayer } from '../../components/FormalExamPlayer.js';
 
 type MainTab = 'assignments' | 'exams';
 type AssignmentSubTab = 'current' | 'upcoming' | 'completed';
-type ExamSubTab = 'upcoming' | 'expired';
+type ExamSubTab = 'available' | 'upcoming' | 'expired';
 
 function parseSubmittedFiles(value: unknown): Array<{ file: string; date: string }> {
   if (!Array.isArray(value)) return [];
@@ -62,10 +63,25 @@ function getStatusBadge(status: string) {
   return { className: 'bg-slate-100 text-slate-600 border-slate-200', label: status || 'Unknown' };
 }
 
+// Badge for a formal exam's backend-derived `state`.
+function getExamStateBadge(state: string): { className: string; label: string } {
+  switch (state) {
+    case 'available':
+      return { className: 'bg-green-100 text-green-700 border-green-200', label: 'Available' };
+    case 'upcoming':
+      return { className: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Upcoming' };
+    case 'submitted':
+      return { className: 'bg-emerald-100 text-emerald-700 border-emerald-200', label: 'Submitted' };
+    default:
+      return { className: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Closed' };
+  }
+}
+
 export default function StudentAssessmentsPage({ api, session }: StudentPageProps) {
   const [mainTab, setMainTab] = useState<MainTab>('assignments');
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('current');
-  const [examSubTab, setExamSubTab] = useState<ExamSubTab>('upcoming');
+  const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
+  const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [detailItem, setDetailItem] = useState<Record<string, unknown> | null>(null);
@@ -101,6 +117,22 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     );
   }
 
+  if (activeExam) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <FormalExamPlayer
+            api={api}
+            authToken={session.token}
+            examId={activeExam.examId}
+            title={activeExam.title}
+            onClose={() => { setActiveExam(null); reload(); }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const mainTabs = [
     {
       id: 'assignments' as const,
@@ -110,7 +142,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     {
       id: 'exams' as const,
       label: 'Exams',
-      count: (data?.exams.upcoming.length ?? 0) + (data?.exams.expired.length ?? 0),
+      count: (data?.exams.available.length ?? 0) + (data?.exams.upcoming.length ?? 0) + (data?.exams.expired.length ?? 0),
     },
   ];
 
@@ -121,6 +153,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   ];
 
   const examSubTabs = [
+    { id: 'available' as const, label: 'Available', count: data?.exams.available.length ?? 0 },
     { id: 'upcoming' as const, label: 'Upcoming', count: data?.exams.upcoming.length ?? 0 },
     { id: 'expired' as const, label: 'Past', count: data?.exams.expired.length ?? 0 },
   ];
@@ -133,9 +166,11 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
         : data?.assignments.completed ?? [];
 
   const currentExams =
-    examSubTab === 'upcoming'
-      ? data?.exams.upcoming ?? []
-      : data?.exams.expired ?? [];
+    examSubTab === 'available'
+      ? data?.exams.available ?? []
+      : examSubTab === 'upcoming'
+        ? data?.exams.upcoming ?? []
+        : data?.exams.expired ?? [];
 
   const filteredAssignments = searchQuery
     ? currentAssignments.filter((a) => asString(a.title).toLowerCase().includes(searchQuery.toLowerCase()))
@@ -296,6 +331,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                     <TableHead className="hidden md:table-cell">Questions</TableHead>
                     <TableHead className="hidden md:table-cell">Duration</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -305,7 +341,8 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                     const date = asString(exam.date) || asString(exam.start_date);
                     const questionCount = asNumber(exam.questions_count) || asNumber(exam.total_questions);
                     const duration = asString(exam.duration) || asString(exam.time_limit);
-                    const badge = getStatusBadge(examSubTab === 'upcoming' ? 'upcoming' : 'expired');
+                    const state = asString(exam.state);
+                    const badge = getExamStateBadge(state);
 
                     return (
                       <TableRow key={id} className="hover:bg-slate-50/80">
@@ -324,12 +361,29 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                           {questionCount > 0 ? `${questionCount} questions` : '—'}
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-slate-500 text-sm">
-                          {duration || '—'}
+                          {duration ? `${duration} min` : '—'}
                         </TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
                             {badge.label}
                           </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {state === 'available' ? (
+                            <Button
+                              size="sm"
+                              onClick={() => setActiveExam({ examId: id, title })}
+                              className="bg-student-primary text-white hover:bg-student-primary/90"
+                            >
+                              Start Exam
+                            </Button>
+                          ) : state === 'upcoming' ? (
+                            <span className="text-xs text-slate-400">{date ? `Opens ${formatDate(date)}` : 'Scheduled'}</span>
+                          ) : state === 'submitted' ? (
+                            <span className="text-xs font-medium text-emerald-600">Submitted</span>
+                          ) : (
+                            <span className="text-xs text-slate-400">Closed</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

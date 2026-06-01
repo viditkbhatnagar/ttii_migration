@@ -150,6 +150,22 @@ export function registerAssessmentRoutes(
     }
   });
 
+  // Naji UAT 2026-06-01 — native in-portal exam taking. Returns the exam's
+  // questions (no answer keys) for an eligible student and starts/resumes the
+  // attempt. The service result already carries { status, message?, data? }.
+  app.post('/exams/exam_take', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await assessmentService.getExamForTaking(
+        requestUserId(request),
+        toStringId(payload.exam_id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendAssessmentError(reply, error);
+    }
+  });
+
   app.post('/quiz/start_quiz', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
