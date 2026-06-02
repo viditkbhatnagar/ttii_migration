@@ -418,8 +418,10 @@ export function registerEngagementRoutes(
         requestUserId(request),
         courseId ? { courseId } : {},
       );
+      // subject_id on the row is numeric; toStringValue() returns '' for
+      // numbers, so use String() to compare against the (string) query param.
       const data = subjectId
-        ? all.filter((row) => toStringValue(row.subject_id) === subjectId)
+        ? all.filter((row) => String(row.subject_id) === subjectId)
         : all;
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) {
