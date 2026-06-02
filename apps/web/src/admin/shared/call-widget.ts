@@ -98,6 +98,8 @@ function showCloseButton(dialer: AinvoxDialerInstance): void {
   document.body.appendChild(btn);
 }
 
+let dialerWarmed = false;
+
 /**
  * Open the dialer and dial a number (E.164), placing the call immediately.
  * Recording is handled by the Ainvox account, not by this call. A "Close
@@ -107,6 +109,11 @@ export async function placeBrowserCall(e164Number: string): Promise<void> {
   await loadSdk();
   const dialer = getDialer();
   await dialer.open();
+  // The widget's iframe needs a beat to become interactive after it first
+  // mounts; calling too early gets dropped and the number field stays blank.
+  // Wait longer on the first call (cold iframe), briefly on subsequent ones.
+  await new Promise((resolve) => setTimeout(resolve, dialerWarmed ? 300 : 2000));
+  dialerWarmed = true;
   await dialer.call(e164Number, true);
   showCloseButton(dialer);
 }
