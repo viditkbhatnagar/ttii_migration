@@ -64,13 +64,49 @@ function getDialer(): AinvoxDialerInstance {
   return instance;
 }
 
+const CLOSE_BTN_ID = 'ttii-ainvox-close-dialer';
+
+// Ainvox's dialer has no obvious "close" on every stage, so we render our own
+// dismiss pill (bottom-left, clear of the bottom-right widget) that calls
+// ainvox.close(), per Ainvox's guidance. Their themable/customisable widget
+// (placement + colour options) is due ~mid-July 2026 — revisit then.
+function showCloseButton(dialer: AinvoxDialerInstance): void {
+  if (document.getElementById(CLOSE_BTN_ID)) return;
+  const btn = document.createElement('button');
+  btn.id = CLOSE_BTN_ID;
+  btn.type = 'button';
+  btn.textContent = '✕ Close dialer';
+  Object.assign(btn.style, {
+    position: 'fixed',
+    bottom: '20px',
+    left: '20px',
+    zIndex: '2147483647',
+    padding: '8px 14px',
+    borderRadius: '9999px',
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+  });
+  btn.addEventListener('click', () => {
+    void Promise.resolve(dialer.close()).catch(() => undefined);
+    btn.remove();
+  });
+  document.body.appendChild(btn);
+}
+
 /**
  * Open the dialer and dial a number (E.164), placing the call immediately.
- * Recording is handled by the Ainvox account, not by this call.
+ * Recording is handled by the Ainvox account, not by this call. A "Close
+ * dialer" pill is shown so the admin can dismiss the widget on demand.
  */
 export async function placeBrowserCall(e164Number: string): Promise<void> {
   await loadSdk();
   const dialer = getDialer();
   await dialer.open();
   await dialer.call(e164Number, true);
+  showCloseButton(dialer);
 }
