@@ -5,6 +5,7 @@
 import { toast } from 'sonner';
 
 import type { AdminPortalApi } from '../admin-portal-api.js';
+import { placeBrowserCall } from './call-widget.js';
 
 // Normalise a raw, possibly-messy phone string to E.164 (defaults to India).
 export function toDialableNumber(raw: string, defaultCountryCode = '91'): string | null {
@@ -38,5 +39,21 @@ export async function startAdminCall(
     toast.success('Calling you now — answer your phone to connect to the student.');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Could not start the call.');
+  }
+}
+
+// Place a call through the in-dashboard Ainvox dialer widget (talk in the
+// browser). The admin signs into the widget once; after that it just opens and
+// dials. Recording is handled by the Ainvox account.
+export async function startBrowserCall(rawStudentPhone: string | null | undefined): Promise<void> {
+  const studentPhone = toDialableNumber(rawStudentPhone ?? '');
+  if (!studentPhone) {
+    toast.error('No valid phone number for this contact.');
+    return;
+  }
+  try {
+    await placeBrowserCall(studentPhone);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Could not open the dialer.');
   }
 }

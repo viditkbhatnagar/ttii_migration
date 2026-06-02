@@ -91,7 +91,7 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <CallButton api={api} authToken={authToken} phone={phone} />
+          <CallButton phone={phone} />
           <Button
             type="button"
             variant="ghost"
