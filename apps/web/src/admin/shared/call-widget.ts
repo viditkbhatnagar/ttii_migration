@@ -15,6 +15,11 @@ interface AinvoxDialerInstance {
   call(number: string, makeCall: boolean): Promise<void> | void;
   open(): Promise<void> | void;
   close(): Promise<void> | void;
+  // Layout config the SDK stores on the instance (defaults: 20 / 50 / 300 / 350).
+  right?: number;
+  bottom?: number;
+  expandedWidth?: number;
+  expandedHeight?: number;
 }
 
 // The SDK exposes a global `AinvoxDialer` constructor that takes no arguments.
@@ -65,56 +70,31 @@ function getDialer(): AinvoxDialerInstance {
 }
 
 const CLOSE_BTN_ID = 'ttii-dialer-close-btn';
+const AINVOX_ORIGIN = 'https://app.ainvox.com';
 
-// Locate the Ainvox dialer panel in the DOM so we can pin our close pill to it.
-// The widget is right-anchored but shifts vertically between states, so we
-// track it instead of guessing a fixed corner. Returns the largest plausible
-// candidate sitting on the right half of the viewport, or null for the fallback.
-function findDialerPanel(): HTMLElement | null {
-  const nodes = document.querySelectorAll<HTMLElement>(
-    'iframe[src*="ainvox"], ainvox-dialer, [data-ainvox], [class*="ainvox" i]',
-  );
-  let best: HTMLElement | null = null;
-  let bestArea = 0;
-  nodes.forEach((el) => {
-    const r = el.getBoundingClientRect();
-    const area = r.width * r.height;
-    const onRight = r.right > window.innerWidth * 0.5;
-    if (r.width > 120 && r.height > 120 && onRight && area > bestArea) {
-      best = el;
-      bestArea = area;
-    }
+// The dialer iframe is fixed bottom-right and only changes SIZE between states
+// (collapsed ~35px ↔ expanded ~300×350, anchored at right/bottom). Read the
+// instance's layout config (SDK defaults: right 20, bottom 50, height 350) to
+// park our close pill just above the expanded panel, right-aligned to it.
+function positionCloseButton(btn: HTMLElement, dialer: AinvoxDialerInstance): void {
+  const right = dialer.right ?? 20;
+  const bottom = (dialer.bottom ?? 50) + (dialer.expandedHeight ?? 350) + 8;
+  Object.assign(btn.style, {
+    top: 'auto',
+    left: 'auto',
+    right: `${right}px`,
+    bottom: `${bottom}px`,
   });
-  return best;
 }
 
-// Park the pill just above the panel's top-right corner; if the panel hugs the
-// top of the screen (no room above), tuck it just left of the panel instead so
-// it never overlaps the widget's own controls. Falls back to the top-right.
-function positionCloseButton(btn: HTMLElement): void {
-  btn.style.bottom = 'auto';
-  btn.style.left = 'auto';
-  const panel = findDialerPanel();
-  if (!panel) {
-    btn.style.top = '16px';
-    btn.style.right = '24px';
-    return;
-  }
-  const r = panel.getBoundingClientRect();
-  const gap = (btn.offsetHeight || 34) + 6;
-  if (r.top >= gap + 8) {
-    btn.style.top = `${r.top - gap}px`;
-    btn.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
-  } else {
-    btn.style.top = `${Math.max(8, r.top + 6)}px`;
-    btn.style.right = `${Math.max(8, window.innerWidth - r.left + 8)}px`;
-  }
+function removeCloseButton(): void {
+  document.getElementById(CLOSE_BTN_ID)?.remove();
 }
 
 // Ainvox's dialer has no obvious "close" on every stage, so we render our own
-// dismiss pill that calls ainvox.close() (per Ainvox's guidance) and keep it
-// pinned just above the dialer panel. Their themable/customisable widget
-// (placement + colour options) is due ~mid-July 2026 — revisit then.
+// dismiss pill that calls ainvox.close() (per Ainvox's guidance), pinned just
+// above the expanded panel. Their themable/customisable widget (placement +
+// colour options) is due ~mid-July 2026 — revisit then.
 function showCloseButton(dialer: AinvoxDialerInstance): void {
   if (document.getElementById(CLOSE_BTN_ID)) return;
   const btn = document.createElement('button');
@@ -123,8 +103,6 @@ function showCloseButton(dialer: AinvoxDialerInstance): void {
   btn.textContent = '✕ Close dialer';
   Object.assign(btn.style, {
     position: 'fixed',
-    top: '16px',
-    right: '24px',
     zIndex: '2147483647',
     padding: '8px 14px',
     borderRadius: '9999px',
@@ -136,26 +114,28 @@ function showCloseButton(dialer: AinvoxDialerInstance): void {
     cursor: 'pointer',
     boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
   });
-  document.body.appendChild(btn);
-  positionCloseButton(btn);
-
-  // The panel moves between states, so keep re-aligning until the pill is gone.
-  const reposition = (): void => positionCloseButton(btn);
-  const timer = window.setInterval(() => {
-    if (!document.getElementById(CLOSE_BTN_ID)) {
-      window.clearInterval(timer);
-      window.removeEventListener('resize', reposition);
-      return;
-    }
-    positionCloseButton(btn);
-  }, 600);
-  window.addEventListener('resize', reposition);
-
+  positionCloseButton(btn, dialer);
   btn.addEventListener('click', () => {
     void Promise.resolve(dialer.close()).catch(() => undefined);
-    window.clearInterval(timer);
-    window.removeEventListener('resize', reposition);
-    btn.remove();
+    removeCloseButton();
+  });
+  document.body.appendChild(btn);
+}
+
+// Keep the close pill in lockstep with the dialer's REAL open state. The iframe
+// posts {command:'open'|'close'|'ready'} to the parent on every state change —
+// including when the admin reopens it via the widget's own green button — so
+// listening here covers every path, not just our Call button. Attached once.
+let wired = false;
+function wireCloseButton(dialer: AinvoxDialerInstance): void {
+  if (wired) return;
+  wired = true;
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (event.origin !== AINVOX_ORIGIN) return;
+    const data = event.data as { command?: string } | null;
+    if (!data || typeof data !== 'object') return;
+    if (data.command === 'open') showCloseButton(dialer);
+    else if (data.command === 'close' || data.command === 'ready') removeCloseButton();
   });
 }
 
@@ -163,12 +143,14 @@ let dialerWarmed = false;
 
 /**
  * Open the dialer and dial a number (E.164), placing the call immediately.
- * Recording is handled by the Ainvox account, not by this call. A "Close
- * dialer" pill is shown so the admin can dismiss the widget on demand.
+ * Recording is handled by the Ainvox account, not by this call. The "Close
+ * dialer" pill is kept in sync with the widget (via its postMessages) so the
+ * admin can dismiss it however it was opened.
  */
 export async function placeBrowserCall(e164Number: string): Promise<void> {
   await loadSdk();
   const dialer = getDialer();
+  wireCloseButton(dialer);
   // The freshly-mounted iframe needs a beat to become interactive. Wait BEFORE
   // open()/call() (longer on the first, cold call) so the widget actually
   // expands and the number pre-fills instead of staying collapsed/blank.
