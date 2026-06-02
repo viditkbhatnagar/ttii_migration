@@ -64,11 +64,56 @@ function getDialer(): AinvoxDialerInstance {
   return instance;
 }
 
-const CLOSE_BTN_ID = 'ttii-ainvox-close-dialer';
+const CLOSE_BTN_ID = 'ttii-dialer-close-btn';
+
+// Locate the Ainvox dialer panel in the DOM so we can pin our close pill to it.
+// The widget is right-anchored but shifts vertically between states, so we
+// track it instead of guessing a fixed corner. Returns the largest plausible
+// candidate sitting on the right half of the viewport, or null for the fallback.
+function findDialerPanel(): HTMLElement | null {
+  const nodes = document.querySelectorAll<HTMLElement>(
+    'iframe[src*="ainvox"], ainvox-dialer, [data-ainvox], [class*="ainvox" i]',
+  );
+  let best: HTMLElement | null = null;
+  let bestArea = 0;
+  nodes.forEach((el) => {
+    const r = el.getBoundingClientRect();
+    const area = r.width * r.height;
+    const onRight = r.right > window.innerWidth * 0.5;
+    if (r.width > 120 && r.height > 120 && onRight && area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  });
+  return best;
+}
+
+// Park the pill just above the panel's top-right corner; if the panel hugs the
+// top of the screen (no room above), tuck it just left of the panel instead so
+// it never overlaps the widget's own controls. Falls back to the top-right.
+function positionCloseButton(btn: HTMLElement): void {
+  btn.style.bottom = 'auto';
+  btn.style.left = 'auto';
+  const panel = findDialerPanel();
+  if (!panel) {
+    btn.style.top = '16px';
+    btn.style.right = '24px';
+    return;
+  }
+  const r = panel.getBoundingClientRect();
+  const gap = (btn.offsetHeight || 34) + 6;
+  if (r.top >= gap + 8) {
+    btn.style.top = `${r.top - gap}px`;
+    btn.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  } else {
+    btn.style.top = `${Math.max(8, r.top + 6)}px`;
+    btn.style.right = `${Math.max(8, window.innerWidth - r.left + 8)}px`;
+  }
+}
 
 // Ainvox's dialer has no obvious "close" on every stage, so we render our own
-// dismiss pill (bottom-left, clear of the bottom-right widget) that calls
-// ainvox.close(), per Ainvox's guidance. Their themable/customisable widget
+// dismiss pill that calls ainvox.close() (per Ainvox's guidance) and keep it
+// pinned just above the dialer panel. Their themable/customisable widget
 // (placement + colour options) is due ~mid-July 2026 — revisit then.
 function showCloseButton(dialer: AinvoxDialerInstance): void {
   if (document.getElementById(CLOSE_BTN_ID)) return;
@@ -78,8 +123,8 @@ function showCloseButton(dialer: AinvoxDialerInstance): void {
   btn.textContent = '✕ Close dialer';
   Object.assign(btn.style, {
     position: 'fixed',
-    bottom: '20px',
-    left: '20px',
+    top: '16px',
+    right: '24px',
     zIndex: '2147483647',
     padding: '8px 14px',
     borderRadius: '9999px',
@@ -91,11 +136,27 @@ function showCloseButton(dialer: AinvoxDialerInstance): void {
     cursor: 'pointer',
     boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
   });
+  document.body.appendChild(btn);
+  positionCloseButton(btn);
+
+  // The panel moves between states, so keep re-aligning until the pill is gone.
+  const reposition = (): void => positionCloseButton(btn);
+  const timer = window.setInterval(() => {
+    if (!document.getElementById(CLOSE_BTN_ID)) {
+      window.clearInterval(timer);
+      window.removeEventListener('resize', reposition);
+      return;
+    }
+    positionCloseButton(btn);
+  }, 600);
+  window.addEventListener('resize', reposition);
+
   btn.addEventListener('click', () => {
     void Promise.resolve(dialer.close()).catch(() => undefined);
+    window.clearInterval(timer);
+    window.removeEventListener('resize', reposition);
     btn.remove();
   });
-  document.body.appendChild(btn);
 }
 
 let dialerWarmed = false;
@@ -108,12 +169,12 @@ let dialerWarmed = false;
 export async function placeBrowserCall(e164Number: string): Promise<void> {
   await loadSdk();
   const dialer = getDialer();
-  await dialer.open();
-  // The widget's iframe needs a beat to become interactive after it first
-  // mounts; calling too early gets dropped and the number field stays blank.
-  // Wait longer on the first call (cold iframe), briefly on subsequent ones.
+  // The freshly-mounted iframe needs a beat to become interactive. Wait BEFORE
+  // open()/call() (longer on the first, cold call) so the widget actually
+  // expands and the number pre-fills instead of staying collapsed/blank.
   await new Promise((resolve) => setTimeout(resolve, dialerWarmed ? 300 : 2000));
   dialerWarmed = true;
+  await dialer.open();
   await dialer.call(e164Number, true);
   showCloseButton(dialer);
 }
