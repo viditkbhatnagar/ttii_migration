@@ -406,6 +406,27 @@ export function registerEngagementRoutes(
     }
   });
 
+  // Legacy PHP path the mobile (Flutter) app calls: /live_class/index?subject_id=.
+  // Returns the student's live classes filtered to a subject, same shape as
+  // /student/live_classes (which already powers the web Live Classes view).
+  app.get('/live_class/index', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const subjectId = toStringValue(payload.subject_id);
+      const courseId = toStringValue(payload.course_id);
+      const all = await engagementService.listStudentLiveClasses(
+        requestUserId(request),
+        courseId ? { courseId } : {},
+      );
+      const data = subjectId
+        ? all.filter((row) => toStringValue(row.subject_id) === subjectId)
+        : all;
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
   // Returns a playable URL for a live-class recording the student can
   // access — either a freshly-signed DO Spaces URL (when the recording
   // was synced from Microsoft Graph) or the legacy external link.

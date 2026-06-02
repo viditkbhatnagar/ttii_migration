@@ -1026,7 +1026,7 @@ export class ContentService {
       // Mobile-app aliases (Flutter Dart types these as int).
       lessons: lessonsCount,
       subjects: subjectCount,
-      progress: progressPct,
+      progress: Math.round(progressPct),
       total_reviews: totalReviews,
       total_rating: totalRating,
     };
