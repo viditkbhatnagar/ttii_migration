@@ -2,8 +2,8 @@
 // (outbound + inbound) with inline recording playback. Recordings stream
 // through our server proxy (the Ainvox secret stays server-side); the auth
 // token rides in the <audio src> query. Inert until AINVOX_PROVIDER=ainvox.
-import { useCallback, useEffect, useState } from 'react';
-import { PhoneIncoming, PhoneOutgoing, RefreshCw, Mic } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { PhoneIncoming, PhoneOutgoing, RefreshCw, Mic, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AdminPortalApi, AdminCallLog } from '../../admin-portal-api.js';
 import { toDialableNumber } from '../call-actions.js';
@@ -48,6 +48,21 @@ function statusTone(status: string | null): string {
   return STATUS_TONE[(status ?? '').toLowerCase()] ?? 'bg-slate-50 text-slate-600 ring-slate-200';
 }
 
+// Ainvox finalises and uploads a call recording a short time after the call
+// ends, so a just-completed call can briefly show no recording. Poll a few
+// times until it lands instead of making the admin refresh manually.
+const POLL_INTERVAL_MS = 15_000;
+const MAX_POLLS = 8; // ~2 minutes of polling
+const RECORDING_GRACE_MS = 15 * 60 * 1000; // treat as "processing" for 15 min
+
+function isRecordingPending(call: AdminCallLog): boolean {
+  if (call.recordingUrl) return false;
+  if ((call.status ?? '').toLowerCase() !== 'completed') return false;
+  if ((call.durationSeconds ?? 0) <= 0) return false;
+  const started = call.startedAt ? new Date(call.startedAt).getTime() : 0;
+  return started > 0 && Date.now() - started < RECORDING_GRACE_MS;
+}
+
 export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProps) {
   const dialable = toDialableNumber(phone ?? '');
   const [logs, setLogs] = useState<AdminCallLog[]>([]);
@@ -55,13 +70,18 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async () => {
+  const pollRef = useRef(0);
+
+  const load = useCallback(async (isPoll = false) => {
     if (!dialable) {
       setError('No valid phone number on file for this student.');
       setLoaded(true);
       return;
     }
-    setLoading(true);
+    if (!isPoll) {
+      pollRef.current = 0; // a fresh view/refresh resets the polling budget
+      setLoading(true);
+    }
     setError(null);
     try {
       const page = await api.getStudentCallLogs(authToken, dialable);
@@ -77,6 +97,17 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Auto-poll while a recently-completed call's recording is still processing,
+  // so it appears on its own without the admin having to refresh.
+  useEffect(() => {
+    if (!logs.some(isRecordingPending) || pollRef.current >= MAX_POLLS) return;
+    const timer = setTimeout(() => {
+      pollRef.current += 1;
+      void load(true);
+    }, POLL_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [logs, load]);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
@@ -149,6 +180,10 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
                     >
                       <track kind="captions" />
                     </audio>
+                  ) : isRecordingPending(call) ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-amber-600">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Recording processing…
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
                       <Mic className="h-3 w-3" /> No recording

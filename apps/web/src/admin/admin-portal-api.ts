@@ -2438,7 +2438,13 @@ export class AdminPortalApi {
   // Pull a student's call log (filtered by their phone, +E.164) from Ainvox
   // via our server-side proxy. Empty/inert until AINVOX_PROVIDER=ainvox.
   async getStudentCallLogs(authToken: string, phone: string): Promise<AdminCallLogPage> {
-    const payload = await this.get<LegacyEnvelope<AdminCallLogPage>>('/admin/calls/log', authToken, { phone });
+    // Cache-bust: a recording finalises a short time after the call ends, so a
+    // browser-cached call-log response can miss a recording that now exists.
+    // A unique param forces a fresh fetch each time (the server ignores it).
+    const payload = await this.get<LegacyEnvelope<AdminCallLogPage>>('/admin/calls/log', authToken, {
+      phone,
+      _t: String(Date.now()),
+    });
     return payload.data ?? { pageNumber: 1, perPage: 20, totalRows: null, data: [] };
   }
 
