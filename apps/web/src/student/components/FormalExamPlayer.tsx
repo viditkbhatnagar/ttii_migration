@@ -156,6 +156,15 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     });
   };
 
+  const clearResponse = (qid: string) => {
+    setPhase((p) => {
+      if (p.kind !== 'in_progress') return p;
+      const next = new Map(p.answers);
+      next.delete(qid);
+      return { ...p, answers: next };
+    });
+  };
+
   const goNext = () => setPhase((p) => (p.kind === 'in_progress' && p.current < p.questions.length - 1 ? { ...p, current: p.current + 1 } : p));
   const goPrev = () => setPhase((p) => (p.kind === 'in_progress' && p.current > 0 ? { ...p, current: p.current - 1 } : p));
   const jumpTo = (index: number) => setPhase((p) => (p.kind === 'in_progress' && index >= 0 && index < p.questions.length ? { ...p, current: index } : p));
@@ -307,7 +316,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                   className={`flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition ${inProgress?.flagged.has(currentQ.questionId) ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-700'}`}
                 >
                   <Flag className={`size-3.5 ${inProgress?.flagged.has(currentQ.questionId) ? 'fill-amber-500 text-amber-600' : ''}`} />
-                  {inProgress?.flagged.has(currentQ.questionId) ? 'Flagged' : 'Flag'}
+                  {inProgress?.flagged.has(currentQ.questionId) ? 'Marked' : 'Mark for Review'}
                 </button>
               </div>
 
@@ -339,7 +348,15 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
               <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
                 <Button variant="outline" onClick={goPrev} disabled={currentIdx === 0}>‹ Previous</Button>
-                <Button onClick={goNext} disabled={currentIdx === total - 1} className="bg-slate-900 text-white hover:bg-slate-800">Next ›</Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => clearResponse(currentQ.questionId)}
+                  disabled={!inProgress?.answers.has(currentQ.questionId)}
+                  className="text-slate-500 hover:text-slate-700"
+                >
+                  Clear Response
+                </Button>
+                <Button onClick={goNext} disabled={currentIdx === total - 1} className="bg-slate-900 text-white hover:bg-slate-800">Save &amp; Next ›</Button>
               </div>
             </>
           ) : null}
@@ -375,7 +392,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
             <div className="mt-4 space-y-1.5 text-xs text-slate-600">
               <Legend swatch="bg-emerald-500" label="Attempted" value={answeredCount} />
               <Legend swatch="bg-red-500" label="Missed (visited)" value={visitedNotAnswered} />
-              <Legend swatch="bg-amber-500" label="Flagged" value={flaggedCount} />
+              <Legend swatch="bg-amber-500" label="Marked" value={flaggedCount} />
               <Legend swatch="border border-slate-300 bg-white" label="Not visited" value={notVisitedCount} />
             </div>
           </div>
@@ -394,7 +411,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
             <StatTile label="Total Questions" value={String(total)} />
             <StatTile label="Answered" value={String(answeredCount)} tone="emerald" />
             <StatTile label="Missed" value={String(total - answeredCount)} tone="red" />
-            <StatTile label="Flagged" value={String(flaggedCount)} tone="amber" />
+            <StatTile label="Marked" value={String(flaggedCount)} tone="amber" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>Continue Exam</Button>

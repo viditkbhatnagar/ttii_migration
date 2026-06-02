@@ -310,11 +310,31 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
         </div>
       ) : (
         <div className="space-y-4">
-          <AdminTabBar
-            tabs={examSubTabs}
-            activeTab={examSubTab}
-            onChange={(id) => setExamSubTab(id as ExamSubTab)}
-          />
+          {/* Stat cards double as the bucket selector (EduPulse layout). */}
+          <div className="grid grid-cols-3 gap-3">
+            {examSubTabs.map((t) => {
+              const active = examSubTab === t.id;
+              const tone = t.id === 'available'
+                ? { ring: 'ring-emerald-400', chip: 'bg-emerald-50 text-emerald-600' }
+                : t.id === 'upcoming'
+                  ? { ring: 'ring-blue-400', chip: 'bg-blue-50 text-blue-600' }
+                  : { ring: 'ring-slate-400', chip: 'bg-slate-100 text-slate-500' };
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setExamSubTab(t.id)}
+                  className={`rounded-2xl border bg-white p-4 text-left shadow-sm transition-all ${active ? `border-transparent ring-2 ${tone.ring}` : 'border-slate-200 hover:shadow-md'}`}
+                >
+                  <span className={`mb-2 flex size-9 items-center justify-center rounded-lg ${tone.chip}`}>
+                    <FileText aria-hidden="true" className="size-4" />
+                  </span>
+                  <span className="block text-2xl font-bold text-student-text">{t.count}</span>
+                  <span className="block text-xs font-medium text-student-muted">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
           {filteredExams.length === 0 ? (
             <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
@@ -322,74 +342,62 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
               <p className="text-sm text-slate-500">No {examSubTab} exams.</p>
             </div>
           ) : (
-            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead>Exam</TableHead>
-                    <TableHead className="hidden sm:table-cell">Date</TableHead>
-                    <TableHead className="hidden md:table-cell">Questions</TableHead>
-                    <TableHead className="hidden md:table-cell">Duration</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredExams.map((exam) => {
-                    const id = asString(exam.id);
-                    const title = asString(exam.title) || `Exam ${id}`;
-                    const date = asString(exam.date) || asString(exam.start_date);
-                    const questionCount = asNumber(exam.questions_count) || asNumber(exam.total_questions);
-                    const duration = asString(exam.duration) || asString(exam.time_limit);
-                    const state = asString(exam.state);
-                    const badge = getExamStateBadge(state);
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {filteredExams.map((exam) => {
+                const id = asString(exam.id);
+                const title = asString(exam.title) || `Exam ${id}`;
+                const date = asString(exam.date) || asString(exam.start_date);
+                const questionCount = asNumber(exam.questions_count) || asNumber(exam.total_questions);
+                const duration = asString(exam.duration) || asString(exam.time_limit);
+                const state = asString(exam.state);
+                const badge = getExamStateBadge(state);
 
-                    return (
-                      <TableRow key={id} className="hover:bg-slate-50/80">
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-red-100">
-                              <FileText className="size-4 text-red-600" />
-                            </div>
-                            <span className="font-medium text-slate-800">{title}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden sm:table-cell text-slate-500 text-sm">
-                          {date ? formatDate(date) : '—'}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell text-slate-500 text-sm">
-                          {questionCount > 0 ? `${questionCount} questions` : '—'}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell text-slate-500 text-sm">
-                          {duration ? `${duration} min` : '—'}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
-                            {badge.label}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {state === 'available' ? (
-                            <Button
-                              size="sm"
-                              onClick={() => setActiveExam({ examId: id, title })}
-                              className="bg-student-primary text-white hover:bg-student-primary/90"
-                            >
-                              Start Exam
-                            </Button>
-                          ) : state === 'upcoming' ? (
-                            <span className="text-xs text-slate-400">{date ? `Opens ${formatDate(date)}` : 'Scheduled'}</span>
-                          ) : state === 'submitted' ? (
-                            <span className="text-xs font-medium text-emerald-600">Submitted</span>
-                          ) : (
-                            <span className="text-xs text-slate-400">Closed</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                return (
+                  <div key={id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-student-primary/10">
+                          <FileText aria-hidden="true" className="size-5 text-student-primary" />
+                        </div>
+                        <h3 className="font-bold leading-snug text-student-text">{title}</h3>
+                      </div>
+                      <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-student-muted">Date</p>
+                        <p className="mt-0.5 text-xs font-semibold text-student-text">{date ? formatDate(date) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-student-muted">Duration</p>
+                        <p className="mt-0.5 text-xs font-semibold text-student-text">{duration ? `${duration} min` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-student-muted">Questions</p>
+                        <p className="mt-0.5 text-xs font-semibold text-student-text">{questionCount > 0 ? questionCount : '—'}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      {state === 'available' ? (
+                        <Button
+                          onClick={() => setActiveExam({ examId: id, title })}
+                          className="h-10 w-full rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
+                        >
+                          Start Exam
+                        </Button>
+                      ) : state === 'upcoming' ? (
+                        <p className="rounded-xl bg-blue-50 py-2.5 text-center text-xs font-medium text-blue-700">{date ? `Opens ${formatDate(date)}` : 'Scheduled'}</p>
+                      ) : state === 'submitted' ? (
+                        <p className="rounded-xl bg-emerald-50 py-2.5 text-center text-xs font-medium text-emerald-700">Submitted — results pending</p>
+                      ) : (
+                        <p className="rounded-xl bg-slate-50 py-2.5 text-center text-xs text-slate-500">Closed</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
