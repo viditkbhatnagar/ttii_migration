@@ -5,6 +5,7 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
+  Radio,
   Settings,
   type LucideIcon,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import type { AuthSession } from '@ttii/frontend-core';
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
   BookOpen,
+  Radio,
   GraduationCap,
   CreditCard,
   Settings,

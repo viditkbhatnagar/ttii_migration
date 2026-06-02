@@ -223,7 +223,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               </h2>
               <button
                 type="button"
-                onClick={() => onNavigate('/student/courses')}
+                onClick={() => onNavigate('/student/live-classes')}
                 className="text-xs font-medium text-student-primary hover:underline"
               >
                 See all
@@ -232,7 +232,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
             {dashboardData.scheduledTasks > 0 ? (
               <button
                 type="button"
-                onClick={() => onNavigate('/student/courses')}
+                onClick={() => onNavigate('/student/live-classes')}
                 className="flex w-full items-center gap-3 rounded-xl bg-blue-50 p-3 text-left transition-colors hover:bg-blue-100"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600">

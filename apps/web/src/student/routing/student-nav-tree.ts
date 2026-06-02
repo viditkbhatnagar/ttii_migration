@@ -10,6 +10,7 @@ export const STUDENT_NAV_TREE: readonly StudentNavItem[] = [
   // General section
   { id: 'dashboard', label: 'Dashboard', href: '/student/dashboard', icon: 'LayoutDashboard', section: 'general' },
   { id: 'courses', label: 'Courses', href: '/student/courses', icon: 'BookOpen', section: 'general' },
+  { id: 'live-classes', label: 'Live Classes', href: '/student/live-classes', icon: 'Radio', section: 'general' },
   { id: 'grades', label: 'Grades', href: '/student/grades', icon: 'GraduationCap', section: 'general' },
   { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard', section: 'general' },
   // Notifications: accessible from the header bell; no sidebar entry.
@@ -28,6 +29,7 @@ export function findActiveStudentNav(pathname: string): string | null {
   // Backward compat aliases
   if (normalized === '/student' || normalized === '/student/') return 'dashboard';
   if (normalized.startsWith('/student/learning')) return 'courses';
+  if (normalized.startsWith('/student/live')) return 'live-classes';
   if (normalized.startsWith('/student/assessments')) return 'grades';
   if (normalized.startsWith('/student/profile')) return 'settings';
   if (normalized.startsWith('/student/support')) return 'help';

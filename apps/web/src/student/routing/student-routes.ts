@@ -17,6 +17,7 @@ export interface StudentRouteConfig {
 
 const StudentDashboardPage = lazy(() => import('../pages/dashboard/StudentDashboardPage.js'));
 const StudentLearningPage = lazy(() => import('../pages/learning/StudentLearningPage.js'));
+const StudentLiveClassPage = lazy(() => import('../pages/live-classes/StudentLiveClassPage.js'));
 const StudentAssessmentsPage = lazy(() => import('../pages/assessments/StudentAssessmentsPage.js'));
 const StudentPaymentsPage = lazy(() => import('../pages/payments/StudentPaymentsPage.js'));
 const StudentNotificationsPage = lazy(() => import('../pages/notifications/StudentNotificationsPage.js'));
@@ -26,6 +27,7 @@ const StudentProfilePage = lazy(() => import('../pages/profile/StudentProfilePag
 export const STUDENT_ROUTES: StudentRouteConfig[] = [
   { path: '/student/dashboard', aliases: ['/student', '/student/'], pageComponent: StudentDashboardPage, title: 'Dashboard' },
   { path: '/student/courses', aliases: ['/student/learning'], pageComponent: StudentLearningPage, title: 'My Courses' },
+  { path: '/student/live-classes', aliases: ['/student/live'], pageComponent: StudentLiveClassPage, title: 'Live Classes' },
   { path: '/student/grades', aliases: ['/student/assessments'], pageComponent: StudentAssessmentsPage, title: 'Grades' },
   { path: '/student/payments', pageComponent: StudentPaymentsPage, title: 'Payments' },
   { path: '/student/notifications', pageComponent: StudentNotificationsPage, title: 'Notifications' },

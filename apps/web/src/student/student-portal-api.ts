@@ -441,6 +441,22 @@ export class StudentPortalApi {
       .filter((entry): entry is Record<string, unknown> => entry !== null);
   }
 
+  // Live classes across ALL the student's enrolled courses (for the standalone
+  // Live Classes page). Fans out per enrolled course and dedupes by id.
+  async loadAllLiveClasses(authToken: string): Promise<Record<string, unknown>[]> {
+    const coursesPayload = await this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken);
+    const courseIds = asArray(coursesPayload.data)
+      .map((entry) => asString(asRecord(entry)?.id))
+      .filter((id): id is string => id !== '');
+    const lists = await Promise.all(courseIds.map((id) => this.loadStudentLiveClasses(authToken, id)));
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const row of lists.flat()) {
+      const id = asString(row.id);
+      if (id) byId.set(id, row);
+    }
+    return [...byId.values()];
+  }
+
   async getLiveRecordingUrl(authToken: string, liveClassId: string): Promise<string> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
       '/student/live_classes/recording-url',
