@@ -175,7 +175,7 @@ export function CallHistoryPanel({ api, authToken, phone }: CallHistoryPanelProp
                     <audio
                       controls
                       preload="none"
-                      className="h-8 w-full max-w-[260px] sm:w-auto"
+                      className="w-[260px] max-w-full"
                       src={api.getCallRecordingUrl(authToken, call.recordingUrl)}
                     >
                       <track kind="captions" />
