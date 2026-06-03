@@ -5,9 +5,15 @@
 // countdown timer (auto-submits at zero). Formal-exam results are published
 // later by an admin, so the completion screen shows attempt stats only — it
 // never reveals correctness or score.
+//
+// EduPulse feature port 2026-06-04 — added browser proctoring (Naji): the exam
+// opens in full screen on start; tab switches, window blur and full-screen
+// exits are recorded as violations, surfaced as escalating warnings, and the
+// exam auto-submits once the limit is reached. Frontend-only guard for now
+// (no server persistence). Styling is unchanged — our existing student theme.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Flag, X, GraduationCap, Hourglass, CheckCircle2 } from 'lucide-react';
+import { Flag, X, GraduationCap, Hourglass, CheckCircle2, AlertTriangle, Maximize, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -50,8 +56,14 @@ interface Props {
   examId: string;
   title: string;
   headerLabel?: string;
+  /** Whether browser proctoring (full screen + focus tracking) is enforced. Defaults to on for formal exams. */
+  proctored?: boolean;
   onClose: () => void;
 }
+
+// Proctoring: how many focus-loss / full-screen-exit events are allowed before
+// the exam auto-submits. Frontend-only guard (no server persistence yet).
+const PROCTOR_MAX_VIOLATIONS = 3;
 
 function fmtHMS(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -61,12 +73,60 @@ function fmtHMS(sec: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
-export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, onClose }: Props) {
+export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, proctored = true, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [tick, setTick] = useState(0);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
   const submittingRef = useRef(false);
+
+  // ── Proctoring state ──────────────────────────────────────────────
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [violations, setViolations] = useState(0);
+  const [proctorWarning, setProctorWarning] = useState<string | null>(null);
+  const [proctorAutoSubmit, setProctorAutoSubmit] = useState(false);
+  const violationsRef = useRef(0);
+  const lastViolationAtRef = useRef(0);
+  const proctorActiveRef = useRef(false);
+
+  const enterFullscreen = () => {
+    if (!proctored) return;
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {
+        /* user/agent denied — proctoring still tracks tab switches */
+      });
+    }
+  };
+
+  const exitFullscreen = () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  // Record a proctoring violation (tab switch / window blur / full-screen exit).
+  // De-duplicates rapid duplicate events and auto-submits once the limit is hit.
+  const registerViolation = (reason: string) => {
+    if (!proctorActiveRef.current) return;
+    const now = Date.now();
+    if (now - lastViolationAtRef.current < 800) return;
+    lastViolationAtRef.current = now;
+    violationsRef.current += 1;
+    const count = violationsRef.current;
+    setViolations(count);
+    if (count >= PROCTOR_MAX_VIOLATIONS) {
+      proctorActiveRef.current = false;
+      setProctorWarning(
+        `${reason} You have reached the limit of ${PROCTOR_MAX_VIOLATIONS} warnings — your exam is being submitted automatically.`,
+      );
+      setProctorAutoSubmit(true);
+    } else {
+      setProctorWarning(
+        `${reason} Warning ${count} of ${PROCTOR_MAX_VIOLATIONS}. Leaving the exam screen again may auto-submit your exam.`,
+      );
+    }
+  };
 
   // Load the exam (this also starts/resumes the attempt on the server).
   useEffect(() => {
@@ -106,7 +166,56 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     return () => clearInterval(t);
   }, [phase.kind]);
 
+  // Proctoring: watch for tab switches, window blur and full-screen exits while
+  // the exam is in progress. Each is recorded as a violation; the student is
+  // prompted to return (and re-enter full screen).
+  useEffect(() => {
+    if (phase.kind !== 'in_progress' || !proctored) return;
+    proctorActiveRef.current = true;
+
+    const onVisibility = () => {
+      if (document.hidden) registerViolation('You switched away from the exam tab.');
+    };
+    const onBlur = () => registerViolation('You left the exam window.');
+    const onFullscreenChange = () => {
+      const fs = Boolean(document.fullscreenElement);
+      setIsFullscreen(fs);
+      if (!fs) registerViolation('You exited full-screen mode.');
+    };
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    setIsFullscreen(Boolean(document.fullscreenElement));
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [phase.kind, proctored]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Exit full screen when the player unmounts.
+  useEffect(() => () => { exitFullscreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleStart = () => {
+    // Enter full screen on the start gesture (must run inside the click handler).
+    enterFullscreen();
+    violationsRef.current = 0;
+    lastViolationAtRef.current = 0;
+    proctorActiveRef.current = proctored;
+    setViolations(0);
+    setProctorWarning(null);
+    setProctorAutoSubmit(false);
     setPhase((p) => {
       if (p.kind !== 'intro') return p;
       const firstId = p.questions[0]?.questionId;
@@ -172,6 +281,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const submit = async () => {
     if (phase.kind !== 'in_progress' || submittingRef.current) return;
     submittingRef.current = true;
+    proctorActiveRef.current = false;
     const snapshot = phase;
     // answer is the 1-based option index, matching question_bank.correct_answers.
     const userAnswers = snapshot.questions.map((q) => {
@@ -188,6 +298,8 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       await api.submitExamAttempt(authToken, snapshot.attemptId, userAnswers);
       const elapsedSec = Math.max(0, Math.floor((Date.now() - snapshot.startedAt) / 1000));
       const totalSec = snapshot.durationMin * 60;
+      exitFullscreen();
+      setProctorWarning(null);
       setPhase({
         kind: 'submitted',
         title: snapshot.title,
@@ -220,6 +332,13 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     }
   }, [timeLeftSec]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Proctoring auto-submit (mirrors the timer auto-submit so `submit` is fresh).
+  useEffect(() => {
+    if (proctorAutoSubmit && phase.kind === 'in_progress' && !submittingRef.current) {
+      void submit();
+    }
+  }, [proctorAutoSubmit]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Render ──────────────────────────────────────────────────────
   if (phase.kind === 'loading') {
     return <Frame onClose={onClose} title={initialTitle}><div className="py-12 text-center text-sm text-slate-500">Loading exam…</div></Frame>;
@@ -246,10 +365,26 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
             {phase.questions.length} question{phase.questions.length === 1 ? '' : 's'}
             {phase.durationMin > 0 ? ` · ${phase.durationMin} min` : ''}
           </p>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
-            Once you start, the timer runs continuously. Submit before time runs out — the exam auto-submits at zero. Your results will be published by your institute.
-          </div>
-          <Button onClick={handleStart} className="bg-student-primary hover:bg-student-primary/90">Start Exam</Button>
+          {proctored ? (
+            <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
+              <p className="flex items-center gap-1.5 font-semibold text-amber-800">
+                <ShieldCheck className="size-3.5" /> This is a proctored exam
+              </p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li>The exam opens in full screen — stay in full screen until you submit.</li>
+                <li>Switching tabs, leaving the window or exiting full screen is recorded.</li>
+                <li>After {PROCTOR_MAX_VIOLATIONS} warnings the exam is submitted automatically.</li>
+                <li>The timer runs continuously and auto-submits at zero. Results are published by your institute.</li>
+              </ul>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
+              Once you start, the timer runs continuously. Submit before time runs out — the exam auto-submits at zero. Your results will be published by your institute.
+            </div>
+          )}
+          <Button onClick={handleStart} className="bg-student-primary hover:bg-student-primary/90">
+            {proctored ? (<><Maximize className="mr-2 size-4" /> Start Exam in Full Screen</>) : 'Start Exam'}
+          </Button>
         </div>
       </Frame>
     );
@@ -284,7 +419,24 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
               <p className="mt-1 text-[11px] text-slate-500">Total Questions: <strong className="text-slate-700">{total}</strong></p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {proctored ? (
+              <Pill
+                icon={<ShieldCheck className="size-3.5" />}
+                label="Proctored"
+                value={`${violations}/${PROCTOR_MAX_VIOLATIONS} warnings`}
+                tone={violations === 0 ? 'neutral' : violations >= PROCTOR_MAX_VIOLATIONS - 1 ? 'red' : 'amber'}
+              />
+            ) : null}
+            {proctored && !isFullscreen ? (
+              <button
+                type="button"
+                onClick={enterFullscreen}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-student-primary/30 bg-student-primary/5 px-2.5 py-1 font-medium text-student-primary transition hover:bg-student-primary/10"
+              >
+                <Maximize className="size-3.5" /> Resume full screen
+              </button>
+            ) : null}
             {timeLeftSec !== null ? (
               <Pill
                 icon={<Hourglass className="size-3.5" />}
@@ -399,6 +551,26 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           <Button onClick={() => setSubmitConfirmOpen(true)} className="w-full bg-slate-900 text-white hover:bg-slate-800">Submit Exam</Button>
         </aside>
       </div>
+
+      {/* Proctoring warning */}
+      <Dialog open={proctorWarning !== null} onOpenChange={(o) => { if (!o) setProctorWarning(null); }}>
+        <DialogContent className="w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="size-5" /> Stay on the exam screen
+            </DialogTitle>
+            <DialogDescription>{proctorWarning}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              onClick={() => { setProctorWarning(null); enterFullscreen(); }}
+              className="bg-student-primary text-white hover:bg-student-primary/90"
+            >
+              <Maximize className="mr-2 size-4" /> Return to Exam
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Submit confirmation */}
       <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
