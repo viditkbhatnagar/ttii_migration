@@ -20,6 +20,7 @@ const StudentLearningPage = lazy(() => import('../pages/learning/StudentLearning
 const StudentLiveClassPage = lazy(() => import('../pages/live-classes/StudentLiveClassPage.js'));
 const StudentAssessmentsPage = lazy(() => import('../pages/assessments/StudentAssessmentsPage.js'));
 const StudentGradesPage = lazy(() => import('../pages/grades/StudentGradesPage.js'));
+const StudentCalendarPage = lazy(() => import('../pages/calendar/StudentCalendarPage.js'));
 const StudentPaymentsPage = lazy(() => import('../pages/payments/StudentPaymentsPage.js'));
 const StudentNotificationsPage = lazy(() => import('../pages/notifications/StudentNotificationsPage.js'));
 const StudentSupportPage = lazy(() => import('../pages/support/StudentSupportPage.js'));
@@ -33,6 +34,7 @@ export const STUDENT_ROUTES: StudentRouteConfig[] = [
   { path: '/student/exams', pageComponent: StudentAssessmentsPage, title: 'Exams' },
   { path: '/student/grades', pageComponent: StudentGradesPage, title: 'Grades' },
   { path: '/student/payments', pageComponent: StudentPaymentsPage, title: 'Payments' },
+  { path: '/student/calendar', pageComponent: StudentCalendarPage, title: 'Calendar' },
   { path: '/student/notifications', pageComponent: StudentNotificationsPage, title: 'Notifications' },
   { path: '/student/help', aliases: ['/student/support'], pageComponent: StudentSupportPage, title: 'Help Center' },
   { path: '/student/settings', aliases: ['/student/profile'], pageComponent: StudentProfilePage, title: 'Settings' },
