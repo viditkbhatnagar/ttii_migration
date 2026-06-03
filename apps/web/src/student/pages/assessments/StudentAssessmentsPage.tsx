@@ -78,7 +78,9 @@ function getExamStateBadge(state: string): { className: string; label: string } 
 }
 
 export default function StudentAssessmentsPage({ api, session }: StudentPageProps) {
-  const [mainTab, setMainTab] = useState<MainTab>('assignments');
+  const [mainTab, setMainTab] = useState<MainTab>(
+    () => (typeof window !== 'undefined' && window.location.pathname.includes('/exams') ? 'exams' : 'assignments'),
+  );
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('current');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
   const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
@@ -108,7 +110,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-student-text">Grades</h1>
+        <h1 className="text-2xl font-bold text-student-text">Assessments</h1>
         <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
@@ -184,8 +186,8 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-student-text">Grades</h1>
-          <p className="mt-1 text-sm text-student-muted">Track your assignments and examinations</p>
+          <h1 className="text-2xl font-bold text-student-text">{mainTab === 'exams' ? 'Exams' : 'Assignments'}</h1>
+          <p className="mt-1 text-sm text-student-muted">{mainTab === 'exams' ? 'Your scheduled, available and past examinations' : 'Submit work, track grades and view feedback'}</p>
         </div>
         <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
       </div>

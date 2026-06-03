@@ -1,6 +1,8 @@
 import {
   BookOpen,
+  ClipboardList,
   CreditCard,
+  FileText,
   GraduationCap,
   HelpCircle,
   LayoutDashboard,
@@ -21,6 +23,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
   BookOpen,
   Radio,
+  ClipboardList,
+  FileText,
   GraduationCap,
   CreditCard,
   Settings,
