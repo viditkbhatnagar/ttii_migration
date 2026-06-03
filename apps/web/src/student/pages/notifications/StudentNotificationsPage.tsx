@@ -12,6 +12,7 @@ type NotificationTab = 'inbox' | 'system';
 export default function StudentNotificationsPage({ api, session }: StudentPageProps) {
   const [activeTab, setActiveTab] = useState<NotificationTab>('inbox');
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadNotifications(session.token),
@@ -27,6 +28,18 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
       setMarkingId(null);
     }
   }, [api, session.token, reload]);
+
+  const handleMarkAllRead = useCallback(async () => {
+    const unread = (data?.notifications ?? []).filter((n) => asNumber(n.is_read) !== 1);
+    if (unread.length === 0) return;
+    setMarkingAll(true);
+    try {
+      await Promise.all(unread.map((n) => api.markNotificationAsRead(session.token, asString(n.id))));
+      reload();
+    } finally {
+      setMarkingAll(false);
+    }
+  }, [api, session.token, reload, data]);
 
   const tabs = [
     { id: 'inbox' as const, label: 'Inbox', count: data?.notifications.length ?? 0 },
@@ -50,17 +63,36 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   }
 
   const notifications = activeTab === 'inbox' ? data?.notifications ?? [] : data?.notificationList ?? [];
+  const inboxUnreadCount = (data?.notifications ?? []).filter((n) => asNumber(n.is_read) !== 1).length;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-student-text">Notifications</h1>
-          <p className="mt-1 text-sm text-student-muted">Stay updated with your latest alerts</p>
+          <p className="mt-1 text-sm text-student-muted">
+            {inboxUnreadCount > 0
+              ? `${inboxUnreadCount} unread · stay updated with your latest alerts`
+              : 'Stay updated with your latest alerts'}
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {inboxUnreadCount > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleMarkAllRead()}
+              disabled={markingAll}
+              className="rounded-xl"
+            >
+              <CheckCheck aria-hidden="true" className="mr-1.5 size-4" />
+              {markingAll ? 'Marking…' : 'Mark all read'}
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <AdminTabBar
