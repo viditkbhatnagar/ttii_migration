@@ -1860,7 +1860,7 @@ export class AssessmentService {
 
     if (existing > 0) {
       return {
-        status: false,
+        status: 0,
         message: 'Assignment already submitted',
         data: [],
       };
@@ -1916,7 +1916,7 @@ export class AssessmentService {
 
     if (!created.id) {
       return {
-        status: false,
+        status: 0,
         message: 'Something Went Wrong',
         data: [],
       };

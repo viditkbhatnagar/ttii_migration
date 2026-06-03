@@ -325,6 +325,28 @@ export function registerContentRoutes(
       const courseId = toStringValue(payload.course_id);
 
       const courseDetails = await contentService.getCourseDetails(requestUserId(request), courseId);
+      // Match the legacy PHP user_data block (15 keys incl. auth_token / dob /
+      // academic_year / privacy_policy) — the same buildLegacyUserData block
+      // my_course uses — instead of the trimmed inline block the service builds.
+      if (courseDetails && typeof courseDetails === 'object' && !Array.isArray(courseDetails)) {
+        const prisma = getPrismaClient();
+        const userIdInt = Number.parseInt(requestUserId(request), 10);
+        const userRow = Number.isFinite(userIdInt)
+          ? await prisma.users.findFirst({
+              where: { id: userIdInt, deleted_at: null },
+              select: {
+                id: true, student_id: true, name: true, role_id: true,
+                course_id: true, email: true, user_email: true, phone: true,
+                device_id: true, status: true, academic_year: true, image: true,
+                profile_picture: true, dob: true,
+              },
+            })
+          : null;
+        courseDetails.user_data = buildLegacyUserData(
+          userRow as Record<string, unknown> | null,
+          extractAuthToken(request) ?? '',
+        );
+      }
       reply.code(200).send({
         status: 1,
         message: 'success',
@@ -466,7 +488,7 @@ export function registerContentRoutes(
       reply.code(200).send({
         status: 1,
         message: 'success',
-        data: {},
+        data: [],
       });
     } catch (error: unknown) {
       sendContentError(reply, error);

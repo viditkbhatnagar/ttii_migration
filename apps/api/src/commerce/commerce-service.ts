@@ -892,6 +892,10 @@ export class CommerceService {
         status = hasPendingOverdue ? 'Overdue' : 'Pending';
       }
 
+      // Output the sanitized installments shape (string dates, computed status)
+      // instead of raw Prisma rows, which leak Date objects + internal columns
+      // and break the Flutter parse.
+      const cleanInstallments = await this.getStudentInstallments(userId, String(courseId));
       output.push({
         user_id: enrolRow.user_id,
         course_id: courseId,
@@ -899,7 +903,7 @@ export class CommerceService {
         title: toStringValue(course.title),
         enroled_on: toStringValue(enrolRow.created_at),
         total_fee: discountedPrice,
-        installments,
+        installments: cleanInstallments,
         amount_paid: amountPaid,
         balance,
         payment_percentage: paymentPercentage,
@@ -911,7 +915,7 @@ export class CommerceService {
   }
 
   async getPaymentDetails(userId: string, courseId: string): Promise<Record<string, unknown>> {
-    const installments = await this.getStudentFeeInstallments(userId, courseId);
+    const installments = await this.getStudentInstallments(userId, courseId);
 
     return {
       total_fee: '',

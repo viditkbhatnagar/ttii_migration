@@ -385,7 +385,7 @@ export function registerEngagementRoutes(
       }
 
       reply.code(200).send({
-        status: result.success ? 1 : false,
+        status: result.success ? 1 : 0,
         message: result.success ? 'success' : 'Something Went Wrong',
         data: [],
       });
