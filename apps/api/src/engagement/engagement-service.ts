@@ -1334,7 +1334,7 @@ export class EngagementService {
       const hasRecording = Boolean(lc.recording_url || lc.recording_storage_key || lc.video_url);
       return {
         id: lc.id,
-        title: lc.title,
+        title: toStringValue(lc.title),
         date: toDateOnly(lc.date),
         // Naji 2026-05-04: from_time / to_time were going out as
         // "1970-01-01T19:30:00.000Z" because Prisma reads MySQL TIME as
@@ -1346,13 +1346,16 @@ export class EngagementService {
         join_url: toStringValue(lc.join_url),
         zoom_id: toStringValue(lc.zoom_id),
         password: toStringValue(lc.password),
-        cohort_id: cohort?.id ?? null,
-        cohort_title: cohort?.title ?? null,
-        cohort_code: cohort?.cohort_id ?? null,
-        course_id: cohort?.course_id ?? null,
-        subject_id: cohort?.subject_id ?? null,
-        subject_title: cohort?.subject_id ? subjectMap.get(cohort.subject_id) ?? null : null,
-        instructor_name: cohort?.instructor_id ? instructorMap.get(cohort.instructor_id) ?? null : null,
+        // Null-safe every field: Flutter models type these as non-nullable
+        // String/int, so a null (e.g. a class with no instructor or subject)
+        // crashes with "Null is not a subtype of String" / renders "null".
+        cohort_id: cohort?.id ?? 0,
+        cohort_title: cohort?.title ?? '',
+        cohort_code: cohort?.cohort_id ?? '',
+        course_id: cohort?.course_id ?? 0,
+        subject_id: cohort?.subject_id ?? 0,
+        subject_title: cohort?.subject_id ? subjectMap.get(cohort.subject_id) ?? '' : '',
+        instructor_name: cohort?.instructor_id ? instructorMap.get(cohort.instructor_id) ?? '' : '',
         has_recording: hasRecording,
         recording_url: toStringValue(lc.recording_url || lc.video_url),
         status,
