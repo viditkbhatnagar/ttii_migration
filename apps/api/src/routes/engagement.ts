@@ -38,6 +38,46 @@ function toStringValue(value: unknown): string {
   return value.trim();
 }
 
+// The legacy /live_class/index response groups the student's live classes into
+// expired / live / upcoming buckets. The Flutter app reads data.expired/.live/
+// .upcoming as a MAP, so the payload MUST be an object — a flat array crashes it
+// with "type 'String' is not a subtype of type 'int' of 'index'".
+type LiveClassRow = Record<string, unknown>;
+
+function liveClassMinutes(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function liveClassBucket(row: LiveClassRow): 'expired' | 'live' | 'upcoming' {
+  if (row.status === 'past') return 'expired';
+  if (row.status === 'upcoming') return 'upcoming';
+  // status === 'today': split by time of day so an in-progress class is "live".
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const toMinutes = liveClassMinutes(row.to_time);
+  const fromMinutes = liveClassMinutes(row.from_time);
+  if (toMinutes !== null && nowMinutes > toMinutes) return 'expired';
+  if (fromMinutes !== null && nowMinutes < fromMinutes) return 'upcoming';
+  return 'live';
+}
+
+function groupLiveClassesByState(rows: LiveClassRow[]): {
+  expired: LiveClassRow[];
+  live: LiveClassRow[];
+  upcoming: LiveClassRow[];
+} {
+  const groups = {
+    expired: [] as LiveClassRow[],
+    live: [] as LiveClassRow[],
+    upcoming: [] as LiveClassRow[],
+  };
+  for (const row of rows) groups[liveClassBucket(row)].push(row);
+  return groups;
+}
+
 function requestPayload(request: FastifyRequest): Record<string, unknown> {
   if (request.method === 'GET') {
     return (request.query as Record<string, unknown>) ?? {};
@@ -412,7 +452,9 @@ export function registerEngagementRoutes(
   app.get('/live_class/index', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const subjectId = toStringValue(payload.subject_id);
+      // The Flutter app sends the subject via the misspelled `subect_id`;
+      // accept both spellings so subject filtering keeps working.
+      const subjectId = toStringValue(payload.subject_id) || toStringValue(payload.subect_id);
       const courseId = toStringValue(payload.course_id);
       const all = await engagementService.listStudentLiveClasses(
         requestUserId(request),
@@ -420,10 +462,12 @@ export function registerEngagementRoutes(
       );
       // subject_id on the row is numeric; toStringValue() returns '' for
       // numbers, so use String() to compare against the (string) query param.
-      const data = subjectId
+      const filtered = subjectId
         ? all.filter((row) => String(row.subject_id) === subjectId)
         : all;
-      reply.code(200).send({ status: 1, message: 'success', data });
+      // PHP-faithful shape: data is an OBJECT of expired/live/upcoming arrays,
+      // not a flat array (which crashes the Flutter list parse).
+      reply.code(200).send({ status: 1, message: 'success', data: groupLiveClassesByState(filtered) });
     } catch (error: unknown) {
       sendEngagementError(reply, error);
     }
