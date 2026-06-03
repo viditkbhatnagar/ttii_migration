@@ -202,10 +202,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       document.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [phase.kind, proctored]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase.kind, proctored]);  
 
   // Exit full screen when the player unmounts.
-  useEffect(() => () => { exitFullscreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { exitFullscreen(); }, []);  
 
   const handleStart = () => {
     // Enter full screen on the start gesture (must run inside the click handler).
