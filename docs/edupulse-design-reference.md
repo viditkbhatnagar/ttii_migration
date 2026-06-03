@@ -237,3 +237,38 @@ Profile, Certificates, Billing, Sign out.
 4. **Data gaps** (EduPulse shows UI we may not yet have data for): proctoring detail, blockchain cert verification,
    multi-course GPA/percentile/rank, achievements/badges, attendance score, 2FA. Flag these before porting those sections.
 5. Keep **semantic colors** (success/warning/info/destructive) identical; only re-anchor the **brand** hue + font + page bg.
+
+---
+
+## 7. Port status — 2026-06-04 (Naji: inherit features, keep our theme)
+
+Per Naji's steer, the port keeps the student portal's **existing theme, colours,
+components and dark sidebar unchanged** and inherits EduPulse's **UI features /
+functionality only**. No purple, no shell repaint.
+
+**Shipped this session** (verified: web typecheck + eslint + production build all green):
+- **Exam proctoring** (`FormalExamPlayer`) — auto full-screen on start; tab-switch,
+  window-blur and full-screen-exit detection; escalating warning dialog; auto-submit
+  after 3 violations; right-click/reload blocked. Frontend-only guard.
+- **Assignments & Exams** split into their own sidebar entries + routes
+  (`/student/assignments`, `/student/exams`); the assessments page picks its tab from the URL.
+- **Grades & Performance** — new `/student/grades`: overall-average ring + derived letter
+  grade, per-item performance bars, subject breakdown, quick stats (from graded work only).
+- **Academic Calendar** — new `/student/calendar`: month grid + per-day agenda merging
+  assignment deadlines, exam dates and live classes.
+- **Certificates** — new `/student/certificates`: earned (from 100%-complete courses) +
+  an in-progress section.
+- **Notifications** — "Mark all read" bulk action + unread count.
+
+**Already had the feature (no change needed):** Dashboard, Live Classes, Payments
+(balance/installments/history/Razorpay), Courses + lesson player (subject tree, video/quiz
+player, progress), Settings (profile + password change).
+
+**Deferred — needs backend we don't have yet (intentionally NOT faked):**
+- Lesson Transcript / Q&A / Discussion tabs (no transcript or thread data).
+- Two-factor authentication (no 2FA backend).
+- Grades rank / percentile / 4-point GPA (no data — only an honest average % is shown).
+- Certificate PDF download + verification (no student certificate endpoint).
+- Payment invoice / receipt downloads (no document endpoint).
+
+When the backing data/endpoints land, these wire into the pages above.
