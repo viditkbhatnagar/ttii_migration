@@ -69,25 +69,29 @@ function normalizeProfileRow(row: Record<string, unknown> | null): Record<string
         ? row.image
         : '';
 
+  // Null-safe every field: Flutter models are non-nullable, so a null
+  // (sparse profile — no place / academic_year / etc.) crashes "Null is not a
+  // subtype of String". Strings default to '', ids to 0. Web/admin keep working
+  // ('' and 0 stay falsy like null).
   return {
-    id: row.id,
-    student_id: row.student_id,
-    name: row.name,
-    email: row.email,
-    user_email: row.user_email,
-    phone: row.phone,
-    country_code: row.country_code,
-    role_id: row.role_id,
-    course_id: row.course_id,
+    id: row.id ?? 0,
+    student_id: row.student_id ?? '',
+    name: row.name ?? '',
+    email: row.email ?? '',
+    user_email: row.user_email ?? '',
+    phone: row.phone ?? '',
+    country_code: row.country_code ?? '',
+    role_id: row.role_id ?? 0,
+    course_id: row.course_id ?? 0,
     image: rawImage,
     user_image: toLegacyFileUrl(rawImage),
     profile_picture: toLegacyFileUrl(rawImage),
-    academic_year: row.academic_year,
-    username: row.username,
-    date_of_birth: row.dob,
-    gender: row.gender,
-    place: row.place,
-    pincode: row.pin_code,
+    academic_year: row.academic_year ?? '',
+    username: row.username ?? '',
+    date_of_birth: row.dob ?? '',
+    gender: row.gender ?? '',
+    place: row.place ?? '',
+    pincode: row.pin_code ?? '',
   };
 }
 
