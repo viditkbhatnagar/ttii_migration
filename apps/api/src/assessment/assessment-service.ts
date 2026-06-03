@@ -555,8 +555,8 @@ export class AssessmentService {
       state,
       is_allocated: isAllocated ? 1 : 0,
       is_submitted: isSubmitted ? 1 : 0,
-      start_datetime: start ? start.toISOString() : null,
-      end_datetime: end ? end.toISOString() : null,
+      start_datetime: start ? start.toISOString() : '',
+      end_datetime: end ? end.toISOString() : '',
       exam_link: `${this.appBaseUrl}/exam/exam_web_view/${examId}/${userId}`,
     };
   }

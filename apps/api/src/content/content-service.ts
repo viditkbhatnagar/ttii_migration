@@ -790,7 +790,7 @@ export class ContentService {
       },
     });
 
-    const videoFiles = await this.prisma.vimeo_videolinks.findMany({
+    const videoFileRows = await this.prisma.vimeo_videolinks.findMany({
       where: {
         lesson_file_id: toNullableIntId(fileId),
         deleted_at: null,
@@ -811,6 +811,9 @@ export class ContentService {
       },
       orderBy: { id: 'asc' },
     });
+    // Null-safe the numeric dims — Flutter types height/width as int, so a
+    // null (videos without stored dimensions) crashes the player model.
+    const videoFiles = videoFileRows.map((v) => ({ ...v, height: v.height ?? 0, width: v.width ?? 0 }));
 
     const downloadUrl = toNullableString(file.download_url);
     const attachmentType = toStringValue(file.attachment_type);
@@ -1531,7 +1534,7 @@ export class ContentService {
         thumbnail: this.toFileUrl(subject.thumbnail),
         total_lessons: totalLessons,
         progress: Math.round(progress.progress),
-        cohort_id: cohortId,
+        cohort_id: cohortId ?? 0,
         is_locked: cohortId === null,
       });
     }
