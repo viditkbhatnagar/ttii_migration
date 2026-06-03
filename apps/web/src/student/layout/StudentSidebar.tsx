@@ -1,4 +1,5 @@
 import {
+  Award,
   BookOpen,
   CalendarDays,
   ClipboardList,
@@ -29,6 +30,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   GraduationCap,
   CreditCard,
   CalendarDays,
+  Award,
   Settings,
   HelpCircle,
 };
