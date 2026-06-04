@@ -1,4 +1,11 @@
-import { Award, BookOpen, Download, GraduationCap } from 'lucide-react';
+import {
+  Award,
+  BookOpen,
+  Download,
+  GraduationCap,
+  Share2,
+  ShieldCheck,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -8,6 +15,13 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 
 const COURSES_ROUTE = '/student/courses';
 const COMPLETE_THRESHOLD = 100;
+
+// No student-facing certificate-PDF endpoint exists yet, so the download +
+// share + verify actions stay disabled rather than wiring a fake download or
+// claiming verification the backend can't back up.
+const PDF_COMING_SOON = 'Certificate PDF — coming soon';
+const SHARE_COMING_SOON = 'Sharing — coming soon';
+const VERIFY_COMING_SOON = 'Online verification — coming soon';
 
 // A single enrolled course distilled down to the bits the certificates
 // view cares about. Courses arrive from loadLearning() as untyped
@@ -61,15 +75,16 @@ function CertificateCard({
 
   return (
     <article className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      {/* Brand gradient banner — our colours only, no purple. */}
-      <div className="relative flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-student-primary to-student-accent px-6 py-8 text-center">
-        <Badge className="absolute right-3 top-3 border-emerald-200 bg-emerald-100 text-emerald-700">
-          Earned
+      {/* EduPulse gradient banner — primary → accent (purple → pink). */}
+      <div className="relative flex flex-col items-center justify-center gap-2.5 bg-gradient-to-br from-student-primary to-student-accent px-6 py-9 text-center">
+        <Badge className="absolute right-3 top-3 gap-1 border-emerald-200 bg-emerald-100 text-emerald-700">
+          <ShieldCheck aria-hidden="true" className="size-3" />
+          Verified
         </Badge>
-        <span className="flex size-12 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30">
-          <Award aria-hidden="true" className="size-6 text-white" />
+        <span className="flex size-14 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30">
+          <Award aria-hidden="true" className="size-7 text-white" />
         </span>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/90">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/90">
           Certificate of Completion
         </p>
       </div>
@@ -78,19 +93,18 @@ function CertificateCard({
       <div className="flex flex-1 flex-col p-5">
         <h3 className="font-semibold leading-snug text-student-text">{course.title}</h3>
         {issued ? (
-          <p className="mt-1 text-xs text-student-muted">Completed {issued}</p>
+          <p className="mt-1 text-xs text-student-muted">Issued {issued}</p>
         ) : null}
-        <p className="mt-2 font-mono text-xs text-slate-400">Ref {reference}</p>
+        <p className="mt-2 font-mono text-xs text-slate-400">{reference}</p>
 
-        {/* Actions */}
+        {/* Actions: PDF download + decorative share / verify icons. All
+            disabled until a real certificate endpoint exists. */}
         <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
-          {/* No student certificate-PDF endpoint exists yet, so this stays
-              disabled rather than wiring a fake download. */}
           <Button
             type="button"
             size="sm"
             disabled
-            title="Certificate PDF coming soon"
+            title={PDF_COMING_SOON}
             aria-disabled="true"
             className="flex-1 rounded-xl bg-student-primary text-white hover:bg-student-primary/90"
           >
@@ -99,14 +113,39 @@ function CertificateCard({
           </Button>
           <Button
             type="button"
-            size="sm"
+            size="icon"
             variant="outline"
-            onClick={onViewCourse}
+            disabled
+            title={SHARE_COMING_SOON}
+            aria-label={SHARE_COMING_SOON}
+            aria-disabled="true"
             className="rounded-xl"
           >
-            View course
+            <Share2 aria-hidden="true" className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            disabled
+            title={VERIFY_COMING_SOON}
+            aria-label={VERIFY_COMING_SOON}
+            aria-disabled="true"
+            className="rounded-xl"
+          >
+            <ShieldCheck aria-hidden="true" className="size-4" />
           </Button>
         </div>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={onViewCourse}
+          className="mt-2 w-full rounded-xl text-student-primary hover:bg-student-primary/10 hover:text-student-primary"
+        >
+          View course
+        </Button>
       </div>
     </article>
   );
@@ -156,10 +195,21 @@ export default function StudentCertificatesPage({ api, session, onNavigate }: St
     return <PageLoader label="Loading your certificates..." />;
   }
 
+  const courses = (data?.courses ?? []).map(toCourseSummary);
+  // Treat any 100%-complete course as an earned certificate.
+  const earned = courses.filter((c) => c.progress >= COMPLETE_THRESHOLD);
+  const inProgress = courses.filter((c) => c.progress > 0 && c.progress < COMPLETE_THRESHOLD);
+  const goToCourses = () => onNavigate(COURSES_ROUTE);
+
+  const subtitle =
+    earned.length === 0
+      ? "Certificates you've earned at TTII"
+      : `${earned.length} ${earned.length === 1 ? 'certificate' : 'certificates'} earned at TTII`;
+
   const header = (
     <div>
       <h1 className="text-2xl font-bold text-student-text">Certificates</h1>
-      <p className="mt-1 text-sm text-student-muted">Certificates you&apos;ve earned at TTII</p>
+      <p className="mt-1 text-sm text-student-muted">{subtitle}</p>
     </div>
   );
 
@@ -174,12 +224,6 @@ export default function StudentCertificatesPage({ api, session, onNavigate }: St
       </div>
     );
   }
-
-  const courses = (data?.courses ?? []).map(toCourseSummary);
-  // Treat any 100%-complete course as an earned certificate.
-  const earned = courses.filter((c) => c.progress >= COMPLETE_THRESHOLD);
-  const inProgress = courses.filter((c) => c.progress > 0 && c.progress < COMPLETE_THRESHOLD);
-  const goToCourses = () => onNavigate(COURSES_ROUTE);
 
   return (
     <div className="space-y-8">
