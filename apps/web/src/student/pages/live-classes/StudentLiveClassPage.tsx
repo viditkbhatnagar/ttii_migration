@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Radio, Calendar, Clock, User, Video, Play, ExternalLink } from 'lucide-react';
+import { Radio, Calendar, Clock, Video, Play, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -32,12 +32,37 @@ function shortTime(value: string): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
+// Minutes since midnight from an "HH:MM:SS" (or "HH:MM") time string.
+function timeToMinutes(value: string): number | null {
+  if (!value) return null;
+  const parts = value.split(':');
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1] ?? '0');
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+// Human-readable duration derived from the real from/to time fields.
+// Returns '' when either bound is missing or the range is non-positive.
+function formatDuration(from: string, to: string): string {
+  const start = timeToMinutes(from);
+  const end = timeToMinutes(to);
+  if (start === null || end === null) return '';
+  const total = end - start;
+  if (total <= 0) return '';
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 export default function StudentLiveClassPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAllLiveClasses(session.token),
     [api, session.token],
   );
-  const [tab, setTab] = useState<LiveTab>('upcoming');
+  const [tab, setTab] = useState<LiveTab>('ongoing');
   const [recording, setRecording] = useState<{ title: string; url: string } | null>(null);
   const [recPending, setRecPending] = useState<string | null>(null);
 
@@ -78,9 +103,9 @@ export default function StudentLiveClassPage({ api, session }: StudentPageProps)
   }
 
   const tabs = [
-    { id: 'upcoming' as const, label: 'Upcoming', count: upcoming.length },
     { id: 'ongoing' as const, label: 'Ongoing', count: ongoing.length },
-    { id: 'past' as const, label: 'Past Recordings', count: past.length },
+    { id: 'upcoming' as const, label: 'Upcoming', count: upcoming.length },
+    { id: 'past' as const, label: 'Past', count: past.length },
   ];
 
   return (
@@ -154,6 +179,7 @@ function LiveClassCard({
   const toTime = shortTime(asString(row.to_time));
   const joinUrl = asString(row.join_url);
   const timeRange = [fromTime, toTime].filter(Boolean).join(' – ');
+  const duration = formatDuration(asString(row.from_time), asString(row.to_time));
 
   return (
     <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
@@ -164,9 +190,9 @@ function LiveClassCard({
           </span>
         ) : <span />}
         {isOngoing ? (
-          <Badge className="shrink-0 rounded-full border-emerald-200 bg-emerald-100 text-[10px] text-emerald-700">
-            <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-emerald-500" />
-            Live now
+          <Badge className="shrink-0 rounded-full border-red-200 bg-red-100 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+            <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-red-500" />
+            Live
           </Badge>
         ) : timeRange ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -178,17 +204,23 @@ function LiveClassCard({
 
       <h3 className="text-base font-bold leading-snug text-student-text">{title}</h3>
 
+      {instructor ? (
+        <p className="mt-1 text-xs text-student-muted">
+          with <span className="font-medium text-student-text">{instructor}</span>
+        </p>
+      ) : null}
+
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-student-muted">
-        {instructor ? (
-          <span className="inline-flex items-center gap-1">
-            <User aria-hidden="true" className="size-3.5" />
-            {instructor}
-          </span>
-        ) : null}
         {date ? (
           <span className="inline-flex items-center gap-1">
             <Calendar aria-hidden="true" className="size-3.5" />
             {date}
+          </span>
+        ) : null}
+        {duration ? (
+          <span className="inline-flex items-center gap-1">
+            <Clock aria-hidden="true" className="size-3.5" />
+            {duration}
           </span>
         ) : null}
       </div>
@@ -201,7 +233,7 @@ function LiveClassCard({
             className="h-10 flex-1 rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
           >
             <Play aria-hidden="true" className="mr-1.5 size-4" />
-            {recPending ? 'Loading…' : 'Watch Recording'}
+            {recPending ? 'Loading…' : 'View Recording'}
           </Button>
         ) : joinUrl ? (
           <Button
@@ -210,7 +242,7 @@ function LiveClassCard({
           >
             <a href={joinUrl} target="_blank" rel="noopener noreferrer">
               <Video aria-hidden="true" className="mr-1.5 size-4" />
-              Join Class
+              {isOngoing ? 'Join Now' : 'Join Class'}
             </a>
           </Button>
         ) : (
