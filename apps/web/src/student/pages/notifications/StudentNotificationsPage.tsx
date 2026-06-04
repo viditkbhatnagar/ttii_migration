@@ -1,5 +1,13 @@
 import { useState, useCallback } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import {
+  Bell,
+  CheckCheck,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  Megaphone,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
@@ -8,6 +16,65 @@ import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 type NotificationTab = 'inbox' | 'system';
+
+type Severity = 'success' | 'warning' | 'info' | 'primary';
+
+interface SeverityStyle {
+  /** Lucide glyph rendered inside the circular icon tile. */
+  readonly icon: LucideIcon;
+  /** Soft tinted background + glyph colour for the circular tile. */
+  readonly tile: string;
+  /** Pill badge styling shown on the right of the row. */
+  readonly badge: string;
+  /** Human label shown inside the severity badge. */
+  readonly label: string;
+}
+
+// Faithful EduPulse §12 palette — Success / Warning / Info / Primary.
+const SEVERITY_STYLES: Record<Severity, SeverityStyle> = {
+  success: {
+    icon: CheckCircle2,
+    tile: 'bg-emerald-50 text-emerald-600',
+    badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    label: 'Success',
+  },
+  warning: {
+    icon: AlertTriangle,
+    tile: 'bg-amber-50 text-amber-600',
+    badge: 'bg-amber-50 text-amber-700 ring-amber-200',
+    label: 'Warning',
+  },
+  info: {
+    icon: Info,
+    tile: 'bg-sky-50 text-sky-600',
+    badge: 'bg-sky-50 text-sky-700 ring-sky-200',
+    label: 'Info',
+  },
+  primary: {
+    icon: Megaphone,
+    tile: 'bg-student-primary-light text-student-primary',
+    badge: 'bg-student-primary-light text-student-primary ring-student-primary/20',
+    label: 'Primary',
+  },
+};
+
+// The notification feed (notification.title / description only) carries no
+// type/category column, so we surface a single honest neutral severity per row
+// rather than fabricating categories. If the API ever adds a `type`/`severity`
+// field, this maps it onto the EduPulse palette automatically.
+function resolveSeverity(raw: string): Severity {
+  const key = raw.trim().toLowerCase();
+  if (key === 'success' || key === 'warning' || key === 'info' || key === 'primary') {
+    return key;
+  }
+  if (key === 'error' || key === 'danger' || key === 'alert') {
+    return 'warning';
+  }
+  if (key === 'announcement' || key === 'promo') {
+    return 'primary';
+  }
+  return 'info';
+}
 
 export default function StudentNotificationsPage({ api, session }: StudentPageProps) {
   const [activeTab, setActiveTab] = useState<NotificationTab>('inbox');
@@ -116,44 +183,57 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
             const createdAt = asString(notification.created_at);
             const isRead = asNumber(notification.is_read) === 1;
 
+            const severity = resolveSeverity(asString(notification.type) || asString(notification.severity));
+            const style = SEVERITY_STYLES[severity];
+            const SeverityIcon = style.icon;
+
             return (
               <div
                 key={id}
-                className={`rounded-2xl border bg-white p-4 transition-all hover:shadow-md ${
-                  !isRead ? 'border-l-4 border-l-student-accent border-slate-200/80' : 'border-slate-200/80'
+                className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md ${
+                  !isRead ? 'border-l-4 border-l-student-accent' : ''
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  <div aria-hidden="true" className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full ${
-                    isRead ? 'bg-slate-100' : 'bg-student-accent/10'
-                  }`}>
-                    <Bell className={`size-5 ${isRead ? 'text-slate-400' : 'text-student-accent'}`} />
+                  <div
+                    aria-hidden="true"
+                    className={`flex size-11 shrink-0 items-center justify-center rounded-full ${style.tile}`}
+                  >
+                    <SeverityIcon className="size-5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className={`text-sm ${isRead ? 'text-slate-600' : 'font-semibold text-student-text'}`}>{title}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className={`text-sm ${isRead ? 'text-slate-600' : 'font-semibold text-student-text'}`}>
+                        {title}
+                      </p>
                       {!isRead ? (
-                        <span className="inline-flex items-center rounded-full bg-student-accent/10 px-2 py-0.5 text-[10px] font-semibold text-student-accent">
-                          New
-                        </span>
+                        <span
+                          aria-label="Unread"
+                          className="inline-block size-2 shrink-0 rounded-full bg-student-accent"
+                        />
                       ) : null}
+                      <span
+                        className={`ml-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${style.badge}`}
+                      >
+                        {style.label}
+                      </span>
                     </div>
                     {description ? <p className="mt-1 text-sm text-student-muted">{description}</p> : null}
                     {createdAt ? <p className="mt-1.5 text-xs text-slate-400">{createdAt}</p> : null}
+                    {!isRead && activeTab === 'inbox' ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Mark "${title}" as read`}
+                        className="mt-2 h-auto px-0 text-xs text-student-primary hover:bg-transparent hover:text-student-primary/80 max-sm:min-h-11"
+                        disabled={markingId === id}
+                        onClick={() => void handleMarkRead(id)}
+                      >
+                        <CheckCheck aria-hidden="true" className="mr-1 size-3.5" />
+                        {markingId === id ? 'Marking...' : 'Mark read'}
+                      </Button>
+                    ) : null}
                   </div>
-                  {!isRead && activeTab === 'inbox' ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Mark "${title}" as read`}
-                      className="shrink-0 max-sm:h-11 text-xs text-student-primary hover:text-student-primary/80 rounded-xl"
-                      disabled={markingId === id}
-                      onClick={() => void handleMarkRead(id)}
-                    >
-                      <CheckCheck aria-hidden="true" className="mr-1 size-3.5" />
-                      {markingId === id ? 'Marking...' : 'Mark read'}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             );
