@@ -12,6 +12,7 @@ type EventType = 'class' | 'exam' | 'deadline';
 interface CalendarEvent {
   date: Date;
   title: string;
+  subject: string;
   type: EventType;
   time: string;
 }
@@ -25,10 +26,27 @@ interface CalendarData {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const MAX_CHIPS_PER_DAY = 2;
 
-const TYPE_STYLES: Record<EventType, { chip: string; dot: string; label: string }> = {
-  class: { chip: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', label: 'Class' },
-  exam: { chip: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500', label: 'Exam' },
-  deadline: { chip: 'bg-red-100 text-red-700', dot: 'bg-red-500', label: 'Deadline' },
+// Soft-tinted pill + dot + agenda-tile styles, one per event type. EduPulse's
+// calendar legend reads Class / Exam / Deadline, each in its own hue.
+const TYPE_STYLES: Record<EventType, { chip: string; dot: string; pill: string; label: string }> = {
+  class: {
+    chip: 'bg-sky-100 text-sky-700',
+    dot: 'bg-sky-500',
+    pill: 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200',
+    label: 'Class',
+  },
+  exam: {
+    chip: 'bg-amber-100 text-amber-700',
+    dot: 'bg-amber-500',
+    pill: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200',
+    label: 'Exam',
+  },
+  deadline: {
+    chip: 'bg-red-100 text-red-700',
+    dot: 'bg-red-500',
+    pill: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200',
+    label: 'Deadline',
+  },
 };
 
 const TYPE_ICON: Record<EventType, typeof Radio> = {
@@ -36,6 +54,11 @@ const TYPE_ICON: Record<EventType, typeof Radio> = {
   exam: FileText,
   deadline: ClipboardList,
 };
+
+// Assignment/exam rows expose their subject under a few different keys; pull the
+// first non-empty one so the agenda can show it as a meta line (live classes use
+// the dedicated `subject_title` field handled separately).
+const SUBJECT_KEYS = ['subject_title', 'subject_name', 'subject', 'course_title'] as const;
 
 // Backend date fields arrive in several shapes — assignments as `DD-MM-YYYY`,
 // exams as `DD/MM/YYYY`, live classes as `YYYY-MM-DD`, plus the occasional ISO
@@ -93,6 +116,14 @@ function pickDate(row: Record<string, unknown>, keys: readonly string[]): Date |
   return null;
 }
 
+function pickSubject(row: Record<string, unknown>): string {
+  for (const key of SUBJECT_KEYS) {
+    const value = asString(row[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
 // Live-class `from_time` is "HH:MM:SS"; render a friendly "9:30 AM".
 function formatTime(value: unknown): string {
   const raw = asString(value);
@@ -117,6 +148,7 @@ function buildEvents(data: CalendarData): CalendarEvent[] {
     events.push({
       date,
       title: asString(row.title) || `Assignment ${asString(row.id)}`,
+      subject: pickSubject(row),
       type: 'deadline',
       time: '',
     });
@@ -128,6 +160,7 @@ function buildEvents(data: CalendarData): CalendarEvent[] {
     events.push({
       date,
       title: asString(row.title) || `Exam ${asString(row.id)}`,
+      subject: pickSubject(row),
       type: 'exam',
       time: '',
     });
@@ -136,11 +169,10 @@ function buildEvents(data: CalendarData): CalendarEvent[] {
   for (const row of data.liveClasses) {
     const date = pickDate(row, ['date']);
     if (!date) continue;
-    const subject = asString(row.subject_title);
-    const title = asString(row.title) || 'Live Class';
     events.push({
       date,
-      title: subject ? `${subject} — ${title}` : title,
+      title: asString(row.title) || 'Live Class',
+      subject: asString(row.subject_title),
       type: 'class',
       time: formatTime(row.from_time),
     });
@@ -227,9 +259,15 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
   }, [viewMonth]);
 
   const monthLabel = viewMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const selectedIsToday = isSameDay(selectedDay, today);
 
   const goToMonth = (delta: number) => {
     setViewMonth((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+  };
+
+  const jumpToToday = () => {
+    setViewMonth(startOfMonth(today));
+    setSelectedDay(today);
   };
 
   if (loading) {
@@ -250,25 +288,29 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header — title + subtitle on the left, legend pills + refresh on the right.
+          (EduPulse shows an "Add Event" button here; intentionally omitted — a
+          student can't create institutional calendar events.) */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-student-text">
             <CalendarDays aria-hidden="true" className="size-6 text-student-primary" />
             Calendar
           </h1>
-          <p className="mt-1 text-sm text-student-muted">Your academic schedule</p>
+          <p className="mt-1 text-sm text-student-muted">Your academic schedule at a glance</p>
         </div>
-        <div className="flex items-center gap-4">
-          {/* Legend */}
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <ul aria-label="Event legend" className="flex flex-wrap items-center gap-2">
             {(Object.keys(TYPE_STYLES) as EventType[]).map((type) => (
-              <span key={type} className="inline-flex items-center gap-1.5 text-xs font-medium text-student-muted">
-                <span aria-hidden="true" className={`size-2.5 rounded-full ${TYPE_STYLES[type].dot}`} />
+              <li
+                key={type}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TYPE_STYLES[type].pill}`}
+              >
+                <span aria-hidden="true" className={`size-2 rounded-full ${TYPE_STYLES[type].dot}`} />
                 {TYPE_STYLES[type].label}
-              </span>
+              </li>
             ))}
-          </div>
+          </ul>
           <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
         </div>
       </div>
@@ -278,7 +320,7 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
         aria-label={`Calendar for ${monthLabel}`}
         className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between gap-2">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -288,7 +330,18 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
           >
             <ChevronLeft aria-hidden="true" className="size-5" />
           </Button>
-          <h2 className="text-base font-bold text-student-text sm:text-lg">{monthLabel}</h2>
+          <div className="flex flex-col items-center">
+            <h2 className="text-base font-bold text-student-text sm:text-lg">{monthLabel}</h2>
+            {!selectedIsToday ? (
+              <button
+                type="button"
+                onClick={jumpToToday}
+                className="text-xs font-semibold text-student-primary hover:underline"
+              >
+                Jump to today
+              </button>
+            ) : null}
+          </div>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -343,9 +396,10 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
                     <span
                       key={`${event.type}-${chipIndex}-${event.title}`}
                       title={event.title}
-                      className={`truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight ${TYPE_STYLES[event.type].chip}`}
+                      className={`flex items-center gap-1 truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight ${TYPE_STYLES[event.type].chip}`}
                     >
-                      {event.title}
+                      <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${TYPE_STYLES[event.type].dot}`} />
+                      <span className="truncate">{event.title}</span>
                     </span>
                   ))}
                   {overflow > 0 ? (
@@ -358,11 +412,14 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
         </div>
       </section>
 
-      {/* Agenda for the selected day */}
-      <section aria-label="Schedule" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {/* Agenda — EduPulse's "Today's Schedule". Anchored to today by default; the
+          heading adapts when another day is picked from the grid above. */}
+      <section aria-label="Daily schedule" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-bold text-student-text">Schedule</h2>
-          <p className="text-sm text-student-muted">
+          <h2 className="text-lg font-bold text-student-text">
+            {selectedIsToday ? "Today's Schedule" : 'Schedule'}
+          </h2>
+          <p className="text-sm font-medium text-student-muted">
             {selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
@@ -370,7 +427,9 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
         {selectedEvents.length === 0 ? (
           <div role="status" className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
             <CalendarDays aria-hidden="true" className="mx-auto size-8 text-slate-300" />
-            <p className="mt-2 text-sm text-student-muted">Nothing scheduled.</p>
+            <p className="mt-2 text-sm text-student-muted">
+              {selectedIsToday ? 'Nothing scheduled for today.' : 'Nothing scheduled.'}
+            </p>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -384,10 +443,15 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
                   <span className="w-16 shrink-0 text-xs font-semibold text-student-muted">
                     {event.time || '—'}
                   </span>
-                  <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${TYPE_STYLES[event.type].chip}`}>
+                  <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${TYPE_STYLES[event.type].chip}`}>
                     <Icon aria-hidden="true" className="size-4" />
                   </span>
-                  <span className="flex-1 truncate text-sm font-medium text-student-text">{event.title}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-semibold text-student-text">{event.title}</span>
+                    {event.subject ? (
+                      <span className="truncate text-xs text-student-muted">{event.subject}</span>
+                    ) : null}
+                  </span>
                   <span
                     className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${TYPE_STYLES[event.type].chip}`}
                   >
