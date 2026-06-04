@@ -515,7 +515,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 actionLabel="View all"
                 onAction={() => onNavigate('/student/courses')}
               >
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="space-y-3">
                   {inProgressCourses.map((course) => (
                     <ContinueLearningCard
                       key={course.id}
@@ -679,43 +679,48 @@ interface SectionCardProps extends SectionHeaderProps {
 // inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
 function SectionCard({ title, subtitle, actionLabel, onAction, children, className }: SectionCardProps) {
   return (
-    <section className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}>
+    <section
+      className={`flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
+    >
       <SectionHeader title={title} subtitle={subtitle} actionLabel={actionLabel} onAction={onAction} />
       {children}
     </section>
   );
 }
 
+// Full-width horizontal course row so Continue Learning fills its container at
+// any course count (Naji 2026-06-05: 1-course tiles were floating in a big empty
+// box). Banner tile · title/instructor/progress · Resume — stacks vertically.
 function ContinueLearningCard({ course, onResume }: { course: CourseProgressRow; onResume: () => void }) {
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="relative flex h-24 items-center bg-gradient-to-br from-student-primary to-student-accent px-5">
-        <BookOpen aria-hidden="true" className="size-8 text-white/90" />
-        <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
-          {course.progress}%
-        </span>
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:items-center">
+      <div className="relative flex size-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent">
+        <BookOpen aria-hidden="true" className="size-7 text-white/90" />
       </div>
-      <div className="flex flex-1 flex-col p-5">
-        <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="line-clamp-1 text-sm font-bold text-student-text">{course.title}</h3>
+          <span className="shrink-0 rounded-full bg-student-primary/10 px-2.5 py-0.5 text-xs font-semibold text-student-primary">
+            {course.progress}%
+          </span>
+        </div>
         {course.instructor ? (
           <p className="mt-0.5 truncate text-xs text-student-muted">{course.instructor}</p>
         ) : null}
-        <div className="mt-auto pt-4">
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-            <div
-              className="h-full rounded-full bg-student-primary transition-all duration-500"
-              style={{ width: `${Math.min(course.progress, 100)}%` }}
-            />
-          </div>
-          <Button
-            onClick={onResume}
-            className="mt-4 h-10 w-full rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
-          >
-            <PlayCircle aria-hidden="true" className="mr-2 size-4" />
-            Resume
-          </Button>
+        <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="h-full rounded-full bg-student-primary transition-all duration-500"
+            style={{ width: `${Math.min(course.progress, 100)}%` }}
+          />
         </div>
       </div>
+      <Button
+        onClick={onResume}
+        className="h-10 shrink-0 rounded-xl bg-student-primary px-4 text-sm font-semibold text-white hover:bg-student-primary/90 max-sm:w-full"
+      >
+        <PlayCircle aria-hidden="true" className="mr-2 size-4" />
+        Resume
+      </Button>
     </div>
   );
 }
@@ -793,7 +798,7 @@ function PrioritiesSection({
   ];
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="text-lg font-bold text-student-text">Today&apos;s Priorities</h2>
         <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
