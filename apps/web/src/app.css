@@ -64,14 +64,16 @@
   --spacing-sidebar-collapsed: 70px;
   --spacing-navbar-height: 64px;
 
-  /* Student Portal Colors */
-  --color-student-primary: #18548b;
-  --color-student-primary-light: #e8f0f7;
-  --color-student-accent: #FF7F11;
-  --color-student-accent-light: #ff9a44;
-  --color-student-sidebar-from: #1a1f2e;
-  --color-student-sidebar-to: #0f1318;
-  --color-student-bg: #f6f7f8;
+  /* Student Portal Colors — TTII brand (magenta + orange) on an EduPulse-style
+     light shell. Naji 2026-06-04: adopt the EduPulse layout in our brand colours
+     with a light (white) sidebar, replacing the prior blue/orange dark-sidebar theme. */
+  --color-student-primary: #8F2774;
+  --color-student-primary-light: #F7EAF3;
+  --color-student-accent: #F06543;
+  --color-student-accent-light: #F5876B;
+  --color-student-sidebar-from: #FFFFFF;
+  --color-student-sidebar-to: #FFFFFF;
+  --color-student-bg: #F3F6F9;
   --color-student-surface: #ffffff;
   --color-student-text: #121417;
   --color-student-muted: #657686;
