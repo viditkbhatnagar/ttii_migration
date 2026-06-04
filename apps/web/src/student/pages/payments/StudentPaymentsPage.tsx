@@ -1,5 +1,17 @@
-import { useState, useCallback } from 'react';
-import { CreditCard, Package, Tag, History, Calendar, Receipt, Wallet, Loader2 } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import {
+  CreditCard,
+  Package,
+  Tag,
+  Calendar,
+  Receipt,
+  Loader2,
+  CalendarClock,
+  Download,
+  FileText,
+  Check,
+  CheckCircle2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,23 +29,71 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 
 function getInstallmentStatusStyle(status: string): string {
   const lower = status.toLowerCase();
-  if (lower === 'paid') return 'bg-green-100 text-green-700 border-green-200';
+  if (lower === 'paid') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
   if (lower === 'overdue') return 'bg-red-100 text-red-700 border-red-200';
-  if (lower === 'due') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+  if (lower === 'due') return 'bg-amber-100 text-amber-700 border-amber-200';
   return 'bg-slate-100 text-slate-600 border-slate-200';
 }
 
-function getPaymentStatusStyle(status: string): string {
+function isPaidStatus(status: string): boolean {
+  return status.toLowerCase() === 'paid';
+}
+
+function getHistoryStatusStyle(status: string): string {
   const lower = status.toLowerCase();
-  if (lower === 'success') return 'bg-green-100 text-green-700 border-green-200';
+  if (lower === 'success' || lower === 'paid') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
   if (lower === 'failed') return 'bg-red-100 text-red-700 border-red-200';
-  return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+  return 'bg-amber-100 text-amber-700 border-amber-200';
+}
+
+function getHistoryStatusLabel(status: string): string {
+  return status.toLowerCase() === 'success' ? 'Paid' : status;
 }
 
 interface PaymentsBundle {
   payments: Awaited<ReturnType<StudentPortalApi['loadPayments']>>;
   paymentHistory: StudentPaymentHistoryItem[];
   installments: StudentInstallmentItem[];
+}
+
+interface SelectedCourse {
+  courseId: string;
+  title: string;
+  totalFee: number;
+  amountPaid: number;
+  balance: number;
+  status: string;
+}
+
+// Pick the course the Outstanding Balance card represents: prefer the
+// snapshot's selectedCourseId, then the first course that still owes money,
+// then the first course outright. Real data only — never fabricated.
+function pickSelectedCourse(
+  studentCourses: Record<string, unknown>[],
+  selectedCourseId: string,
+): SelectedCourse | null {
+  const firstCourse = studentCourses[0];
+  if (!firstCourse) return null;
+
+  const toSelected = (row: Record<string, unknown>): SelectedCourse => {
+    const courseId = asString(row.course_id) || asString(row.id);
+    return {
+      courseId,
+      title: asString(row.title) || `Course ${courseId}`,
+      totalFee: asNumber(row.total_fee) || asNumber(row.total_amount),
+      amountPaid: asNumber(row.amount_paid),
+      balance: asNumber(row.balance),
+      status: asString(row.status),
+    };
+  };
+
+  const matched = selectedCourseId
+    ? studentCourses.find((row) => asString(row.course_id) === selectedCourseId)
+    : undefined;
+  if (matched) return toSelected(matched);
+
+  const owing = studentCourses.find((row) => asNumber(row.balance) > 0);
+  return toSelected(owing ?? firstCourse);
 }
 
 export default function StudentPaymentsPage({ api, session }: StudentPageProps) {
@@ -164,14 +224,34 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
     }
   }, [api, session.token, couponCode, data]);
 
+  // The Outstanding Balance card + Installment Plan are driven by the
+  // selected course (real financials live on each studentCourses row; the
+  // /payment/get_payment_details endpoint returns empty strings).
+  const selectedCourse = useMemo(
+    () => pickSelectedCourse(data?.studentCourses ?? [], data?.selectedCourseId ?? ''),
+    [data?.studentCourses, data?.selectedCourseId],
+  );
+
+  const sortedInstallments = useMemo(() => (installments ?? []).slice(), [installments]);
+  const paidInstallments = sortedInstallments.filter((inst) => isPaidStatus(inst.status)).length;
+  const totalInstallments = sortedInstallments.length;
+  const nextDue = sortedInstallments.find((inst) => !isPaidStatus(inst.status));
+
   if (loading) {
     return <PageLoader label="Loading student payments..." />;
   }
 
+  const header = (
+    <div>
+      <h1 className="text-2xl font-bold text-student-text">Payments &amp; Billing</h1>
+      <p className="mt-1 text-sm text-student-muted">Manage your fees and transactions</p>
+    </div>
+  );
+
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-student-text">Payments</h1>
+        {header}
         <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <Button variant="outline" className="mt-4" onClick={reload}>Retry</Button>
@@ -180,92 +260,204 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
     );
   }
 
-  const paymentDetails = data?.paymentDetails ?? {};
-  const totalFee = asNumber(paymentDetails.total_fee) || asNumber(paymentDetails.total_amount);
-  const paidAmount = asNumber(paymentDetails.paid_amount) || asNumber(paymentDetails.amount_paid);
-  const pendingAmount = totalFee > 0 ? totalFee - paidAmount : asNumber(paymentDetails.pending_amount);
-  const paymentPercent = totalFee > 0 ? Math.round((paidAmount / totalFee) * 100) : 0;
+  const balance = selectedCourse?.balance ?? 0;
+  const totalFee = selectedCourse?.totalFee ?? 0;
+  const installmentPercent = totalInstallments > 0 ? Math.round((paidInstallments / totalInstallments) * 100) : 0;
+  const canPaySelected = Boolean(selectedCourse && balance > 0);
+  const isPayingSelected = selectedCourse ? payingCourseId === selectedCourse.courseId : false;
+
+  const handlePaySelected = () => {
+    if (!selectedCourse || balance <= 0) return;
+    openPayDialog(selectedCourse.courseId, selectedCourse.title, balance);
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-student-text">Payments</h1>
-          <p className="mt-1 text-sm text-student-muted">Manage your fees and transactions</p>
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {header}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
+          <Button
+            size="sm"
+            className="rounded-xl bg-student-primary text-white hover:bg-student-primary/90"
+            onClick={handlePaySelected}
+            disabled={!canPaySelected || payingCourseId !== null}
+          >
+            <CreditCard aria-hidden="true" className="size-4" />
+            Pay Now
+          </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
       </div>
 
-      {/* Payment Summary Cards */}
-      {totalFee > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-2xl font-semibold text-student-text">{formatCurrency(totalFee)}</p>
-                <p className="mt-0.5 text-xs font-medium text-student-muted">Total Fee</p>
+      {/* Outstanding Balance (left) + Installment Plan (right) */}
+      {selectedCourse ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Gradient Outstanding Balance card */}
+          <div className="lg:col-span-2">
+            <div className="relative flex h-full flex-col justify-between gap-6 overflow-hidden rounded-2xl bg-gradient-to-br from-student-primary to-student-accent p-6 text-white shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/80">
+                    {balance > 0 ? 'Outstanding Balance' : 'Balance Cleared'}
+                  </p>
+                  <p className="mt-2 text-4xl font-bold tabular-nums">{formatCurrency(balance)}</p>
+                  <p className="mt-2 truncate text-sm text-white/90">{selectedCourse.title}</p>
+                </div>
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30">
+                  <Receipt aria-hidden="true" className="size-5 text-white" />
+                </span>
               </div>
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <Wallet aria-hidden="true" className="size-5" />
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-2xl font-semibold text-student-text">{formatCurrency(paidAmount)}</p>
-                <p className="mt-0.5 text-xs font-medium text-student-muted">Paid</p>
-              </div>
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                <CreditCard aria-hidden="true" className="size-5" />
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={`text-2xl font-semibold ${pendingAmount > 0 ? 'text-red-600' : 'text-student-text'}`}>
-                  {formatCurrency(pendingAmount)}
-                </p>
-                <p className="mt-0.5 text-xs font-medium text-student-muted">Pending</p>
-              </div>
-              <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${pendingAmount > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
-                <Receipt aria-hidden="true" className="size-5" />
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
-      {/* Progress Bar */}
-      {totalFee > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="mb-2 flex justify-between text-sm">
-            <span className="text-student-muted">Payment Progress</span>
-            <span className="font-semibold text-student-primary">{paymentPercent}%</span>
+              <div className="space-y-3">
+                {nextDue?.dueDate ? (
+                  <p className="flex items-center gap-2 text-sm text-white/90">
+                    <CalendarClock aria-hidden="true" className="size-4" />
+                    Next due by {formatDate(nextDue.dueDate)}
+                  </p>
+                ) : balance <= 0 ? (
+                  <p className="flex items-center gap-2 text-sm text-white/90">
+                    <CheckCircle2 aria-hidden="true" className="size-4" />
+                    All installments paid
+                  </p>
+                ) : null}
+
+                {totalInstallments > 0 ? (
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs text-white/80">
+                      <span>{paidInstallments} of {totalInstallments} installments paid</span>
+                      <span className="font-semibold tabular-nums">{installmentPercent}%</span>
+                    </div>
+                    <div
+                      className="h-2 overflow-hidden rounded-full bg-white/25"
+                      role="progressbar"
+                      aria-valuenow={installmentPercent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${paidInstallments} of ${totalInstallments} installments paid`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-white transition-all duration-500 ease-out"
+                        style={{ width: `${Math.min(installmentPercent, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : totalFee > 0 ? (
+                  <p className="text-xs text-white/80">
+                    {formatCurrency(selectedCourse.amountPaid)} paid of {formatCurrency(totalFee)}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {balance > 0 ? (
+                    <Button
+                      size="sm"
+                      className="rounded-xl bg-white text-student-primary hover:bg-white/90"
+                      onClick={handlePaySelected}
+                      disabled={payingCourseId !== null}
+                    >
+                      {isPayingSelected ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+                      {isPayingSelected ? 'Processing…' : `Pay ${formatCurrency(balance)}`}
+                    </Button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-1.5 text-sm font-semibold text-white ring-1 ring-white/30">
+                      <CheckCircle2 aria-hidden="true" className="size-4" />
+                      Fully Paid
+                    </span>
+                  )}
+                  {/* No scheduling endpoint exists — surfaced but disabled
+                      rather than wiring a fake action. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    title="Scheduling payments is coming soon"
+                    aria-disabled="true"
+                    className="rounded-xl border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                  >
+                    <Calendar aria-hidden="true" className="size-4" />
+                    Schedule
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-student-primary transition-all duration-500 ease-out"
-              style={{ width: `${Math.min(paymentPercent, 100)}%` }}
-              role="progressbar"
-              aria-valuenow={paymentPercent}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Payment progress: ${paymentPercent}%`}
-            />
-          </div>
+
+          {/* Installment Plan */}
+          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar aria-hidden="true" className="size-5 text-student-primary" />
+                Installment Plan
+              </CardTitle>
+              <CardDescription>Your fee schedule</CardDescription>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-4">
+              {totalInstallments === 0 ? (
+                <p className="py-6 text-center text-sm text-student-muted">No installment plan on file.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {sortedInstallments.map((inst: StudentInstallmentItem, index) => {
+                    const paid = isPaidStatus(inst.status);
+                    return (
+                      <li key={inst.id} className="flex items-center gap-3">
+                        <span
+                          className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                            paid
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-student-primary/10 text-student-primary'
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {paid ? <Check className="size-4" /> : (inst.installmentNo || index + 1)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-student-text">{inst.installmentDetails}</p>
+                          <p className="text-xs text-student-muted">
+                            {inst.dueDate ? `Due ${formatDate(inst.dueDate)}` : 'No due date'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="text-sm font-semibold tabular-nums text-student-text">
+                            {formatCurrency(inst.amount)}
+                          </span>
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getInstallmentStatusStyle(inst.status)}`}>
+                            {inst.status}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
         </div>
       ) : null}
 
       {/* Payment History */}
-      <Card className="rounded-xl border-slate-200 bg-white shadow-none">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <History className="size-5 text-student-primary" />
-            Payment History
-          </CardTitle>
-          <CardDescription>Your payment transactions</CardDescription>
+      <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Receipt aria-hidden="true" className="size-5 text-student-primary" />
+              Payment History
+            </CardTitle>
+            <CardDescription>Your past transactions</CardDescription>
+          </div>
+          {/* No export/document endpoint exists yet — kept visible but
+              disabled rather than faking a download. */}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+            title="Export is coming soon"
+            aria-disabled="true"
+            className="rounded-xl"
+          >
+            <Download aria-hidden="true" className="size-4" />
+            Export
+          </Button>
         </CardHeader>
         <Separator />
         <CardContent className="pt-4">
@@ -275,126 +467,119 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               <p className="text-sm text-student-muted">No payment transactions yet.</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100">
               {paymentHistory.map((payment: StudentPaymentHistoryItem) => (
-                <div key={payment.id} className="flex items-center justify-between py-3">
+                <li key={payment.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-student-text">
+                    <p className="truncate text-sm font-medium text-student-text">
                       {payment.courseTitle || 'Course Payment'}
                     </p>
-                    <div className="mt-0.5 flex items-center gap-3 text-xs text-student-muted">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="size-3" />
-                        {payment.paymentDate ? formatDate(payment.paymentDate) : 'N/A'}
-                      </span>
-                      <span>{payment.paymentMode}</span>
-                    </div>
+                    <p className="mt-0.5 text-xs text-student-muted">
+                      <span className="font-mono">#{payment.id}</span>
+                      {' · '}
+                      {payment.paymentDate ? formatDate(payment.paymentDate) : 'N/A'}
+                      {payment.paymentMode ? ` · ${payment.paymentMode}` : ''}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-student-text">{formatCurrency(payment.amount)}</span>
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getPaymentStatusStyle(payment.status)}`}>
-                      {payment.status}
+                    <span className="text-sm font-semibold tabular-nums text-student-text">{formatCurrency(payment.amount)}</span>
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getHistoryStatusStyle(payment.status)}`}>
+                      {getHistoryStatusLabel(payment.status)}
                     </span>
+                    {/* No invoice/receipt PDF endpoint — disabled links, no
+                        fabricated documents. */}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled
+                        title="Invoice download coming soon"
+                        aria-disabled="true"
+                        className="h-8 gap-1 rounded-lg px-2 text-xs text-student-muted"
+                      >
+                        <FileText aria-hidden="true" className="size-3.5" />
+                        Invoice
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled
+                        title="Receipt download coming soon"
+                        aria-disabled="true"
+                        className="h-8 gap-1 rounded-lg px-2 text-xs text-student-muted"
+                      >
+                        <Receipt aria-hidden="true" className="size-3.5" />
+                        Receipt
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </CardContent>
       </Card>
 
-      {/* Installment Schedule */}
-      {installments && installments.length > 0 ? (
-        <Card className="rounded-xl border-slate-200 bg-white shadow-none">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Calendar className="size-5 text-student-primary" />
-              Installment Schedule
-            </CardTitle>
-            <CardDescription>Your fee installment plan</CardDescription>
-          </CardHeader>
-          <Separator />
-          <CardContent className="pt-4">
-            <div className="divide-y divide-slate-100">
-              {installments.map((inst: StudentInstallmentItem) => (
-                <div key={inst.id} className="flex items-center justify-between py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-student-text">
-                      {inst.installmentDetails}
-                    </p>
-                    <div className="mt-0.5 flex items-center gap-3 text-xs text-student-muted">
-                      <span>Due: {inst.dueDate ? formatDate(inst.dueDate) : 'N/A'}</span>
-                      {inst.paidDate ? <span>Paid: {formatDate(inst.paidDate)}</span> : null}
-                      {inst.paymentMode ? <span>{inst.paymentMode}</span> : null}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-student-text">{formatCurrency(inst.amount)}</span>
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getInstallmentStatusStyle(inst.status)}`}>
-                      {inst.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Course Fees */}
+      {/* Course Fees — all enrolled courses with an outstanding balance can
+          be paid here via the same Razorpay flow. */}
       {(data?.studentCourses ?? []).length > 0 ? (
-        <div className="space-y-3">
+        <section className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">Course Fees</h2>
           <div className="space-y-3">
             {(data?.studentCourses ?? []).map((course) => {
               const courseId = asString(course.course_id) || asString(course.id);
               const title = asString(course.title) || `Course ${courseId}`;
               const status = asString(course.status);
-              const balance = asNumber(course.balance);
+              const courseBalance = asNumber(course.balance);
 
               const isPaying = payingCourseId === courseId;
               return (
-                <div key={courseId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                <div key={courseId} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-student-text">{title}</p>
                     {status ? (
                       <span className={`mt-1 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
                         status.toLowerCase() === 'paid' || status.toLowerCase() === 'completed'
-                          ? 'bg-green-100 text-green-700 border-green-200'
-                          : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                          : status.toLowerCase() === 'overdue'
+                            ? 'bg-red-100 text-red-700 border-red-200'
+                            : 'bg-amber-100 text-amber-700 border-amber-200'
                       }`}>
                         {status}
                       </span>
                     ) : null}
                   </div>
                   <div className="flex items-center gap-3">
-                    {balance > 0 ? (
+                    {courseBalance > 0 ? (
                       <>
-                        <p className="text-sm font-semibold text-red-600">Balance: {formatCurrency(balance)}</p>
+                        <p className="text-sm font-semibold text-red-600">Balance: {formatCurrency(courseBalance)}</p>
                         <Button
                           size="sm"
-                          className="bg-student-primary text-white hover:bg-student-primary/90"
-                          onClick={() => openPayDialog(courseId, title, balance)}
+                          className="rounded-xl bg-student-primary text-white hover:bg-student-primary/90"
+                          onClick={() => openPayDialog(courseId, title, courseBalance)}
                           disabled={isPaying || payingCourseId !== null}
                         >
-                          {isPaying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {isPaying ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
                           {isPaying ? 'Processing…' : 'Pay Now'}
                         </Button>
                       </>
                     ) : (
-                      <p className="text-sm font-semibold text-emerald-600">Paid</p>
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
+                        <CheckCircle2 aria-hidden="true" className="size-4" />
+                        Paid
+                      </span>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
+        </section>
       ) : null}
 
       {/* Packages */}
       {(data?.packages ?? []).length > 0 ? (
-        <div className="space-y-3">
+        <section className="space-y-3">
           <h2 className="text-lg font-semibold text-student-text">Available Packages</h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {(data?.packages ?? []).map((pkg) => {
@@ -404,8 +589,8 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               const isPurchased = pkg.is_purchased === true || pkg.is_purchased === 1 || pkg.is_purchased === '1';
 
               return (
-                <div key={id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+                <div key={id} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-student-primary/10 text-student-primary">
                     <Package aria-hidden="true" className="size-5" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -414,7 +599,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
                   </div>
                   <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
                     isPurchased
-                      ? 'bg-green-100 text-green-700 border-green-200'
+                      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
                       : 'bg-slate-100 text-slate-600 border-slate-200'
                   }`}>
                     {isPurchased ? 'Enrolled' : 'Available'}
@@ -423,38 +608,14 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               );
             })}
           </div>
-        </div>
+        </section>
       ) : null}
 
-      {/* Payment Dialog — Naji 2026-05-11 flip-card preview. Cardholder
-          Name + Expiry captured here; PAN/CVV happens inside Razorpay. */}
-      <Dialog
-        open={payDialogCourseId !== null}
-        onOpenChange={(open) => { if (!open) setPayDialogCourseId(null); }}
-      >
-        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] p-6">
-          <DialogHeader>
-            <DialogTitle>
-              Pay {payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''}
-              {payDialogCourseTitle ? ` for ${payDialogCourseTitle}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <CreditCardForm
-            {...(payDialogAmount > 0 ? { amountDisplay: formatCurrency(payDialogAmount) } : {})}
-            merchantLabel="TTII LMS"
-            {...(payDialogCourseTitle ? { itemDescription: payDialogCourseTitle } : {})}
-            submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} with Razorpay`}
-            submitting={payingCourseId !== null}
-            onSubmit={handleCardFormSubmit}
-          />
-        </DialogContent>
-      </Dialog>
-
       {/* Coupon */}
-      <Card className="rounded-xl border-slate-200 bg-white shadow-none">
+      <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Tag className="size-5 text-student-primary" />
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Tag aria-hidden="true" className="size-5 text-student-primary" />
             Apply Coupon
           </CardTitle>
           <CardDescription>Enter a coupon code to get a discount on your course fee</CardDescription>
@@ -499,6 +660,30 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
           </form>
         </CardContent>
       </Card>
+
+      {/* Payment Dialog — Naji 2026-05-11 flip-card preview. Cardholder
+          Name + Expiry captured here; PAN/CVV happens inside Razorpay. */}
+      <Dialog
+        open={payDialogCourseId !== null}
+        onOpenChange={(open) => { if (!open) setPayDialogCourseId(null); }}
+      >
+        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] p-6">
+          <DialogHeader>
+            <DialogTitle>
+              Pay {payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''}
+              {payDialogCourseTitle ? ` for ${payDialogCourseTitle}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <CreditCardForm
+            {...(payDialogAmount > 0 ? { amountDisplay: formatCurrency(payDialogAmount) } : {})}
+            merchantLabel="TTII LMS"
+            {...(payDialogCourseTitle ? { itemDescription: payDialogCourseTitle } : {})}
+            submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} with Razorpay`}
+            submitting={payingCourseId !== null}
+            onSubmit={handleCardFormSubmit}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
