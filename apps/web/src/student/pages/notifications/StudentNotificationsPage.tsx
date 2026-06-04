@@ -14,6 +14,7 @@ import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import { cleanNotificationText } from '../../shared/notification-text.js';
 
 type NotificationTab = 'inbox' | 'system';
 
@@ -178,8 +179,8 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
         <div className="space-y-3">
           {notifications.map((notification) => {
             const id = asString(notification.id);
-            const title = asString(notification.title) || 'Notification';
-            const description = asString(notification.description) || asString(notification.message);
+            const title = cleanNotificationText(asString(notification.title)) || 'Notification';
+            const description = cleanNotificationText(asString(notification.description) || asString(notification.message));
             const createdAt = asString(notification.created_at);
             const isRead = asNumber(notification.is_read) === 1;
 
@@ -218,7 +219,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
                         {style.label}
                       </span>
                     </div>
-                    {description ? <p className="mt-1 text-sm text-student-muted">{description}</p> : null}
+                    {description ? <p className="mt-1 line-clamp-4 text-sm text-student-muted">{description}</p> : null}
                     {createdAt ? <p className="mt-1.5 text-xs text-slate-400">{createdAt}</p> : null}
                     {!isRead && activeTab === 'inbox' ? (
                       <Button

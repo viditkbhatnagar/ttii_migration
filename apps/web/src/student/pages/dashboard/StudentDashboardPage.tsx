@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asNumber, asString, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
+import { cleanNotificationText } from '../../shared/notification-text.js';
 import type {
   StudentDashboardSnapshot,
   StudentLearningSnapshot,
@@ -168,36 +169,6 @@ function relativeTime(value: string): string {
     return `${days}d ago`;
   }
   return formatDate(value);
-}
-
-// Notification bodies are authored as HTML and sometimes carry broken-emoji
-// artifacts (emoji stored in a non-utf8mb4 column collapse to "?"). Render them
-// as clean plain text: strip tags, decode entities, drop broken-"?" runs, space
-// out inline check-emoji, and collapse whitespace.
-function cleanNotificationText(raw: string): string {
-  if (!raw) {
-    return '';
-  }
-  return raw
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&apos;|&#0?39;|&rsquo;/gi, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_m, code: string) => {
-      const n = Number.parseInt(code, 16);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : '';
-    })
-    .replace(/&#(\d+);/g, (_m, code: string) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : '';
-    })
-    .replace(/\?{2,}/g, ' ')
-    .replace(/✅/g, ' ✅ ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 /* ─── Derivations ────────────────────────────────────────────── */
@@ -533,51 +504,76 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         ))}
       </section>
 
-      {/* 3 · Continue Learning (big card) */}
-      {inProgressCourses.length > 0 ? (
-        <SectionCard
-          title="Continue Learning"
-          subtitle="Pick up right where you left off"
-          actionLabel="View all"
-          onAction={() => onNavigate('/student/courses')}
-        >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {inProgressCourses.map((course) => (
-              <ContinueLearningCard
-                key={course.id}
-                course={course}
-                onResume={() => onNavigate('/student/courses')}
-              />
-            ))}
-          </div>
-        </SectionCard>
+      {/* 3 · Continue Learning (left) + Upcoming Live (right) — Naji's order */}
+      {inProgressCourses.length > 0 || upcomingLive.length > 0 ? (
+        <div className="grid gap-6 lg:grid-cols-3">
+          {inProgressCourses.length > 0 ? (
+            <div className={upcomingLive.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
+              <SectionCard
+                title="Continue Learning"
+                subtitle="Pick up right where you left off"
+                actionLabel="View all"
+                onAction={() => onNavigate('/student/courses')}
+              >
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {inProgressCourses.map((course) => (
+                    <ContinueLearningCard
+                      key={course.id}
+                      course={course}
+                      onResume={() => onNavigate('/student/courses')}
+                    />
+                  ))}
+                </div>
+              </SectionCard>
+            </div>
+          ) : null}
+
+          {upcomingLive.length > 0 ? (
+            <div className={inProgressCourses.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
+              <SectionCard
+                title="Upcoming Live"
+                actionLabel="See all"
+                onAction={() => onNavigate('/student/live-classes')}
+              >
+                <div className="space-y-3">
+                  {upcomingLive.map((row) => (
+                    <UpcomingLiveRow
+                      key={row.id}
+                      row={row}
+                      onJoin={() => onNavigate('/student/live-classes')}
+                    />
+                  ))}
+                </div>
+              </SectionCard>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
-      {/* 4 · Upcoming Live (big card) */}
-      {upcomingLive.length > 0 ? (
-        <SectionCard
-          title="Upcoming Live"
-          actionLabel="See all"
-          onAction={() => onNavigate('/student/live-classes')}
-        >
-          <div className="space-y-3">
-            {upcomingLive.map((row) => (
-              <UpcomingLiveRow
-                key={row.id}
-                row={row}
-                onJoin={() => onNavigate('/student/live-classes')}
-              />
-            ))}
-          </div>
-        </SectionCard>
+      {/* 4 · Achievements & Badges (left) + Today's Priorities (right) — Naji's order */}
+      {badges.length > 0 || priorities.length > 0 ? (
+        <div className="grid gap-6 lg:grid-cols-3">
+          {badges.length > 0 ? (
+            <div className={priorities.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
+              <SectionCard title="Achievements & Badges" subtitle="Milestones you've unlocked">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {badges.map((badge) => (
+                    <BadgeTile key={badge.label} badge={badge} />
+                  ))}
+                </div>
+              </SectionCard>
+            </div>
+          ) : null}
+
+          {priorities.length > 0 ? (
+            <div className={badges.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
+              <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
-      {/* 5 · Today's Priorities */}
-      {priorities.length > 0 ? (
-        <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
-      ) : null}
-
-      {/* 6 · Recent Activity (big card) */}
+      {/* 5 · Recent Activity (big card, full width) */}
       {activity.length > 0 ? (
         <SectionCard
           title="Recent Activity"
@@ -592,7 +588,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         </SectionCard>
       ) : null}
 
-      {/* 7 · Recommended Courses (big card) */}
+      {/* 6 · Recommended Courses (big card, full width) */}
       {recommended.length > 0 ? (
         <SectionCard
           title="Recommended Courses"
@@ -607,17 +603,6 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 course={course}
                 onMore={() => onNavigate('/student/courses')}
               />
-            ))}
-          </div>
-        </SectionCard>
-      ) : null}
-
-      {/* 8 · Achievements & Badges (big card, only when substantiated) */}
-      {badges.length > 0 ? (
-        <SectionCard title="Achievements & Badges" subtitle="Milestones you've unlocked">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {badges.map((badge) => (
-              <BadgeTile key={badge.label} badge={badge} />
             ))}
           </div>
         </SectionCard>
