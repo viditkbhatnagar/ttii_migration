@@ -1,15 +1,20 @@
 import { useMemo } from 'react';
 import {
   BookOpen, Flame, Target, CheckCircle, ClipboardList,
-  Sparkles, Calendar, Trophy, Zap, Radio, ArrowRight, PlayCircle, type LucideIcon,
+  Sparkles, Calendar, Trophy, Zap, Radio, ArrowRight, PlayCircle, Wallet, type LucideIcon,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { Button } from '@/components/ui/button';
 import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
+import { asNumber, asString, formatCurrency } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
-import type { StudentDashboardSnapshot } from '../../student-portal-api.js';
+import type {
+  StudentDashboardSnapshot,
+  StudentInstallmentItem,
+  StudentLearningSnapshot,
+} from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 const EMPTY_DASHBOARD: StudentDashboardSnapshot = {
@@ -41,9 +46,10 @@ const TIPS_OF_THE_DAY = [
 
 // Stat-card palette — distinct tints give the grid rhythm without leaving the
 // brand. Each maps to a tinted icon chip.
-type Tint = 'primary' | 'blue' | 'amber' | 'emerald' | 'rose' | 'orange';
+type Tint = 'primary' | 'accent' | 'blue' | 'amber' | 'emerald' | 'rose' | 'orange';
 const TINTS: Record<Tint, { chip: string; icon: string }> = {
   primary: { chip: 'bg-student-primary/10', icon: 'text-student-primary' },
+  accent: { chip: 'bg-student-accent/10', icon: 'text-student-accent' },
   blue: { chip: 'bg-blue-50', icon: 'text-blue-600' },
   amber: { chip: 'bg-amber-50', icon: 'text-amber-600' },
   emerald: { chip: 'bg-emerald-50', icon: 'text-emerald-600' },
@@ -51,9 +57,78 @@ const TINTS: Record<Tint, { chip: string; icon: string }> = {
   orange: { chip: 'bg-orange-50', icon: 'text-orange-600' },
 };
 
+// A single in-progress course derived from the learning snapshot: real
+// content completion (0 < pct < 100) computed from per-lesson progress.
+interface InProgressCourse {
+  id: string;
+  title: string;
+  instructor: string;
+  progress: number;
+}
+
+const PAID_STATUSES = new Set(['paid', 'success', 'completed']);
+
+// Find the next outstanding installment: unpaid (no paid date / non-paid
+// status), earliest due date first. Returns null when nothing is due.
+function findNextDue(installments: StudentInstallmentItem[]): StudentInstallmentItem | null {
+  const outstanding = installments.filter(
+    (i) => i.amount > 0 && !i.paidDate && !PAID_STATUSES.has(i.status.trim().toLowerCase()),
+  );
+  if (outstanding.length === 0) {
+    return null;
+  }
+  return outstanding
+    .slice()
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0] ?? null;
+}
+
+// Derive in-progress courses from the learning snapshot. Per-course
+// completion mirrors StudentLearningPage: average completed_percentage over
+// the course's lessons (joined to subjects via course_id). Only courses
+// that are started but not finished (0 < pct < 100) are returned.
+function deriveInProgressCourses(learning: StudentLearningSnapshot): InProgressCourse[] {
+  return learning.courses
+    .map((course): InProgressCourse => {
+      const id = asString(course.id);
+      const courseSubjectIds = new Set(
+        learning.subjects.filter((s) => asString(s.course_id) === id).map((s) => asString(s.id)),
+      );
+      const courseLessons = learning.lessons.filter((l) => courseSubjectIds.has(asString(l.subject_id)));
+      const progress = courseLessons.length === 0
+        ? 0
+        : Math.round(
+            courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) / courseLessons.length,
+          );
+      const instructor =
+        asString(course.instructor) ||
+        asString(course.faculty_name) ||
+        asString(course.trainer_name) ||
+        asString(course.subject_title);
+      return { id, title: asString(course.title) || 'Untitled Course', instructor, progress };
+    })
+    .filter((c) => c.progress > 0 && c.progress < 100);
+}
+
+function formatDueDate(value: string): string {
+  if (!value) {
+    return 'No due date';
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+type DashboardBundle = readonly [StudentDashboardSnapshot, StudentLearningSnapshot, StudentInstallmentItem[]];
+
 export default function StudentDashboardPage({ api, session, onNavigate }: StudentPageProps) {
-  const { data, loading, error } = useAdminPageData(
-    () => api.loadDashboard(session.token),
+  const { data, loading, error } = useAdminPageData<DashboardBundle>(
+    () => Promise.all([
+      api.loadDashboard(session.token),
+      api.loadLearning(session.token),
+      api.loadInstallments(session.token),
+    ]),
     [api, session.token],
   );
   const { currentUser } = useStudentLayout();
@@ -61,7 +136,12 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   const todaysTipIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24)) % TIPS_OF_THE_DAY.length;
   const todaysTip = TIPS_OF_THE_DAY[todaysTipIndex] ?? TIPS_OF_THE_DAY[0];
 
-  const dashboardData = useMemo(() => data ?? EMPTY_DASHBOARD, [data]);
+  const dashboardData = useMemo(() => data?.[0] ?? EMPTY_DASHBOARD, [data]);
+  const inProgressCourses = useMemo(
+    () => (data ? deriveInProgressCourses(data[1]) : []),
+    [data],
+  );
+  const nextDue = useMemo(() => (data ? findNextDue(data[2]) : null), [data]);
   const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim();
   const greetingName = firstName || 'there';
 
@@ -98,6 +178,13 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     { icon: Target, label: 'Course Progress', value: `${courseProgress}%`, sublabel: 'Content completed', tint: 'emerald' },
     { icon: Flame, label: 'Current Streak', value: String(dashboardData.streakCurrent), sublabel: `${dashboardData.streakTotal} day best`, tint: 'rose' },
     { icon: CheckCircle, label: 'Completed Tasks', value: String(completedTasks), sublabel: totalTasks > 0 ? `${taskCompletionPct}% completion` : 'No tasks yet', tint: 'orange' },
+    {
+      icon: Wallet,
+      label: 'Payment Due',
+      value: nextDue ? formatCurrency(nextDue.amount) : formatCurrency(0),
+      sublabel: nextDue ? `Due ${formatDueDate(nextDue.dueDate)}` : 'Nothing due',
+      tint: 'accent',
+    },
   ];
 
   const achievements: { label: string; icon: LucideIcon; earned: boolean; tone: string }[] = [
@@ -143,7 +230,10 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         ))}
       </div>
 
-      {/* Continue Learning — prominent course card with progress + resume. */}
+      {/* Continue Learning — in-progress course cards with progress + resume.
+          Driven by real per-course content completion (loadLearning). Falls
+          back to the primary-course card / empty state when nothing is
+          mid-way through. */}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-1.5 text-base font-bold text-student-text">
@@ -158,7 +248,17 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
             View all <ArrowRight aria-hidden="true" className="size-3" />
           </button>
         </div>
-        {dashboardData.primaryCourseTitle ? (
+        {inProgressCourses.length > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {inProgressCourses.map((course) => (
+              <ContinueLearningCard
+                key={course.id}
+                course={course}
+                onResume={() => onNavigate('/student/courses')}
+              />
+            ))}
+          </div>
+        ) : dashboardData.primaryCourseTitle ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white">
@@ -332,6 +432,43 @@ function StatCard({ icon: Icon, label, value, sublabel, tint }: {
       <p className="text-2xl font-bold text-student-text">{value}</p>
       <p className="mt-0.5 text-xs font-semibold text-student-text">{label}</p>
       <p className="mt-0.5 truncate text-[11px] text-student-muted">{sublabel}</p>
+    </div>
+  );
+}
+
+// In-progress course card: title, instructor/subject (when known), a bottom
+// progress bar + percent, and a Resume CTA.
+function ContinueLearningCard({ course, onResume }: { course: InProgressCourse; onResume: () => void }) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white">
+          <BookOpen aria-hidden="true" className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
+          {course.instructor ? (
+            <p className="mt-0.5 truncate text-xs text-student-muted">{course.instructor}</p>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-4 flex-1" />
+      <div className="mb-3 flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="h-full rounded-full bg-student-primary transition-all duration-500"
+            style={{ width: `${Math.min(course.progress, 100)}%` }}
+          />
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-student-text">{course.progress}%</span>
+      </div>
+      <Button
+        onClick={onResume}
+        className="h-10 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
+      >
+        <PlayCircle aria-hidden="true" className="mr-2 size-4" />
+        Resume
+      </Button>
     </div>
   );
 }
