@@ -64,19 +64,19 @@
   --spacing-sidebar-collapsed: 70px;
   --spacing-navbar-height: 64px;
 
-  /* Student Portal Colors — TTII brand (magenta + orange) on an EduPulse-style
-     light shell. Naji 2026-06-04: adopt the EduPulse layout in our brand colours
-     with a light (white) sidebar, replacing the prior blue/orange dark-sidebar theme. */
-  --color-student-primary: #8F2774;
-  --color-student-primary-light: #F7EAF3;
-  --color-student-accent: #F06543;
-  --color-student-accent-light: #F5876B;
-  --color-student-sidebar-from: #FFFFFF;
-  --color-student-sidebar-to: #FFFFFF;
-  --color-student-bg: #F3F6F9;
+  /* Student Portal Colors — EXACT EduPulse (ttii.lovable.app) palette.
+     Naji 2026-06-04 (final): the student side mirrors the lovable demo exactly —
+     EduPulse purple + pink accent + Plus Jakarta Sans on a white sidebar. */
+  --color-student-primary: #8047e1;
+  --color-student-primary-light: #f2efff;
+  --color-student-accent: #ce74e3;
+  --color-student-accent-light: #de9bec;
+  --color-student-sidebar-from: #ffffff;
+  --color-student-sidebar-to: #ffffff;
+  --color-student-bg: #fafafd;
   --color-student-surface: #ffffff;
-  --color-student-text: #121417;
-  --color-student-muted: #657686;
+  --color-student-text: #100f22;
+  --color-student-muted: #616174;
 }
 
 @theme inline {
@@ -199,15 +199,12 @@
 }
 
 /* Student Portal Scoped Styles */
-.student-dashboard {
-  font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif;
-}
-
+.student-dashboard,
 .student-dashboard h1,
 .student-dashboard h2,
 .student-dashboard h3,
 .student-dashboard h4 {
-  font-family: 'Epilogue', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 @keyframes shellEnter {
