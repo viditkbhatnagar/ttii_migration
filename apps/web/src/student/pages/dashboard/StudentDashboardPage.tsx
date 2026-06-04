@@ -635,12 +635,13 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
           actionLabel="Browse all"
           onAction={() => onNavigate('/student/courses')}
         >
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {recommended.slice(0, 6).map((course) => (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {recommended.slice(0, 4).map((course) => (
               <RecommendedCard
                 key={course.id}
                 course={course}
                 onMore={() => onNavigate('/student/courses')}
+                onEnroll={() => onNavigate('/student/courses')}
               />
             ))}
           </div>
@@ -954,36 +955,52 @@ function ActivityItem({ row, isLast }: { row: ActivityRow; isLast: boolean }) {
   );
 }
 
-function RecommendedCard({ course, onMore }: { course: CatalogCourseRow; onMore: () => void }) {
+// Compact recommended-course card (Naji 2026-06-05, audio): smaller card, single
+// row of four, two actions — More Info + Enroll — matching the EduPulse demo.
+function RecommendedCard({
+  course,
+  onMore,
+  onEnroll,
+}: {
+  course: CatalogCourseRow;
+  onMore: () => void;
+  onEnroll: () => void;
+}) {
   const hasOffer = course.offerPrice > 0 && course.offerPrice < course.price;
   const displayPrice = hasOffer ? course.offerPrice : course.price;
   const isFree = course.price <= 0;
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="relative flex h-24 items-center bg-gradient-to-br from-student-primary to-student-accent px-5">
-        <BookOpen aria-hidden="true" className="size-8 text-white/90" />
+      <div className="relative flex h-16 items-center bg-gradient-to-br from-student-primary to-student-accent px-4">
+        <BookOpen aria-hidden="true" className="size-6 text-white/90" />
         {isFree ? (
-          <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+          <span className="absolute right-2.5 top-2.5 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
             Free
           </span>
         ) : displayPrice > 0 ? (
-          <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+          <span className="absolute right-2.5 top-2.5 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
             {formatCurrency(displayPrice)}
           </span>
         ) : null}
       </div>
-      <div className="flex flex-1 flex-col p-5">
+      <div className="flex flex-1 flex-col p-4">
         <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
         <p className="mt-0.5 text-xs text-student-muted">
           {course.subjectCount > 0 ? `${course.subjectCount} Subjects` : 'Curriculum inside'}
         </p>
-        <div className="mt-auto pt-4">
+        <div className="mt-auto flex gap-2 pt-4">
           <Button
             onClick={onMore}
             variant="outline"
-            className="h-10 w-full rounded-xl border-student-primary/30 text-sm font-semibold text-student-primary hover:bg-student-primary/5"
+            className="h-9 flex-1 rounded-xl border-student-primary/30 px-2 text-xs font-semibold text-student-primary hover:bg-student-primary/5"
           >
             More Info
+          </Button>
+          <Button
+            onClick={onEnroll}
+            className="h-9 flex-1 rounded-xl bg-student-primary px-2 text-xs font-semibold text-white hover:bg-student-primary/90"
+          >
+            Enroll
           </Button>
         </div>
       </div>
