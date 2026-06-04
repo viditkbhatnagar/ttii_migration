@@ -89,6 +89,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(registerAssessmentRoutes, {
     prefix: '/api',
     authService,
+    storage: integrations.storage,
   });
 
   app.register(registerCommerceRoutes, {

@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
-import { requireLegacyAuth } from '../auth/middleware.js';
+import { extractAuthToken, requireLegacyAuth } from '../auth/middleware.js';
+import type { StorageProvider } from '../integrations/contracts.js';
 import {
   AssessmentService,
   type AssignmentFilterInput,
@@ -12,6 +13,7 @@ import {
 interface RegisterAssessmentRoutesOptions {
   authService?: AuthService;
   assessmentService?: AssessmentService;
+  storage?: StorageProvider;
   [key: string]: unknown;
 }
 
@@ -319,14 +321,80 @@ export function registerAssessmentRoutes(
     }
   });
 
-  app.post('/assignment/submit_assignment', { preHandler: [requireAuth] }, async (request, reply) => {
+  // Assignment submission from the mobile app: a multipart/form-data POST with
+  // the PDF as `answer_file[]` and `auth_token` + `assignment_id` as form
+  // fields. The token rides in the BODY (unlike our other endpoints), so the
+  // requireAuth preHandler can't see it — so this route authenticates manually
+  // after parsing, uploads the file to storage, then records the submission
+  // with its URL. Still accepts a plain JSON body (answer_file = URLs, token in
+  // query) for any non-mobile caller.
+  app.post('/assignment/submit_assignment', async (request, reply) => {
     try {
-      const payload = requestPayload(request);
-      const submission = await assessmentService.submitAssignment(requestUserId(request), {
-        assignmentId: toStringId(payload.assignment_id),
-        answerFiles: payload.answer_file,
-      });
+      // Token from query/header first (cheap), else from the multipart body.
+      let token = extractAuthToken(request) ?? '';
+      let assignmentId = '';
+      let jsonAnswerFiles: unknown;
+      const pendingFiles: { filename: string; mimetype: string; body: Buffer }[] = [];
 
+      if (request.isMultipart()) {
+        for await (const part of request.parts()) {
+          if (part.type === 'file') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of part.file) chunks.push(Buffer.from(chunk as Uint8Array));
+            const body = Buffer.concat(chunks);
+            if (body.length > 0) {
+              pendingFiles.push({
+                filename: part.filename || 'submission.pdf',
+                mimetype: part.mimetype || 'application/pdf',
+                body,
+              });
+            }
+          } else if (part.fieldname === 'auth_token') {
+            if (!token && typeof part.value === 'string') token = part.value.trim();
+          } else if (part.fieldname === 'assignment_id') {
+            if (typeof part.value === 'string') assignmentId = part.value.trim();
+          }
+        }
+      } else {
+        const payload = requestPayload(request);
+        assignmentId = toStringId(payload.assignment_id);
+        jsonAnswerFiles = payload.answer_file;
+      }
+
+      const authContext = token ? await authService.authenticateAuthToken(token) : null;
+      if (!authContext) {
+        reply.code(401).send({ status: false, message: 'User not authenticated!', data: [] });
+        return;
+      }
+      const userId = String(authContext.user.id);
+
+      // Upload any submitted PDFs to storage; the service records their URLs.
+      let answerFiles: unknown = jsonAnswerFiles;
+      if (pendingFiles.length > 0) {
+        const storage = options.storage;
+        if (!storage) {
+          reply.code(500).send({ status: 0, message: 'Storage not configured.', data: [] });
+          return;
+        }
+        const urls: string[] = [];
+        for (const file of pendingFiles) {
+          const ext = (file.filename.split('.').pop() ?? 'pdf').toLowerCase();
+          const key = `public/assignment-submissions/${userId}-${assignmentId || 'a'}-${Date.now()}-${urls.length}.${ext}`;
+          const result = await storage.uploadObject({
+            key,
+            body: file.body,
+            contentType: file.mimetype,
+            publicRead: true,
+          });
+          urls.push(result.location);
+        }
+        answerFiles = urls;
+      }
+
+      const submission = await assessmentService.submitAssignment(userId, {
+        assignmentId,
+        answerFiles,
+      });
       reply.code(200).send(submission);
     } catch (error: unknown) {
       sendAssessmentError(reply, error);
