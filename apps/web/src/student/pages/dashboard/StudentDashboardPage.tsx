@@ -450,28 +450,28 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       label: 'Upcoming Classes',
       value: String(upcomingLive.length),
       delta: upcomingClassDelta,
-      tint: 'pink',
+      tint: 'blue',
     },
     {
       icon: ClipboardList,
       label: 'Pending Assignments',
       value: String(dashboard.currentAssignments),
       delta: dueThisWeek > 0 ? `${dueThisWeek} due this week` : ' ',
-      tint: 'blue',
+      tint: 'primary',
     },
     {
       icon: Wallet,
       label: 'Payment Due',
       value: nextDue ? formatCurrency(nextDue.amount) : formatCurrency(0),
       delta: nextDue ? `Due ${formatDate(nextDue.dueDate)}` : 'Nothing due',
-      tint: 'amber',
+      tint: 'emerald',
     },
     {
       icon: Award,
       label: 'Certificates',
       value: String(completedCourses),
       delta: completedCourses > 0 ? 'ready to claim' : ' ',
-      tint: 'emerald',
+      tint: 'primary',
     },
   ];
 
@@ -496,52 +496,55 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         </Button>
       </section>
 
-      {/* 2 · Stat cards */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* 2 · Stat cards — 5 in a single row (EduPulse layout) */}
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         {stats.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
       </section>
 
-      {/* 3 · Continue Learning */}
-      {inProgressCourses.length > 0 ? (
-        <section>
-          <SectionHeader
-            title="Continue Learning"
-            subtitle="Pick up right where you left off"
-            actionLabel="View all"
-            onAction={() => onNavigate('/student/courses')}
-          />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {inProgressCourses.map((course) => (
-              <ContinueLearningCard
-                key={course.id}
-                course={course}
-                onResume={() => onNavigate('/student/courses')}
+      {/* 3 · Continue Learning + Upcoming Live — side-by-side (EduPulse layout) */}
+      {inProgressCourses.length > 0 || upcomingLive.length > 0 ? (
+        <section className="grid gap-6 lg:grid-cols-3">
+          {inProgressCourses.length > 0 ? (
+            <div className={upcomingLive.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
+              <SectionHeader
+                title="Continue Learning"
+                subtitle="Pick up right where you left off"
+                actionLabel="View all"
+                onAction={() => onNavigate('/student/courses')}
               />
-            ))}
-          </div>
-        </section>
-      ) : null}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {inProgressCourses.map((course) => (
+                  <ContinueLearningCard
+                    key={course.id}
+                    course={course}
+                    onResume={() => onNavigate('/student/courses')}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
 
-      {/* 4 · Upcoming Live */}
-      {upcomingLive.length > 0 ? (
-        <section>
-          <SectionHeader
-            title="Upcoming Live"
-            actionLabel="See all"
-            onAction={() => onNavigate('/student/live-classes')}
-          />
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {upcomingLive.map((row, idx) => (
-              <UpcomingLiveRow
-                key={row.id}
-                row={row}
-                isLast={idx === upcomingLive.length - 1}
-                onJoin={() => onNavigate('/student/live-classes')}
+          {upcomingLive.length > 0 ? (
+            <div className={inProgressCourses.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
+              <SectionHeader
+                title="Upcoming Live"
+                actionLabel="See all"
+                onAction={() => onNavigate('/student/live-classes')}
               />
-            ))}
-          </div>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                {upcomingLive.map((row, idx) => (
+                  <UpcomingLiveRow
+                    key={row.id}
+                    row={row}
+                    isLast={idx === upcomingLive.length - 1}
+                    onJoin={() => onNavigate('/student/live-classes')}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -631,9 +634,9 @@ function StatCard({ icon: Icon, label, value, delta, tint }: StatCardProps) {
       <div className={`flex size-10 items-center justify-center rounded-xl ${TINTS[tint]}`}>
         <Icon aria-hidden="true" className="size-5" />
       </div>
-      <p className="mt-4 text-2xl font-bold text-student-text">{value}</p>
-      <p className="mt-0.5 text-sm font-semibold text-student-text">{label}</p>
-      <p className="mt-0.5 truncate text-xs text-student-muted">{delta}</p>
+      <p className="mt-4 text-sm font-medium text-student-muted">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-student-text">{value}</p>
+      <p className="mt-1 truncate text-xs text-student-muted">{delta}</p>
     </div>
   );
 }
