@@ -126,6 +126,18 @@ interface SelectedContent {
   lessonFileId?: string;
 }
 
+// EduPulse list-view course status. Drives the filter pills + card badge.
+type CourseStatus = 'in-progress' | 'completed' | 'not-started';
+
+interface EnrolledCourseMeta {
+  id: string;
+  course: Record<string, unknown>;
+  completion: number;
+  modulesDone: number;
+  modulesTotal: number;
+  status: CourseStatus;
+}
+
 function resolveSelectedContent(file: Record<string, unknown>): SelectedContent | null {
   const id = asString(file.id);
   const title = asString(file.title) || `File ${id}`;
@@ -186,6 +198,8 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const [leftTab, setLeftTab] = useState<'timeline' | 'live'>('timeline');
   const [liveClasses, setLiveClasses] = useState<Record<string, unknown>[]>([]);
   const [liveClassesLoading, setLiveClassesLoading] = useState(false);
+  // List view: EduPulse-style status filter for the enrolled-course grid.
+  const [courseFilter, setCourseFilter] = useState<'all' | 'in-progress' | 'completed' | 'not-started'>('all');
 
   useEffect(() => {
     if (activeCourseId === null || leftTab !== 'live') return;
@@ -222,11 +236,52 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     [catalogCourses, enrolledIdSet],
   );
 
-  const overallCompletion = useMemo(() => {
-    if (lessons.length === 0) return 0;
-    const total = lessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0);
-    return Math.round(total / lessons.length);
-  }, [lessons]);
+  // Per-course metadata for the list-view enrolled grid (EduPulse Courses
+  // layout). Same completion math the enrolled card map already uses:
+  // average the lessons' completed_percentage across the course's subjects.
+  const enrolledCoursesMeta = useMemo<EnrolledCourseMeta[]>(() => {
+    return enrolledCourses.map((course) => {
+      const id = asString(course.id);
+      const courseSubjects = subjects.filter((s) => asString(s.course_id) === id);
+      const courseLessons = lessons.filter((l) => {
+        const sId = asString(l.subject_id);
+        return courseSubjects.some((s) => asString(s.id) === sId);
+      });
+      const completion = courseLessons.length === 0
+        ? 0
+        : Math.round(
+            courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
+              courseLessons.length,
+          );
+      const modulesDone = courseSubjects.filter((s) => {
+        const sid = asString(s.id);
+        const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
+        if (sl.length === 0) return false;
+        return sl.every((l) => asNumber(l.completed_percentage) >= 100);
+      }).length;
+      const status: CourseStatus =
+        completion >= 100 ? 'completed' : completion <= 0 ? 'not-started' : 'in-progress';
+      return { id, course, completion, modulesDone, modulesTotal: courseSubjects.length, status };
+    });
+  }, [enrolledCourses, subjects, lessons]);
+
+  const statusCounts = useMemo(() => {
+    return enrolledCoursesMeta.reduce(
+      (acc, meta) => {
+        acc[meta.status] += 1;
+        return acc;
+      },
+      { 'in-progress': 0, completed: 0, 'not-started': 0 } as Record<CourseStatus, number>,
+    );
+  }, [enrolledCoursesMeta]);
+
+  const filteredEnrolledMeta = useMemo(
+    () =>
+      courseFilter === 'all'
+        ? enrolledCoursesMeta
+        : enrolledCoursesMeta.filter((meta) => meta.status === courseFilter),
+    [enrolledCoursesMeta, courseFilter],
+  );
 
   const handleSelectFile = (file: Record<string, unknown>) => {
     const resolved = resolveSelectedContent(file);
@@ -629,7 +684,8 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         <div>
           <h1 className="text-2xl font-bold text-student-text">My Courses</h1>
           <p className="mt-1 text-sm text-student-muted">
-            {enrolledCourses.length} enrolled &middot; {otherCourses.length} more available
+            {enrolledCourses.length} enrolled &middot; {statusCounts['in-progress']} in progress &middot;{' '}
+            {statusCounts.completed} completed
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -643,83 +699,66 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         </div>
       </div>
 
-      {/* Course Summary Card */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-student-text">Course Summary</h2>
-        <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
-          {[
-            { label: 'Courses', value: enrolledCourses.length, icon: BookOpen, tint: 'bg-blue-50 text-blue-600' },
-            { label: 'Subjects', value: subjects.length, icon: FileText, tint: 'bg-violet-50 text-violet-600' },
-            { label: 'Lessons', value: lessons.length, icon: BookOpen, tint: 'bg-emerald-50 text-emerald-600' },
-            { label: 'Overall', value: `${overallCompletion}%`, icon: BarChart3, tint: 'bg-student-primary/10 text-student-primary' },
-          ].map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <div key={stat.label} className="flex items-center justify-between rounded-lg border border-slate-100 p-3">
-                <div>
-                  <p className="text-2xl font-semibold text-student-text">{stat.value}</p>
-                  <p className="mt-0.5 text-xs font-medium text-student-muted">{stat.label}</p>
-                </div>
-                <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${stat.tint}`}>
-                  <Icon aria-hidden="true" className="size-5" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {enrolledCourses.length > 0 ? (
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-student-primary transition-all duration-500"
-              style={{ width: `${Math.min(overallCompletion, 100)}%` }}
-            />
-          </div>
-        ) : null}
-      </div>
-
-      {/* Enrolled — Naji 2026-05-07 reskin: rich card per course matching
-          the dashboard reference (numbered tile + 4 metric strips + bold
-          progress bar + dark Continue Learning CTA). */}
+      {/* Enrolled — EduPulse "Courses" layout: status filter pills above a
+          responsive grid of rich course cards. Same per-course math as
+          before, lifted into the enrolledCoursesMeta useMemo. */}
       {enrolledCourses.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-2xl font-bold text-student-text">My Courses</h2>
-          <p className="-mt-2 text-sm text-student-muted">
-            You are enrolled in <span className="font-semibold text-student-text">{enrolledCourses.length}</span>{' '}
-            course{enrolledCourses.length === 1 ? '' : 's'}
-          </p>
-          <div className="space-y-4">
-            {enrolledCourses.map((course, idx) => {
-              const id = asString(course.id);
-              const courseSubjects = subjects.filter((s) => asString(s.course_id) === id);
-              const courseLessons = lessons.filter((l) => {
-                const sId = asString(l.subject_id);
-                return courseSubjects.some((s) => asString(s.id) === sId);
-              });
-              const completion = courseLessons.length === 0
-                ? 0
-                : Math.round(
-                    courseLessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) /
-                      courseLessons.length,
-                  );
-              const completedSubjects = courseSubjects.filter((s) => {
-                const sid = asString(s.id);
-                const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
-                if (sl.length === 0) return false;
-                return sl.every((l) => asNumber(l.completed_percentage) >= 100);
-              }).length;
+        <div className="space-y-4">
+          {/* Status filter pills */}
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: 'all', label: 'All', count: enrolledCoursesMeta.length },
+              { key: 'in-progress', label: 'In progress', count: statusCounts['in-progress'] },
+              { key: 'completed', label: 'Completed', count: statusCounts.completed },
+              { key: 'not-started', label: 'Not started', count: statusCounts['not-started'] },
+            ] as const).map((pill) => {
+              const active = courseFilter === pill.key;
               return (
-                <EnrolledCourseRichCard
-                  key={id}
-                  index={idx + 1}
-                  course={course}
-                  modulesDone={completedSubjects}
-                  modulesTotal={courseSubjects.length}
-                  completion={completion}
-                  onContinue={() => handleOpenCourse(id)}
-                />
+                <button
+                  key={pill.key}
+                  type="button"
+                  onClick={() => setCourseFilter(pill.key)}
+                  aria-pressed={active}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? 'bg-student-primary text-white'
+                      : 'border border-slate-200 bg-white text-student-muted hover:bg-slate-50'
+                  }`}
+                >
+                  {pill.label}
+                  <span
+                    className={`rounded-full px-1.5 text-[11px] font-semibold ${
+                      active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {pill.count}
+                  </span>
+                </button>
               );
             })}
           </div>
+
+          {/* Course grid */}
+          {filteredEnrolledMeta.length > 0 ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {filteredEnrolledMeta.map((meta, idx) => (
+                <EnrolledCourseRichCard
+                  key={meta.id}
+                  index={idx + 1}
+                  course={meta.course}
+                  modulesDone={meta.modulesDone}
+                  modulesTotal={meta.modulesTotal}
+                  completion={meta.completion}
+                  status={meta.status}
+                  onContinue={() => handleOpenCourse(meta.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div role="status" className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+              <p className="text-sm text-student-muted">No courses in this filter.</p>
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -778,6 +817,7 @@ function EnrolledCourseRichCard({
   modulesDone,
   modulesTotal,
   completion,
+  status,
   onContinue,
 }: {
   index: number;
@@ -785,6 +825,7 @@ function EnrolledCourseRichCard({
   modulesDone: number;
   modulesTotal: number;
   completion: number;
+  status: CourseStatus;
   onContinue: () => void;
 }) {
   const title = asString(course.title) || 'Untitled Course';
@@ -804,6 +845,12 @@ function EnrolledCourseRichCard({
     : null;
   const validUntilLabel = validUntilObj ? formatNiceDate(validUntilObj.toISOString()) : (durationStr || '—');
   const timeLeftLabel = validUntilObj ? formatTimeLeft(validUntilObj) : (durationStr || '—');
+  const statusBadge: { label: string; className: string } =
+    status === 'completed'
+      ? { label: 'Completed', className: 'bg-emerald-50 text-emerald-700' }
+      : status === 'not-started'
+        ? { label: 'Not started', className: 'bg-slate-100 text-slate-500' }
+        : { label: 'In progress', className: 'bg-student-primary/10 text-student-primary' };
 
   return (
     <div className="overflow-hidden rounded-2xl border-2 border-student-primary/15 bg-white shadow-sm">
@@ -814,9 +861,12 @@ function EnrolledCourseRichCard({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-lg font-bold text-student-text">{title}</h3>
-          <div className="mt-1 flex items-center gap-2 text-xs">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
             <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
               Standalone
+            </span>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusBadge.className}`}>
+              {statusBadge.label}
             </span>
             <span className="text-student-muted">{modulesDone}/{modulesTotal} modules</span>
           </div>
