@@ -13,6 +13,13 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'] as const;
 
+type SettingsTab = 'profile' | 'security';
+
+const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'security', label: 'Security' },
+];
+
 function computeProfileCompletion(profile: {
   name: string;
   email: string;
@@ -48,6 +55,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   );
   const { refreshCurrentUser } = useStudentLayout();
 
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -176,7 +184,33 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-student-text">Settings</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-student-text">Settings</h1>
+        <p className="mt-1 text-sm text-student-muted">Manage your profile and preferences</p>
+      </div>
+
+      <div role="tablist" aria-label="Settings sections" className="flex gap-1 border-b border-slate-200">
+        {SETTINGS_TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative px-4 py-2 text-sm font-medium transition-colors max-sm:min-h-11 ${
+                isActive ? 'text-student-primary' : 'text-student-muted hover:text-student-text'
+              }`}
+            >
+              {tab.label}
+              {isActive ? (
+                <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-student-primary" />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
 
       {message ? (
         <div
@@ -188,6 +222,8 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
         </div>
       ) : null}
 
+      {activeTab === 'profile' ? (
+        <div className="space-y-6">
       {/* Profile Completion */}
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between gap-4">
@@ -249,7 +285,6 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Personal Information */}
         <Card className="rounded-xl border-slate-200 bg-white shadow-none">
           <CardHeader>
@@ -364,9 +399,11 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
             )}
           </CardContent>
         </Card>
-
+        </div>
+      ) : (
+        <div className="space-y-6">
         {/* Change Password */}
-        <Card className="rounded-xl border-slate-200 bg-white shadow-none h-fit">
+        <Card className="rounded-xl border-slate-200 bg-white shadow-none h-fit max-w-2xl">
           <CardHeader>
             <CardTitle className="text-base">Change Password</CardTitle>
             <CardDescription>Update your account password</CardDescription>
@@ -443,7 +480,8 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
             </form>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
