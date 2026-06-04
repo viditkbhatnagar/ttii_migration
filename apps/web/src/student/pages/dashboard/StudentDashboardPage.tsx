@@ -1,94 +1,180 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  BookOpen, Flame, Target, CheckCircle, ClipboardList,
-  Sparkles, Calendar, Trophy, Zap, Radio, ArrowRight, PlayCircle, Wallet, type LucideIcon,
+  BookOpen, Calendar, ClipboardList, Wallet, Award, PlayCircle, ArrowRight,
+  FileText, Video, Bell, CheckCircle, Flame, Trophy, Sparkles, Clock,
+  type LucideIcon,
 } from 'lucide-react';
-import type { EChartsOption } from 'echarts';
-import { DashboardLoader } from '@/components/ui/dashboard-loader';
+import { PageLoader } from '@/components/ui/page-loader';
 import { Button } from '@/components/ui/button';
-import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asNumber, asString, formatCurrency } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asNumber, asString, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type {
   StudentDashboardSnapshot,
-  StudentInstallmentItem,
   StudentLearningSnapshot,
+  StudentAssessmentSnapshot,
+  StudentInstallmentItem,
+  StudentNotificationsSnapshot,
 } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
-const EMPTY_DASHBOARD: StudentDashboardSnapshot = {
-  coursesCount: 0,
-  currentAssignments: 0,
-  upcomingAssignments: 0,
-  completedAssignments: 0,
-  upcomingExams: 0,
-  expiredExams: 0,
-  notificationsCount: 0,
-  scheduledTasks: 0,
-  overdueTasks: 0,
-  streakTotal: 0,
-  streakCurrent: 0,
-  primaryCourseTitle: '',
-  courseProgress: 0,
-  recentPaymentAmount: 0,
-  recentPaymentDate: '',
-};
+/* ─── Constants ──────────────────────────────────────────────── */
 
-const TIPS_OF_THE_DAY = [
-  'Believe you can and you\'re halfway there.',
-  'Small daily improvements lead to staggering long-term results.',
-  'The expert in anything was once a beginner.',
-  'Learn as if you will live forever.',
-  'Success is the sum of small efforts repeated day in and day out.',
-  'Your future is created by what you do today, not tomorrow.',
-];
+const PAID_STATUSES = new Set(['paid', 'success', 'completed']);
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const RECENT_ACTIVITY_LIMIT = 5;
 
-// Stat-card palette — distinct tints give the grid rhythm without leaving the
-// brand. Each maps to a tinted icon chip.
-type Tint = 'primary' | 'accent' | 'blue' | 'amber' | 'emerald' | 'rose' | 'orange';
-const TINTS: Record<Tint, { chip: string; icon: string }> = {
-  primary: { chip: 'bg-student-primary/10', icon: 'text-student-primary' },
-  accent: { chip: 'bg-student-accent/10', icon: 'text-student-accent' },
-  blue: { chip: 'bg-blue-50', icon: 'text-blue-600' },
-  amber: { chip: 'bg-amber-50', icon: 'text-amber-600' },
-  emerald: { chip: 'bg-emerald-50', icon: 'text-emerald-600' },
-  rose: { chip: 'bg-rose-50', icon: 'text-rose-600' },
-  orange: { chip: 'bg-orange-50', icon: 'text-orange-600' },
-};
+/* ─── Derived view models ────────────────────────────────────── */
 
-// A single in-progress course derived from the learning snapshot: real
-// content completion (0 < pct < 100) computed from per-lesson progress.
-interface InProgressCourse {
+// A live-class row (from loadAllLiveClasses) that is upcoming or in progress.
+interface LiveRow {
+  id: string;
+  title: string;
+  subject: string;
+  instructor: string;
+  date: string;
+  fromTime: string;
+  joinUrl: string;
+  isToday: boolean;
+}
+
+// An in-progress course: real content completion (0 < pct < 100) computed from
+// per-lesson progress, mirroring StudentLearningPage's enrolledCoursesMeta.
+interface CourseProgressRow {
   id: string;
   title: string;
   instructor: string;
   progress: number;
 }
 
-const PAID_STATUSES = new Set(['paid', 'success', 'completed']);
-
-// Find the next outstanding installment: unpaid (no paid date / non-paid
-// status), earliest due date first. Returns null when nothing is due.
-function findNextDue(installments: StudentInstallmentItem[]): StudentInstallmentItem | null {
-  const outstanding = installments.filter(
-    (i) => i.amount > 0 && !i.paidDate && !PAID_STATUSES.has(i.status.trim().toLowerCase()),
-  );
-  if (outstanding.length === 0) {
-    return null;
-  }
-  return outstanding
-    .slice()
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0] ?? null;
+// A catalog course the student is NOT enrolled in (Recommended Courses).
+interface CatalogCourseRow {
+  id: string;
+  title: string;
+  subjectCount: number;
+  price: number;
+  offerPrice: number;
 }
 
-// Derive in-progress courses from the learning snapshot. Per-course
-// completion mirrors StudentLearningPage: average completed_percentage over
-// the course's lessons (joined to subjects via course_id). Only courses
-// that are started but not finished (0 < pct < 100) are returned.
-function deriveInProgressCourses(learning: StudentLearningSnapshot): InProgressCourse[] {
+type PriorityKind = 'assignment' | 'quiz' | 'payment';
+type PriorityStatus = 'due-today' | 'overdue' | 'upcoming' | 'completed';
+
+interface PriorityRow {
+  id: string;
+  kind: PriorityKind;
+  title: string;
+  context: string;
+  status: PriorityStatus;
+  action: { label: string; href: string };
+}
+
+interface ActivityRow {
+  id: string;
+  title: string;
+  description: string;
+  time: string;
+  isRead: boolean;
+}
+
+interface BadgeRow {
+  label: string;
+  caption: string;
+  icon: LucideIcon;
+  tone: string;
+}
+
+type DashboardBundle = readonly [
+  StudentDashboardSnapshot,
+  StudentLearningSnapshot,
+  StudentAssessmentSnapshot,
+  Record<string, unknown>[],
+  StudentInstallmentItem[],
+  StudentNotificationsSnapshot,
+];
+
+/* ─── Date helpers (display only; storage stays ISO) ─────────── */
+
+function startOfToday(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+// Whole-day delta from today: 0 = today, <0 = past, >0 = future. null when the
+// value isn't a parseable date.
+function dayDelta(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  d.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - startOfToday()) / MS_PER_DAY);
+}
+
+// "HH:MM:SS" / "HH:MM" → "9:30 AM". Falls back to the raw value.
+function shortTime(value: string): string {
+  if (!value) {
+    return '';
+  }
+  const t = value.length > 8 ? value.slice(-8) : value;
+  const d = new Date(`1970-01-01T${t}`);
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function weekdayChip(value: string): { weekday: string; day: string } {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return { weekday: '', day: '' };
+  }
+  return {
+    weekday: d.toLocaleDateString('en-US', { weekday: 'short' }),
+    day: String(d.getDate()).padStart(2, '0'),
+  };
+}
+
+// "2h ago" / "3d ago" / "just now" from an ISO-ish timestamp. Falls back to the
+// formatted date when too old or unparseable.
+function relativeTime(value: string): string {
+  if (!value) {
+    return '';
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+  const diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) {
+    return formatDate(value);
+  }
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) {
+    return 'just now';
+  }
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+  return formatDate(value);
+}
+
+/* ─── Derivations ────────────────────────────────────────────── */
+
+function deriveInProgressCourses(learning: StudentLearningSnapshot): CourseProgressRow[] {
   return learning.courses
-    .map((course): InProgressCourse => {
+    .map((course): CourseProgressRow => {
       const id = asString(course.id);
       const courseSubjectIds = new Set(
         learning.subjects.filter((s) => asString(s.course_id) === id).map((s) => asString(s.id)),
@@ -109,146 +195,323 @@ function deriveInProgressCourses(learning: StudentLearningSnapshot): InProgressC
     .filter((c) => c.progress > 0 && c.progress < 100);
 }
 
-function formatDueDate(value: string): string {
-  if (!value) {
-    return 'No due date';
-  }
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) {
-    return value;
-  }
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+// Count courses that are fully complete (every lesson at 100%) — a real
+// "ready to claim" certificate signal derived from per-lesson progress.
+function countCompletedCourses(learning: StudentLearningSnapshot): number {
+  return learning.courses.filter((course) => {
+    const id = asString(course.id);
+    const courseSubjectIds = new Set(
+      learning.subjects.filter((s) => asString(s.course_id) === id).map((s) => asString(s.id)),
+    );
+    const courseLessons = learning.lessons.filter((l) => courseSubjectIds.has(asString(l.subject_id)));
+    if (courseLessons.length === 0) {
+      return false;
+    }
+    return courseLessons.every((l) => asNumber(l.completed_percentage) >= 100);
+  }).length;
 }
 
-type DashboardBundle = readonly [StudentDashboardSnapshot, StudentLearningSnapshot, StudentInstallmentItem[]];
+function deriveRecommendedCourses(learning: StudentLearningSnapshot): CatalogCourseRow[] {
+  const enrolledIds = new Set(learning.courses.map((c) => asString(c.id)));
+  return learning.catalogCourses
+    .filter((c) => !enrolledIds.has(asString(c.id)))
+    .map((course): CatalogCourseRow => ({
+      id: asString(course.id),
+      title: asString(course.title) || 'Untitled Course',
+      subjectCount: asNumber(course.subjects_count) || asNumber(course.subject_count) || asNumber(course.total_subjects),
+      price: asNumber(course.price),
+      offerPrice: asNumber(course.offer_price),
+    }));
+}
+
+// Upcoming / in-progress live classes, soonest first. Mirrors
+// StudentLiveClassPage's status mapping ('upcoming' | 'today').
+function deriveUpcomingLive(rows: Record<string, unknown>[]): LiveRow[] {
+  return rows
+    .filter((r) => {
+      const status = asString(r.status);
+      return status === 'upcoming' || status === 'today';
+    })
+    .map((r): LiveRow => ({
+      id: asString(r.id),
+      title: asString(r.title) || 'Live Class',
+      subject: asString(r.subject_title),
+      instructor: asString(r.instructor_name),
+      date: asString(r.date),
+      fromTime: asString(r.from_time),
+      joinUrl: asString(r.join_url),
+      isToday: asString(r.status) === 'today',
+    }))
+    .sort((a, b) => {
+      const da = new Date(`${a.date}T${a.fromTime || '00:00:00'}`).getTime();
+      const db = new Date(`${b.date}T${b.fromTime || '00:00:00'}`).getTime();
+      return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db);
+    });
+}
+
+function findNextDue(installments: StudentInstallmentItem[]): StudentInstallmentItem | null {
+  const outstanding = installments.filter(
+    (i) => i.amount > 0 && !i.paidDate && !PAID_STATUSES.has(i.status.trim().toLowerCase()),
+  );
+  if (outstanding.length === 0) {
+    return null;
+  }
+  return outstanding
+    .slice()
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0] ?? null;
+}
+
+function assignmentDueDate(row: Record<string, unknown>): string {
+  return asString(row.date) || asString(row.due_date) || asString(row.end_date);
+}
+
+function statusFromDelta(delta: number | null): PriorityStatus {
+  if (delta === null) {
+    return 'upcoming';
+  }
+  if (delta === 0) {
+    return 'due-today';
+  }
+  if (delta < 0) {
+    return 'overdue';
+  }
+  return 'upcoming';
+}
+
+// Today's priorities: current/upcoming assignments + available/upcoming exams +
+// the next unpaid installment. Built only from real assessment/installment data.
+function derivePriorities(
+  assessments: StudentAssessmentSnapshot,
+  nextDue: StudentInstallmentItem | null,
+): PriorityRow[] {
+  const rows: PriorityRow[] = [];
+
+  for (const a of [...assessments.assignments.current, ...assessments.assignments.upcoming]) {
+    const id = asString(a.id);
+    const submitted = asNumber(a.is_submitted) > 0;
+    const due = assignmentDueDate(a);
+    rows.push({
+      id: `assignment-${id}`,
+      kind: 'assignment',
+      title: asString(a.title) || `Assignment ${id}`,
+      context: asString(a.subject_title) || asString(a.course_title) || 'Assignment',
+      status: submitted ? 'completed' : statusFromDelta(dayDelta(due)),
+      action: { label: submitted ? 'Review' : 'Submit', href: '/student/assignments' },
+    });
+  }
+
+  for (const e of [...assessments.exams.available, ...assessments.exams.upcoming]) {
+    const id = asString(e.id);
+    const state = asString(e.state);
+    const due = asString(e.date) || asString(e.start_date);
+    rows.push({
+      id: `quiz-${id}`,
+      kind: 'quiz',
+      title: asString(e.title) || `Exam ${id}`,
+      context: asString(e.subject_title) || 'Exam',
+      status: state === 'available' ? 'due-today' : statusFromDelta(dayDelta(due)),
+      action: { label: state === 'available' ? 'Attempt' : 'View', href: '/student/exams' },
+    });
+  }
+
+  if (nextDue) {
+    rows.push({
+      id: `payment-${nextDue.id}`,
+      kind: 'payment',
+      title: nextDue.installmentDetails || `Installment ${nextDue.installmentNo || ''}`.trim(),
+      context: formatCurrency(nextDue.amount),
+      status: statusFromDelta(dayDelta(nextDue.dueDate)),
+      action: { label: 'Pay Now', href: '/student/payments' },
+    });
+  }
+
+  return rows;
+}
+
+function deriveActivity(notifications: StudentNotificationsSnapshot): ActivityRow[] {
+  return notifications.notifications.slice(0, RECENT_ACTIVITY_LIMIT).map((n): ActivityRow => ({
+    id: asString(n.id),
+    title: asString(n.title) || 'Notification',
+    description: asString(n.description) || asString(n.message),
+    time: relativeTime(asString(n.created_at)),
+    isRead: asNumber(n.is_read) === 1,
+  }));
+}
+
+// Badges are populated ONLY from substantiated signals (learning streak +
+// fully-completed courses). Nothing is fabricated; the grid is omitted by the
+// caller when no badge is earned.
+function deriveBadges(streakCurrent: number, streakBest: number, completedCourses: number): BadgeRow[] {
+  const badges: BadgeRow[] = [];
+  if (streakCurrent >= 3) {
+    badges.push({
+      label: 'On a Streak',
+      caption: `${streakCurrent}-day streak`,
+      icon: Flame,
+      tone: 'from-amber-400 to-orange-500',
+    });
+  }
+  if (streakBest >= 7) {
+    badges.push({
+      label: '7-Day Warrior',
+      caption: `${streakBest}-day best`,
+      icon: Trophy,
+      tone: 'from-fuchsia-400 to-purple-500',
+    });
+  }
+  if (completedCourses >= 1) {
+    badges.push({
+      label: 'Course Finisher',
+      caption: `${completedCourses} completed`,
+      icon: CheckCircle,
+      tone: 'from-emerald-400 to-green-500',
+    });
+  }
+  return badges;
+}
+
+/* ─── Page ───────────────────────────────────────────────────── */
 
 export default function StudentDashboardPage({ api, session, onNavigate }: StudentPageProps) {
-  const { data, loading, error } = useAdminPageData<DashboardBundle>(
+  const { data, loading, error, reload } = useAdminPageData<DashboardBundle>(
     () => Promise.all([
       api.loadDashboard(session.token),
       api.loadLearning(session.token),
+      api.loadAssessments(session.token),
+      api.loadAllLiveClasses(session.token),
       api.loadInstallments(session.token),
+      api.loadNotifications(session.token),
     ]),
     [api, session.token],
   );
   const { currentUser } = useStudentLayout();
 
-  const todaysTipIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24)) % TIPS_OF_THE_DAY.length;
-  const todaysTip = TIPS_OF_THE_DAY[todaysTipIndex] ?? TIPS_OF_THE_DAY[0];
+  const dashboard = data?.[0];
+  const learning = data?.[1];
+  const assessments = data?.[2];
 
-  const dashboardData = useMemo(() => data?.[0] ?? EMPTY_DASHBOARD, [data]);
-  const inProgressCourses = useMemo(
-    () => (data ? deriveInProgressCourses(data[1]) : []),
-    [data],
+  const inProgressCourses = useMemo(() => (learning ? deriveInProgressCourses(learning) : []), [learning]);
+  const completedCourses = useMemo(() => (learning ? countCompletedCourses(learning) : 0), [learning]);
+  const recommended = useMemo(() => (learning ? deriveRecommendedCourses(learning) : []), [learning]);
+  const upcomingLive = useMemo(() => (data ? deriveUpcomingLive(data[3]) : []), [data]);
+  const nextDue = useMemo(() => (data ? findNextDue(data[4]) : null), [data]);
+  const priorities = useMemo(
+    () => (assessments ? derivePriorities(assessments, nextDue) : []),
+    [assessments, nextDue],
   );
-  const nextDue = useMemo(() => (data ? findNextDue(data[2]) : null), [data]);
-  const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim();
-  const greetingName = firstName || 'there';
-
-  const now = new Date();
-  const formattedDate = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  const activity = useMemo(() => (data ? deriveActivity(data[5]) : []), [data]);
+  const badges = useMemo(
+    () => deriveBadges(dashboard?.streakCurrent ?? 0, dashboard?.streakTotal ?? 0, completedCourses),
+    [dashboard, completedCourses],
+  );
 
   if (loading) {
-    return <DashboardLoader label="dashboard data" />;
+    return <PageLoader label="Loading your dashboard..." />;
   }
 
-  if (error) {
+  if (error || !dashboard) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-student-text">Dashboard</h1>
         <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-red-600">{error ?? 'Could not load your dashboard.'}</p>
+          <Button variant="outline" className="mt-4 rounded-xl" onClick={reload}>Retry</Button>
         </div>
       </div>
     );
   }
 
-  const courseProgress = dashboardData.courseProgress;
-  const completedTasks = dashboardData.completedAssignments;
-  const totalTasks = dashboardData.completedAssignments + dashboardData.currentAssignments + dashboardData.upcomingAssignments;
-  const taskCompletionPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim() || 'there';
 
-  // EduPulse's 6-card stat grid, mapped to our real metrics. (EduPulse also
-  // shows Average Grade / Attendance / Certificates — we have no backing data
-  // for those yet, so we surface our equivalents instead.)
-  const stats: { icon: LucideIcon; label: string; value: string; sublabel: string; tint: Tint }[] = [
-    { icon: BookOpen, label: 'Enrolled Courses', value: String(dashboardData.coursesCount), sublabel: dashboardData.coursesCount > 0 ? 'Keep it up' : 'Browse the catalog', tint: 'primary' },
-    { icon: Radio, label: 'Upcoming Classes', value: String(dashboardData.scheduledTasks), sublabel: dashboardData.scheduledTasks > 0 ? 'Live sessions scheduled' : 'None scheduled', tint: 'blue' },
-    { icon: ClipboardList, label: 'Pending Assignments', value: String(dashboardData.currentAssignments), sublabel: dashboardData.currentAssignments > 0 ? 'Due soon' : 'All caught up', tint: 'amber' },
-    { icon: Target, label: 'Course Progress', value: `${courseProgress}%`, sublabel: 'Content completed', tint: 'emerald' },
-    { icon: Flame, label: 'Current Streak', value: String(dashboardData.streakCurrent), sublabel: `${dashboardData.streakTotal} day best`, tint: 'rose' },
-    { icon: CheckCircle, label: 'Completed Tasks', value: String(completedTasks), sublabel: totalTasks > 0 ? `${taskCompletionPct}% completion` : 'No tasks yet', tint: 'orange' },
+  // Stat deltas, all derived from real fields.
+  const dueThisWeek = priorities.filter(
+    (p) => p.kind === 'assignment' && (p.status === 'due-today' || p.status === 'overdue'),
+  ).length;
+  const nextLive = upcomingLive[0];
+  const nextLiveDelta = nextLive ? dayDelta(nextLive.date) : null;
+  const upcomingClassDelta = nextLive
+    ? nextLiveDelta === 0
+      ? `Next today${nextLive.fromTime ? ` · ${shortTime(nextLive.fromTime)}` : ''}`
+      : nextLiveDelta !== null && nextLiveDelta > 0
+        ? `Next in ${nextLiveDelta} day${nextLiveDelta === 1 ? '' : 's'}`
+        : ''
+    : '';
+
+  const stats: StatCardProps[] = [
+    {
+      icon: BookOpen,
+      label: 'Enrolled Courses',
+      value: String(dashboard.coursesCount),
+      delta: inProgressCourses.length > 0 ? `${inProgressCourses.length} in progress` : ' ',
+      tint: 'primary',
+    },
+    {
+      icon: Calendar,
+      label: 'Upcoming Classes',
+      value: String(upcomingLive.length),
+      delta: upcomingClassDelta,
+      tint: 'pink',
+    },
+    {
+      icon: ClipboardList,
+      label: 'Pending Assignments',
+      value: String(dashboard.currentAssignments),
+      delta: dueThisWeek > 0 ? `${dueThisWeek} due this week` : ' ',
+      tint: 'blue',
+    },
     {
       icon: Wallet,
       label: 'Payment Due',
       value: nextDue ? formatCurrency(nextDue.amount) : formatCurrency(0),
-      sublabel: nextDue ? `Due ${formatDueDate(nextDue.dueDate)}` : 'Nothing due',
-      tint: 'accent',
+      delta: nextDue ? `Due ${formatDate(nextDue.dueDate)}` : 'Nothing due',
+      tint: 'amber',
+    },
+    {
+      icon: Award,
+      label: 'Certificates',
+      value: String(completedCourses),
+      delta: completedCourses > 0 ? 'ready to claim' : ' ',
+      tint: 'emerald',
     },
   ];
 
-  const achievements: { label: string; icon: LucideIcon; earned: boolean; tone: string }[] = [
-    { label: 'First Course Started', icon: BookOpen, earned: dashboardData.coursesCount > 0, tone: 'from-blue-400 to-indigo-500' },
-    { label: 'On the Streak', icon: Flame, earned: dashboardData.streakCurrent >= 3, tone: 'from-amber-400 to-orange-500' },
-    { label: 'Task Completed', icon: CheckCircle, earned: dashboardData.completedAssignments > 0, tone: 'from-emerald-400 to-green-500' },
-    { label: 'Half Way There', icon: Target, earned: courseProgress >= 50, tone: 'from-violet-400 to-purple-500' },
-    { label: '7-Day Warrior', icon: Trophy, earned: dashboardData.streakTotal >= 7, tone: 'from-rose-400 to-pink-500' },
-    { label: 'Course Crusher', icon: Sparkles, earned: courseProgress >= 100, tone: 'from-cyan-400 to-sky-500' },
-  ];
-  const achievementsEarned = achievements.filter((a) => a.earned).length;
-
   return (
-    <div className="space-y-6">
-      {/* Hero header — greeting + Resume Learning CTA (EduPulse layout). */}
-      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-student-primary via-[#7d2266] to-[#5a1b4a] p-6 text-white shadow-lg sm:p-7">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-widest text-white/70">{formattedDate}</p>
-            <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
-              Welcome back, {greetingName}
-            </h1>
-            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-white/85">
-              <Sparkles aria-hidden="true" className="size-4" />
-              You've completed <span className="font-semibold text-white">{courseProgress}%</span>
-              {dashboardData.primaryCourseTitle ? <> of {dashboardData.primaryCourseTitle}</> : ' of your course'}
-            </p>
-          </div>
-          <Button
-            onClick={() => onNavigate('/student/courses')}
-            className="h-11 shrink-0 rounded-xl bg-white px-5 text-sm font-semibold text-student-primary shadow-sm hover:bg-white/90"
-          >
-            <PlayCircle aria-hidden="true" className="mr-2 size-4" />
-            {dashboardData.primaryCourseTitle ? 'Resume Learning' : 'Browse Courses'}
-          </Button>
+    <div className="space-y-8">
+      {/* 1 · Welcome hero */}
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-student-text sm:text-3xl">
+            Welcome back, {firstName} <span aria-hidden="true">👋</span>
+          </h1>
+          <p className="mt-1.5 text-sm text-student-muted">
+            Here&apos;s what&apos;s happening with your learning today.
+          </p>
         </div>
-      </div>
+        <Button
+          onClick={() => onNavigate('/student/courses')}
+          className="h-11 shrink-0 rounded-xl bg-student-primary px-5 text-sm font-semibold text-white shadow-sm hover:bg-student-primary/90"
+        >
+          <PlayCircle aria-hidden="true" className="mr-2 size-4" />
+          Resume Learning
+        </Button>
+      </section>
 
-      {/* Stat grid — 6 cards, 2x3 on desktop (EduPulse signature). */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4">
+      {/* 2 · Stat cards */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s) => (
-          <StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} sublabel={s.sublabel} tint={s.tint} />
+          <StatCard key={s.label} {...s} />
         ))}
-      </div>
+      </section>
 
-      {/* Continue Learning — in-progress course cards with progress + resume.
-          Driven by real per-course content completion (loadLearning). Falls
-          back to the primary-course card / empty state when nothing is
-          mid-way through. */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-1.5 text-base font-bold text-student-text">
-            <BookOpen aria-hidden="true" className="size-4 text-student-primary" />
-            Continue Learning
-          </h2>
-          <button
-            type="button"
-            onClick={() => onNavigate('/student/courses')}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-student-primary hover:underline"
-          >
-            View all <ArrowRight aria-hidden="true" className="size-3" />
-          </button>
-        </div>
-        {inProgressCourses.length > 0 ? (
+      {/* 3 · Continue Learning */}
+      {inProgressCourses.length > 0 ? (
+        <section>
+          <SectionHeader
+            title="Continue Learning"
+            subtitle="Pick up right where you left off"
+            actionLabel="View all"
+            onAction={() => onNavigate('/student/courses')}
+          />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {inProgressCourses.map((course) => (
               <ContinueLearningCard
@@ -258,288 +521,409 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               />
             ))}
           </div>
-        ) : dashboardData.primaryCourseTitle ? (
+        </section>
+      ) : null}
+
+      {/* 4 · Upcoming Live */}
+      {upcomingLive.length > 0 ? (
+        <section>
+          <SectionHeader
+            title="Upcoming Live"
+            actionLabel="See all"
+            onAction={() => onNavigate('/student/live-classes')}
+          />
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {upcomingLive.map((row, idx) => (
+              <UpcomingLiveRow
+                key={row.id}
+                row={row}
+                isLast={idx === upcomingLive.length - 1}
+                onJoin={() => onNavigate('/student/live-classes')}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* 5 · Today's Priorities */}
+      {priorities.length > 0 ? (
+        <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
+      ) : null}
+
+      {/* 6 · Recent Activity */}
+      {activity.length > 0 ? (
+        <section>
+          <SectionHeader
+            title="Recent Activity"
+            actionLabel="View all"
+            onAction={() => onNavigate('/student/notifications')}
+          />
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white">
-                <BookOpen aria-hidden="true" className="size-6" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate text-base font-bold text-student-text">{dashboardData.primaryCourseTitle}</h3>
-                <div className="mt-2 flex items-center gap-3">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
-                      style={{ width: `${Math.min(courseProgress, 100)}%` }}
-                    />
-                  </div>
-                  <span className="shrink-0 text-xs font-semibold text-student-text">{courseProgress}%</span>
-                </div>
-              </div>
-              <Button
-                onClick={() => onNavigate('/student/courses')}
-                className="h-10 shrink-0 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Resume
-              </Button>
+            <ol className="space-y-1">
+              {activity.map((row, idx) => (
+                <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
+              ))}
+            </ol>
+          </div>
+        </section>
+      ) : null}
+
+      {/* 7 · Recommended Courses */}
+      {recommended.length > 0 ? (
+        <section>
+          <SectionHeader
+            title="Recommended Courses"
+            subtitle="Expand your skills with these programs"
+            actionLabel="Browse all"
+            onAction={() => onNavigate('/student/courses')}
+          />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {recommended.slice(0, 6).map((course) => (
+              <RecommendedCard
+                key={course.id}
+                course={course}
+                onMore={() => onNavigate('/student/courses')}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* 8 · Achievements & Badges (only when substantiated) */}
+      {badges.length > 0 ? (
+        <section>
+          <SectionHeader title="Achievements & Badges" subtitle="Milestones you've unlocked" />
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {badges.map((badge) => (
+                <BadgeTile key={badge.label} badge={badge} />
+              ))}
             </div>
           </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-            <p className="text-sm text-student-muted">You're not enrolled in a course yet.</p>
-            <Button onClick={() => onNavigate('/student/courses')} variant="outline" className="mt-3 rounded-xl">
-              Browse Courses
-            </Button>
-          </div>
-        )}
-      </section>
-
-      {/* Performance + side panels. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Performance — semicircular gauge. */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="mb-2 flex items-center gap-1.5">
-            <Target aria-hidden="true" className="size-4 text-emerald-600" />
-            <h2 className="text-base font-bold text-student-text">Performance</h2>
-          </div>
-          <div className="flex flex-col items-center justify-center py-3">
-            <SemicircleGauge percentage={courseProgress} />
-            <p className="-mt-3 text-xs font-medium text-student-muted">Course Completion</p>
-            <div className="mt-4 grid w-full grid-cols-3 gap-3 sm:max-w-md">
-              <MiniMetric label="Courses" value={String(dashboardData.coursesCount)} />
-              <MiniMetric label="Completed" value={String(completedTasks)} />
-              <MiniMetric label="Pending" value={String(dashboardData.currentAssignments)} />
-            </div>
-          </div>
-        </div>
-
-        {/* Right column: Upcoming Live + Streak. */}
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-1.5 text-base font-bold text-student-text">
-                <Calendar aria-hidden="true" className="size-4 text-student-primary" />
-                Upcoming Live
-              </h2>
-              <button
-                type="button"
-                onClick={() => onNavigate('/student/live-classes')}
-                className="text-xs font-medium text-student-primary hover:underline"
-              >
-                See all
-              </button>
-            </div>
-            {dashboardData.scheduledTasks > 0 ? (
-              <button
-                type="button"
-                onClick={() => onNavigate('/student/live-classes')}
-                className="flex w-full items-center gap-3 rounded-xl bg-blue-50 p-3 text-left transition-colors hover:bg-blue-100"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600">
-                  <Radio aria-hidden="true" className="size-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-student-text">
-                    {dashboardData.scheduledTasks} session{dashboardData.scheduledTasks === 1 ? '' : 's'} scheduled
-                  </span>
-                  <span className="block text-[11px] text-student-muted">Tap to view your live classes</span>
-                </span>
-              </button>
-            ) : (
-              <p className="rounded-xl bg-slate-50 p-3 text-sm text-student-muted">No upcoming sessions</p>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-50">
-                <Flame aria-hidden="true" className="size-5 text-amber-500" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">Current Streak</p>
-                <p className="mt-0.5 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-student-text">{dashboardData.streakCurrent}</span>
-                  <span className="text-xs text-student-muted">days · {dashboardData.streakTotal} best</span>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('/student/courses')}
-                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:bg-amber-100"
-              >
-                <Zap aria-hidden="true" className="size-3" />
-                Study
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Achievements + Tip of the day. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-1.5 text-base font-bold text-student-text">
-              <Trophy aria-hidden="true" className="size-4 text-amber-500" />
-              Achievements
-            </h2>
-            <p className="text-xs font-semibold text-student-muted">{achievementsEarned}/{achievements.length} earned</p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {achievements.map((a) => {
-              const A = a.icon;
-              return (
-                <div
-                  key={a.label}
-                  className={`flex aspect-square flex-col items-center justify-center rounded-xl text-center transition-all ${
-                    a.earned ? `bg-gradient-to-br ${a.tone} text-white shadow-sm` : 'bg-slate-100 text-slate-400'
-                  }`}
-                  title={a.label}
-                >
-                  <A aria-hidden="true" className="size-5" />
-                  <p className="mt-1 line-clamp-2 px-1 text-[9px] font-semibold leading-tight">{a.label}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl bg-gradient-to-r from-[#3B5BBE] via-[#4A6EDB] to-[#5A7BE8] p-5 text-white shadow-md">
-          <div className="flex h-full flex-col">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-white/20">
-              <Sparkles aria-hidden="true" className="size-5" />
-            </div>
-            <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-white/85">Tip of the day</p>
-            <p className="mt-1 text-base font-medium leading-snug">"{todaysTip}"</p>
-          </div>
-        </div>
-      </div>
+        </section>
+      ) : null}
     </div>
   );
 }
 
 /* ─── Helper components ──────────────────────────────────────── */
 
-function StatCard({ icon: Icon, label, value, sublabel, tint }: {
-  icon: LucideIcon; label: string; value: string; sublabel: string; tint: Tint;
-}) {
-  const t = TINTS[tint];
+type Tint = 'primary' | 'pink' | 'blue' | 'amber' | 'emerald';
+const TINTS: Record<Tint, string> = {
+  primary: 'bg-student-primary/10 text-student-primary',
+  pink: 'bg-fuchsia-50 text-fuchsia-600',
+  blue: 'bg-sky-50 text-sky-600',
+  amber: 'bg-amber-50 text-amber-600',
+  emerald: 'bg-emerald-50 text-emerald-600',
+};
+
+interface StatCardProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  delta: string;
+  tint: Tint;
+}
+
+function StatCard({ icon: Icon, label, value, delta, tint }: StatCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
-      <div className={`mb-3 flex size-10 items-center justify-center rounded-xl ${t.chip}`}>
-        <Icon aria-hidden="true" className={`size-5 ${t.icon}`} />
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <div className={`flex size-10 items-center justify-center rounded-xl ${TINTS[tint]}`}>
+        <Icon aria-hidden="true" className="size-5" />
       </div>
-      <p className="text-2xl font-bold text-student-text">{value}</p>
-      <p className="mt-0.5 text-xs font-semibold text-student-text">{label}</p>
-      <p className="mt-0.5 truncate text-[11px] text-student-muted">{sublabel}</p>
+      <p className="mt-4 text-2xl font-bold text-student-text">{value}</p>
+      <p className="mt-0.5 text-sm font-semibold text-student-text">{label}</p>
+      <p className="mt-0.5 truncate text-xs text-student-muted">{delta}</p>
     </div>
   );
 }
 
-// In-progress course card: title, instructor/subject (when known), a bottom
-// progress bar + percent, and a Resume CTA.
-function ContinueLearningCard({ course, onResume }: { course: InProgressCourse; onResume: () => void }) {
+interface SectionHeaderProps {
+  title: string;
+  subtitle?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
+function SectionHeader({ title, subtitle, actionLabel, onAction }: SectionHeaderProps) {
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white">
-          <BookOpen aria-hidden="true" className="size-5" />
+    <div className="mb-4 flex items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h2 className="text-lg font-bold text-student-text">{title}</h2>
+        {subtitle ? <p className="mt-0.5 text-sm text-student-muted">{subtitle}</p> : null}
+      </div>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-student-primary hover:underline"
+        >
+          {actionLabel} <ArrowRight aria-hidden="true" className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ContinueLearningCard({ course, onResume }: { course: CourseProgressRow; onResume: () => void }) {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className="relative flex h-24 items-center bg-gradient-to-br from-student-primary to-student-accent px-5">
+        <BookOpen aria-hidden="true" className="size-8 text-white/90" />
+        <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+          {course.progress}%
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
+        {course.instructor ? (
+          <p className="mt-0.5 truncate text-xs text-student-muted">{course.instructor}</p>
+        ) : null}
+        <div className="mt-auto pt-4">
+          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-student-primary transition-all duration-500"
+              style={{ width: `${Math.min(course.progress, 100)}%` }}
+            />
+          </div>
+          <Button
+            onClick={onResume}
+            className="mt-4 h-10 w-full rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
+          >
+            <PlayCircle aria-hidden="true" className="mr-2 size-4" />
+            Resume
+          </Button>
         </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
-          {course.instructor ? (
-            <p className="mt-0.5 truncate text-xs text-student-muted">{course.instructor}</p>
+      </div>
+    </div>
+  );
+}
+
+function UpcomingLiveRow({ row, isLast, onJoin }: { row: LiveRow; isLast: boolean; onJoin: () => void }) {
+  const chip = weekdayChip(row.date);
+  const time = shortTime(row.fromTime);
+  const meta = [row.subject, row.instructor].filter(Boolean).join(' · ');
+  return (
+    <div className={`flex items-center gap-4 p-4 ${isLast ? '' : 'border-b border-slate-100'}`}>
+      <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl bg-student-primary/10 text-student-primary">
+        <span className="text-[10px] font-bold uppercase tracking-wide">{chip.weekday || '—'}</span>
+        <span className="text-lg font-bold leading-none">{chip.day || '—'}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <h3 className="truncate text-sm font-bold text-student-text">{row.title}</h3>
+          {row.isToday ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+              <span className="inline-block size-1.5 animate-pulse rounded-full bg-red-500" />
+              Live
+            </span>
           ) : null}
         </div>
-      </div>
-      <div className="mt-4 flex-1" />
-      <div className="mb-3 flex items-center gap-3">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
-          <div
-            className="h-full rounded-full bg-student-primary transition-all duration-500"
-            style={{ width: `${Math.min(course.progress, 100)}%` }}
-          />
-        </div>
-        <span className="shrink-0 text-xs font-semibold text-student-text">{course.progress}%</span>
+        {meta ? <p className="mt-0.5 truncate text-xs text-student-muted">{meta}</p> : null}
+        {time ? (
+          <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-student-muted">
+            <Clock aria-hidden="true" className="size-3" />
+            {time}
+          </p>
+        ) : null}
       </div>
       <Button
-        onClick={onResume}
-        className="h-10 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
+        onClick={onJoin}
+        className="h-9 shrink-0 rounded-xl bg-student-primary px-4 text-xs font-semibold text-white hover:bg-student-primary/90"
       >
-        <PlayCircle aria-hidden="true" className="mr-2 size-4" />
-        Resume
+        <Video aria-hidden="true" className="mr-1.5 size-3.5" />
+        {row.isToday ? 'Join' : 'Details'}
       </Button>
     </div>
   );
 }
 
-// Semicircular gauge — TTII blue→purple→orange track, purple needle.
-function SemicircleGauge({ percentage }: { percentage: number }) {
-  const clamped = Math.max(0, Math.min(100, percentage));
-  const option = useMemo<EChartsOption>(() => ({
-    series: [
-      {
-        type: 'gauge',
-        startAngle: 180,
-        endAngle: 0,
-        center: ['50%', '78%'],
-        radius: '100%',
-        min: 0,
-        max: 100,
-        progress: {
-          show: true,
-          width: 14,
-          roundCap: true,
-          itemStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 1, y2: 0,
-              colorStops: [
-                { offset: 0, color: '#3B5BBE' },
-                { offset: 0.6, color: '#8F2774' },
-                { offset: 1, color: '#F06543' },
-              ],
-            },
-          },
-        },
-        axisLine: { lineStyle: { width: 14, color: [[1, '#e2e8f0']] } },
-        axisTick: {
-          show: true,
-          length: 6,
-          distance: -22,
-          lineStyle: { color: '#cbd5e1', width: 1 },
-          splitNumber: 1,
-        },
-        splitLine: { show: false },
-        axisLabel: { show: false },
-        anchor: { show: true, size: 16, itemStyle: { color: '#ffffff', borderColor: '#8F2774', borderWidth: 3 } },
-        pointer: { show: true, length: '70%', width: 6, itemStyle: { color: '#8F2774' } },
-        detail: {
-          valueAnimation: true,
-          offsetCenter: [0, '-5%'],
-          formatter: (v) => `${Math.round(Number(v))}%`,
-          color: '#0f172a',
-          fontSize: 28,
-          fontWeight: 700,
-        },
-        data: [{ value: clamped }],
-      },
-    ],
-    animationDuration: 800,
-  }), [clamped]);
+const PRIORITY_STATUS_STYLE: Record<PriorityStatus, { label: string; className: string }> = {
+  'due-today': { label: 'Due Today', className: 'bg-amber-100 text-amber-700' },
+  overdue: { label: 'Overdue', className: 'bg-red-100 text-red-700' },
+  upcoming: { label: 'Upcoming', className: 'bg-sky-100 text-sky-700' },
+  completed: { label: 'Completed', className: 'bg-emerald-100 text-emerald-700' },
+};
+
+const PRIORITY_KIND_META: Record<PriorityKind, { label: string; icon: LucideIcon; dot: string }> = {
+  assignment: { label: 'Assignment', icon: ClipboardList, dot: 'bg-student-primary' },
+  quiz: { label: 'Quiz', icon: FileText, dot: 'bg-sky-500' },
+  payment: { label: 'Payment', icon: Wallet, dot: 'bg-amber-500' },
+};
+
+type PriorityFilter = 'all' | PriorityKind;
+
+function PrioritiesSection({
+  priorities,
+  onNavigate,
+}: {
+  priorities: PriorityRow[];
+  onNavigate: (href: string) => void;
+}) {
+  const [filter, setFilter] = useState<PriorityFilter>('all');
+  const dueToday = priorities.filter((p) => p.status === 'due-today').length;
+  const filtered = filter === 'all' ? priorities : priorities.filter((p) => p.kind === filter);
+
+  const filterTabs: { id: PriorityFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'assignment', label: 'Assignments' },
+    { id: 'quiz', label: 'Quizzes' },
+    { id: 'payment', label: 'Payments' },
+  ];
 
   return (
-    <div className="relative w-full max-w-[260px]">
-      <EChart option={option} className="h-32 w-full" ariaLabel={`Overall progress: ${clamped}%`} />
+    <section>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="text-lg font-bold text-student-text">Today&apos;s Priorities</h2>
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+          {dueToday} Due Today
+        </span>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {filterTabs.map((t) => {
+          const active = filter === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setFilter(t.id)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                active
+                  ? 'bg-student-primary text-white'
+                  : 'bg-white text-student-muted ring-1 ring-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-student-muted">
+          Nothing here right now.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {filtered.map((row, idx) => (
+            <PriorityItem
+              key={row.id}
+              row={row}
+              isLast={idx === filtered.length - 1}
+              onAction={() => onNavigate(row.action.href)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PriorityItem({ row, isLast, onAction }: { row: PriorityRow; isLast: boolean; onAction: () => void }) {
+  const kind = PRIORITY_KIND_META[row.kind];
+  const status = PRIORITY_STATUS_STYLE[row.status];
+  const KindIcon = kind.icon;
+  return (
+    <div className={`flex items-center gap-4 p-4 ${isLast ? '' : 'border-b border-slate-100'}`}>
+      <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${TINTS[row.kind === 'quiz' ? 'blue' : row.kind === 'payment' ? 'amber' : 'primary']}`}>
+        <KindIcon aria-hidden="true" className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className={`inline-block size-2 shrink-0 rounded-full ${kind.dot}`} aria-hidden="true" />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-student-muted">{kind.label}</span>
+        </div>
+        <h3 className="mt-0.5 truncate text-sm font-semibold text-student-text">{row.title}</h3>
+        {row.context ? <p className="truncate text-xs text-student-muted">{row.context}</p> : null}
+      </div>
+      <span className={`hidden shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:inline-flex ${status.className}`}>
+        {status.label}
+      </span>
+      <Button
+        onClick={onAction}
+        variant={row.status === 'completed' ? 'outline' : 'default'}
+        className={`h-9 shrink-0 rounded-xl px-4 text-xs font-semibold ${
+          row.status === 'completed'
+            ? 'border-slate-200 text-student-text'
+            : 'bg-student-primary text-white hover:bg-student-primary/90'
+        }`}
+      >
+        {row.action.label}
+      </Button>
     </div>
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
+function ActivityItem({ row, isLast }: { row: ActivityRow; isLast: boolean }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3 text-center">
-      <p className="text-base font-bold text-student-text">{value}</p>
-      <p className="text-[10px] text-student-muted">{label}</p>
+    <li className="flex gap-3">
+      <div className="flex flex-col items-center">
+        <span className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
+          row.isRead ? 'bg-slate-100 text-slate-400' : 'bg-student-primary/10 text-student-primary'
+        }`}>
+          <Bell aria-hidden="true" className="size-4" />
+        </span>
+        {isLast ? null : <span className="my-1 w-px flex-1 bg-slate-100" aria-hidden="true" />}
+      </div>
+      <div className={`min-w-0 flex-1 ${isLast ? 'pb-0' : 'pb-4'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <p className={`text-sm ${row.isRead ? 'text-student-text' : 'font-semibold text-student-text'}`}>{row.title}</p>
+          {row.time ? <span className="shrink-0 text-xs text-slate-400">{row.time}</span> : null}
+        </div>
+        {row.description ? <p className="mt-0.5 text-sm text-student-muted">{row.description}</p> : null}
+      </div>
+    </li>
+  );
+}
+
+function RecommendedCard({ course, onMore }: { course: CatalogCourseRow; onMore: () => void }) {
+  const hasOffer = course.offerPrice > 0 && course.offerPrice < course.price;
+  const displayPrice = hasOffer ? course.offerPrice : course.price;
+  const isFree = course.price <= 0;
+  return (
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className="relative flex h-24 items-center bg-gradient-to-br from-student-primary to-student-accent px-5">
+        <BookOpen aria-hidden="true" className="size-8 text-white/90" />
+        {isFree ? (
+          <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+            Free
+          </span>
+        ) : displayPrice > 0 ? (
+          <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+            {formatCurrency(displayPrice)}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
+        <p className="mt-0.5 text-xs text-student-muted">
+          {course.subjectCount > 0 ? `${course.subjectCount} Subjects` : 'Curriculum inside'}
+        </p>
+        <div className="mt-auto pt-4">
+          <Button
+            onClick={onMore}
+            variant="outline"
+            className="h-10 w-full rounded-xl border-student-primary/30 text-sm font-semibold text-student-primary hover:bg-student-primary/5"
+          >
+            More Info
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BadgeTile({ badge }: { badge: BadgeRow }) {
+  const Icon = badge.icon;
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className={`flex size-16 items-center justify-center rounded-full bg-gradient-to-br ${badge.tone} text-white shadow-sm`}>
+        <Icon aria-hidden="true" className="size-7" />
+      </div>
+      <p className="mt-2.5 flex items-center gap-1 text-sm font-bold text-student-text">
+        <Sparkles aria-hidden="true" className="size-3.5 text-amber-500" />
+        {badge.label}
+      </p>
+      <p className="mt-0.5 text-xs text-student-muted">{badge.caption}</p>
     </div>
   );
 }
