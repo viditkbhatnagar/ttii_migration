@@ -273,6 +273,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                         const meta = typeMeta(asString(item.asset_type));
                         const Icon = meta.icon;
                         const qc = Number(item.question_count ?? 0);
+                        const fileUrl = asString(item.attachment) || asString(item.video_url) || asString(item.audio_file);
                         return (
                           <div className="flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
                             {cHandle}
@@ -285,6 +286,9 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                                 {meta.label}{asString(item.asset_type) === 'quiz' ? ` · ${qc} question${qc === 1 ? '' : 's'}` : ''}
                               </p>
                             </div>
+                            {fileUrl ? (
+                              <IconButton label="View content" onClick={() => window.open(fileUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="size-4" /></IconButton>
+                            ) : null}
                             <IconButton label="Edit content" onClick={() => setContentDialog({ lesson, asset: item })}><Pencil className="size-4" /></IconButton>
                             <IconButton label="Delete content" onClick={() => void deleteContent(item)} danger><Trash2 className="size-4" /></IconButton>
                           </div>
