@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
-import { Camera, Eye, EyeOff, Pencil, X } from 'lucide-react';
+import { Camera, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -19,6 +19,9 @@ const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
   { id: 'profile', label: 'Profile' },
   { id: 'security', label: 'Security' },
 ];
+
+const CARD_CLASS = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
+const FIELD_LABEL_CLASS = 'text-xs font-medium uppercase tracking-wider text-student-muted';
 
 function computeProfileCompletion(profile: {
   name: string;
@@ -56,7 +59,6 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   const { refreshCurrentUser } = useStudentLayout();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
-  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -71,15 +73,32 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   const [state, setState] = useState('');
   const [pincode, setPincode] = useState('');
 
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+
+  const resetProfileForm = useCallback(() => {
+    if (!profile) return;
+    setName(profile.name);
+    setEmail(profile.email);
+    setPhone(profile.phone);
+    setAcademicYear(profile.academicYear);
+    setDateOfBirth(profile.dateOfBirth);
+    setGender(profile.gender);
+    setAddressLine1(profile.addressLine1);
+    setCity(profile.city);
+    setState(profile.state);
+    setPincode(profile.pincode);
+    setMessage('');
+  }, [profile]);
 
   const handlePhotoUpload = useCallback(async (file: File) => {
     setPhotoUploading(true);
@@ -127,7 +146,6 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
         session,
       );
       setMessage('Profile updated successfully.');
-      setEditing(false);
       reload();
       refreshCurrentUser();
     } catch (err: unknown) {
@@ -147,6 +165,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
     try {
       await api.changePassword(session.token, { password, confirmPassword });
       setPasswordMessage('Password changed successfully.');
+      setCurrentPassword('');
       setPassword('');
       setConfirmPassword('');
     } catch (err: unknown) {
@@ -181,6 +200,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
 
   const completionColor = profileCompletion >= 80 ? 'text-emerald-600' : profileCompletion >= 50 ? 'text-amber-600' : 'text-red-600';
   const completionBarColor = profileCompletion >= 80 ? 'bg-emerald-500' : profileCompletion >= 50 ? 'bg-amber-500' : 'bg-red-500';
+  const rollLabel = profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`;
 
   return (
     <div className="space-y-6">
@@ -224,123 +244,97 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
 
       {activeTab === 'profile' ? (
         <div className="space-y-6">
-      {/* Profile Completion */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="relative shrink-0">
-              <Avatar className="size-14">
-                {profile?.image ? (
-                  <AvatarImage src={profile.image} alt="" />
-                ) : null}
-                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-base text-white font-semibold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <button
-                type="button"
-                aria-label="Change profile photo"
-                disabled={photoUploading}
-                onClick={() => photoInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-white bg-student-primary text-white shadow-sm hover:bg-student-primary/90 disabled:opacity-60"
-              >
-                <Camera aria-hidden="true" className="size-3.5" />
-              </button>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handlePhotoUpload(file);
-                }}
+          {/* Profile card: avatar + identity + completion */}
+          <section className={`${CARD_CLASS} p-6`}>
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="relative shrink-0">
+                  <Avatar className="size-20 ring-2 ring-student-primary-light">
+                    {profile?.image ? <AvatarImage src={profile.image} alt="" /> : null}
+                    <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent-light text-xl text-white font-semibold">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <button
+                    type="button"
+                    aria-label="Change profile photo"
+                    disabled={photoUploading}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full border-2 border-white bg-student-primary text-white shadow-sm transition-colors hover:bg-student-primary/90 disabled:opacity-60"
+                  >
+                    <Camera aria-hidden="true" className="size-4" />
+                  </button>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handlePhotoUpload(file);
+                    }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-semibold text-student-text truncate">{profile?.name || 'Student'}</h2>
+                  <p className="text-sm text-student-muted truncate">{rollLabel}</p>
+                  {photoUploading ? (
+                    <p className="mt-1 text-xs text-student-muted">Uploading photo…</p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="shrink-0 sm:text-right">
+                <p className={`text-3xl font-semibold ${completionColor}`}>{profileCompletion}%</p>
+                <p className="text-xs uppercase tracking-wider text-student-muted">Profile Complete</p>
+              </div>
+            </div>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full ${completionBarColor} transition-all duration-500 ease-out`}
+                style={{ width: `${profileCompletion}%` }}
+                role="progressbar"
+                aria-valuenow={profileCompletion}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Profile ${profileCompletion}% complete`}
               />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold text-student-text truncate">{profile?.name || 'Student'}</h2>
-              <p className="text-sm text-student-muted truncate">
-                {profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`}
-              </p>
-              {photoUploading ? (
-                <p className="mt-0.5 text-xs text-student-muted">Uploading photo…</p>
-              ) : null}
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <p className={`text-2xl font-semibold ${completionColor}`}>{profileCompletion}%</p>
-            <p className="text-xs text-student-muted">Complete</p>
-          </div>
-        </div>
-        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className={`h-full rounded-full ${completionBarColor} transition-all duration-500 ease-out`}
-            style={{ width: `${profileCompletion}%` }}
-            role="progressbar"
-            aria-valuenow={profileCompletion}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label={`Profile ${profileCompletion}% complete`}
-          />
-        </div>
-      </div>
+          </section>
 
-        {/* Personal Information */}
-        <Card className="rounded-xl border-slate-200 bg-white shadow-none">
-          <CardHeader>
-            <div className="flex items-center justify-between">
+          {/* Personal information form */}
+          <Card className={CARD_CLASS}>
+            <CardHeader>
               <CardTitle className="text-base">Personal Information</CardTitle>
-              {!editing ? (
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="rounded-xl gap-1.5">
-                  <Pencil aria-hidden="true" className="size-3.5" />
-                  Edit
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Cancel editing"
-                  onClick={() => { setEditing(false); setMessage(''); }}
-                  className="max-sm:size-11"
-                >
-                  <X aria-hidden="true" className="size-4" />
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <Separator />
-          <CardContent className="space-y-4 pt-4">
-            {editing ? (
+              <CardDescription>Update your personal details</CardDescription>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-6">
               <form
-                className="space-y-4"
+                className="space-y-6"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void handleSave();
                 }}
               >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="name" className="text-xs uppercase tracking-wider text-student-muted">Full Name</Label>
+                    <Label htmlFor="name" className={FIELD_LABEL_CLASS}>Full Name</Label>
                     <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-xs uppercase tracking-wider text-student-muted">Email</Label>
+                    <Label htmlFor="email" className={FIELD_LABEL_CLASS}>Email</Label>
                     <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-xs uppercase tracking-wider text-student-muted">Phone</Label>
+                    <Label htmlFor="phone" className={FIELD_LABEL_CLASS}>Phone</Label>
                     <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="academicYear" className="text-xs uppercase tracking-wider text-student-muted">Academic Year</Label>
-                    <Input id="academicYear" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dob" className="text-xs uppercase tracking-wider text-student-muted">Date of Birth</Label>
+                    <Label htmlFor="dob" className={FIELD_LABEL_CLASS}>Date of Birth</Label>
                     <Input id="dob" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gender" className="text-xs uppercase tracking-wider text-student-muted">Gender</Label>
+                    <Label htmlFor="gender" className={FIELD_LABEL_CLASS}>Gender</Label>
                     <select
                       id="gender"
                       value={gender}
@@ -353,161 +347,179 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                       ))}
                     </select>
                   </div>
-                </div>
-                <Separator />
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-student-muted">Address</h3>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="academicYear" className={FIELD_LABEL_CLASS}>Programme / Academic Year</Label>
+                    <Input id="academicYear" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)} className="rounded-xl" />
+                  </div>
                   <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="address" className="text-xs uppercase tracking-wider text-student-muted">Address Line</Label>
-                    <Input id="address" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="House/Street" className="rounded-xl" />
+                    <Label htmlFor="address" className={FIELD_LABEL_CLASS}>Address Line</Label>
+                    <Input id="address" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} placeholder="House / Street" className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="city" className="text-xs uppercase tracking-wider text-student-muted">City</Label>
+                    <Label htmlFor="city" className={FIELD_LABEL_CLASS}>City</Label>
                     <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="state" className="text-xs uppercase tracking-wider text-student-muted">State</Label>
+                    <Label htmlFor="state" className={FIELD_LABEL_CLASS}>State</Label>
                     <Input id="state" value={state} onChange={(e) => setState(e.target.value)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="pincode" className="text-xs uppercase tracking-wider text-student-muted">Pincode</Label>
+                    <Label htmlFor="pincode" className={FIELD_LABEL_CLASS}>Pincode</Label>
                     <Input id="pincode" value={pincode} onChange={(e) => setPincode(e.target.value)} className="rounded-xl" />
                   </div>
                 </div>
-                <div className="flex gap-3 pt-2">
+                <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-5">
                   <Button type="submit" className="rounded-xl bg-student-primary hover:bg-student-primary/90" disabled={saving}>
                     {saving ? 'Saving...' : 'Save Changes'}
                   </Button>
-                  <Button type="button" variant="outline" className="rounded-xl" onClick={() => { setEditing(false); setMessage(''); }}>Cancel</Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl"
+                    onClick={resetProfileForm}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
                 </div>
               </form>
-            ) : (
-              <div className="space-y-3">
-                <InfoRow label="Name" value={profile?.name} />
-                <InfoRow label="Email" value={profile?.email} />
-                <InfoRow label="Phone" value={profile?.phone} />
-                <InfoRow label="Academic Year" value={profile?.academicYear} />
-                <InfoRow label="Date of Birth" value={profile?.dateOfBirth ? formatDisplayDate(profile.dateOfBirth) : ''} />
-                <InfoRow label="Gender" value={profile?.gender} />
-                <InfoRow label="Student ID" value={profile?.studentId} />
-                <InfoRow label="Course ID" value={profile?.courseId} />
-                <InfoRow
-                  label="Address"
-                  value={formatAddress(profile?.addressLine1, profile?.city, profile?.state, profile?.pincode)}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
         </div>
       ) : (
         <div className="space-y-6">
-        {/* Change Password */}
-        <Card className="rounded-xl border-slate-200 bg-white shadow-none h-fit max-w-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">Change Password</CardTitle>
-            <CardDescription>Update your account password</CardDescription>
-          </CardHeader>
-          <Separator />
-          <CardContent className="space-y-4 pt-4">
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handlePasswordChange();
-              }}
-            >
-              {passwordMessage ? (
-                <div
-                  role={passwordMessage.includes('success') ? 'status' : 'alert'}
-                  aria-live={passwordMessage.includes('success') ? 'polite' : 'assertive'}
-                  className={`rounded-xl px-4 py-3 text-sm ${passwordMessage.includes('success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}
-                >
-                  {passwordMessage}
-                </div>
-              ) : null}
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-xs uppercase tracking-wider text-student-muted">New Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="new-password"
-                    className="rounded-xl pr-12"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-xs uppercase tracking-wider text-student-muted">Confirm Password</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                    className="rounded-xl pr-12"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                    aria-pressed={showConfirmPassword}
-                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    {showConfirmPassword ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
-                  </button>
-                </div>
-              </div>
-              <Button
-                type="submit"
-                className="rounded-xl bg-student-primary hover:bg-student-primary/90"
-                disabled={passwordSaving || !password || password !== confirmPassword}
+          {/* Change password */}
+          <Card className={`${CARD_CLASS} h-fit max-w-2xl`}>
+            <CardHeader>
+              <CardTitle className="text-base">Change Password</CardTitle>
+              <CardDescription>Update your account password</CardDescription>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-6">
+              <form
+                className="space-y-5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handlePasswordChange();
+                }}
               >
-                {passwordSaving ? 'Changing...' : 'Update Password'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+                {passwordMessage ? (
+                  <div
+                    role={passwordMessage.includes('success') ? 'status' : 'alert'}
+                    aria-live={passwordMessage.includes('success') ? 'polite' : 'assertive'}
+                    className={`rounded-xl px-4 py-3 text-sm ${passwordMessage.includes('success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}
+                  >
+                    {passwordMessage}
+                  </div>
+                ) : null}
+                <PasswordField
+                  id="currentPassword"
+                  label="Current Password"
+                  value={currentPassword}
+                  onChange={setCurrentPassword}
+                  visible={showCurrentPassword}
+                  onToggleVisible={() => setShowCurrentPassword((v) => !v)}
+                  autoComplete="current-password"
+                />
+                <PasswordField
+                  id="password"
+                  label="New Password"
+                  value={password}
+                  onChange={setPassword}
+                  visible={showPassword}
+                  onToggleVisible={() => setShowPassword((v) => !v)}
+                  autoComplete="new-password"
+                />
+                <PasswordField
+                  id="confirmPassword"
+                  label="Confirm Password"
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  visible={showConfirmPassword}
+                  onToggleVisible={() => setShowConfirmPassword((v) => !v)}
+                  autoComplete="new-password"
+                />
+                <Button
+                  type="submit"
+                  className="rounded-xl bg-student-primary hover:bg-student-primary/90"
+                  disabled={passwordSaving || !password || password !== confirmPassword}
+                >
+                  {passwordSaving ? 'Changing...' : 'Update Password'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Two-factor authentication (coming soon — not wired) */}
+          <Card className={`${CARD_CLASS} h-fit max-w-2xl`}>
+            <CardHeader>
+              <CardTitle className="text-base">Two-Factor Authentication</CardTitle>
+              <CardDescription>Add an extra layer of security to your account</CardDescription>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-student-primary-light/40 p-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-student-primary shadow-sm">
+                    <ShieldCheck aria-hidden="true" className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-student-text">Authenticator app</p>
+                    <p className="text-xs text-student-muted">Two-factor authentication is coming soon.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={false}
+                  aria-label="Two-factor authentication (coming soon)"
+                  disabled
+                  className="relative inline-flex h-6 w-11 shrink-0 cursor-not-allowed items-center rounded-full bg-slate-200 opacity-70"
+                >
+                  <span aria-hidden="true" className="ml-0.5 inline-block size-5 rounded-full bg-white shadow-sm" />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value?: string | undefined }) {
+interface PasswordFieldProps {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  visible: boolean;
+  onToggleVisible: () => void;
+  autoComplete: string;
+}
+
+function PasswordField({ id, label, value, onChange, visible, onToggleVisible, autoComplete }: PasswordFieldProps) {
   return (
-    <div className="flex flex-col gap-0.5 pb-3 border-b border-slate-100 last:border-0">
-      <span className="text-xs font-medium uppercase tracking-wider text-student-muted">{label}</span>
-      <span className="text-sm font-medium text-student-text">{value || 'N/A'}</span>
+    <div className="space-y-2">
+      <Label htmlFor={id} className={FIELD_LABEL_CLASS}>{label}</Label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+          className="rounded-xl pr-12"
+        />
+        <button
+          type="button"
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          aria-pressed={visible}
+          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
+          onClick={onToggleVisible}
+        >
+          {visible ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
+        </button>
+      </div>
     </div>
   );
-}
-
-function formatDisplayDate(dateStr: string): string {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return dateStr;
-  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatAddress(
-  line1?: string  ,
-  city?: string  ,
-  state?: string  ,
-  pincode?: string  ,
-): string {
-  const parts = [line1, city, state, pincode].filter((p) => p && p.trim() !== '');
-  return parts.join(', ');
 }
