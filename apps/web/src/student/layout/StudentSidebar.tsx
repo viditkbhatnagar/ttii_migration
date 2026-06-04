@@ -18,7 +18,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useStudentLayout } from './StudentLayoutContext.js';
-import { STUDENT_NAV_TREE, findActiveStudentNav, type StudentNavItem } from '../routing/student-nav-tree.js';
+import {
+  STUDENT_NAV_TREE,
+  STUDENT_NAV_SECTIONS,
+  findActiveStudentNav,
+  type StudentNavItem,
+} from '../routing/student-nav-tree.js';
 import type { AuthSession } from '@ttii/frontend-core';
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -86,6 +91,45 @@ function SidebarNavItem({
   );
 }
 
+/** The three nav groups (Learning / Account / System) — shared by desktop + mobile. */
+function SidebarNavGroups({
+  activeItemId,
+  collapsed,
+  onNavigate,
+}: {
+  activeItemId: string | null;
+  collapsed: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  return (
+    <nav aria-label="Student sections" className="flex flex-col gap-1">
+      {STUDENT_NAV_SECTIONS.map((section, idx) => {
+        const items = STUDENT_NAV_TREE.filter((item) => item.section === section.key);
+        if (items.length === 0) return null;
+        return (
+          <div key={section.key} className="flex flex-col gap-1">
+            {idx > 0 ? <div aria-hidden="true" className="my-5 border-t border-slate-200" /> : null}
+            {!collapsed ? (
+              <p className="mb-3 px-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                {section.label}
+              </p>
+            ) : null}
+            {items.map((item) => (
+              <SidebarNavItem
+                key={item.id}
+                item={item}
+                isActive={item.id === activeItemId}
+                collapsed={collapsed}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function StudentSidebar({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
   const { sidebarCollapsed, currentUser } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
@@ -93,9 +137,6 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
   const displayName = currentUser?.name || 'Student';
   const initials = currentUser?.initials ?? 'ST';
   const avatarImage = currentUser?.image ?? '';
-
-  const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
 
   return (
     <aside
@@ -134,42 +175,11 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
 
       {/* Navigation */}
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav aria-label="Student sections" className="flex flex-col gap-1">
-          {/* General Section */}
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-              General
-            </p>
-          ) : null}
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          {/* Divider */}
-          <div aria-hidden="true" className="my-5 border-t border-slate-200" />
-
-          {/* Tools Section */}
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-              Tools
-            </p>
-          ) : null}
-          {toolsItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </nav>
+        <SidebarNavGroups
+          activeItemId={activeItemId}
+          collapsed={sidebarCollapsed}
+          onNavigate={onNavigate}
+        />
       </ScrollArea>
 
       {/* User Profile Card */}
@@ -235,9 +245,6 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
   const initials = currentUser?.initials ?? 'ST';
   const avatarImage = currentUser?.image ?? '';
 
-  const generalItems = STUDENT_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = STUDENT_NAV_TREE.filter((item) => item.section === 'tools');
-
   return (
     <div className="flex h-full flex-col bg-white">
       {/* Logo */}
@@ -258,35 +265,7 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
 
       {/* Nav */}
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav aria-label="Student sections" className="flex flex-col gap-1">
-          <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-            General
-          </p>
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          <div aria-hidden="true" className="my-5 border-t border-slate-200" />
-
-          <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-            Tools
-          </p>
-          {toolsItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </nav>
+        <SidebarNavGroups activeItemId={activeItemId} collapsed={false} onNavigate={onNavigate} />
       </ScrollArea>
 
       {/* User Profile */}
