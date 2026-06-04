@@ -23,6 +23,12 @@ import {
   Circle,
   CircleDot,
   FileType2,
+  GraduationCap,
+  Layers,
+  ListChecks,
+  MessageCircle,
+  Search,
+  User,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -30,7 +36,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EChart } from '@/components/EChart';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, asNumber } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asString, asNumber, asBoolean, asRecord } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 import type { StudentPortalApi } from '../../student-portal-api.js';
 import { ExamPlayer } from '../../components/ExamPlayer.js';
@@ -135,7 +141,45 @@ interface EnrolledCourseMeta {
   completion: number;
   modulesDone: number;
   modulesTotal: number;
+  lessonsDone: number;
+  lessonsTotal: number;
   status: CourseStatus;
+}
+
+// EduPulse uses diagonal-gradient banners on its course / subject cards in
+// three rotating hues. On TTII tokens these anchor to the brand magenta
+// (#8047e1) + accent pink (#ce74e3) family so the gradients stay on-palette
+// instead of hardcoding new colours. Cycled by card index for visual rhythm.
+const CARD_GRADIENTS = [
+  'from-student-primary to-student-accent',
+  'from-student-accent to-fuchsia-500',
+  'from-violet-600 to-student-primary',
+  'from-fuchsia-600 to-student-accent',
+] as const;
+
+function gradientFor(index: number): string {
+  return CARD_GRADIENTS[index % CARD_GRADIENTS.length] ?? CARD_GRADIENTS[0];
+}
+
+// Map a derived course/subject status to its EduPulse-style soft pill. The
+// "almost done" / "just started" wording mirrors the reference badges.
+function statusBadgeFor(
+  status: CourseStatus,
+  completion: number,
+): { label: string; className: string } {
+  if (status === 'completed') {
+    return { label: 'Completed', className: 'bg-emerald-50 text-emerald-700' };
+  }
+  if (status === 'not-started') {
+    return { label: 'Not started', className: 'bg-slate-100 text-slate-500' };
+  }
+  if (completion >= 80) {
+    return { label: 'Almost done', className: 'bg-amber-50 text-amber-700' };
+  }
+  if (completion <= 15) {
+    return { label: 'Just started', className: 'bg-sky-50 text-sky-700' };
+  }
+  return { label: 'In progress', className: 'bg-student-primary/10 text-student-primary' };
 }
 
 function resolveSelectedContent(file: Record<string, unknown>): SelectedContent | null {
@@ -188,8 +232,12 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     [api, session.token],
   );
 
-  // View state — list of courses vs detail view of a single course.
+  // View state. Three surfaces, mirroring EduPulse's separate routes:
+  //   activeCourseId === null            → My Courses list (§2)
+  //   activeCourseId set, !playerOpen    → My Course detail / subjects grid (§3)
+  //   activeCourseId set, playerOpen     → Lesson player, 3-column (§4)
   const [activeCourseId, setActiveCourseId] = useState<string | null>(null);
+  const [playerOpen, setPlayerOpen] = useState(false);
   const [selectedContent, setSelectedContent] = useState<SelectedContent | null>(null);
   // Naji 2026-05-04: only one subject can be expanded at a time. Tracks
   // the open subject id; null means everything collapsed.
@@ -200,6 +248,8 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const [liveClassesLoading, setLiveClassesLoading] = useState(false);
   // List view: EduPulse-style status filter for the enrolled-course grid.
   const [courseFilter, setCourseFilter] = useState<'all' | 'in-progress' | 'completed' | 'not-started'>('all');
+  // List view: free-text search across enrolled course titles (EduPulse §2).
+  const [courseSearch, setCourseSearch] = useState('');
 
   useEffect(() => {
     if (activeCourseId === null || leftTab !== 'live') return;
@@ -259,9 +309,21 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         if (sl.length === 0) return false;
         return sl.every((l) => asNumber(l.completed_percentage) >= 100);
       }).length;
+      const lessonsDone = courseLessons.filter(
+        (l) => asNumber(l.completed_percentage) >= 100,
+      ).length;
       const status: CourseStatus =
         completion >= 100 ? 'completed' : completion <= 0 ? 'not-started' : 'in-progress';
-      return { id, course, completion, modulesDone, modulesTotal: courseSubjects.length, status };
+      return {
+        id,
+        course,
+        completion,
+        modulesDone,
+        modulesTotal: courseSubjects.length,
+        lessonsDone,
+        lessonsTotal: courseLessons.length,
+        status,
+      };
     });
   }, [enrolledCourses, subjects, lessons]);
 
@@ -275,13 +337,14 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     );
   }, [enrolledCoursesMeta]);
 
-  const filteredEnrolledMeta = useMemo(
-    () =>
-      courseFilter === 'all'
-        ? enrolledCoursesMeta
-        : enrolledCoursesMeta.filter((meta) => meta.status === courseFilter),
-    [enrolledCoursesMeta, courseFilter],
-  );
+  const filteredEnrolledMeta = useMemo(() => {
+    const query = courseSearch.trim().toLowerCase();
+    return enrolledCoursesMeta.filter((meta) => {
+      if (courseFilter !== 'all' && meta.status !== courseFilter) return false;
+      if (query && !asString(meta.course.title).toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [enrolledCoursesMeta, courseFilter, courseSearch]);
 
   const handleSelectFile = (file: Record<string, unknown>) => {
     const resolved = resolveSelectedContent(file);
@@ -326,15 +389,45 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
 
   const handleOpenCourse = (courseId: string) => {
     setActiveCourseId(courseId);
+    setPlayerOpen(false);
     setSelectedContent(null);
+    setExpandedSubjectId(null);
     setLeftTab('timeline');
     window.scrollTo({ top: 0 });
   };
 
   const handleBackToList = () => {
     setActiveCourseId(null);
+    setPlayerOpen(false);
     setSelectedContent(null);
     setLeftTab('timeline');
+  };
+
+  // From the subjects grid (§3) into the lesson player (§4). Expands the
+  // chosen subject in the tree and, if it has a playable first file, opens
+  // it immediately so the player isn't blank.
+  const handleOpenSubject = (subjectId: string) => {
+    setPlayerOpen(true);
+    setLeftTab('timeline');
+    setExpandedSubjectId(subjectId);
+    const firstPlayable = lessons
+      .filter((l) => asString(l.subject_id) === subjectId)
+      .flatMap((l) => lessonFiles.filter((f) => asString(f.lesson_id) === asString(l.id)))
+      .find((f) => !isLocked(f) && resolveSelectedContent(f) !== null);
+    if (firstPlayable) {
+      const resolved = resolveSelectedContent(firstPlayable);
+      if (resolved) setSelectedContent(resolved);
+    } else {
+      setSelectedContent(null);
+    }
+    window.scrollTo({ top: 0 });
+  };
+
+  // Back from the lesson player to the subjects grid (§3).
+  const handleBackToSubjects = () => {
+    setPlayerOpen(false);
+    setSelectedContent(null);
+    window.scrollTo({ top: 0 });
   };
 
   if (loading) return <PageLoader label="Loading courses..." />;
@@ -380,14 +473,7 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     const completedLessons = courseLessons.filter(
       (l) => asNumber(l.completed_percentage) >= 100,
     ).length;
-    // A "module" is a subject. In progress = any lesson started; complete = all done.
-    const subjectsInProgress = courseSubjects.filter((s) => {
-      const sid = asString(s.id);
-      const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
-      if (sl.length === 0) return false;
-      const total = sl.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0);
-      return total > 0 && total < sl.length * 100;
-    }).length;
+    // A "module" is a subject. Complete = every lesson done.
     const completedSubjects = courseSubjects.filter((s) => {
       const sid = asString(s.id);
       const sl = courseLessons.filter((l) => asString(l.subject_id) === sid);
@@ -439,14 +525,72 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
       handleSelectFile(finalExamFile);
     };
 
+    // "View live classes" shortcut from the subjects grid header: open the
+    // lesson player and flip its left rail to the Live Classes tab.
+    const handleOpenSubjectLive = () => {
+      const firstSubjectId = asString(courseSubjects[0]?.id);
+      setPlayerOpen(true);
+      setSelectedContent(null);
+      setExpandedSubjectId(firstSubjectId || null);
+      setLeftTab('live');
+      window.scrollTo({ top: 0 });
+    };
+
     const courseDuration = asString(course.duration);
     const liveClassCount = liveClasses.length;
+    // Total quizzes across the course (distinct quiz lesson_files).
+    const totalQuizzes = lessonFiles.filter((f) => {
+      const lessonId = asString(f.lesson_id);
+      const lesson = courseLessons.find((l) => asString(l.id) === lessonId);
+      return Boolean(lesson) && pickFileType(f) === 'quiz';
+    }).length;
+    const courseStatus: CourseStatus =
+      courseCompletion >= 100 ? 'completed' : courseCompletion <= 0 ? 'not-started' : 'in-progress';
+    const courseStatusBadge = statusBadgeFor(courseStatus, courseCompletion);
 
+    // ── Lesson player (§4) — 3-column. Rendered when a subject has been
+    //    opened from the subjects grid. Kept in a sibling render below so
+    //    the data prep above is shared.
+    if (playerOpen) {
+      return (
+        <LessonPlayerView
+          course={course}
+          courseSubjects={courseSubjects}
+          allLessons={lessons}
+          lessonFiles={lessonFiles}
+          courseCompletion={courseCompletion}
+          completedLessons={completedLessons}
+          totalLessons={courseLessons.length}
+          streakCurrent={data?.streakCurrent ?? 0}
+          liveClasses={liveClasses}
+          liveClassesLoading={liveClassesLoading}
+          leftTab={leftTab}
+          onLeftTab={setLeftTab}
+          liveClassCount={liveClassCount}
+          selectedContent={selectedContent}
+          expandedSubjectId={expandedSubjectId}
+          onToggleSubject={(subjectId) =>
+            setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
+          }
+          activeFileId={selectedContent?.id ?? null}
+          onSelectFile={handleSelectFile}
+          onClearContent={() => setSelectedContent(null)}
+          onPlayRecording={handlePlayRecording}
+          upNextLesson={upNextLesson}
+          onStartUpNext={handleStartUpNext}
+          onBack={handleBackToSubjects}
+          api={api}
+          authToken={session.token}
+        />
+      );
+    }
+
+    // ── My Course detail / subjects grid (§3) ──────────────────────
     return (
       <div className="space-y-4">
-        {/* Hero banner — gradient blue with course title, tags, and a
-            circular progress indicator on the right. Naji 2026-05-07. */}
-        <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#1e3a8a] via-[#2347a8] to-[#3b5bdb] p-6 text-white shadow-lg">
+        {/* Hero banner (§3) — brand-gradient with course title, a quick
+            subjects · lessons · status line, and a circular progress ring. */}
+        <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-student-primary via-student-primary to-student-accent p-6 text-white shadow-lg">
           <button
             type="button"
             onClick={handleBackToList}
@@ -475,202 +619,144 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
               <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
                 {asString(course.title) || 'Course'}
               </h1>
+              <p className="mt-2 text-sm text-white/80">
+                {courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'} &middot;{' '}
+                {courseLessons.length} lesson{courseLessons.length === 1 ? '' : 's'} &middot; Status:{' '}
+                {courseStatusBadge.label}
+              </p>
             </div>
             <CourseProgressRing percentage={courseCompletion} />
           </div>
         </div>
 
-        {/* Stats row — 4 cards summarising the course at a glance. */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            icon={BookOpen}
-            iconClass="bg-blue-50 text-blue-600"
-            label="Modules"
-            value={`${completedSubjects} / ${courseSubjects.length}`}
-            sublabel={subjectsInProgress > 0 ? `${subjectsInProgress} in progress` : courseSubjects.length === 0 ? 'No modules yet' : 'Ready to start'}
-          />
-          <StatCard
-            icon={BarChart3}
-            iconClass="bg-emerald-50 text-emerald-600"
-            label="Progress"
-            value={`${courseCompletion}%`}
-            sublabel="Content watched"
-          />
-          <StatCard
-            icon={CheckCircle}
-            iconClass="bg-purple-50 text-purple-600"
-            label="Lessons"
-            value={`${completedLessons} / ${courseLessons.length}`}
-            sublabel={courseLessons.length > 0 ? `${courseLessons.length - completedLessons} remaining` : 'No lessons yet'}
-          />
-          <StatCard
-            icon={Radio}
-            iconClass="bg-amber-50 text-amber-600"
-            label="Live Classes"
-            value={String(liveClassCount)}
-            sublabel={liveClassCount > 0 ? 'View schedule' : 'None scheduled'}
-          />
-        </div>
-
-        {/* Two-column layout: stack of UP NEXT / Final Exam / Modules
-            on the left, content player on the right. */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(300px,400px)_1fr]">
-          {/* LEFT column */}
-          <div className="space-y-3">
-            {/* UP NEXT card — surfaces the next non-completed lesson. */}
-            {upNextLesson ? (
-              <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#3b5bdb] to-[#5a7be8] p-4 text-white shadow-md">
-                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/80">
-                  <PlayCircle aria-hidden="true" className="size-3.5" />
-                  Up Next
-                </div>
-                <p className="line-clamp-2 text-sm font-semibold leading-snug">
-                  {asString(upNextLesson.title) || 'Continue learning'}
-                </p>
-                {upNextSubject ? (
-                  <p className="mt-1 text-xs text-white/75">
-                    {asString(upNextSubject.title)}
-                  </p>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={handleStartUpNext}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white py-2 text-sm font-semibold text-[#3b5bdb] transition-colors hover:bg-white/95"
-                >
-                  <PlayCircle aria-hidden="true" className="size-4" />
-                  Continue
-                </button>
-              </div>
-            ) : null}
-
-            {/* Final Examination card — only shown if a final quiz exists. */}
-            {finalExamFile ? (
-              <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 p-4 text-white shadow-md">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/25">
-                    <FileQuestion aria-hidden="true" className="size-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold leading-snug">Final Examination</p>
-                    <p className="mt-0.5 text-xs text-white/85">Test your knowledge</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleStartFinalExam}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white/95 py-2 text-sm font-semibold text-orange-600 transition-colors hover:bg-white"
-                >
-                  Take Final Exam
-                </button>
-              </div>
-            ) : null}
-
-            {/* Course Modules + Live Classes — toggleable list */}
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <div className="flex border-b border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setLeftTab('timeline')}
-                  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                    leftTab === 'timeline'
-                      ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
-                      : 'text-student-muted hover:text-student-text'
-                  }`}
-                >
-                  <BookOpen className="size-3.5" aria-hidden="true" />
-                  Course Modules
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                    {courseSubjects.length}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLeftTab('live')}
-                  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                    leftTab === 'live'
-                      ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
-                      : 'text-student-muted hover:text-student-text'
-                  }`}
-                >
-                  <Radio className="size-3.5" aria-hidden="true" />
-                  Live Classes
-                  {liveClassCount > 0 ? (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                      {liveClassCount}
-                    </span>
-                  ) : null}
-                </button>
-              </div>
-              <div className="max-h-[60vh] overflow-y-auto p-2">
-                {leftTab === 'timeline' ? (
-                  courseSubjects.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-sm text-student-muted">
-                      No modules in this course yet.
-                    </p>
-                  ) : (
-                    courseSubjects.map((subject) => {
-                      const subjectId = asString(subject.id);
-                      const subjectLessons = lessons.filter((l) => asString(l.subject_id) === subjectId);
-                      return (
-                        <SubjectNode
-                          key={subjectId}
-                          subject={subject}
-                          lessons={subjectLessons}
-                          lessonFiles={lessonFiles}
-                          activeFileId={selectedContent?.id ?? null}
-                          onSelectFile={handleSelectFile}
-                          expanded={expandedSubjectId === subjectId}
-                          onToggle={() =>
-                            setExpandedSubjectId((cur) => (cur === subjectId ? null : subjectId))
-                          }
-                        />
-                      );
-                    })
-                  )
-                ) : (
-                  <LiveClassesPanel
-                    rows={liveClasses}
-                    loading={liveClassesLoading}
-                    onPlayRecording={handlePlayRecording}
-                  />
-                )}
-              </div>
-            </div>
+        {/* Stats strip (§3) — Subjects / Lessons / Quizzes / Live / Status,
+            each iconed, followed by an Overall Course Progress bar. We omit
+            an "Assignments" stat here because loadLearning doesn't fetch
+            assignment data — the dedicated Assignments page owns that. */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <DetailStat
+              icon={Layers}
+              tint="bg-student-primary/10 text-student-primary"
+              label="Subjects"
+              value={`${completedSubjects}/${courseSubjects.length}`}
+            />
+            <DetailStat
+              icon={BookOpen}
+              tint="bg-sky-50 text-sky-600"
+              label="Lessons"
+              value={`${completedLessons}/${courseLessons.length}`}
+            />
+            <DetailStat
+              icon={FileQuestion}
+              tint="bg-fuchsia-50 text-fuchsia-600"
+              label="Quizzes"
+              value={String(totalQuizzes)}
+            />
+            <DetailStat
+              icon={Radio}
+              tint="bg-amber-50 text-amber-600"
+              label="Live Classes"
+              value={String(liveClassCount)}
+            />
+            <DetailStat
+              icon={BarChart3}
+              tint={
+                courseStatus === 'completed'
+                  ? 'bg-emerald-50 text-emerald-600'
+                  : courseStatus === 'not-started'
+                    ? 'bg-slate-100 text-slate-500'
+                    : 'bg-student-primary/10 text-student-primary'
+              }
+              label="Status"
+              value={courseStatusBadge.label}
+            />
           </div>
 
-          {/* RIGHT — Content View. */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            {selectedContent ? (
-              <ContentPlayer
-                content={selectedContent}
-                onClose={() => setSelectedContent(null)}
-                api={api}
-                authToken={session.token}
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-semibold text-student-text">Overall Course Progress</span>
+              <span className="text-base font-bold text-student-primary">{courseCompletion}%</span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+                style={{ width: `${Math.min(courseCompletion, 100)}%` }}
               />
-            ) : (
-              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-                <div className="flex size-16 items-center justify-center rounded-2xl bg-student-primary/10">
-                  <PlayCircle aria-hidden="true" className="size-9 text-student-primary" />
-                </div>
-                <div>
-                  <p className="text-base font-semibold text-student-text">Ready to Learn?</p>
-                  <p className="mt-1 max-w-xs text-sm text-student-muted">
-                    Select a module from the left to start watching videos, reading materials, or taking quizzes.
-                  </p>
-                </div>
-                {upNextLesson ? (
-                  <button
-                    type="button"
-                    onClick={handleStartUpNext}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                  >
-                    <PlayCircle aria-hidden="true" className="size-4" />
-                    Continue Learning
-                  </button>
-                ) : null}
+            </div>
+          </div>
+        </div>
+
+        {/* Final Examination banner — only shown if a final quiz exists. */}
+        {finalExamFile ? (
+          <div className="flex flex-col gap-3 overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 p-5 text-white shadow-md sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/25">
+                <FileQuestion aria-hidden="true" className="size-6" />
               </div>
-            )}
-          </section>
+              <div>
+                <p className="text-sm font-semibold leading-snug">Final Examination</p>
+                <p className="mt-0.5 text-xs text-white/85">Test everything you've learned in this course.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleStartFinalExam}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-white/95 px-4 py-2.5 text-sm font-semibold text-orange-600 transition-colors hover:bg-white"
+            >
+              Take Final Exam
+            </button>
+          </div>
+        ) : null}
+
+        {/* Subjects grid (§3) — gradient-banner cards. */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-student-text">Subjects</h2>
+            {liveClassCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => handleOpenSubjectLive()}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-student-primary transition-colors hover:text-student-primary/80"
+              >
+                <Radio aria-hidden="true" className="size-4" />
+                View live classes
+              </button>
+            ) : null}
+          </div>
+
+          {courseSubjects.length === 0 ? (
+            <div role="status" className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
+              <Layers aria-hidden="true" className="mx-auto mb-3 size-10 text-slate-300" />
+              <p className="text-sm text-student-muted">No subjects in this course yet.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {courseSubjects.map((subject, idx) => {
+                const subjectId = asString(subject.id);
+                const subjectLessons = courseLessons.filter(
+                  (l) => asString(l.subject_id) === subjectId,
+                );
+                const subjectQuizzes = lessonFiles.filter((f) => {
+                  const lessonId = asString(f.lesson_id);
+                  return (
+                    subjectLessons.some((l) => asString(l.id) === lessonId) &&
+                    pickFileType(f) === 'quiz'
+                  );
+                }).length;
+                return (
+                  <SubjectCard
+                    key={subjectId}
+                    index={idx}
+                    subject={subject}
+                    lessons={subjectLessons}
+                    quizCount={subjectQuizzes}
+                    onContinue={() => handleOpenSubject(subjectId)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -699,55 +785,72 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         </div>
       </div>
 
-      {/* Enrolled — EduPulse "Courses" layout: status filter pills above a
-          responsive grid of rich course cards. Same per-course math as
-          before, lifted into the enrolledCoursesMeta useMemo. */}
+      {/* Enrolled — EduPulse "Courses" layout (§2): a search bar + status
+          filter pills above a responsive grid of gradient-banner course
+          cards. Same per-course math as before, lifted into
+          enrolledCoursesMeta. */}
       {enrolledCourses.length > 0 ? (
         <div className="space-y-4">
-          {/* Status filter pills */}
-          <div className="flex flex-wrap gap-2">
-            {([
-              { key: 'all', label: 'All', count: enrolledCoursesMeta.length },
-              { key: 'in-progress', label: 'In progress', count: statusCounts['in-progress'] },
-              { key: 'completed', label: 'Completed', count: statusCounts.completed },
-              { key: 'not-started', label: 'Not started', count: statusCounts['not-started'] },
-            ] as const).map((pill) => {
-              const active = courseFilter === pill.key;
-              return (
-                <button
-                  key={pill.key}
-                  type="button"
-                  onClick={() => setCourseFilter(pill.key)}
-                  aria-pressed={active}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                    active
-                      ? 'bg-student-primary text-white'
-                      : 'border border-slate-200 bg-white text-student-muted hover:bg-slate-50'
-                  }`}
-                >
-                  {pill.label}
-                  <span
-                    className={`rounded-full px-1.5 text-[11px] font-semibold ${
-                      active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+          {/* Search + status filter pills */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:max-w-sm">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="search"
+                value={courseSearch}
+                onChange={(e) => setCourseSearch(e.target.value)}
+                placeholder="Search your courses…"
+                aria-label="Search your courses"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-student-text placeholder:text-slate-400 focus:border-student-primary focus:outline-none focus:ring-2 focus:ring-student-primary/20"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: 'all', label: 'All', count: enrolledCoursesMeta.length },
+                { key: 'in-progress', label: 'In progress', count: statusCounts['in-progress'] },
+                { key: 'completed', label: 'Completed', count: statusCounts.completed },
+                { key: 'not-started', label: 'Not started', count: statusCounts['not-started'] },
+              ] as const).map((pill) => {
+                const active = courseFilter === pill.key;
+                return (
+                  <button
+                    key={pill.key}
+                    type="button"
+                    onClick={() => setCourseFilter(pill.key)}
+                    aria-pressed={active}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? 'bg-student-primary text-white'
+                        : 'border border-slate-200 bg-white text-student-muted hover:bg-slate-50'
                     }`}
                   >
-                    {pill.count}
-                  </span>
-                </button>
-              );
-            })}
+                    {pill.label}
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] font-semibold ${
+                        active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {pill.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Course grid */}
+          {/* Course grid — gradient-banner cards (EduPulse §2). */}
           {filteredEnrolledMeta.length > 0 ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {filteredEnrolledMeta.map((meta, idx) => (
-                <EnrolledCourseRichCard
+                <EnrolledCourseCard
                   key={meta.id}
-                  index={idx + 1}
+                  index={idx}
                   course={meta.course}
-                  modulesDone={meta.modulesDone}
-                  modulesTotal={meta.modulesTotal}
+                  lessonsDone={meta.lessonsDone}
+                  lessonsTotal={meta.lessonsTotal}
                   completion={meta.completion}
                   status={meta.status}
                   onContinue={() => handleOpenCourse(meta.id)}
@@ -756,7 +859,11 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
             </div>
           ) : (
             <div role="status" className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
-              <p className="text-sm text-student-muted">No courses in this filter.</p>
+              <p className="text-sm text-student-muted">
+                {courseSearch.trim()
+                  ? `No courses match “${courseSearch.trim()}”.`
+                  : 'No courses in this filter.'}
+              </p>
             </div>
           )}
         </div>
@@ -807,187 +914,104 @@ function formatInr(value: number): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
 }
 
-// Naji 2026-05-07 — rich enrolled-course card. Numbered tile on the left,
-// course title + tag + module count strip, four metric tiles, bold
-// progress bar, and a full-width dark "Continue Learning" CTA at bottom.
-// Matches the dashboard reference design.
-function EnrolledCourseRichCard({
+// EduPulse §2 course card — gradient banner with a status badge + book
+// icon, then title, course label, x/y lessons + duration, a progress bar,
+// and a Continue + message-icon footer. No instructor name exists on the
+// course row, so we surface the course `label` (e.g. "B.Ed") when present
+// and omit it otherwise — no fabricated trainer.
+function EnrolledCourseCard({
   index,
   course,
-  modulesDone,
-  modulesTotal,
+  lessonsDone,
+  lessonsTotal,
   completion,
   status,
   onContinue,
 }: {
   index: number;
   course: Record<string, unknown>;
-  modulesDone: number;
-  modulesTotal: number;
+  lessonsDone: number;
+  lessonsTotal: number;
   completion: number;
   status: CourseStatus;
   onContinue: () => void;
 }) {
   const title = asString(course.title) || 'Untitled Course';
-  // Best-effort enrolment + validity dates. The legacy /course/all_course
-  // payload sometimes carries enrollment_date / start_date / created_at;
-  // we render whichever is present, otherwise fall through to a dash.
-  const enrolledDateRaw =
-    asString(course.enrollment_date) ||
-    asString(course.start_date) ||
-    asString(course.created_at);
-  const enrolledDate = enrolledDateRaw ? formatNiceDate(enrolledDateRaw) : '—';
+  const label = asString(course.label);
   const durationStr = asString(course.duration);
-  const validityMonths = parseDurationMonths(durationStr);
-  const enrolledDateObj = enrolledDateRaw ? new Date(enrolledDateRaw) : null;
-  const validUntilObj = enrolledDateObj && validityMonths
-    ? new Date(enrolledDateObj.getFullYear(), enrolledDateObj.getMonth() + validityMonths, enrolledDateObj.getDate())
-    : null;
-  const validUntilLabel = validUntilObj ? formatNiceDate(validUntilObj.toISOString()) : (durationStr || '—');
-  const timeLeftLabel = validUntilObj ? formatTimeLeft(validUntilObj) : (durationStr || '—');
-  const statusBadge: { label: string; className: string } =
-    status === 'completed'
-      ? { label: 'Completed', className: 'bg-emerald-50 text-emerald-700' }
-      : status === 'not-started'
-        ? { label: 'Not started', className: 'bg-slate-100 text-slate-500' }
-        : { label: 'In progress', className: 'bg-student-primary/10 text-student-primary' };
+  const badge = statusBadgeFor(status, completion);
 
   return (
-    <div className="overflow-hidden rounded-2xl border-2 border-student-primary/15 bg-white shadow-sm">
-      {/* Header strip */}
-      <div className="flex items-center gap-4 border-b border-slate-100 px-5 py-4">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg font-bold text-slate-500">
-          {index}
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      {/* Gradient banner */}
+      <div className={`relative flex h-28 items-end bg-gradient-to-br ${gradientFor(index)} p-4`}>
+        <span className={`absolute right-3 top-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${badge.className}`}>
+          {badge.label}
+        </span>
+        <div className="flex size-11 items-center justify-center rounded-xl bg-white/20 text-white backdrop-blur-sm">
+          <BookOpen aria-hidden="true" className="size-6" />
         </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-lg font-bold text-student-text">{title}</h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
-              Standalone
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="line-clamp-2 text-base font-bold leading-snug text-student-text">{title}</h3>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-student-muted">
+          <GraduationCap aria-hidden="true" className="size-3.5 shrink-0" />
+          {label || 'TTII Certified'}
+        </p>
+
+        {/* Lessons + duration meta */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-student-muted">
+          <span className="inline-flex items-center gap-1">
+            <ListChecks aria-hidden="true" className="size-3.5" />
+            {lessonsDone}/{lessonsTotal} lessons
+          </span>
+          {durationStr ? (
+            <span className="inline-flex items-center gap-1">
+              <Clock aria-hidden="true" className="size-3.5" />
+              {durationStr}
             </span>
-            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusBadge.className}`}>
-              {statusBadge.label}
-            </span>
-            <span className="text-student-muted">{modulesDone}/{modulesTotal} modules</span>
+          ) : null}
+        </div>
+
+        {/* Progress */}
+        <div className="mt-3">
+          <div className="mb-1.5 flex items-center justify-between text-xs">
+            <span className="font-medium text-student-muted">Progress</span>
+            <span className="font-bold text-student-primary">{completion}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+              style={{ width: `${Math.min(completion, 100)}%` }}
+            />
           </div>
         </div>
-        <ChevronDown aria-hidden="true" className="size-5 shrink-0 -rotate-180 text-student-primary opacity-60" />
-      </div>
 
-      {/* 4 metric tiles */}
-      <div className="grid grid-cols-2 gap-3 px-5 py-4 lg:grid-cols-4">
-        <CourseMetricTile
-          icon={Calendar}
-          tint="text-blue-600 bg-blue-50"
-          label="Enrolled"
-          value={enrolledDate}
-        />
-        <CourseMetricTile
-          icon={Clock}
-          tint="text-amber-600 bg-amber-50"
-          label="Valid Until"
-          value={validUntilLabel}
-        />
-        <CourseMetricTile
-          icon={BookOpen}
-          tint="text-emerald-600 bg-emerald-50"
-          label="Modules"
-          value={`${modulesDone} of ${modulesTotal} done`}
-        />
-        <CourseMetricTile
-          icon={Clock}
-          tint="text-purple-600 bg-purple-50"
-          label="Time Left"
-          value={timeLeftLabel}
-        />
-      </div>
-
-      {/* Progress + CTA */}
-      <div className="space-y-3 px-5 pb-5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-student-muted">Course Progress</span>
-          <span className="text-base font-bold text-student-primary">{completion}%</span>
+        {/* Footer actions */}
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onContinue}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-student-primary text-sm font-semibold text-white transition-colors hover:bg-student-primary/90"
+          >
+            <PlayCircle aria-hidden="true" className="size-4" />
+            {status === 'completed' ? 'Review' : status === 'not-started' ? 'Start' : 'Continue'}
+          </button>
+          <button
+            type="button"
+            onClick={onContinue}
+            aria-label="Open course discussion"
+            title="Open course"
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-student-muted transition-colors hover:bg-slate-50 hover:text-student-primary"
+          >
+            <MessageCircle aria-hidden="true" className="size-4" />
+          </button>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
-            style={{ width: `${Math.min(completion, 100)}%` }}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={onContinue}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-        >
-          <PlayCircle aria-hidden="true" className="size-4" />
-          Continue Learning
-        </button>
       </div>
-    </div>
+    </article>
   );
-}
-
-function CourseMetricTile({
-  icon: Icon,
-  tint,
-  label,
-  value,
-}: {
-  icon: typeof BookOpen;
-  tint: string;
-  label: string;
-  value: string;
-}) {
-  // tint is a "text-xxx-Y00 bg-xxx-50" string — split for cleaner classNames.
-  const [textCls, bgCls] = tint.split(' ');
-  return (
-    <div className={`flex items-center gap-3 rounded-xl border border-slate-100 ${bgCls ?? ''} p-3`}>
-      <Icon aria-hidden="true" className={`size-5 shrink-0 ${textCls ?? ''}`} />
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-student-muted">{label}</p>
-        <p className="truncate text-sm font-semibold text-student-text">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function formatNiceDate(iso: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-// Parse legacy "12 months", "1 year", "6 months" duration strings to a
-// month count. Returns null when the format isn't recognised.
-function parseDurationMonths(value: string): number | null {
-  if (!value) return null;
-  const v = value.toLowerCase().trim();
-  const match = v.match(/(\d+)\s*(year|month|day)/);
-  if (!match) return null;
-  const n = parseInt(match[1] ?? '', 10);
-  if (!Number.isFinite(n)) return null;
-  const unit = match[2];
-  if (unit === 'year') return n * 12;
-  if (unit === 'month') return n;
-  if (unit === 'day') return Math.max(1, Math.round(n / 30));
-  return null;
-}
-
-function formatTimeLeft(target: Date): string {
-  const now = new Date();
-  const diffMs = target.getTime() - now.getTime();
-  if (diffMs <= 0) return 'Expired';
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (days >= 365) {
-    const years = Math.floor(days / 365);
-    return `${years} year${years === 1 ? '' : 's'}`;
-  }
-  if (days >= 30) {
-    const months = Math.floor(days / 30);
-    return `${months} month${months === 1 ? '' : 's'}`;
-  }
-  return `${days} day${days === 1 ? '' : 's'}`;
 }
 
 // Circular progress indicator shown in the course detail hero banner.
@@ -1037,29 +1061,610 @@ function CourseProgressRing({ percentage }: { percentage: number }) {
   );
 }
 
-// Single metric card for the stats row.
-function StatCard({
+// Single iconed metric in the course-detail stats strip (§3). Icon chip on
+// top, big value, small label — the EduPulse stat tile.
+function DetailStat({
   icon: Icon,
-  iconClass,
+  tint,
   label,
   value,
-  sublabel,
 }: {
   icon: typeof BookOpen;
-  iconClass: string;
+  tint: string;
   label: string;
   value: string;
-  sublabel: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-student-muted">{label}</p>
-        <p className="mt-1 truncate text-xl font-bold text-student-text">{value}</p>
-        <p className="mt-0.5 truncate text-[11px] text-student-muted">{sublabel}</p>
-      </div>
-      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
+    <div className="flex flex-col items-center gap-2 text-center">
+      <div className={`flex size-10 items-center justify-center rounded-xl ${tint}`}>
         <Icon aria-hidden="true" className="size-5" />
+      </div>
+      <div>
+        <p className="text-base font-bold leading-tight text-student-text">{value}</p>
+        <p className="text-[11px] font-medium text-student-muted">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+// EduPulse §3 subject card — gradient banner + status badge + layers icon,
+// then subject title, a Lessons / Quizzes / Progress metric row, and a
+// Continue Learning CTA into the lesson player. Subject rows carry no
+// instructor / code / assignment count, so those are intentionally omitted
+// rather than faked.
+function SubjectCard({
+  index,
+  subject,
+  lessons,
+  quizCount,
+  onContinue,
+}: {
+  index: number;
+  subject: Record<string, unknown>;
+  lessons: Record<string, unknown>[];
+  quizCount: number;
+  onContinue: () => void;
+}) {
+  const title = asString(subject.title) || `Subject ${index + 1}`;
+  const lessonsDone = lessons.filter((l) => asNumber(l.completed_percentage) >= 100).length;
+  const lessonsTotal = lessons.length;
+  // Prefer the backend-computed progress; fall back to averaging the
+  // course-lesson completion when the subject row lacks it.
+  const progress = (() => {
+    const fromSubject = asNumber(subject.progress);
+    if (fromSubject > 0) return Math.min(100, Math.round(fromSubject));
+    if (lessonsTotal === 0) return 0;
+    return Math.round(
+      lessons.reduce((sum, l) => sum + asNumber(l.completed_percentage), 0) / lessonsTotal,
+    );
+  })();
+  const locked = isLocked(subject) || asBoolean(subject.is_locked);
+  const status: CourseStatus =
+    progress >= 100 ? 'completed' : progress <= 0 ? 'not-started' : 'in-progress';
+  const badge = statusBadgeFor(status, progress);
+
+  return (
+    <article className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className={`relative flex h-24 items-end bg-gradient-to-br ${gradientFor(index)} p-4`}>
+        <span className={`absolute right-3 top-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${badge.className}`}>
+          {badge.label}
+        </span>
+        <div className="flex size-10 items-center justify-center rounded-xl bg-white/20 text-white backdrop-blur-sm">
+          <Layers aria-hidden="true" className="size-5" />
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="line-clamp-2 text-base font-bold leading-snug text-student-text">{title}</h3>
+
+        {/* Metric row */}
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-slate-50 px-2 py-2">
+            <p className="text-sm font-bold text-student-text">{lessonsDone}/{lessonsTotal}</p>
+            <p className="text-[10px] font-medium text-student-muted">Lessons</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-2 py-2">
+            <p className="text-sm font-bold text-student-text">{quizCount}</p>
+            <p className="text-[10px] font-medium text-student-muted">Quizzes</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-2 py-2">
+            <p className="text-sm font-bold text-student-primary">{progress}%</p>
+            <p className="text-[10px] font-medium text-student-muted">Progress</p>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+            style={{ width: `${Math.min(progress, 100)}%` }}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={locked}
+          className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-student-primary text-sm font-semibold text-white transition-colors hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
+          title={locked ? 'Locked — not yet available' : ''}
+        >
+          {locked ? (
+            <>
+              <Lock aria-hidden="true" className="size-4" />
+              Locked
+            </>
+          ) : (
+            <>
+              <PlayCircle aria-hidden="true" className="size-4" />
+              Continue Learning
+            </>
+          )}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+// EduPulse §4 — the 3-column Lesson Player. Left = collapsible module/lesson
+// tree (the existing SubjectNode, untouched) + Live Classes tab; center =
+// the existing ContentPlayer (video / mp4 / audio / pdf / article / native
+// quiz — all handlers preserved) plus an honest tab strip; right = a
+// course-progress ring, an Upcoming live list, and an instructor card.
+// CRITICAL: this only restructures layout — playback, quiz, and progress
+// handlers come straight through from the page via props.
+interface LessonPlayerViewProps {
+  course: Record<string, unknown>;
+  courseSubjects: Record<string, unknown>[];
+  allLessons: Record<string, unknown>[];
+  lessonFiles: Record<string, unknown>[];
+  courseCompletion: number;
+  completedLessons: number;
+  totalLessons: number;
+  streakCurrent: number;
+  liveClasses: Record<string, unknown>[];
+  liveClassesLoading: boolean;
+  liveClassCount: number;
+  leftTab: 'timeline' | 'live';
+  onLeftTab: (tab: 'timeline' | 'live') => void;
+  selectedContent: SelectedContent | null;
+  expandedSubjectId: string | null;
+  onToggleSubject: (subjectId: string) => void;
+  activeFileId: string | null;
+  onSelectFile: (file: Record<string, unknown>) => void;
+  onClearContent: () => void;
+  onPlayRecording: (row: Record<string, unknown>) => void;
+  upNextLesson: Record<string, unknown> | null;
+  onStartUpNext: () => void;
+  onBack: () => void;
+  api: StudentPortalApi;
+  authToken: string;
+}
+
+function LessonPlayerView({
+  course,
+  courseSubjects,
+  allLessons,
+  lessonFiles,
+  courseCompletion,
+  completedLessons,
+  totalLessons,
+  streakCurrent,
+  liveClasses,
+  liveClassesLoading,
+  liveClassCount,
+  leftTab,
+  onLeftTab,
+  selectedContent,
+  expandedSubjectId,
+  onToggleSubject,
+  activeFileId,
+  onSelectFile,
+  onClearContent,
+  onPlayRecording,
+  upNextLesson,
+  onStartUpNext,
+  onBack,
+  api,
+  authToken,
+}: LessonPlayerViewProps) {
+  const [treeFilter, setTreeFilter] = useState('');
+  // Honest tab strip below the player. Overview is real (the content
+  // description, rendered by ContentPlayer). Transcript and Q&A have no
+  // backing data yet (see edupulse-design-reference §7) — they render an
+  // explicit "not available" state instead of fabricated content.
+  const [activeTab, setActiveTab] = useState<'overview' | 'transcript' | 'qa'>('overview');
+
+  const courseTitle = asString(course.title) || 'Course';
+  const upNextTitle = upNextLesson ? asString(upNextLesson.title) : '';
+
+  const query = treeFilter.trim().toLowerCase();
+  const upcomingLive = liveClasses.filter(
+    (r) => asString(r.status) === 'upcoming' || asString(r.status) === 'today',
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Breadcrumb bar */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-1 font-medium text-student-primary transition-colors hover:text-student-primary/80"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            Subjects
+          </button>
+          <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-slate-300" />
+          <span className="truncate font-semibold text-student-text">{courseTitle}</span>
+        </div>
+        <div className="flex items-center gap-4">
+          {upNextTitle ? (
+            <span className="hidden max-w-[16rem] items-center gap-1.5 truncate rounded-full bg-student-primary/10 px-3 py-1 text-xs font-medium text-student-primary sm:inline-flex">
+              <PlayCircle aria-hidden="true" className="size-3.5 shrink-0" />
+              Continue: {upNextTitle}
+            </span>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent"
+                style={{ width: `${Math.min(courseCompletion, 100)}%` }}
+              />
+            </div>
+            <span className="text-xs font-bold text-student-primary">{courseCompletion}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3-column grid */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(260px,320px)_1fr_minmax(240px,300px)]">
+        {/* LEFT — module/lesson tree + Live Classes */}
+        <aside className="space-y-3">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="flex border-b border-slate-100">
+              <button
+                type="button"
+                onClick={() => onLeftTab('timeline')}
+                className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  leftTab === 'timeline'
+                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                    : 'text-student-muted hover:text-student-text'
+                }`}
+              >
+                <BookOpen className="size-3.5" aria-hidden="true" />
+                Content
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                  {completedLessons}/{totalLessons}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onLeftTab('live')}
+                className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  leftTab === 'live'
+                    ? 'border-b-2 border-student-primary bg-student-primary/5 text-student-primary'
+                    : 'text-student-muted hover:text-student-text'
+                }`}
+              >
+                <Radio className="size-3.5" aria-hidden="true" />
+                Live
+                {liveClassCount > 0 ? (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    {liveClassCount}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+
+            {leftTab === 'timeline' ? (
+              <>
+                {/* Overall progress + filter */}
+                <div className="space-y-2 border-b border-slate-100 p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-student-muted">
+                      {courseCompletion}% complete
+                    </span>
+                    <span className="text-student-muted">
+                      {totalLessons - completedLessons} left
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent"
+                      style={{ width: `${Math.min(courseCompletion, 100)}%` }}
+                    />
+                  </div>
+                  <div className="relative">
+                    <Search
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      type="search"
+                      value={treeFilter}
+                      onChange={(e) => setTreeFilter(e.target.value)}
+                      placeholder="Filter lessons…"
+                      aria-label="Filter lessons"
+                      className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-student-text placeholder:text-slate-400 focus:border-student-primary focus:outline-none focus:ring-2 focus:ring-student-primary/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="max-h-[70vh] overflow-y-auto p-2">
+                  {courseSubjects.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-sm text-student-muted">
+                      No modules in this course yet.
+                    </p>
+                  ) : (
+                    courseSubjects.map((subject) => {
+                      const subjectId = asString(subject.id);
+                      const subjectLessons = allLessons.filter(
+                        (l) => asString(l.subject_id) === subjectId,
+                      );
+                      // Honour the filter: keep a subject if its title or any
+                      // of its lesson titles match the query.
+                      if (query) {
+                        const subjectMatch = asString(subject.title)
+                          .toLowerCase()
+                          .includes(query);
+                        const lessonMatch = subjectLessons.some((l) =>
+                          asString(l.title).toLowerCase().includes(query),
+                        );
+                        if (!subjectMatch && !lessonMatch) return null;
+                      }
+                      return (
+                        <SubjectNode
+                          key={subjectId}
+                          subject={subject}
+                          lessons={subjectLessons}
+                          lessonFiles={lessonFiles}
+                          activeFileId={activeFileId}
+                          onSelectFile={onSelectFile}
+                          expanded={expandedSubjectId === subjectId || query !== ''}
+                          onToggle={() => onToggleSubject(subjectId)}
+                        />
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="max-h-[70vh] overflow-y-auto p-2">
+                <LiveClassesPanel
+                  rows={liveClasses}
+                  loading={liveClassesLoading}
+                  onPlayRecording={onPlayRecording}
+                />
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* CENTER — player + tabbed area */}
+        <section className="space-y-4">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            {selectedContent ? (
+              <ContentPlayer
+                content={selectedContent}
+                onClose={onClearContent}
+                api={api}
+                authToken={authToken}
+              />
+            ) : (
+              <div className="flex min-h-[55vh] flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+                <div className="flex size-16 items-center justify-center rounded-2xl bg-student-primary/10">
+                  <PlayCircle aria-hidden="true" className="size-9 text-student-primary" />
+                </div>
+                <div>
+                  <p className="text-base font-semibold text-student-text">Ready to Learn?</p>
+                  <p className="mt-1 max-w-xs text-sm text-student-muted">
+                    Pick a lesson from the left to start watching videos, reading materials, or taking quizzes.
+                  </p>
+                </div>
+                {upNextLesson ? (
+                  <button
+                    type="button"
+                    onClick={onStartUpNext}
+                    className="inline-flex items-center gap-2 rounded-xl bg-student-primary px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-student-primary/90"
+                  >
+                    <PlayCircle aria-hidden="true" className="size-4" />
+                    Continue Learning
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          {/* Honest tab strip. Only Overview carries real data; Transcript
+              and Q&A have no backing endpoint yet so they say so plainly. */}
+          {selectedContent ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="flex gap-1 border-b border-slate-100 px-2">
+                {([
+                  { key: 'overview', label: 'Overview' },
+                  { key: 'transcript', label: 'Transcript' },
+                  { key: 'qa', label: 'Q&A' },
+                ] as const).map((tab) => {
+                  const active = activeTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setActiveTab(tab.key)}
+                      aria-pressed={active}
+                      className={`border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                        active
+                          ? 'border-student-primary text-student-primary'
+                          : 'border-transparent text-student-muted hover:text-student-text'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="p-4">
+                {activeTab === 'overview' ? (
+                  selectedContent.description ? (
+                    selectedContent.type === 'article' ? (
+                      <article
+                        className="prose prose-sm max-w-none text-sm leading-relaxed text-student-text"
+                        dangerouslySetInnerHTML={{ __html: selectedContent.description }}
+                      />
+                    ) : (
+                      <p className="whitespace-pre-line text-sm leading-relaxed text-student-muted">
+                        {stripHtml(selectedContent.description)}
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-sm italic text-slate-400">
+                      No overview provided for this lesson.
+                    </p>
+                  )
+                ) : (
+                  <div className="flex flex-col items-center gap-2 py-6 text-center">
+                    <FileText aria-hidden="true" className="size-8 text-slate-300" />
+                    <p className="text-sm font-medium text-student-text">
+                      {activeTab === 'transcript' ? 'Transcript' : 'Q&A'} not available yet
+                    </p>
+                    <p className="max-w-xs text-xs text-student-muted">
+                      {activeTab === 'transcript'
+                        ? 'This lesson does not have a transcript. We will surface one here when it is published.'
+                        : 'Discussion and Q&A for this lesson are not enabled yet.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* RIGHT — progress ring + upcoming + instructor */}
+        <aside className="space-y-4">
+          {/* Course progress */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-student-muted">
+              Course Progress
+            </p>
+            <ProgressRingLight percentage={courseCompletion} />
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+              <div className="rounded-xl bg-slate-50 px-2 py-2">
+                <p className="text-sm font-bold text-student-text">
+                  {completedLessons}/{totalLessons}
+                </p>
+                <p className="text-[10px] font-medium text-student-muted">Lessons</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-2 py-2">
+                <p className="inline-flex items-center justify-center gap-1 text-sm font-bold text-amber-600">
+                  <Flame aria-hidden="true" className="size-3.5" />
+                  {streakCurrent}
+                </p>
+                <p className="text-[10px] font-medium text-student-muted">Day streak</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Upcoming live */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-student-muted">
+              Upcoming
+            </p>
+            {upcomingLive.length === 0 ? (
+              <p className="text-xs text-student-muted">No upcoming live classes.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {upcomingLive.slice(0, 3).map((row) => (
+                  <LiveClassRow
+                    key={asString(row.id)}
+                    row={row}
+                    onPlayRecording={onPlayRecording}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Instructor card — only when the course payload carries one. */}
+          <InstructorCard course={course} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// Light-theme variant of the course progress ring for the white right-rail
+// card (the hero ring is white-on-translucent and not reusable here).
+function ProgressRingLight({ percentage }: { percentage: number }) {
+  const clamped = Math.max(0, Math.min(100, percentage));
+  const option = useMemo<EChartsOption>(() => ({
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 90,
+        endAngle: -270,
+        radius: '92%',
+        min: 0,
+        max: 100,
+        progress: { show: true, width: 8, roundCap: true, itemStyle: { color: '#8047e1' } },
+        axisLine: { lineStyle: { width: 8, color: [[1, '#ece9fb']] } },
+        pointer: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: { show: false },
+        anchor: { show: false },
+        detail: { show: false },
+        data: [{ value: clamped }],
+      },
+    ],
+    animationDuration: 600,
+  }), [clamped]);
+
+  return (
+    <div className="relative mx-auto flex size-28 items-center justify-center">
+      <EChart option={option} className="size-full" ariaLabel={`Course complete: ${clamped}%`} />
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold text-student-text">{clamped}%</span>
+        <span className="text-[9px] font-medium uppercase tracking-wider text-student-muted">
+          Complete
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Instructor card for the lesson-player right rail. The legacy course
+// payload does not carry an instructor on the list shape, so this renders
+// only when an `instructor` object with a name is actually present —
+// otherwise it shows an honest "course support" fallback (no fake person).
+function InstructorCard({ course }: { course: Record<string, unknown> }) {
+  const instructor = asRecord(course.instructor);
+  const name = asString(instructor?.name);
+  const image = asString(instructor?.image);
+
+  if (!name) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-student-muted">
+          Instructor
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-student-primary/10 text-student-primary">
+            <GraduationCap aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-student-text">TTII Faculty</p>
+            <p className="text-xs text-student-muted">Course support</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-student-muted">
+        Instructor
+      </p>
+      <div className="flex items-center gap-3">
+        {image ? (
+          <img
+            src={image}
+            alt=""
+            className="size-11 shrink-0 rounded-full object-cover"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-student-primary/10 text-student-primary">
+            <User aria-hidden="true" className="size-5" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-student-text">{name}</p>
+          <p className="text-xs text-student-muted">TTII Certified</p>
+        </div>
       </div>
     </div>
   );
