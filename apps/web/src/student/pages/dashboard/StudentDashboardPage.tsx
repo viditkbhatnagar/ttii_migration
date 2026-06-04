@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import {
   BookOpen, Calendar, ClipboardList, Wallet, Award, PlayCircle, ArrowRight,
   FileText, Video, Bell, CheckCircle, Flame, Trophy, Sparkles, Clock,
+  Rocket, TrendingUp, Crown,
   type LucideIcon,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -82,6 +83,7 @@ interface BadgeRow {
   caption: string;
   icon: LucideIcon;
   tone: string;
+  earned: boolean;
 }
 
 type DashboardBundle = readonly [
@@ -339,36 +341,62 @@ function deriveActivity(notifications: StudentNotificationsSnapshot): ActivityRo
   }));
 }
 
-// Badges are populated ONLY from substantiated signals (learning streak +
-// fully-completed courses). Nothing is fabricated; the grid is omitted by the
-// caller when no badge is earned.
-function deriveBadges(streakCurrent: number, streakBest: number, completedCourses: number): BadgeRow[] {
-  const badges: BadgeRow[] = [];
-  if (streakCurrent >= 3) {
-    badges.push({
+// Six fixed badges (Naji 2026-06-05, audio): always rendered — earned ones in
+// colour, locked ones greyed out, with an "X / 6 earned" count in the header.
+// "earned" is decided ONLY from substantiated signals (streak, real course
+// progress, completed courses); nothing is fabricated — unearned badges simply
+// read as locked goals.
+function deriveBadges(
+  streakCurrent: number,
+  streakBest: number,
+  completedCourses: number,
+  maxProgress: number,
+): BadgeRow[] {
+  const started = maxProgress > 0 || completedCourses > 0;
+  return [
+    {
+      label: 'First Steps',
+      icon: Rocket,
+      tone: 'from-sky-400 to-blue-500',
+      earned: started,
+      caption: started ? 'Learning started' : 'Start a course',
+    },
+    {
       label: 'On a Streak',
-      caption: `${streakCurrent}-day streak`,
       icon: Flame,
       tone: 'from-amber-400 to-orange-500',
-    });
-  }
-  if (streakBest >= 7) {
-    badges.push({
+      earned: streakCurrent >= 3,
+      caption: streakCurrent >= 3 ? `${streakCurrent}-day streak` : 'Study 3 days running',
+    },
+    {
       label: '7-Day Warrior',
-      caption: `${streakBest}-day best`,
       icon: Trophy,
       tone: 'from-fuchsia-400 to-purple-500',
-    });
-  }
-  if (completedCourses >= 1) {
-    badges.push({
+      earned: streakBest >= 7,
+      caption: streakBest >= 7 ? `${streakBest}-day best` : 'Reach a 7-day streak',
+    },
+    {
+      label: 'Halfway There',
+      icon: TrendingUp,
+      tone: 'from-violet-400 to-indigo-500',
+      earned: maxProgress >= 50,
+      caption: maxProgress >= 50 ? 'Course 50%+ done' : 'Reach 50% in a course',
+    },
+    {
       label: 'Course Finisher',
-      caption: `${completedCourses} completed`,
       icon: CheckCircle,
       tone: 'from-emerald-400 to-green-500',
-    });
-  }
-  return badges;
+      earned: completedCourses >= 1,
+      caption: completedCourses >= 1 ? `${completedCourses} completed` : 'Finish a course',
+    },
+    {
+      label: 'Top Performer',
+      icon: Crown,
+      tone: 'from-rose-400 to-pink-500',
+      earned: completedCourses >= 3,
+      caption: completedCourses >= 3 ? 'Pro graduate' : 'Finish 3 courses',
+    },
+  ];
 }
 
 /* ─── Page ───────────────────────────────────────────────────── */
@@ -401,10 +429,17 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     [assessments, nextDue],
   );
   const activity = useMemo(() => (data ? deriveActivity(data[5]) : []), [data]);
-  const badges = useMemo(
-    () => deriveBadges(dashboard?.streakCurrent ?? 0, dashboard?.streakTotal ?? 0, completedCourses),
-    [dashboard, completedCourses],
-  );
+  const badges = useMemo(() => {
+    const inProgressMax = inProgressCourses.reduce((m, c) => Math.max(m, c.progress), 0);
+    const maxProgress = completedCourses > 0 ? 100 : inProgressMax;
+    return deriveBadges(
+      dashboard?.streakCurrent ?? 0,
+      dashboard?.streakTotal ?? 0,
+      completedCourses,
+      maxProgress,
+    );
+  }, [dashboard, completedCourses, inProgressCourses]);
+  const earnedBadgeCount = badges.filter((b) => b.earned).length;
 
   if (loading) {
     return <PageLoader label="Loading your dashboard..." />;
@@ -555,8 +590,12 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         <div className="grid gap-6 lg:grid-cols-3">
           {badges.length > 0 ? (
             <div className={priorities.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
-              <SectionCard title="Achievements & Badges" subtitle="Milestones you've unlocked">
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              <SectionCard
+                title="Achievements & Badges"
+                subtitle="Milestones you've unlocked"
+                pill={`${earnedBadgeCount} / 6 earned`}
+              >
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
                   {badges.map((badge) => (
                     <BadgeTile key={badge.label} badge={badge} />
                   ))}
@@ -648,24 +687,32 @@ interface SectionHeaderProps {
   subtitle?: string | undefined;
   actionLabel?: string | undefined;
   onAction?: (() => void) | undefined;
+  pill?: string | undefined;
 }
 
-function SectionHeader({ title, subtitle, actionLabel, onAction }: SectionHeaderProps) {
+function SectionHeader({ title, subtitle, actionLabel, onAction, pill }: SectionHeaderProps) {
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div className="min-w-0">
         <h2 className="text-lg font-bold text-student-text">{title}</h2>
         {subtitle ? <p className="mt-0.5 text-sm text-student-muted">{subtitle}</p> : null}
       </div>
-      {actionLabel && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-student-primary hover:underline"
-        >
-          {actionLabel} <ArrowRight aria-hidden="true" className="size-3.5" />
-        </button>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-3">
+        {pill ? (
+          <span className="inline-flex items-center rounded-full bg-student-primary/10 px-3 py-1 text-xs font-semibold text-student-primary">
+            {pill}
+          </span>
+        ) : null}
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className="inline-flex items-center gap-1 text-sm font-semibold text-student-primary hover:underline"
+          >
+            {actionLabel} <ArrowRight aria-hidden="true" className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -677,12 +724,18 @@ interface SectionCardProps extends SectionHeaderProps {
 
 // A section rendered as one big white container card with its header + items
 // inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
-function SectionCard({ title, subtitle, actionLabel, onAction, children, className }: SectionCardProps) {
+function SectionCard({ title, subtitle, actionLabel, onAction, pill, children, className }: SectionCardProps) {
   return (
     <section
       className={`flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
     >
-      <SectionHeader title={title} subtitle={subtitle} actionLabel={actionLabel} onAction={onAction} />
+      <SectionHeader
+        title={title}
+        subtitle={subtitle}
+        actionLabel={actionLabel}
+        onAction={onAction}
+        pill={pill}
+      />
       {children}
     </section>
   );
@@ -942,14 +995,26 @@ function BadgeTile({ badge }: { badge: BadgeRow }) {
   const Icon = badge.icon;
   return (
     <div className="flex flex-col items-center text-center">
-      <div className={`flex size-16 items-center justify-center rounded-full bg-gradient-to-br ${badge.tone} text-white shadow-sm`}>
+      <div
+        className={`flex size-16 items-center justify-center rounded-full shadow-sm ${
+          badge.earned
+            ? `bg-gradient-to-br ${badge.tone} text-white`
+            : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200'
+        }`}
+      >
         <Icon aria-hidden="true" className="size-7" />
       </div>
-      <p className="mt-2.5 flex items-center gap-1 text-sm font-bold text-student-text">
-        <Sparkles aria-hidden="true" className="size-3.5 text-amber-500" />
+      <p
+        className={`mt-2.5 flex items-center gap-1 text-sm font-bold ${
+          badge.earned ? 'text-student-text' : 'text-slate-400'
+        }`}
+      >
+        {badge.earned ? <Sparkles aria-hidden="true" className="size-3.5 text-amber-500" /> : null}
         {badge.label}
       </p>
-      <p className="mt-0.5 text-xs text-student-muted">{badge.caption}</p>
+      <p className={`mt-0.5 text-xs ${badge.earned ? 'text-student-muted' : 'text-slate-400'}`}>
+        {badge.caption}
+      </p>
     </div>
   );
 }
