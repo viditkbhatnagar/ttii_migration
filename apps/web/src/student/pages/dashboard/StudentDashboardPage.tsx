@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   BookOpen, Calendar, ClipboardList, Wallet, Award, PlayCircle, ArrowRight,
   FileText, Video, Bell, CheckCircle, Flame, Trophy, Sparkles, Clock,
@@ -503,49 +503,43 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         ))}
       </section>
 
-      {/* 3 · Continue Learning + Upcoming Live — side-by-side (EduPulse layout) */}
-      {inProgressCourses.length > 0 || upcomingLive.length > 0 ? (
-        <section className="grid gap-6 lg:grid-cols-3">
-          {inProgressCourses.length > 0 ? (
-            <div className={upcomingLive.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
-              <SectionHeader
-                title="Continue Learning"
-                subtitle="Pick up right where you left off"
-                actionLabel="View all"
-                onAction={() => onNavigate('/student/courses')}
+      {/* 3 · Continue Learning (big card) */}
+      {inProgressCourses.length > 0 ? (
+        <SectionCard
+          title="Continue Learning"
+          subtitle="Pick up right where you left off"
+          actionLabel="View all"
+          onAction={() => onNavigate('/student/courses')}
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {inProgressCourses.map((course) => (
+              <ContinueLearningCard
+                key={course.id}
+                course={course}
+                onResume={() => onNavigate('/student/courses')}
               />
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {inProgressCourses.map((course) => (
-                  <ContinueLearningCard
-                    key={course.id}
-                    course={course}
-                    onResume={() => onNavigate('/student/courses')}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
 
-          {upcomingLive.length > 0 ? (
-            <div className={inProgressCourses.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
-              <SectionHeader
-                title="Upcoming Live"
-                actionLabel="See all"
-                onAction={() => onNavigate('/student/live-classes')}
+      {/* 4 · Upcoming Live (big card) */}
+      {upcomingLive.length > 0 ? (
+        <SectionCard
+          title="Upcoming Live"
+          actionLabel="See all"
+          onAction={() => onNavigate('/student/live-classes')}
+        >
+          <div className="space-y-3">
+            {upcomingLive.map((row) => (
+              <UpcomingLiveRow
+                key={row.id}
+                row={row}
+                onJoin={() => onNavigate('/student/live-classes')}
               />
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                {upcomingLive.map((row, idx) => (
-                  <UpcomingLiveRow
-                    key={row.id}
-                    row={row}
-                    isLast={idx === upcomingLive.length - 1}
-                    onJoin={() => onNavigate('/student/live-classes')}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
+            ))}
+          </div>
+        </SectionCard>
       ) : null}
 
       {/* 5 · Today's Priorities */}
@@ -553,33 +547,29 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
       ) : null}
 
-      {/* 6 · Recent Activity */}
+      {/* 6 · Recent Activity (big card) */}
       {activity.length > 0 ? (
-        <section>
-          <SectionHeader
-            title="Recent Activity"
-            actionLabel="View all"
-            onAction={() => onNavigate('/student/notifications')}
-          />
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <ol className="space-y-1">
-              {activity.map((row, idx) => (
-                <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
-              ))}
-            </ol>
-          </div>
-        </section>
+        <SectionCard
+          title="Recent Activity"
+          actionLabel="View all"
+          onAction={() => onNavigate('/student/notifications')}
+        >
+          <ol className="space-y-1">
+            {activity.map((row, idx) => (
+              <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
+            ))}
+          </ol>
+        </SectionCard>
       ) : null}
 
-      {/* 7 · Recommended Courses */}
+      {/* 7 · Recommended Courses (big card) */}
       {recommended.length > 0 ? (
-        <section>
-          <SectionHeader
-            title="Recommended Courses"
-            subtitle="Expand your skills with these programs"
-            actionLabel="Browse all"
-            onAction={() => onNavigate('/student/courses')}
-          />
+        <SectionCard
+          title="Recommended Courses"
+          subtitle="Expand your skills with these programs"
+          actionLabel="Browse all"
+          onAction={() => onNavigate('/student/courses')}
+        >
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {recommended.slice(0, 6).map((course) => (
               <RecommendedCard
@@ -589,21 +579,18 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               />
             ))}
           </div>
-        </section>
+        </SectionCard>
       ) : null}
 
-      {/* 8 · Achievements & Badges (only when substantiated) */}
+      {/* 8 · Achievements & Badges (big card, only when substantiated) */}
       {badges.length > 0 ? (
-        <section>
-          <SectionHeader title="Achievements & Badges" subtitle="Milestones you've unlocked" />
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {badges.map((badge) => (
-                <BadgeTile key={badge.label} badge={badge} />
-              ))}
-            </div>
+        <SectionCard title="Achievements & Badges" subtitle="Milestones you've unlocked">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {badges.map((badge) => (
+              <BadgeTile key={badge.label} badge={badge} />
+            ))}
           </div>
-        </section>
+        </SectionCard>
       ) : null}
     </div>
   );
@@ -643,9 +630,9 @@ function StatCard({ icon: Icon, label, value, delta, tint }: StatCardProps) {
 
 interface SectionHeaderProps {
   title: string;
-  subtitle?: string;
-  actionLabel?: string;
-  onAction?: () => void;
+  subtitle?: string | undefined;
+  actionLabel?: string | undefined;
+  onAction?: (() => void) | undefined;
 }
 
 function SectionHeader({ title, subtitle, actionLabel, onAction }: SectionHeaderProps) {
@@ -665,6 +652,22 @@ function SectionHeader({ title, subtitle, actionLabel, onAction }: SectionHeader
         </button>
       ) : null}
     </div>
+  );
+}
+
+interface SectionCardProps extends SectionHeaderProps {
+  children: ReactNode;
+  className?: string;
+}
+
+// A section rendered as one big white container card with its header + items
+// inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
+function SectionCard({ title, subtitle, actionLabel, onAction, children, className }: SectionCardProps) {
+  return (
+    <section className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}>
+      <SectionHeader title={title} subtitle={subtitle} actionLabel={actionLabel} onAction={onAction} />
+      {children}
+    </section>
   );
 }
 
@@ -702,12 +705,12 @@ function ContinueLearningCard({ course, onResume }: { course: CourseProgressRow;
   );
 }
 
-function UpcomingLiveRow({ row, isLast, onJoin }: { row: LiveRow; isLast: boolean; onJoin: () => void }) {
+function UpcomingLiveRow({ row, onJoin }: { row: LiveRow; onJoin: () => void }) {
   const chip = weekdayChip(row.date);
   const time = shortTime(row.fromTime);
   const meta = [row.subject, row.instructor].filter(Boolean).join(' · ');
   return (
-    <div className={`flex items-center gap-4 p-4 ${isLast ? '' : 'border-b border-slate-100'}`}>
+    <div className="flex items-center gap-4 rounded-xl border border-slate-200 p-4">
       <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl bg-student-primary/10 text-student-primary">
         <span className="text-[10px] font-bold uppercase tracking-wide">{chip.weekday || '—'}</span>
         <span className="text-lg font-bold leading-none">{chip.day || '—'}</span>
@@ -775,7 +778,7 @@ function PrioritiesSection({
   ];
 
   return (
-    <section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="text-lg font-bold text-student-text">Today&apos;s Priorities</h2>
         <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
@@ -802,11 +805,11 @@ function PrioritiesSection({
         })}
       </div>
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-student-muted">
+        <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-student-muted">
           Nothing here right now.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div>
           {filtered.map((row, idx) => (
             <PriorityItem
               key={row.id}
