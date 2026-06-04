@@ -3026,7 +3026,11 @@ export class ContentService {
       lesson_type: f.lesson_type ?? '',
       video_url: f.video_url ?? '',
       attachment: f.attachment ?? '',
+      // Full, viewable URLs so the admin can open the uploaded document / audio
+      // — the raw `attachment` / `audio_file` are bare storage paths, not URLs.
+      attachment_url: this.toFileUrl(f.attachment),
       audio_file: f.audio_file ?? '',
+      audio_url: this.toFileUrl(f.audio_file),
       free: f.free ?? 'off',
       order: f.order ?? 0,
       attachment_type: f.attachment_type ?? '',

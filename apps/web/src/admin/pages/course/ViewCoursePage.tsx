@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -69,13 +69,27 @@ function LessonFilesNode({
   }
   return (
     <ul className="ml-12 space-y-1">
-      {files.map((f) => (
-        <li key={asString(f.id)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
-          <LessonFileIcon type={asString(f.lesson_type)} />
-          <span className="flex-1 text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
-          <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(f.lesson_type) || 'file'}</span>
-        </li>
-      ))}
+      {files.map((f) => {
+        const fileUrl = asString(f.attachment_url) || asString(f.video_url) || asString(f.audio_url);
+        return (
+          <li key={asString(f.id)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
+            <LessonFileIcon type={asString(f.lesson_type)} />
+            <span className="flex-1 text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
+            <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(f.lesson_type) || 'file'}</span>
+            {fileUrl ? (
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+              >
+                <ExternalLink aria-hidden="true" className="size-3" />
+                View
+              </a>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
