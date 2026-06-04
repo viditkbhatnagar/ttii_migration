@@ -170,6 +170,36 @@ function relativeTime(value: string): string {
   return formatDate(value);
 }
 
+// Notification bodies are authored as HTML and sometimes carry broken-emoji
+// artifacts (emoji stored in a non-utf8mb4 column collapse to "?"). Render them
+// as clean plain text: strip tags, decode entities, drop broken-"?" runs, space
+// out inline check-emoji, and collapse whitespace.
+function cleanNotificationText(raw: string): string {
+  if (!raw) {
+    return '';
+  }
+  return raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#0?39;|&rsquo;/gi, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, code: string) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : '';
+    })
+    .replace(/&#(\d+);/g, (_m, code: string) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : '';
+    })
+    .replace(/\?{2,}/g, ' ')
+    .replace(/✅/g, ' ✅ ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /* ─── Derivations ────────────────────────────────────────────── */
 
 function deriveInProgressCourses(learning: StudentLearningSnapshot): CourseProgressRow[] {
@@ -331,8 +361,8 @@ function derivePriorities(
 function deriveActivity(notifications: StudentNotificationsSnapshot): ActivityRow[] {
   return notifications.notifications.slice(0, RECENT_ACTIVITY_LIMIT).map((n): ActivityRow => ({
     id: asString(n.id),
-    title: asString(n.title) || 'Notification',
-    description: asString(n.description) || asString(n.message),
+    title: cleanNotificationText(asString(n.title)) || 'Notification',
+    description: cleanNotificationText(asString(n.description) || asString(n.message)),
     time: relativeTime(asString(n.created_at)),
     isRead: asNumber(n.is_read) === 1,
   }));
@@ -875,7 +905,7 @@ function ActivityItem({ row, isLast }: { row: ActivityRow; isLast: boolean }) {
           <p className={`text-sm ${row.isRead ? 'text-student-text' : 'font-semibold text-student-text'}`}>{row.title}</p>
           {row.time ? <span className="shrink-0 text-xs text-slate-400">{row.time}</span> : null}
         </div>
-        {row.description ? <p className="mt-0.5 text-sm text-student-muted">{row.description}</p> : null}
+        {row.description ? <p className="mt-0.5 line-clamp-2 text-sm text-student-muted">{row.description}</p> : null}
       </div>
     </li>
   );
