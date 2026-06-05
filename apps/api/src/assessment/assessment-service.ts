@@ -542,6 +542,7 @@ export class AssessmentService {
     return {
       id: toNullableIntId(examId) ?? 0,
       title: toStringValue(exam.title),
+      exam_code: toStringValue(exam.exam_code),
       description: toStringValue(exam.description),
       total_mark: toDbNumber(exam.mark),
       duration: toStringValue(exam.duration),
@@ -603,6 +604,15 @@ export class AssessmentService {
       exams.map((exam) => this.toExamData(exam as unknown as Record<string, unknown>, userId)),
     );
 
+    // Exams are course-scoped (the exam table has no subject link), so the
+    // course name is constant for this list — resolve it once and stamp every
+    // exam with it so the student cards can show "exam · course".
+    const courseRow = await this.prisma.course.findFirst({
+      where: { id: toNullableIntId(resolvedCourseId) ?? 0 },
+      select: { title: true },
+    });
+    const courseTitle = toStringValue(courseRow?.title);
+
     const now = Date.now();
     const upcomingExams: Record<string, unknown>[] = [];
     const expiredExams: Record<string, unknown>[] = [];
@@ -614,11 +624,12 @@ export class AssessmentService {
         continue;
       }
 
+      const enriched = { ...examInfo, course_title: courseTitle };
       const examDateTime = combineDateAndTime(exam.from_date, exam.from_time);
       if (examDateTime && examDateTime.getTime() > now) {
-        upcomingExams.push(examInfo);
+        upcomingExams.push(enriched);
       } else {
-        expiredExams.push(examInfo);
+        expiredExams.push(enriched);
       }
     }
 

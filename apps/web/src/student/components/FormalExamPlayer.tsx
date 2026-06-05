@@ -76,6 +76,7 @@ function fmtHMS(sec: number): string {
 export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, proctored = true, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [tick, setTick] = useState(0);
+  const [agreed, setAgreed] = useState(false);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
   const submittingRef = useRef(false);
@@ -382,9 +383,31 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
               Once you start, the timer runs continuously. Submit before time runs out — the exam auto-submits at zero. Your results will be published by your institute.
             </div>
           )}
-          <Button onClick={handleStart} className="bg-student-primary hover:bg-student-primary/90">
+          {/* Terms gate — Start is disabled until the student agrees
+              (Naji 2026-06-06: exam opening page needs an agree checkbox). */}
+          <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 rounded border-slate-300 text-student-primary focus:ring-student-primary"
+            />
+            <span className="text-xs text-slate-600">
+              I have read and understood the {proctored ? 'proctoring rules and ' : ''}exam
+              instructions, and I agree to follow them. I understand the timer runs continuously
+              and my exam is submitted automatically when time runs out.
+            </span>
+          </label>
+          <Button
+            onClick={handleStart}
+            disabled={!agreed}
+            className="bg-student-primary hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
             {proctored ? (<><Maximize className="mr-2 size-4" /> Start Exam in Full Screen</>) : 'Start Exam'}
           </Button>
+          {!agreed ? (
+            <p className="text-[11px] text-slate-400">Tick the box above to enable Start.</p>
+          ) : null}
         </div>
       </Frame>
     );

@@ -62,6 +62,8 @@ interface AssignmentView {
 interface ExamView {
   id: string;
   title: string;
+  code: string;
+  course: string;
   state: string;
   dateLabel: string;
   windowLabel: string;
@@ -148,6 +150,8 @@ function toExamView(raw: Record<string, unknown>): ExamView {
   return {
     id,
     title: asString(raw.title) || `Exam ${id}`,
+    code: asString(raw.exam_code),
+    course: asString(raw.course_title),
     state: asString(raw.state),
     dateLabel: asString(raw.date) ? asString(raw.date) : start ? formatDate(start) : '',
     windowLabel:
@@ -490,6 +494,11 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                         </div>
                         <div className="min-w-0">
                           <h3 className="truncate font-bold leading-snug text-student-text">{e.title}</h3>
+                          {e.code || e.course ? (
+                            <p className="mt-0.5 truncate text-xs text-student-muted">
+                              {[e.code, e.course].filter(Boolean).join(' · ')}
+                            </p>
+                          ) : null}
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                             <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
                               {badge.label}
@@ -707,7 +716,7 @@ function AssignmentDetail({
     { label: 'Time', value: timeRange || '—' },
   ];
 
-  const gradeScore = isReviewed && marks ? (marks.includes('/') ? marks.split('/')[0].trim() : marks.trim()) : '—';
+  const gradeScore = isReviewed && marks ? (marks.includes('/') ? (marks.split('/')[0] ?? '').trim() : marks.trim()) : '—';
   const gradePercent = (() => {
     const s = Number(gradeScore);
     const t = Number(totalMarks);
