@@ -6,6 +6,7 @@ export interface StudentPageProps {
   api: StudentPortalApi;
   session: AuthSession;
   onNavigate: (href: string) => void;
+  pathname: string;
 }
 
 export interface StudentRouteConfig {

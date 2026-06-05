@@ -39,7 +39,7 @@ export function StudentRouter({ pathname, api, session, onNavigate }: StudentRou
   }
 
   const PageComponent = route.pageComponent;
-  const pageProps: StudentPageProps = { api, session, onNavigate };
+  const pageProps: StudentPageProps = { api, session, onNavigate, pathname };
 
   return (
     <Suspense fallback={<StudentPageSkeleton />}>

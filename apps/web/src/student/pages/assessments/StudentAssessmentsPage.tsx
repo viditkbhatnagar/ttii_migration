@@ -211,10 +211,12 @@ function StatCardButton({
   );
 }
 
-export default function StudentAssessmentsPage({ api, session }: StudentPageProps) {
-  const [mainTab, setMainTab] = useState<MainTab>(
-    () => (typeof window !== 'undefined' && window.location.pathname.includes('/exams') ? 'exams' : 'assignments'),
-  );
+export default function StudentAssessmentsPage({ api, session, pathname }: StudentPageProps) {
+  // Assignments and Exams share this component but are separate sidebar pages, so
+  // the active surface is driven by the route — there is no in-page
+  // Assignments/Exams toggle (Naji 2026-06-05: that tab is redundant since Exams
+  // has its own page).
+  const surface: MainTab = pathname.includes('/exams') ? 'exams' : 'assignments';
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('pending');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
   const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
@@ -287,19 +289,6 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     );
   }
 
-  const mainTabs = [
-    {
-      id: 'assignments' as const,
-      label: 'Assignments',
-      count: assignmentBuckets.pending.length + assignmentBuckets.submitted.length + assignmentBuckets.graded.length,
-    },
-    {
-      id: 'exams' as const,
-      label: 'Exams',
-      count: examBuckets.available.length + examBuckets.upcoming.length + examBuckets.completed.length + examBuckets.missed.length,
-    },
-  ];
-
   const assignmentStatCards: StatCard[] = [
     { id: 'pending', label: 'Pending', count: assignmentBuckets.pending.length, icon: Clock3, tone: { tile: 'bg-amber-50 text-amber-600', ring: 'ring-amber-400' } },
     { id: 'submitted', label: 'Submitted', count: assignmentBuckets.submitted.length, icon: Hourglass, tone: { tile: 'bg-sky-50 text-sky-600', ring: 'ring-sky-400' } },
@@ -328,9 +317,9 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-student-text">{mainTab === 'exams' ? 'Exams' : 'Assignments'}</h1>
+          <h1 className="text-2xl font-bold text-student-text">{surface === 'exams' ? 'Exams' : 'Assignments'}</h1>
           <p className="mt-1 text-sm text-student-muted">
-            {mainTab === 'exams'
+            {surface === 'exams'
               ? 'Your scheduled, available and past examinations'
               : 'Submit work, track grades and view feedback'}
           </p>
@@ -338,13 +327,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
         <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
       </div>
 
-      <AdminTabBar
-        tabs={mainTabs}
-        activeTab={mainTab}
-        onChange={(id) => setMainTab(id as MainTab)}
-      />
-
-      {mainTab === 'assignments' ? (
+      {surface === 'assignments' ? (
         <div className="space-y-5">
           {/* Stat cards double as the bucket selector (EduPulse layout). */}
           <div className="grid grid-cols-3 gap-3">
