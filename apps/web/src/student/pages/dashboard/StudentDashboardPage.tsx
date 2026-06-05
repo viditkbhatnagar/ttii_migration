@@ -18,6 +18,7 @@ import type {
   StudentActivityItem,
 } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
+import { EnrollPathModal } from '../../components/EnrollPathModal.js';
 
 /* ─── Constants ──────────────────────────────────────────────── */
 
@@ -435,6 +436,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     `student:dashboard:learning:${session.userId}`,
   );
   const { currentUser } = useStudentLayout();
+  const [enrollCourse, setEnrollCourse] = useState<CatalogCourseRow | null>(null);
 
   const dashboard = data?.[0];
   const assessments = data?.[1];
@@ -683,12 +685,23 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 key={course.id}
                 course={course}
                 onMore={() => onNavigate('/student/courses')}
-                onEnroll={() => onNavigate('/student/courses')}
+                onEnroll={() => setEnrollCourse(course)}
               />
             ))}
           </div>
         </SectionCard>
       ) : null}
+
+      {/* Enroll → "Choose your learning path" modal (Naji 2026-06-06). Sends an
+          admissions enrollment request; no self-enrol / payment here. */}
+      <EnrollPathModal
+        course={enrollCourse}
+        onClose={() => setEnrollCourse(null)}
+        onRequestEnrol={async (courseId) => {
+          const res = await api.requestEnrolment(session.token, courseId);
+          if (res.status !== 1) throw new Error(res.message || 'Could not send your request.');
+        }}
+      />
     </div>
   );
 }
