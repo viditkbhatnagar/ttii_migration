@@ -1363,6 +1363,102 @@ export class EngagementService {
     });
   }
 
+  // Real "recent activity" for the learner — the student's own actions with
+  // timestamps, unified across assignment submissions/grading, payments, exam
+  // attempts, live-class attendance and lesson progress, newest first. (Naji
+  // 2026-06-05: Recent Activity must be the learner's activities, not the
+  // notification feed.) Each source is capped, then merged and sorted; nothing
+  // is fabricated — an action only appears if its row exists with a timestamp.
+  async listStudentRecentActivity(
+    userId: string,
+    limit = 8,
+  ): Promise<Array<{ id: string; type: string; title: string; detail: string; created_at: string }>> {
+    const uid = toNullableIntId(userId);
+    if (uid === null) return [];
+
+    const [submissions, payments, examAttempts, attendance, videoProgress] = await Promise.all([
+      this.prisma.assignment_submissions.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        select: { id: true, assignment_id: true, marks: true, created_at: true, verified_at: true },
+      }),
+      this.prisma.student_payments.findMany({
+        where: { user_id: uid, deleted_at: null, paid_date: { not: null } },
+        orderBy: { paid_date: 'desc' },
+        take: limit,
+        select: { id: true, amount: true, installment_details: true, paid_date: true },
+      }),
+      this.prisma.exam_attempt.findMany({
+        where: { user_id: uid, deleted_at: null, submit_status: true },
+        orderBy: { end_time: 'desc' },
+        take: limit,
+        select: { id: true, exam_id: true, score: true, end_time: true, created_at: true },
+      }),
+      this.prisma.live_class_attendance.findMany({
+        where: { user_id: uid, first_joined_at: { not: null } },
+        orderBy: { first_joined_at: 'desc' },
+        take: limit,
+        select: { id: true, live_class_id: true, first_joined_at: true },
+      }),
+      this.prisma.video_progress_status.findMany({
+        where: { user_id: uid, deleted_at: null },
+        orderBy: { updated_at: 'desc' },
+        take: limit,
+        select: { id: true, lesson_file_id: true, updated_at: true, created_at: true },
+      }),
+    ]);
+
+    const assignmentIds = [...new Set(submissions.map((s) => s.assignment_id).filter((v): v is number => v != null))];
+    const examIds = [...new Set(examAttempts.map((e) => e.exam_id).filter((v): v is number => v != null))];
+    const liveIds = [...new Set(attendance.map((a) => a.live_class_id).filter((v): v is number => v != null))];
+    const lessonFileIds = [...new Set(videoProgress.map((v) => v.lesson_file_id).filter((v): v is number => v != null))];
+
+    const [assignments, exams, liveClasses, lessonFiles] = await Promise.all([
+      this.prisma.assignment.findMany({ where: { id: { in: assignmentIds } }, select: { id: true, title: true } }),
+      this.prisma.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, title: true } }),
+      this.prisma.live_class.findMany({ where: { id: { in: liveIds } }, select: { id: true, title: true } }),
+      this.prisma.lesson_files.findMany({ where: { id: { in: lessonFileIds } }, select: { id: true, title: true } }),
+    ]);
+    const aTitle = new Map(assignments.map((a) => [a.id, a.title]));
+    const eTitle = new Map(exams.map((e) => [e.id, e.title]));
+    const lTitle = new Map(liveClasses.map((l) => [l.id, l.title]));
+    const lfTitle = new Map(lessonFiles.map((f) => [f.id, f.title]));
+
+    const iso = (d: Date | null): string => (d ? d.toISOString() : '');
+    const items: Array<{ id: string; type: string; title: string; detail: string; created_at: string }> = [];
+
+    for (const s of submissions) {
+      const title = aTitle.get(s.assignment_id ?? -1) || 'an assignment';
+      if (s.created_at) {
+        items.push({ id: `sub-${s.id}`, type: 'assignment', title: `Submitted ${title}`, detail: '', created_at: iso(s.created_at) });
+      }
+      if (s.verified_at) {
+        items.push({ id: `grade-${s.id}`, type: 'grade', title: `${title} was graded`, detail: s.marks ? `Marks: ${s.marks}` : '', created_at: iso(s.verified_at) });
+      }
+    }
+    for (const p of payments) {
+      items.push({ id: `pay-${p.id}`, type: 'payment', title: `Payment of ₹${p.amount ?? 0} received`, detail: p.installment_details || '', created_at: iso(p.paid_date) });
+    }
+    for (const e of examAttempts) {
+      const title = eTitle.get(e.exam_id ?? -1) || 'an exam';
+      items.push({ id: `exam-${e.id}`, type: 'exam', title: `Attempted ${title}`, detail: e.score != null ? `Score: ${e.score}` : '', created_at: iso(e.end_time ?? e.created_at) });
+    }
+    for (const a of attendance) {
+      const title = lTitle.get(a.live_class_id) || 'a live class';
+      items.push({ id: `live-${a.id}`, type: 'live', title: `Attended ${title}`, detail: '', created_at: iso(a.first_joined_at) });
+    }
+    for (const v of videoProgress) {
+      const title = lfTitle.get(v.lesson_file_id ?? -1) || 'a lesson';
+      items.push({ id: `vid-${v.id}`, type: 'lesson', title: `Watched ${title}`, detail: '', created_at: iso(v.updated_at ?? v.created_at) });
+    }
+
+    return items
+      .filter((i) => i.created_at)
+      .sort((x, y) => (x.created_at < y.created_at ? 1 : x.created_at > y.created_at ? -1 : 0))
+      .slice(0, limit);
+  }
+
   // Resolve the recording target for a live class IF the calling student
   // is enrolled in that cohort. Returns the same shape the admin route
   // returns: { kind: 'key', key } for storage-backed recordings,

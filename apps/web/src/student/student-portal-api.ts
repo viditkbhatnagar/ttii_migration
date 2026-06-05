@@ -184,6 +184,15 @@ export interface StudentNotificationsSnapshot {
   notificationList: Record<string, unknown>[];
 }
 
+// A single real learner action for the dashboard's Recent Activity feed.
+export interface StudentActivityItem {
+  id: string;
+  type: string;
+  title: string;
+  detail: string;
+  created_at: string;
+}
+
 export interface StudentSupportSnapshot {
   messages: Record<string, unknown>[];
 }
@@ -974,6 +983,28 @@ export class StudentPortalApi {
       notifications,
       notificationList,
     };
+  }
+
+  // The learner's own recent actions (submissions, payments, exam attempts,
+  // attendance, lessons) — powers the dashboard Recent Activity feed. Resilient
+  // by design: a failure here degrades to an empty feed instead of breaking the
+  // whole dashboard bundle (it shares a Promise.all with the core loaders).
+  async loadRecentActivity(authToken: string): Promise<StudentActivityItem[]> {
+    try {
+      const payload = await this.get<LegacyEnvelope<unknown[]>>('/student/recent_activity', authToken);
+      return asArray(payload.data)
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => entry !== null)
+        .map((r) => ({
+          id: asString(r.id),
+          type: asString(r.type),
+          title: asString(r.title),
+          detail: asString(r.detail),
+          created_at: asString(r.created_at),
+        }));
+    } catch {
+      return [];
+    }
   }
 
   async markNotificationAsRead(authToken: string, notificationId: string): Promise<void> {

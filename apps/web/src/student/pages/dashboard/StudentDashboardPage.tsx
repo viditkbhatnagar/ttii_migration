@@ -10,13 +10,12 @@ import { Button } from '@/components/ui/button';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asNumber, asString, formatCurrency, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
-import { cleanNotificationText } from '../../shared/notification-text.js';
 import type {
   StudentDashboardSnapshot,
   StudentLearningSnapshot,
   StudentAssessmentSnapshot,
   StudentInstallmentItem,
-  StudentNotificationsSnapshot,
+  StudentActivityItem,
 } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
@@ -72,10 +71,10 @@ interface PriorityRow {
 
 interface ActivityRow {
   id: string;
+  kind: string;
   title: string;
   description: string;
   time: string;
-  isRead: boolean;
 }
 
 interface BadgeRow {
@@ -92,7 +91,7 @@ type DashboardBundle = readonly [
   StudentAssessmentSnapshot,
   Record<string, unknown>[],
   StudentInstallmentItem[],
-  StudentNotificationsSnapshot,
+  StudentActivityItem[],
 ];
 
 /* ─── Date helpers (display only; storage stays ISO) ─────────── */
@@ -331,13 +330,23 @@ function derivePriorities(
   return rows;
 }
 
-function deriveActivity(notifications: StudentNotificationsSnapshot): ActivityRow[] {
-  return notifications.notifications.slice(0, RECENT_ACTIVITY_LIMIT).map((n): ActivityRow => ({
-    id: asString(n.id),
-    title: cleanNotificationText(asString(n.title)) || 'Notification',
-    description: cleanNotificationText(asString(n.description) || asString(n.message)),
-    time: relativeTime(asString(n.created_at)),
-    isRead: asNumber(n.is_read) === 1,
+// Map each learner action to an icon by type.
+const ACTIVITY_ICON: Record<string, LucideIcon> = {
+  assignment: ClipboardList,
+  grade: Award,
+  payment: Wallet,
+  exam: FileText,
+  live: Video,
+  lesson: BookOpen,
+};
+
+function deriveActivity(items: StudentActivityItem[]): ActivityRow[] {
+  return items.slice(0, RECENT_ACTIVITY_LIMIT).map((it): ActivityRow => ({
+    id: it.id,
+    kind: it.type,
+    title: it.title,
+    description: it.detail,
+    time: relativeTime(it.created_at),
   }));
 }
 
@@ -411,7 +420,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       api.loadAssessments(session.token),
       api.loadAllLiveClasses(session.token),
       api.loadInstallments(session.token),
-      api.loadNotifications(session.token),
+      api.loadRecentActivity(session.token),
     ]),
     [api, session.token],
     `student:dashboard:${session.userId}`,
@@ -617,11 +626,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
 
       {/* 5 · Recent Activity (big card, full width) */}
       {activity.length > 0 ? (
-        <SectionCard
-          title="Recent Activity"
-          actionLabel="View all"
-          onAction={() => onNavigate('/student/notifications')}
-        >
+        <SectionCard title="Recent Activity" subtitle="Your latest learning activity">
           <ol className="space-y-1">
             {activity.map((row, idx) => (
               <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
@@ -937,19 +942,18 @@ function PriorityItem({ row, isLast, onAction }: { row: PriorityRow; isLast: boo
 }
 
 function ActivityItem({ row, isLast }: { row: ActivityRow; isLast: boolean }) {
+  const Icon = ACTIVITY_ICON[row.kind] ?? Bell;
   return (
     <li className="flex gap-3">
       <div className="flex flex-col items-center">
-        <span className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
-          row.isRead ? 'bg-slate-100 text-slate-400' : 'bg-student-primary/10 text-student-primary'
-        }`}>
-          <Bell aria-hidden="true" className="size-4" />
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-student-primary/10 text-student-primary">
+          <Icon aria-hidden="true" className="size-4" />
         </span>
         {isLast ? null : <span className="my-1 w-px flex-1 bg-slate-100" aria-hidden="true" />}
       </div>
       <div className={`min-w-0 flex-1 ${isLast ? 'pb-0' : 'pb-4'}`}>
         <div className="flex items-start justify-between gap-3">
-          <p className={`text-sm ${row.isRead ? 'text-student-text' : 'font-semibold text-student-text'}`}>{row.title}</p>
+          <p className="text-sm font-medium text-student-text">{row.title}</p>
           {row.time ? <span className="shrink-0 text-xs text-slate-400">{row.time}</span> : null}
         </div>
         {row.description ? <p className="mt-0.5 line-clamp-2 text-sm text-student-muted">{row.description}</p> : null}

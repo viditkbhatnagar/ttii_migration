@@ -446,6 +446,17 @@ export function registerEngagementRoutes(
     }
   });
 
+  // Recent activity for the student dashboard — the learner's own actions
+  // (submissions, payments, exam attempts, attendance, lessons), newest first.
+  app.get('/student/recent_activity', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const data = await engagementService.listStudentRecentActivity(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendEngagementError(reply, error);
+    }
+  });
+
   // Legacy PHP path the mobile (Flutter) app calls: /live_class/index?subject_id=.
   // Returns the student's live classes filtered to a subject, same shape as
   // /student/live_classes (which already powers the web Live Classes view).
