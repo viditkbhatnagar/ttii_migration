@@ -565,7 +565,7 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
       {/* Assignment detail / view page — matches the EduPulse view (Naji 2026-06-05). */}
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
-        <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
+        <DialogContent className="max-w-6xl gap-0 overflow-hidden p-0">
           <DialogHeader className="sr-only">
             <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
@@ -748,7 +748,7 @@ function AssignmentDetail({
               {stats.map((s) => (
                 <div key={s.label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{s.label}</p>
-                  <p className="mt-1 truncate text-sm font-bold text-student-text">{s.value}</p>
+                  <p className="mt-1 text-sm font-bold leading-tight text-student-text">{s.value}</p>
                 </div>
               ))}
             </div>
