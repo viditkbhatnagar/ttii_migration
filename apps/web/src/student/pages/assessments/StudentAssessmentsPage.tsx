@@ -46,6 +46,7 @@ type ExamSubTab = 'available' | 'upcoming' | 'completed' | 'missed';
 interface AssignmentView {
   id: string;
   title: string;
+  subject: string;
   dueLabel: string;
   briefUrl: string;
   isSaved: boolean;
@@ -110,6 +111,7 @@ function toAssignmentView(raw: Record<string, unknown>): AssignmentView {
   return {
     id,
     title: asString(raw.title) || `Assignment ${id}`,
+    subject: asString(raw.subject_title) || asString(raw.subject),
     dueLabel: assignmentDueLabel(raw),
     briefUrl: asString(raw.file),
     isSaved: asNumber(raw.is_saved) > 0,
@@ -198,15 +200,17 @@ function StatCardButton({
       type="button"
       onClick={onSelect}
       aria-pressed={active}
-      className={`flex flex-col rounded-2xl border bg-white p-4 text-left shadow-sm transition-all hover:shadow-md ${
+      className={`flex items-center gap-3 rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all hover:shadow-md ${
         active ? `border-transparent ring-2 ${card.tone.ring}` : 'border-slate-200'
       }`}
     >
-      <span className={`mb-3 flex size-9 items-center justify-center rounded-xl ${card.tone.tile}`}>
-        <Icon aria-hidden="true" className="size-4" />
+      <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${card.tone.tile}`}>
+        <Icon aria-hidden="true" className="size-5" />
       </span>
-      <span className="text-2xl font-bold leading-none text-student-text">{card.count}</span>
-      <span className="mt-1 text-xs font-medium text-student-muted">{card.label}</span>
+      <span className="min-w-0">
+        <span className="block text-xl font-bold leading-none text-student-text">{card.count}</span>
+        <span className="mt-1 block truncate text-xs font-medium text-student-muted">{card.label}</span>
+      </span>
     </button>
   );
 }
@@ -315,16 +319,13 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-student-text">{surface === 'exams' ? 'Exams' : 'Assignments'}</h1>
-          <p className="mt-1 text-sm text-student-muted">
-            {surface === 'exams'
-              ? 'Your scheduled, available and past examinations'
-              : 'Submit work, track grades and view feedback'}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={reload} className="rounded-xl">Refresh</Button>
+      <div>
+        <h1 className="text-2xl font-bold text-student-text">{surface === 'exams' ? 'Exams' : 'Assignments'}</h1>
+        <p className="mt-1 text-sm text-student-muted">
+          {surface === 'exams'
+            ? 'Your scheduled, available and past examinations'
+            : 'Submit work, track grades and view feedback'}
+        </p>
       </div>
 
       {surface === 'assignments' ? (
@@ -341,95 +342,98 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
             ))}
           </div>
 
-          {/* Status tabs + inline search */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <AdminTabBar
-              tabs={assignmentStatCards.map((c) => ({ id: c.id, label: c.label, count: c.count }))}
-              activeTab={assignmentSubTab}
-              onChange={(id) => setAssignmentSubTab(id as AssignmentSubTab)}
-            />
-            <div className="relative w-full sm:max-w-xs">
-              <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                aria-label="Search assignments"
-                placeholder="Search assignments..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="rounded-xl pl-10"
+          {/* Single white card: tab bar + search header, then divided rows
+              with row hover (Naji 2026-06-06: one listing card, not a separate
+              card per row). */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <AdminTabBar
+                tabs={assignmentStatCards.map((c) => ({ id: c.id, label: c.label, count: c.count }))}
+                activeTab={assignmentSubTab}
+                onChange={(id) => setAssignmentSubTab(id as AssignmentSubTab)}
               />
+              <div className="relative w-full sm:max-w-xs">
+                <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  aria-label="Search assignments"
+                  placeholder="Search assignments..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="rounded-xl pl-10"
+                />
+              </div>
             </div>
-          </div>
 
-          {filteredAssignments.length === 0 ? (
-            <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-              <ClipboardList aria-hidden="true" className="mx-auto mb-4 size-12 text-slate-300" />
-              <p className="text-sm text-slate-500">No {assignmentSubTab} assignments.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredAssignments.map((a) => {
-                const badge = assignmentStatusBadge(a);
-                return (
-                  <div
-                    key={a.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setDetailItem(a.raw)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setDetailItem(a.raw);
-                      }
-                    }}
-                    className="flex cursor-pointer flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:border-student-primary/30 hover:shadow-md sm:flex-row sm:items-center"
-                  >
-                    {/* Doc icon + identity */}
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-student-primary-light text-student-primary">
-                        <FileText aria-hidden="true" className="size-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-student-text">{a.title}</p>
-                        <p className="mt-0.5 truncate text-xs text-student-muted">
-                          {a.dueLabel ? `Due ${a.dueLabel}` : 'No due date'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Status */}
-                    <span className={`inline-flex w-fit shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
-                      {badge.label}
-                    </span>
-
-                    {/* Score */}
-                    <div className="w-16 shrink-0 text-left sm:text-right">
-                      <p className="text-sm font-bold text-student-text">
-                        {a.isReviewed && a.score !== '' ? a.score : '—'}
-                        <span className="text-xs font-normal text-student-muted">/{a.totalMarks || '100'}</span>
-                      </p>
-                    </div>
-
-                    {/* Action — View opens the assignment detail page
-                        (Naji 2026-06-05: View instead of Submit, no download). */}
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-xl"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDetailItem(a.raw);
+            {filteredAssignments.length === 0 ? (
+              <div role="status" aria-live="polite" className="p-12 text-center">
+                <ClipboardList aria-hidden="true" className="mx-auto mb-4 size-12 text-slate-300" />
+                <p className="text-sm text-slate-500">No {assignmentSubTab} assignments.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {filteredAssignments.map((a) => {
+                  const badge = assignmentStatusBadge(a);
+                  const meta = [a.subject, a.dueLabel ? `Due ${a.dueLabel}` : ''].filter(Boolean).join(' · ');
+                  return (
+                    <li key={a.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setDetailItem(a.raw)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setDetailItem(a.raw);
+                          }
                         }}
+                        className="flex cursor-pointer flex-col gap-3 p-4 transition-colors hover:bg-slate-50 sm:flex-row sm:items-center"
                       >
-                        <Eye aria-hidden="true" className="size-4" />
-                        View
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                        {/* Doc icon + identity */}
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-student-primary-light text-student-primary">
+                            <FileText aria-hidden="true" className="size-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-student-text">{a.title}</p>
+                            <p className="mt-0.5 truncate text-xs text-student-muted">{meta || 'No due date'}</p>
+                          </div>
+                        </div>
+
+                        {/* Status */}
+                        <span className={`inline-flex w-fit shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
+                          {badge.label}
+                        </span>
+
+                        {/* Score */}
+                        <div className="w-16 shrink-0 text-left sm:text-right">
+                          <p className="text-sm font-bold text-student-text">
+                            {a.isReviewed && a.score !== '' ? a.score : '—'}
+                            <span className="text-xs font-normal text-student-muted">/{a.totalMarks || '100'}</span>
+                          </p>
+                        </div>
+
+                        {/* Action — View opens the assignment detail page. */}
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-xl"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailItem(a.raw);
+                            }}
+                          >
+                            <Eye aria-hidden="true" className="size-4" />
+                            View
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-5">
@@ -703,7 +707,14 @@ function AssignmentDetail({
     { label: 'Time', value: timeRange || '—' },
   ];
 
-  const scoreValue = `${isReviewed && marks ? (marks.includes('/') ? marks.split('/')[0] : marks) : '—'}/${totalMarks}`;
+  const gradeScore = isReviewed && marks ? (marks.includes('/') ? marks.split('/')[0].trim() : marks.trim()) : '—';
+  const gradePercent = (() => {
+    const s = Number(gradeScore);
+    const t = Number(totalMarks);
+    if (!Number.isFinite(s) || !Number.isFinite(t) || t <= 0) return null;
+    return Math.round((s / t) * 100);
+  })();
+  const scoreValue = `${gradeScore}/${totalMarks}`;
 
   return (
     <div className="flex max-h-[85vh] flex-col">
@@ -736,9 +747,29 @@ function AssignmentDetail({
         </div>
       </div>
 
-      {/* Body — scrollable, two columns */}
-      <div className="grid flex-1 gap-6 overflow-y-auto p-5 sm:p-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      {/* Body — only the LEFT column scrolls; the Quick Info pane stays static
+          (Naji 2026-06-06: right info should not scroll). */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="flex-1 space-y-6 overflow-y-auto p-5 sm:p-6">
+          {/* Grade — shown prominently for reviewed assignments. */}
+          {isReviewed ? (
+            <section className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Your Grade</p>
+                <p className="mt-1 text-2xl font-bold text-emerald-800">
+                  {gradeScore}
+                  <span className="text-base font-medium text-emerald-600">/{totalMarks}</span>
+                </p>
+                {gradePercent !== null ? (
+                  <p className="mt-0.5 text-xs font-medium text-emerald-700">{gradePercent}% scored</p>
+                ) : null}
+              </div>
+              <span className="flex size-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Award aria-hidden="true" className="size-7" />
+              </span>
+            </section>
+          ) : null}
+
           {/* Assignment information */}
           <section>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -878,10 +909,10 @@ function AssignmentDetail({
           ) : null}
         </div>
 
-        {/* Quick info sidebar */}
-        <aside className="lg:col-span-1">
+        {/* Quick info — static side panel (does not scroll with the left). */}
+        <aside className="shrink-0 border-t border-slate-200 bg-slate-50/60 p-5 sm:p-6 lg:w-80 lg:border-l lg:border-t-0">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Quick Info</p>
-          <dl className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <dl className="space-y-3">
             {dueDisplay ? <QuickInfoRow icon={CalendarDays} label="Due Date" value={dueDisplay} /> : null}
             {remaining ? <QuickInfoRow icon={Clock3} label="Remaining" value={remaining} /> : null}
             <QuickInfoRow icon={AlertCircle} label="Status" value={statusLabel} />
