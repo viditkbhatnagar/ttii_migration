@@ -2,13 +2,10 @@ import { useMemo, useState } from 'react';
 import {
   ClipboardList,
   FileText,
-  Bookmark,
-  BookmarkCheck,
   Eye,
   MessageSquare,
   Link2,
   Search,
-  Download,
   CheckCircle2,
   Clock3,
   CalendarDays,
@@ -216,7 +213,6 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('pending');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
   const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
-  const [actionPending, setActionPending] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [detailItem, setDetailItem] = useState<Record<string, unknown> | null>(null);
 
@@ -251,16 +247,6 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
       missed: expired.filter((e) => e.state !== 'submitted'),
     };
   }, [data]);
-
-  const handleToggleSaved = async (assignmentId: string) => {
-    setActionPending(assignmentId);
-    try {
-      await api.toggleSavedAssignment(session.token, assignmentId);
-      reload();
-    } finally {
-      setActionPending(null);
-    }
-  };
 
   if (loading) {
     return <PageLoader label="Loading student assessments..." />;
@@ -398,7 +384,16 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                 return (
                   <div
                     key={a.id}
-                    className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:flex-row sm:items-center"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDetailItem(a.raw)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setDetailItem(a.raw);
+                      }
+                    }}
+                    className="flex cursor-pointer flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:border-student-primary/30 hover:shadow-md sm:flex-row sm:items-center"
                   >
                     {/* Doc icon + identity */}
                     <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -426,56 +421,21 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
                       </p>
                     </div>
 
-                    {/* Actions */}
+                    {/* Action — View opens the assignment detail page
+                        (Naji 2026-06-05: View instead of Submit, no download). */}
                     <div className="flex shrink-0 items-center gap-1.5">
-                      {a.isReviewed ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl"
-                          onClick={() => setDetailItem(a.raw)}
-                        >
-                          <MessageSquare aria-hidden="true" className="size-4" />
-                          View Feedback
-                        </Button>
-                      ) : a.isSubmitted ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl"
-                          onClick={() => setDetailItem(a.raw)}
-                        >
-                          <Eye aria-hidden="true" className="size-4" />
-                          View Submission
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="rounded-xl bg-student-primary text-white hover:bg-student-primary/90"
-                          aria-pressed={a.isSaved}
-                          disabled={actionPending === a.id}
-                          onClick={() => void handleToggleSaved(a.id)}
-                        >
-                          {a.isSaved ? (
-                            <BookmarkCheck aria-hidden="true" className="size-4" />
-                          ) : (
-                            <Bookmark aria-hidden="true" className="size-4" />
-                          )}
-                          {a.isSaved ? 'Saved' : 'Save'}
-                        </Button>
-                      )}
-                      {a.briefUrl ? (
-                        <a
-                          href={a.briefUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label={`Download brief for ${a.title}`}
-                          title="Download brief"
-                          className="flex size-9 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-50 hover:text-student-primary max-sm:size-11"
-                        >
-                          <Download aria-hidden="true" className="size-4" />
-                        </a>
-                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailItem(a.raw);
+                        }}
+                      >
+                        <Eye aria-hidden="true" className="size-4" />
+                        View
+                      </Button>
                     </div>
                   </div>
                 );
@@ -619,7 +579,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Submission Details</DialogTitle>
+            <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
           {detailItem ? <SubmissionDetail item={detailItem} /> : null}
         </DialogContent>
@@ -632,17 +592,59 @@ function SubmissionDetail({ item }: { item: Record<string, unknown> }) {
   const marks = asString(item.marks);
   const totalMarks = asString(item.total_marks);
   const isReviewed = asNumber(item.is_reviewed) === 1;
+  const isSubmitted = asNumber(item.is_submitted) > 0;
   const remarks = asString(item.remarks);
   const submittedFiles = parseSubmittedFiles(item.submitted_file);
   const submittedDate = asString(item.submitted_date) || asString(item.updated_at);
+  const subject = asString(item.subject_title) || asString(item.course_title);
+  const dueDate = asString(item.due_date) || asString(item.to_date) || asString(item.due_at);
+  const briefUrl = asString(item.file);
+  const instructions = asString(item.instructions) || asString(item.description);
 
   return (
     <div className="space-y-4">
+      {/* Meta: subject + due date */}
+      {subject || dueDate ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
+          {subject ? (
+            <span className="inline-flex items-center gap-1.5">
+              <ClipboardList aria-hidden="true" className="size-4" />
+              {subject}
+            </span>
+          ) : null}
+          {dueDate ? (
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarDays aria-hidden="true" className="size-4" />
+              Due {formatDate(dueDate)}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Instructions + brief (replaces the row-level download) */}
+      {instructions ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Instructions</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{instructions}</p>
+        </div>
+      ) : null}
+      {briefUrl ? (
+        <a
+          href={briefUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-xl border border-student-primary/30 px-3 py-2 text-sm font-semibold text-student-primary transition-colors hover:bg-student-primary/5"
+        >
+          <FileText aria-hidden="true" className="size-4" />
+          View assignment brief
+        </a>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-xl bg-slate-50 p-4">
           <p className="mb-1 text-xs text-slate-500">Score</p>
           <p className="text-lg font-bold text-slate-800">
-            {marks ? (marks.includes('/') ? marks : `${marks}/${totalMarks}`) : 'N/A'}
+            {isReviewed && marks ? (marks.includes('/') ? marks : `${marks}/${totalMarks}`) : '—'}
           </p>
         </div>
         <div className="rounded-xl bg-slate-50 p-4">
@@ -650,12 +652,14 @@ function SubmissionDetail({ item }: { item: Record<string, unknown> }) {
           <div className="mt-1">
             {isReviewed ? (
               <Badge className="border-green-200 bg-green-100 text-green-700">Reviewed</Badge>
-            ) : (
+            ) : isSubmitted ? (
               <Badge className="border-yellow-200 bg-yellow-100 text-yellow-700">Pending Review</Badge>
+            ) : (
+              <Badge className="border-slate-200 bg-slate-100 text-slate-600">Not submitted</Badge>
             )}
           </div>
         </div>
-        {submittedDate ? (
+        {submittedDate && isSubmitted ? (
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="mb-1 text-xs text-slate-500">Submitted</p>
             <p className="text-sm font-medium text-slate-800">{formatDate(submittedDate)}</p>
