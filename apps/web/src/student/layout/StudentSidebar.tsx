@@ -8,15 +8,12 @@ import {
   GraduationCap,
   HelpCircle,
   LayoutDashboard,
-  LogOut,
   Radio,
   Settings,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useStudentLayout } from './StudentLayoutContext.js';
 import {
   STUDENT_NAV_TREE,
@@ -130,13 +127,9 @@ function SidebarNavGroups({
   );
 }
 
-export function StudentSidebar({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
-  const { sidebarCollapsed, currentUser } = useStudentLayout();
+export function StudentSidebar({ pathname, session: _session, onNavigate }: StudentSidebarProps) {
+  const { sidebarCollapsed } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
-
-  const displayName = currentUser?.name || 'Student';
-  const initials = currentUser?.initials ?? 'ST';
-  const avatarImage = currentUser?.image ?? '';
 
   return (
     <aside
@@ -181,69 +174,13 @@ export function StudentSidebar({ pathname, session: _session, onNavigate, onLogo
           onNavigate={onNavigate}
         />
       </ScrollArea>
-
-      {/* User Profile Card */}
-      <div className="p-4 border-t border-slate-200">
-        {!sidebarCollapsed ? (
-          <>
-            <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-slate-50">
-              <Avatar className="size-10 shrink-0 shadow-sm">
-                {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
-                <AvatarFallback className="bg-gradient-to-br from-student-primary to-student-accent text-white font-bold text-sm">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-900 truncate">{displayName}</p>
-                <p className="text-xs text-slate-500 truncate">Student Portal</p>
-              </div>
-            </div>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-slate-500 hover:bg-red-50 hover:text-red-600"
-                onClick={onLogout}
-              >
-                <LogOut className="mr-2 size-4" aria-hidden="true" />
-                <span className="text-sm font-medium">Log out</span>
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Avatar className="size-9 shrink-0 shadow-sm" aria-label={displayName}>
-              {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
-              <AvatarFallback className="bg-gradient-to-br from-student-primary to-student-accent text-white font-bold text-xs">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Log out"
-                className="text-slate-500 hover:bg-red-50 hover:text-red-600"
-                onClick={onLogout}
-                title="Log out"
-              >
-                <LogOut className="size-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </div>
     </aside>
   );
 }
 
 /** Mobile sidebar content — rendered inside a Sheet */
-export function StudentSidebarMobile({ pathname, session: _session, onNavigate, onLogout }: StudentSidebarProps) {
-  const { currentUser } = useStudentLayout();
+export function StudentSidebarMobile({ pathname, session: _session, onNavigate }: StudentSidebarProps) {
   const activeItemId = findActiveStudentNav(pathname);
-  const displayName = currentUser?.name || 'Student';
-  const initials = currentUser?.initials ?? 'ST';
-  const avatarImage = currentUser?.image ?? '';
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -267,33 +204,6 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate, 
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
         <SidebarNavGroups activeItemId={activeItemId} collapsed={false} onNavigate={onNavigate} />
       </ScrollArea>
-
-      {/* User Profile */}
-      <div className="p-4 border-t border-slate-200">
-        <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-slate-50">
-          <Avatar className="size-10 shrink-0 shadow-sm">
-            {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
-            <AvatarFallback className="bg-gradient-to-br from-student-primary to-student-accent text-white font-bold text-sm">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-900 truncate">{displayName}</p>
-            <p className="text-xs text-slate-500 truncate">Student Portal</p>
-          </div>
-        </div>
-        {onLogout ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-slate-500 hover:bg-red-50 hover:text-red-600"
-            onClick={onLogout}
-          >
-            <LogOut className="mr-2 size-4" aria-hidden="true" />
-            <span className="text-sm font-medium">Log out</span>
-          </Button>
-        ) : null}
-      </div>
     </div>
   );
 }

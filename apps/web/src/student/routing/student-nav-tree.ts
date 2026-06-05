@@ -29,12 +29,13 @@ export const STUDENT_NAV_TREE: readonly StudentNavItem[] = [
   { id: 'assignments', label: 'Assignments', href: '/student/assignments', icon: 'ClipboardList', section: 'learning' },
   { id: 'exams', label: 'Exams', href: '/student/exams', icon: 'FileText', section: 'learning' },
   { id: 'grades', label: 'Grades', href: '/student/grades', icon: 'GraduationCap', section: 'learning' },
-  { id: 'calendar', label: 'Calendar', href: '/student/calendar', icon: 'CalendarDays', section: 'learning' },
-  { id: 'certificates', label: 'Certificates', href: '/student/certificates', icon: 'Award', section: 'learning' },
-  // Account — the student's money and personal settings
+  // Account — money, schedule and credentials (Naji 2026-06-05: Calendar +
+  // Certificates moved here from Learning)
   { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard', section: 'account' },
-  { id: 'settings', label: 'Settings', href: '/student/settings', icon: 'Settings', section: 'account' },
-  // System — support / meta
+  { id: 'calendar', label: 'Calendar', href: '/student/calendar', icon: 'CalendarDays', section: 'account' },
+  { id: 'certificates', label: 'Certificates', href: '/student/certificates', icon: 'Award', section: 'account' },
+  // System — settings + support (Naji 2026-06-05: Settings moved here)
+  { id: 'settings', label: 'Settings', href: '/student/settings', icon: 'Settings', section: 'system' },
   { id: 'help', label: 'Help Center', href: '/student/help', icon: 'HelpCircle', section: 'system' },
   // Notifications: accessible from the header bell; no sidebar entry.
 ];
