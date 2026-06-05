@@ -298,7 +298,7 @@ function derivePriorities(
       id: `assignment-${id}`,
       kind: 'assignment',
       title: asString(a.title) || `Assignment ${id}`,
-      context: asString(a.subject_title) || asString(a.course_title) || 'Assignment',
+      context: asString(a.subject_title) || asString(a.course_title),
       status: submitted ? 'completed' : statusFromDelta(dayDelta(due)),
       action: { label: submitted ? 'Review' : 'Submit', href: '/student/assignments' },
     });
@@ -312,7 +312,7 @@ function derivePriorities(
       id: `quiz-${id}`,
       kind: 'quiz',
       title: asString(e.title) || `Exam ${id}`,
-      context: asString(e.subject_title) || 'Exam',
+      context: asString(e.subject_title),
       status: state === 'available' ? 'due-today' : statusFromDelta(dayDelta(due)),
       action: { label: state === 'available' ? 'Attempt' : 'View', href: '/student/exams' },
     });
@@ -329,7 +329,9 @@ function derivePriorities(
     });
   }
 
-  return rows;
+  // Surface overdue + due-today items first (Naji 2026-06-05: top priority).
+  const rank: Record<PriorityStatus, number> = { overdue: 0, 'due-today': 1, upcoming: 2, completed: 3 };
+  return rows.sort((a, b) => rank[a.status] - rank[b.status]);
 }
 
 // Map each learner action to an icon by type.
@@ -629,35 +631,25 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         </div>
       ) : null}
 
-      {/* 4 · Achievements & Badges (left) + Today's Priorities (right) — Naji's order */}
-      {badges.length > 0 || priorities.length > 0 ? (
-        <div className="grid gap-6 lg:grid-cols-3">
-          {badges.length > 0 ? (
-            <div className={priorities.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
-              <SectionCard
-                title="Achievements & Badges"
-                subtitle="Milestones you've unlocked"
-                titleIcon={Sparkles}
-                pill={`${earnedBadgeCount} / 6 earned`}
-              >
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  {badges.map((badge) => (
-                    <BadgeTile key={badge.label} badge={badge} />
-                  ))}
-                </div>
-              </SectionCard>
-            </div>
-          ) : null}
-
-          {priorities.length > 0 ? (
-            <div className={badges.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
-              <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
-            </div>
-          ) : null}
-        </div>
+      {/* 4 · Achievements & Badges (full width, EduPulse) */}
+      {badges.length > 0 ? (
+        <SectionCard
+          title="Achievements & Badges"
+          subtitle="Your learning milestones and accomplishments"
+          titleIcon={Sparkles}
+          pill={`${earnedBadgeCount} Earned`}
+          pillTone="amber"
+          pillIcon={Trophy}
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+            {badges.map((badge) => (
+              <BadgeTile key={badge.label} badge={badge} />
+            ))}
+          </div>
+        </SectionCard>
       ) : null}
 
-      {/* 5 · Recent Activity (big card, full width) */}
+      {/* 5 · Recent Activity (full width, directly under Achievements) */}
       {activity.length > 0 ? (
         <SectionCard title="Recent Activity" subtitle="Your latest learning activity">
           <ol className="space-y-1">
@@ -666,6 +658,11 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
             ))}
           </ol>
         </SectionCard>
+      ) : null}
+
+      {/* 5b · Today's Priorities (full width, EduPulse) */}
+      {priorities.length > 0 ? (
+        <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
       ) : null}
 
       {/* 6 · Recommended Courses (big card, full width) */}
@@ -730,10 +727,12 @@ interface SectionHeaderProps {
   actionLabel?: string | undefined;
   onAction?: (() => void) | undefined;
   pill?: string | undefined;
+  pillTone?: 'primary' | 'amber' | undefined;
+  pillIcon?: LucideIcon | undefined;
   titleIcon?: LucideIcon | undefined;
 }
 
-function SectionHeader({ title, subtitle, actionLabel, onAction, pill, titleIcon: TitleIcon }: SectionHeaderProps) {
+function SectionHeader({ title, subtitle, actionLabel, onAction, pill, pillTone, pillIcon: PillIcon, titleIcon: TitleIcon }: SectionHeaderProps) {
   return (
     <div className="mb-4 flex items-center justify-between gap-4">
       <div className="min-w-0">
@@ -745,7 +744,12 @@ function SectionHeader({ title, subtitle, actionLabel, onAction, pill, titleIcon
       </div>
       <div className="flex shrink-0 items-center gap-3">
         {pill ? (
-          <span className="inline-flex items-center rounded-full bg-student-primary/10 px-3 py-1 text-xs font-semibold text-student-primary">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              pillTone === 'amber' ? 'bg-amber-100 text-amber-700' : 'bg-student-primary/10 text-student-primary'
+            }`}
+          >
+            {PillIcon ? <PillIcon aria-hidden="true" className="size-3.5" /> : null}
             {pill}
           </span>
         ) : null}
@@ -770,7 +774,7 @@ interface SectionCardProps extends SectionHeaderProps {
 
 // A section rendered as one big white container card with its header + items
 // inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
-function SectionCard({ title, subtitle, actionLabel, onAction, pill, titleIcon, children, className }: SectionCardProps) {
+function SectionCard({ title, subtitle, actionLabel, onAction, pill, pillTone, pillIcon, titleIcon, children, className }: SectionCardProps) {
   return (
     <section
       className={`flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
@@ -781,6 +785,8 @@ function SectionCard({ title, subtitle, actionLabel, onAction, pill, titleIcon, 
         actionLabel={actionLabel}
         onAction={onAction}
         pill={pill}
+        pillTone={pillTone}
+        pillIcon={pillIcon}
         titleIcon={titleIcon}
       />
       {children}
@@ -914,12 +920,14 @@ function PrioritiesSection({
 
   return (
     <section className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="mb-1 flex items-center justify-between gap-4">
         <h2 className="text-lg font-bold text-student-text">Today&apos;s Priorities</h2>
-        <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+          <span className="inline-block size-1.5 rounded-full bg-amber-500" aria-hidden="true" />
           {dueToday} Due Today
         </span>
       </div>
+      <p className="mb-4 text-sm text-student-muted">Items needing your attention today</p>
       <div className="mb-3 flex flex-wrap gap-2">
         {filterTabs.map((t) => {
           const active = filter === t.id;
@@ -945,26 +953,25 @@ function PrioritiesSection({
         </div>
       ) : (
         <div>
-          {filtered.map((row, idx) => (
-            <PriorityItem
-              key={row.id}
-              row={row}
-              isLast={idx === filtered.length - 1}
-              onAction={() => onNavigate(row.action.href)}
-            />
+          {filtered.map((row) => (
+            <PriorityItem key={row.id} row={row} onAction={() => onNavigate(row.action.href)} />
           ))}
         </div>
       )}
+      <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-student-muted">
+        <Sparkles aria-hidden="true" className="size-3.5 text-amber-500" />
+        Stay ahead — tackle high-priority items first
+      </p>
     </section>
   );
 }
 
-function PriorityItem({ row, isLast, onAction }: { row: PriorityRow; isLast: boolean; onAction: () => void }) {
+function PriorityItem({ row, onAction }: { row: PriorityRow; onAction: () => void }) {
   const kind = PRIORITY_KIND_META[row.kind];
   const status = PRIORITY_STATUS_STYLE[row.status];
   const KindIcon = kind.icon;
   return (
-    <div className={`flex items-center gap-4 p-4 ${isLast ? '' : 'border-b border-slate-100'}`}>
+    <div className="mb-2 flex items-center gap-4 rounded-xl border border-slate-200 p-4 transition-all last:mb-0 hover:border-student-primary/30 hover:shadow-sm">
       <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${TINTS[row.kind === 'quiz' ? 'blue' : row.kind === 'payment' ? 'amber' : 'primary']}`}>
         <KindIcon aria-hidden="true" className="size-4" />
       </span>
@@ -1071,9 +1078,9 @@ function RecommendedCard({
 function BadgeTile({ badge }: { badge: BadgeRow }) {
   const Icon = badge.icon;
   return (
-    <div className="flex flex-col items-center text-center">
+    <div className="flex flex-col items-center rounded-2xl border border-slate-200 p-4 text-center transition-all hover:border-student-primary/40 hover:shadow-md">
       <div
-        className={`flex size-16 items-center justify-center rounded-full shadow-sm ${
+        className={`flex size-14 items-center justify-center rounded-full shadow-sm ${
           badge.earned
             ? `bg-gradient-to-br ${badge.tone} text-white`
             : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200'

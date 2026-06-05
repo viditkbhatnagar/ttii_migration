@@ -1427,7 +1427,7 @@ export class EngagementService {
     const lessonFileIds = [...new Set(videoProgress.map((v) => v.lesson_file_id).filter((v): v is number => v != null))];
 
     const [assignments, exams, liveClasses, lessonFiles] = await Promise.all([
-      this.prisma.assignment.findMany({ where: { id: { in: assignmentIds } }, select: { id: true, title: true } }),
+      this.prisma.assignment.findMany({ where: { id: { in: assignmentIds } }, select: { id: true, title: true, cohort_id: true } }),
       this.prisma.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, title: true } }),
       this.prisma.live_class.findMany({ where: { id: { in: liveIds } }, select: { id: true, title: true } }),
       this.prisma.lesson_files.findMany({ where: { id: { in: lessonFileIds } }, select: { id: true, title: true } }),
@@ -1437,11 +1437,32 @@ export class EngagementService {
     const lTitle = new Map(liveClasses.map((l) => [l.id, l.title]));
     const lfTitle = new Map(lessonFiles.map((f) => [f.id, f.title]));
 
+    // Resolve each assignment's subject (Naji 2026-06-05: Recent Activity should
+    // read the subject name, not a generic "assignment"): assignment -> cohort
+    // -> subject.
+    const cohortIds = [...new Set(assignments.map((a) => a.cohort_id).filter((v): v is number => v != null))];
+    const cohorts = cohortIds.length
+      ? await this.prisma.cohorts.findMany({ where: { id: { in: cohortIds } }, select: { id: true, subject_id: true } })
+      : [];
+    const cohortSubject = new Map(cohorts.map((c) => [c.id, c.subject_id]));
+    const subjectIds = [...new Set(cohorts.map((c) => c.subject_id).filter((v): v is number => v != null))];
+    const subjects = subjectIds.length
+      ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
+      : [];
+    const subjectTitle = new Map(subjects.map((s) => [s.id, s.title]));
+    const aSubject = new Map(
+      assignments.map((a) => {
+        const subId = a.cohort_id != null ? cohortSubject.get(a.cohort_id) ?? null : null;
+        return [a.id, subId != null ? subjectTitle.get(subId) ?? '' : ''];
+      }),
+    );
+
     const iso = (d: Date | null): string => (d ? d.toISOString() : '');
     const items: Array<{ id: string; type: string; title: string; detail: string; created_at: string }> = [];
 
     for (const s of submissions) {
-      const title = aTitle.get(s.assignment_id ?? -1) || 'an assignment';
+      const subj = s.assignment_id != null ? aSubject.get(s.assignment_id) : '';
+      const title = subj || aTitle.get(s.assignment_id ?? -1) || 'an assignment';
       if (s.created_at) {
         items.push({ id: `sub-${s.id}`, type: 'assignment', title: `Submitted ${title}`, detail: '', created_at: iso(s.created_at) });
       }
