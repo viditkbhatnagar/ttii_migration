@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Radio,
@@ -8,9 +8,11 @@ import {
   Play,
   ExternalLink,
   List as ListIcon,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
@@ -20,7 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asString, asBoolean } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 
 type LiveTab = 'upcoming' | 'ongoing' | 'past';
@@ -58,11 +60,7 @@ function formatDuration(from: string, to: string): string {
   if (start === null || end === null) return '';
   const total = end - start;
   if (total <= 0) return '';
-  const hours = Math.floor(total / 60);
-  const minutes = total % 60;
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
+  return `${total} min`;
 }
 
 // "Started N min ago" for an ongoing (today) class, derived from the real
@@ -92,10 +90,34 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
   const [recording, setRecording] = useState<{ title: string; url: string } | null>(null);
   const [recPending, setRecPending] = useState<string | null>(null);
 
+  const [search, setSearch] = useState('');
+  const [courseFilter, setCourseFilter] = useState('all');
+  const [subjectFilter, setSubjectFilter] = useState('all');
+
   const rows = data ?? [];
-  const upcoming = rows.filter((r) => asString(r.status) === 'upcoming');
-  const ongoing = rows.filter((r) => asString(r.status) === 'today');
-  const past = rows.filter((r) => asString(r.status) === 'past');
+
+  const courseOptions = useMemo(
+    () => [...new Set(rows.map((r) => asString(r.cohort_title)).filter(Boolean))].sort(),
+    [rows],
+  );
+  const subjectOptions = useMemo(
+    () => [...new Set(rows.map((r) => asString(r.subject_title)).filter(Boolean))].sort(),
+    [rows],
+  );
+
+  const q = search.trim().toLowerCase();
+  const visible = rows.filter((r) => {
+    if (courseFilter !== 'all' && asString(r.cohort_title) !== courseFilter) return false;
+    if (subjectFilter !== 'all' && asString(r.subject_title) !== subjectFilter) return false;
+    if (q) {
+      const hay = `${asString(r.title)} ${asString(r.instructor_name)} ${asString(r.subject_title)}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const upcoming = visible.filter((r) => asString(r.status) === 'upcoming');
+  const ongoing = visible.filter((r) => asString(r.status) === 'today');
+  const past = visible.filter((r) => asString(r.status) === 'past');
   const current = tab === 'upcoming' ? upcoming : tab === 'ongoing' ? ongoing : past;
 
   async function watchRecording(row: Record<string, unknown>) {
@@ -170,6 +192,41 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
         </div>
       </div>
 
+      {/* Search + course/subject filters (Naji 2026-06-05) */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search live classes…"
+            className="h-10 rounded-xl pl-9"
+          />
+        </div>
+        <select
+          value={courseFilter}
+          onChange={(e) => setCourseFilter(e.target.value)}
+          aria-label="Filter by course"
+          className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-student-text"
+        >
+          <option value="all">All courses</option>
+          {courseOptions.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        <select
+          value={subjectFilter}
+          onChange={(e) => setSubjectFilter(e.target.value)}
+          aria-label="Filter by subject"
+          className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-student-text"
+        >
+          <option value="all">All subjects</option>
+          {subjectOptions.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      </div>
+
       <AdminTabBar tabs={tabs} activeTab={tab} onChange={(id) => setTab(id as LiveTab)} />
 
       {current.length === 0 ? (
@@ -180,7 +237,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {current.map((row) => (
             <LiveClassCard
               key={asString(row.id)}
@@ -232,13 +289,14 @@ function LiveClassCard({
   const sinceStart = isOngoing ? startedAgo(asString(row.from_time)) : '';
   // CTA label tracks the EduPulse reference (Enrol Now / Enrol Class / View Recording).
   const joinLabel = isOngoing ? 'Enrol Now' : 'Enrol Class';
+  const hasRecording = asBoolean(row.has_recording);
 
   return (
     <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       {/* Top row: subject tag (left) + duration (right), per reference §5. */}
       <div className="mb-3 flex items-start justify-between gap-3">
         {subject ? (
-          <span className="inline-flex items-center rounded-full bg-student-primary/10 px-3 py-1 text-[11px] font-semibold text-student-primary">
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
             {subject}
           </span>
         ) : <span />}
@@ -295,14 +353,20 @@ function LiveClassCard({
 
       <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
         {isPast ? (
-          <Button
-            onClick={onWatch}
-            disabled={recPending}
-            className="h-10 flex-1 rounded-xl bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            <Play aria-hidden="true" className="mr-1.5 size-4" />
-            {recPending ? 'Loading…' : 'View Recording'}
-          </Button>
+          hasRecording ? (
+            <Button
+              onClick={onWatch}
+              disabled={recPending}
+              className="h-10 flex-1 rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
+            >
+              <Play aria-hidden="true" className="mr-1.5 size-4" />
+              {recPending ? 'Loading…' : 'View Recording'}
+            </Button>
+          ) : (
+            <span className="flex-1 rounded-xl bg-slate-50 py-2.5 text-center text-xs text-student-muted">
+              Recording not available yet
+            </span>
+          )
         ) : joinUrl ? (
           <Button
             asChild
