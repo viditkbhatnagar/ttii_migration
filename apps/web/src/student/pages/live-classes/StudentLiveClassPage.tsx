@@ -86,6 +86,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAllLiveClasses(session.token),
     [api, session.token],
+    `student:live-classes:${session.userId}`,
   );
   const [tab, setTab] = useState<LiveTab>('ongoing');
   const [recording, setRecording] = useState<{ title: string; url: string } | null>(null);

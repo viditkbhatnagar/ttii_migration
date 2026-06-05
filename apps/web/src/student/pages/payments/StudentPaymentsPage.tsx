@@ -107,6 +107,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
       return { payments, paymentHistory, installments };
     },
     [api, session.token],
+    `student:payments:${session.userId}`,
   );
 
   const data = bundle?.payments;

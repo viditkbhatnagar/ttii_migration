@@ -230,6 +230,7 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
     [api, session.token],
+    `student:learning:${session.userId}`,
   );
 
   // View state. Three surfaces, mirroring EduPulse's separate routes:

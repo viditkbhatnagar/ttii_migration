@@ -93,6 +93,7 @@ export default function StudentGradesPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssessments(session.token),
     [api, session.token],
+    `student:grades:${session.userId}`,
   );
 
   if (loading) {

@@ -47,6 +47,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadSupport(session.token),
     [api, session.token],
+    `student:support:${session.userId}`,
   );
 
   const [message, setMessage] = useState('');

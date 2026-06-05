@@ -189,6 +189,7 @@ export default function StudentCertificatesPage({ api, session, onNavigate }: St
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
     [api, session.token],
+    `student:certificates:${session.userId}`,
   );
 
   if (loading) {

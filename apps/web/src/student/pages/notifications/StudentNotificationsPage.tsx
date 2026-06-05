@@ -85,6 +85,7 @@ export default function StudentNotificationsPage({ api, session }: StudentPagePr
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadNotifications(session.token),
     [api, session.token],
+    `student:notifications:${session.userId}`,
   );
 
   const handleMarkRead = useCallback(async (notificationId: string) => {

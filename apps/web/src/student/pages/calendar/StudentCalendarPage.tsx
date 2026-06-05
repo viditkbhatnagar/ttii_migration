@@ -225,6 +225,7 @@ export default function StudentCalendarPage({ api, session }: StudentPageProps) 
   const { data, loading, error, reload } = useAdminPageData(
     () => loadCalendar(api, session.token),
     [api, session.token],
+    `student:calendar:${session.userId}`,
   );
 
   const events = useMemo(() => (data ? buildEvents(data) : []), [data]);

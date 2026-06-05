@@ -223,6 +223,7 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssessments(session.token),
     [api, session.token],
+    `student:assessments:${session.userId}`,
   );
 
   // Normalise once; downstream views read typed shapes only.

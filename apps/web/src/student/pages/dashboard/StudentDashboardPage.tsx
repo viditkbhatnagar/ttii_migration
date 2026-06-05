@@ -414,6 +414,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       api.loadNotifications(session.token),
     ]),
     [api, session.token],
+    `student:dashboard:${session.userId}`,
   );
   const { currentUser } = useStudentLayout();
 

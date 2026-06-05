@@ -55,6 +55,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
   const { data: profile, loading, error, reload } = useAdminPageData(
     () => api.loadProfile(session.token, session),
     [api, session.token, session.userId, session.roleId],
+    `student:profile:${session.userId}`,
   );
   const { refreshCurrentUser } = useStudentLayout();
 
