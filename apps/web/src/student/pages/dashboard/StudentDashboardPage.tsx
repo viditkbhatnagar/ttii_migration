@@ -405,7 +405,9 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   const { data, loading, error, reload } = useAdminPageData<DashboardBundle>(
     () => Promise.all([
       api.loadDashboard(session.token),
-      api.loadLearning(session.token),
+      // Dashboard only needs course/lesson progress, not the per-lesson file
+      // tree — skip that fan-out so the page loads fast.
+      api.loadLearning(session.token, { includeFiles: false }),
       api.loadAssessments(session.token),
       api.loadAllLiveClasses(session.token),
       api.loadInstallments(session.token),

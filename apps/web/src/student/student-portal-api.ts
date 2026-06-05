@@ -444,17 +444,13 @@ export class StudentPortalApi {
   // Live classes across ALL the student's enrolled courses (for the standalone
   // Live Classes page). Fans out per enrolled course and dedupes by id.
   async loadAllLiveClasses(authToken: string): Promise<Record<string, unknown>[]> {
-    const coursesPayload = await this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken);
-    const courseIds = asArray(coursesPayload.data)
-      .map((entry) => asString(asRecord(entry)?.id))
-      .filter((id): id is string => id !== '');
-    const lists = await Promise.all(courseIds.map((id) => this.loadStudentLiveClasses(authToken, id)));
-    const byId = new Map<string, Record<string, unknown>>();
-    for (const row of lists.flat()) {
-      const id = asString(row.id);
-      if (id) byId.set(id, row);
-    }
-    return [...byId.values()];
+    // A single call returns the student's live classes across ALL enrolled
+    // cohorts/courses — the backend (listStudentLiveClasses) already aggregates
+    // by the student's cohorts when no course_id is given. This replaces a 1+N
+    // waterfall (/course/all_course, then one /student/live_classes per course)
+    // that fired dozens of redundant requests and gated the whole dashboard.
+    // (Naji 2026-06-05: dashboard was loading very slowly.)
+    return this.loadStudentLiveClasses(authToken, '');
   }
 
   async getLiveRecordingUrl(authToken: string, liveClassId: string): Promise<string> {
@@ -545,7 +541,10 @@ export class StudentPortalApi {
     };
   }
 
-  async loadLearning(authToken: string): Promise<StudentLearningSnapshot> {
+  async loadLearning(
+    authToken: string,
+    options?: { includeFiles?: boolean },
+  ): Promise<StudentLearningSnapshot> {
     const [coursesPayload, catalogPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),
       this.get<LegacyEnvelope<unknown[]>>('/course/catalog', authToken),
@@ -602,15 +601,25 @@ export class StudentPortalApi {
       .map((l) => asString(l.id))
       .filter((id): id is string => id !== '');
 
-    const filesByLesson = await Promise.all(
-      lessonIds.map(async (lessonId) => {
-        const payload = await this.get<LegacyEnvelope<unknown[]>>('/lesson_file/index', authToken, { lesson_id: lessonId });
-        return asArray(payload.data)
-          .map((entry) => asRecord(entry))
-          .filter((entry): entry is Record<string, unknown> => entry !== null);
-      }),
-    );
-    const lessonFiles = filesByLesson.flat();
+    // The per-lesson files fan-out (one /lesson_file/index per lesson) is the
+    // deepest, most expensive level — only the Lesson Player needs it. Callers
+    // that just need course/lesson progress (e.g. the dashboard) pass
+    // includeFiles:false to skip it entirely. (Naji 2026-06-05: dashboard slow.)
+    const includeFiles = options?.includeFiles ?? true;
+    const lessonFiles = includeFiles
+      ? (
+          await Promise.all(
+            lessonIds.map(async (lessonId) => {
+              const payload = await this.get<LegacyEnvelope<unknown[]>>('/lesson_file/index', authToken, {
+                lesson_id: lessonId,
+              });
+              return asArray(payload.data)
+                .map((entry) => asRecord(entry))
+                .filter((entry): entry is Record<string, unknown> => entry !== null);
+            }),
+          )
+        ).flat()
+      : [];
 
     const streakPayload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/streak_data', authToken, {
       from_date: dayOffset(-30),
