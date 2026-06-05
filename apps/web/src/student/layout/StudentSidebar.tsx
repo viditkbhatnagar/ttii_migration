@@ -8,6 +8,7 @@ import {
   GraduationCap,
   HelpCircle,
   LayoutDashboard,
+  LogOut,
   Radio,
   Settings,
   type LucideIcon,
@@ -127,7 +128,12 @@ function SidebarNavGroups({
   );
 }
 
-export function StudentSidebar({ pathname, session: _session, onNavigate }: StudentSidebarProps) {
+export function StudentSidebar({
+  pathname,
+  session: _session,
+  onNavigate,
+  onLogout,
+}: StudentSidebarProps) {
   const { sidebarCollapsed } = useStudentLayout();
   const activeItemId = findActiveStudentNav(pathname);
 
@@ -174,12 +180,36 @@ export function StudentSidebar({ pathname, session: _session, onNavigate }: Stud
           onNavigate={onNavigate}
         />
       </ScrollArea>
+
+      {/* Logout */}
+      {onLogout ? (
+        <div className="border-t border-slate-200 p-3">
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Log out"
+            title={sidebarCollapsed ? 'Log out' : undefined}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 hover:text-red-600',
+              sidebarCollapsed && 'justify-center px-2',
+            )}
+          >
+            <LogOut aria-hidden="true" className="size-5 shrink-0" />
+            {!sidebarCollapsed ? <span>Log out</span> : null}
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }
 
 /** Mobile sidebar content — rendered inside a Sheet */
-export function StudentSidebarMobile({ pathname, session: _session, onNavigate }: StudentSidebarProps) {
+export function StudentSidebarMobile({
+  pathname,
+  session: _session,
+  onNavigate,
+  onLogout,
+}: StudentSidebarProps) {
   const activeItemId = findActiveStudentNav(pathname);
 
   return (
@@ -204,6 +234,21 @@ export function StudentSidebarMobile({ pathname, session: _session, onNavigate }
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
         <SidebarNavGroups activeItemId={activeItemId} collapsed={false} onNavigate={onNavigate} />
       </ScrollArea>
+
+      {/* Logout */}
+      {onLogout ? (
+        <div className="border-t border-slate-200 p-3">
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Log out"
+            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <LogOut aria-hidden="true" className="size-5 shrink-0" />
+            <span>Log out</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

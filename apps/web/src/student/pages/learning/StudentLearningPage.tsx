@@ -352,6 +352,61 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
     if (resolved) setSelectedContent(resolved);
   };
 
+  // Resume Learning deep-link (Naji 2026-06-05): the dashboard stashes a resume
+  // target in sessionStorage then routes here; once data is loaded we open that
+  // course and jump straight into the requested lesson file — or the course's
+  // next not-completed lesson when only a course is given. Consumed once.
+  useEffect(() => {
+    if (!data) return;
+    let raw: string | null = null;
+    try {
+      raw = window.sessionStorage.getItem('ttii.student.resume');
+      if (raw) window.sessionStorage.removeItem('ttii.student.resume');
+    } catch {
+      raw = null;
+    }
+    if (!raw) return;
+    let parsed: { courseId?: string; lessonFileId?: string };
+    try {
+      parsed = JSON.parse(raw) as { courseId?: string; lessonFileId?: string };
+    } catch {
+      return;
+    }
+    const courseId = asString(parsed.courseId);
+    if (!courseId) return;
+
+    let file: Record<string, unknown> | null = null;
+    const wantFileId = asString(parsed.lessonFileId);
+    if (wantFileId) {
+      file = lessonFiles.find((f) => asString(f.id) === wantFileId) ?? null;
+    }
+    if (!file) {
+      const courseSubjects = subjects.filter((s) => asString(s.course_id) === courseId);
+      const courseLessons = lessons.filter((l) =>
+        courseSubjects.some((s) => asString(s.id) === asString(l.subject_id)),
+      );
+      const upNext = courseLessons.find(
+        (l) => asNumber(l.completed_percentage) < 100 && !isLocked(l),
+      );
+      if (upNext) {
+        file = lessonFiles.find((f) => asString(f.lesson_id) === asString(upNext.id)) ?? null;
+      }
+    }
+
+    setActiveCourseId(courseId);
+    if (file) {
+      const lesson = lessons.find((l) => asString(l.id) === asString(file?.lesson_id));
+      const resolved = resolveSelectedContent(file);
+      if (resolved) {
+        setPlayerOpen(true);
+        setExpandedSubjectId(lesson ? asString(lesson.subject_id) : null);
+        setSelectedContent(resolved);
+      }
+    }
+    window.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   // Naji 2026-05-04 / 05-05: clicking "Recording" on a past live class
   // resolves a fresh signed URL (DO Spaces recordings rotate every hour)
   // and plays the MP4 inside the right-pane player. The earlier version

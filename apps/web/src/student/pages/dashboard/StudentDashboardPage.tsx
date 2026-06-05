@@ -194,7 +194,9 @@ function deriveInProgressCourses(learning: StudentLearningSnapshot): CourseProgr
         asString(course.subject_title);
       return { id, title: asString(course.title) || 'Untitled Course', instructor, progress };
     })
-    .filter((c) => c.progress > 0 && c.progress < 100);
+    // Naji 2026-06-05: include 0%-progress (just-enrolled) courses so a student in
+    // several courses sees all of them in Continue Learning, not only started ones.
+    .filter((c) => c.progress < 100);
 }
 
 // Count courses that are fully complete (every lesson at 100%) — a real
@@ -453,6 +455,31 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   }, [dashboard, completedCourses, inProgressCourses]);
   const earnedBadgeCount = badges.filter((b) => b.earned).length;
 
+  // Resume Learning (Naji 2026-06-05): jump to the last lesson watched. Stash the
+  // target (global, or scoped to a course) in sessionStorage and route to the
+  // learning page, which opens that course + lesson (or the next not-completed one).
+  const handleResume = async (courseId?: string): Promise<void> => {
+    try {
+      const lw = await api.loadLastWatchedLesson(session.token, courseId);
+      if (lw) {
+        window.sessionStorage.setItem(
+          'ttii.student.resume',
+          JSON.stringify({ courseId: lw.courseId, lessonFileId: lw.lessonFileId }),
+        );
+      } else if (courseId) {
+        window.sessionStorage.setItem(
+          'ttii.student.resume',
+          JSON.stringify({ courseId, lessonFileId: '' }),
+        );
+      } else {
+        window.sessionStorage.removeItem('ttii.student.resume');
+      }
+    } catch {
+      /* fall through to plain navigation */
+    }
+    onNavigate('/student/courses');
+  };
+
   if (loading) {
     return <PageLoader label="Loading your dashboard..." />;
   }
@@ -536,7 +563,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
           </p>
         </div>
         <Button
-          onClick={() => onNavigate('/student/courses')}
+          onClick={() => void handleResume()}
           className="h-11 shrink-0 rounded-xl bg-student-primary px-5 text-sm font-semibold text-white shadow-sm hover:bg-student-primary/90"
         >
           <PlayCircle aria-hidden="true" className="mr-2 size-4" />
@@ -562,14 +589,19 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 actionLabel="View all"
                 onAction={() => onNavigate('/student/courses')}
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {inProgressCourses.map((course) => (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {inProgressCourses.slice(0, 3).map((course) => (
                     <ContinueLearningCard
                       key={course.id}
                       course={course}
-                      onResume={() => onNavigate('/student/courses')}
+                      onResume={() => void handleResume(course.id)}
                     />
                   ))}
+                  {Array.from({ length: Math.max(0, 3 - Math.min(inProgressCourses.length, 3)) }).map(
+                    (_, i) => (
+                      <ContinueLearningPlaceholder key={`cl-placeholder-${i}`} />
+                    ),
+                  )}
                 </div>
               </SectionCard>
             </div>
@@ -605,6 +637,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               <SectionCard
                 title="Achievements & Badges"
                 subtitle="Milestones you've unlocked"
+                titleIcon={Sparkles}
                 pill={`${earnedBadgeCount} / 6 earned`}
               >
                 <div className="grid grid-cols-3 gap-3 sm:gap-4">
@@ -680,13 +713,13 @@ interface StatCardProps {
 
 function StatCard({ icon: Icon, label, value, delta, tint }: StatCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className={`flex size-10 items-center justify-center rounded-xl ${TINTS[tint]}`}>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+      <div className={`flex size-9 items-center justify-center rounded-xl ${TINTS[tint]}`}>
         <Icon aria-hidden="true" className="size-5" />
       </div>
-      <p className="mt-4 text-sm font-medium text-student-muted">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-student-text">{value}</p>
-      <p className="mt-1 truncate text-xs text-student-muted">{delta}</p>
+      <p className="mt-3 text-sm font-medium text-student-muted">{label}</p>
+      <p className="mt-0.5 text-xl font-bold text-student-text">{value}</p>
+      <p className="mt-0.5 truncate text-xs text-student-muted">{delta}</p>
     </div>
   );
 }
@@ -697,13 +730,17 @@ interface SectionHeaderProps {
   actionLabel?: string | undefined;
   onAction?: (() => void) | undefined;
   pill?: string | undefined;
+  titleIcon?: LucideIcon | undefined;
 }
 
-function SectionHeader({ title, subtitle, actionLabel, onAction, pill }: SectionHeaderProps) {
+function SectionHeader({ title, subtitle, actionLabel, onAction, pill, titleIcon: TitleIcon }: SectionHeaderProps) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
+    <div className="mb-4 flex items-center justify-between gap-4">
       <div className="min-w-0">
-        <h2 className="text-lg font-bold text-student-text">{title}</h2>
+        <div className="flex items-center gap-2">
+          {TitleIcon ? <TitleIcon aria-hidden="true" className="size-5 shrink-0 text-amber-500" /> : null}
+          <h2 className="text-lg font-bold text-student-text">{title}</h2>
+        </div>
         {subtitle ? <p className="mt-0.5 text-sm text-student-muted">{subtitle}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-3">
@@ -733,7 +770,7 @@ interface SectionCardProps extends SectionHeaderProps {
 
 // A section rendered as one big white container card with its header + items
 // inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
-function SectionCard({ title, subtitle, actionLabel, onAction, pill, children, className }: SectionCardProps) {
+function SectionCard({ title, subtitle, actionLabel, onAction, pill, titleIcon, children, className }: SectionCardProps) {
   return (
     <section
       className={`flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
@@ -744,6 +781,7 @@ function SectionCard({ title, subtitle, actionLabel, onAction, pill, children, c
         actionLabel={actionLabel}
         onAction={onAction}
         pill={pill}
+        titleIcon={titleIcon}
       />
       {children}
     </section>
@@ -787,10 +825,20 @@ function ContinueLearningCard({ course, onResume }: { course: CourseProgressRow;
   );
 }
 
+// Blank placeholder so Continue Learning always shows 3 size-aligned slots
+// (Naji 2026-06-05: keep the empty slots when enrolled in fewer than 3 courses).
+function ContinueLearningPlaceholder() {
+  return (
+    <div className="flex min-h-[14rem] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-5 text-center">
+      <BookOpen aria-hidden="true" className="size-7 text-slate-300" />
+      <p className="mt-2 text-xs font-medium text-slate-400">No course yet</p>
+    </div>
+  );
+}
+
 function UpcomingLiveRow({ row, onJoin }: { row: LiveRow; onJoin: () => void }) {
   const chip = weekdayChip(row.date);
   const time = shortTime(row.fromTime);
-  const meta = [row.subject, row.instructor].filter(Boolean).join(' · ');
   return (
     <div className="flex items-center gap-4 rounded-xl border border-slate-200 p-4">
       <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl bg-student-primary/10 text-student-primary">
@@ -807,7 +855,12 @@ function UpcomingLiveRow({ row, onJoin }: { row: LiveRow; onJoin: () => void }) 
             </span>
           ) : null}
         </div>
-        {meta ? <p className="mt-0.5 truncate text-xs text-student-muted">{meta}</p> : null}
+        {row.subject ? (
+          <p className="mt-0.5 truncate text-xs text-student-muted">{row.subject}</p>
+        ) : null}
+        {row.instructor ? (
+          <p className="mt-0.5 truncate text-xs text-student-muted">{row.instructor}</p>
+        ) : null}
         {time ? (
           <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-student-muted">
             <Clock aria-hidden="true" className="size-3" />
@@ -820,7 +873,7 @@ function UpcomingLiveRow({ row, onJoin }: { row: LiveRow; onJoin: () => void }) 
         className="h-9 shrink-0 rounded-xl bg-student-primary px-4 text-xs font-semibold text-white hover:bg-student-primary/90"
       >
         <Video aria-hidden="true" className="mr-1.5 size-3.5" />
-        {row.isToday ? 'Join' : 'Details'}
+        Join
       </Button>
     </div>
   );

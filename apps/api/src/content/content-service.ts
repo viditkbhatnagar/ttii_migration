@@ -1979,6 +1979,45 @@ export class ContentService {
     return lesson?.course_id !== null && lesson?.course_id !== undefined ? String(lesson.course_id) : null;
   }
 
+  // The student's most recently watched lesson file (powers "Resume Learning"
+  // and deep-linking straight into the last video they were on). Optionally
+  // scoped to one course. Returns null when there is no saved progress.
+  async getLastWatchedLessonFile(
+    userId: string,
+    courseId?: string,
+  ): Promise<{ courseId: string; lessonFileId: string; lessonId: string; title: string } | null> {
+    const userIdInt = toNullableIntId(userId);
+    if (userIdInt === null) return null;
+    const courseIdInt = courseId ? toNullableIntId(courseId) : null;
+
+    const row = await this.prisma.video_progress_status.findFirst({
+      where: {
+        user_id: userIdInt,
+        deleted_at: null,
+        lesson_file_id: { not: null },
+        // We need a course to deep-link into; skip legacy null-course rows.
+        course_id: courseIdInt !== null ? courseIdInt : { not: null },
+      },
+      // updated_at can be NULL on older create-only rows, so fall back to
+      // created_at / id to pick the genuinely most-recent activity.
+      orderBy: [{ updated_at: 'desc' }, { created_at: 'desc' }, { id: 'desc' }],
+      select: { course_id: true, lesson_file_id: true },
+    });
+    if (!row || row.lesson_file_id === null) return null;
+
+    const file = await this.prisma.lesson_files.findUnique({
+      where: { id: row.lesson_file_id },
+      select: { lesson_id: true, title: true },
+    });
+
+    return {
+      courseId: row.course_id !== null ? String(row.course_id) : courseId ?? '',
+      lessonFileId: String(row.lesson_file_id),
+      lessonId: file?.lesson_id !== null && file?.lesson_id !== undefined ? String(file.lesson_id) : '',
+      title: file?.title ?? '',
+    };
+  }
+
   async saveVideoProgress(userId: string, input: SaveVideoProgressInput): Promise<void> {
     const lessonFileId = input.lessonFileId;
     if (!lessonFileId) {
@@ -2047,6 +2086,9 @@ export class ContentService {
         status: completed ? 1 : 0,
         created_by: toNullableIntId(userId),
         created_at: now,
+        // Set updated_at on create too so "last watched" ordering is reliable
+        // (otherwise create-only rows have NULL updated_at and sort wrong).
+        updated_at: now,
       },
     });
   }

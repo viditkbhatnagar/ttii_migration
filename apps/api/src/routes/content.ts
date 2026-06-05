@@ -473,6 +473,22 @@ export function registerContentRoutes(
     }
   });
 
+  // Last lesson file the student watched (for the dashboard Resume button). An
+  // optional course_id scopes it to one course; omit for the global last-watched.
+  app.get('/student/last-watched-lesson', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id);
+      const data = await contentService.getLastWatchedLessonFile(
+        requestUserId(request),
+        courseId || undefined,
+      );
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   app.get('/lesson_file/save_video_progress', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

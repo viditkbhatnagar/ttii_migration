@@ -845,13 +845,25 @@ export class EngagementService {
         id: true,
         title: true,
         description: true,
+        created_at: true,
       },
     });
+
+    // Per-user read state lives in notification_read (markNotificationAsRead
+    // writes there); merge it so is_read is accurate — this also fixes the bell
+    // dropdown and the Notifications page previously showing everything unread.
+    const readRows = await this.prisma.notification_read.findMany({
+      where: { user_id: toIntId(userId), deleted_at: null },
+      select: { notification_id: true },
+    });
+    const readSet = new Set(readRows.map((r) => r.notification_id));
 
     return rows.map((row) => ({
       id: row.id,
       title: toStringValue(row.title),
       description: stripHtml(toStringValue(row.description)),
+      created_at: row.created_at ? row.created_at.toISOString() : '',
+      is_read: readSet.has(row.id) ? 1 : 0,
     }));
   }
 

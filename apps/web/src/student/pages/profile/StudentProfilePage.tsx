@@ -201,7 +201,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
 
   const completionColor = profileCompletion >= 80 ? 'text-emerald-600' : profileCompletion >= 50 ? 'text-amber-600' : 'text-red-600';
   const completionBarColor = profileCompletion >= 80 ? 'bg-emerald-500' : profileCompletion >= 50 ? 'bg-amber-500' : 'bg-red-500';
-  const rollLabel = profile?.username ? `@${profile.username}` : `ID: ${profile?.studentId || 'N/A'}`;
+  const rollLabel = profile?.studentId ? `ID: ${profile.studentId}` : 'ID: —';
 
   return (
     <div className="space-y-6">

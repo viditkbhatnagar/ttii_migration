@@ -142,6 +142,14 @@ export interface StudentProfileSnapshot {
   source: 'profile' | 'session';
 }
 
+// The lesson file the student last watched (Resume Learning deep-link target).
+export interface StudentLastWatched {
+  courseId: string;
+  lessonFileId: string;
+  lessonId: string;
+  title: string;
+}
+
 export interface StudentLearningSnapshot {
   courses: Record<string, unknown>[];
   catalogCourses: Record<string, unknown>[];
@@ -660,6 +668,29 @@ export class StudentPortalApi {
       lesson_duration: input.lessonDuration,
       user_progress: input.userProgress,
     });
+  }
+
+  // Resolve the last lesson the student watched (global, or scoped to a course)
+  // for the Resume Learning deep-link. Resilient: returns null on any failure.
+  async loadLastWatchedLesson(authToken: string, courseId?: string): Promise<StudentLastWatched | null> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>(
+        '/student/last-watched-lesson',
+        authToken,
+        courseId ? { course_id: courseId } : {},
+      );
+      const data = asRecord(payload.data);
+      const lessonFileId = data ? asString(data.lessonFileId) : '';
+      if (!data || !lessonFileId) return null;
+      return {
+        courseId: asString(data.courseId),
+        lessonFileId,
+        lessonId: asString(data.lessonId),
+        title: asString(data.title),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async saveMaterialProgress(
