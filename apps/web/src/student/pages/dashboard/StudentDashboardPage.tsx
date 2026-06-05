@@ -87,7 +87,6 @@ interface BadgeRow {
 
 type DashboardBundle = readonly [
   StudentDashboardSnapshot,
-  StudentLearningSnapshot,
   StudentAssessmentSnapshot,
   Record<string, unknown>[],
   StudentInstallmentItem[],
@@ -418,9 +417,6 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   const { data, loading, error, reload } = useAdminPageData<DashboardBundle>(
     () => Promise.all([
       api.loadDashboard(session.token),
-      // Dashboard only needs course/lesson progress, not the per-lesson file
-      // tree — skip that fan-out so the page loads fast.
-      api.loadLearning(session.token, { includeFiles: false }),
       api.loadAssessments(session.token),
       api.loadAllLiveClasses(session.token),
       api.loadInstallments(session.token),
@@ -429,22 +425,30 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
     [api, session.token],
     `student:dashboard:${session.userId}`,
   );
+  // Learning (Continue Learning + Recommended + badge progress) is the heaviest
+  // load — the per-course subjects/lessons fan-out — so fetch it OUTSIDE the
+  // blocking bundle. The dashboard paints from the fast data immediately and
+  // these sections fill in when learning resolves (Naji 2026-06-06: faster load).
+  const { data: learning } = useAdminPageData<StudentLearningSnapshot>(
+    () => api.loadLearning(session.token, { includeFiles: false }),
+    [api, session.token],
+    `student:dashboard:learning:${session.userId}`,
+  );
   const { currentUser } = useStudentLayout();
 
   const dashboard = data?.[0];
-  const learning = data?.[1];
-  const assessments = data?.[2];
+  const assessments = data?.[1];
 
   const inProgressCourses = useMemo(() => (learning ? deriveInProgressCourses(learning) : []), [learning]);
   const completedCourses = useMemo(() => (learning ? countCompletedCourses(learning) : 0), [learning]);
   const recommended = useMemo(() => (learning ? deriveRecommendedCourses(learning) : []), [learning]);
-  const upcomingLive = useMemo(() => (data ? deriveUpcomingLive(data[3]) : []), [data]);
-  const nextDue = useMemo(() => (data ? findNextDue(data[4]) : null), [data]);
+  const upcomingLive = useMemo(() => (data ? deriveUpcomingLive(data[2]) : []), [data]);
+  const nextDue = useMemo(() => (data ? findNextDue(data[3]) : null), [data]);
   const priorities = useMemo(
     () => (assessments ? derivePriorities(assessments, nextDue) : []),
     [assessments, nextDue],
   );
-  const activity = useMemo(() => (data ? deriveActivity(data[5]) : []), [data]);
+  const activity = useMemo(() => (data ? deriveActivity(data[4]) : []), [data]);
   const badges = useMemo(() => {
     const inProgressMax = inProgressCourses.reduce((m, c) => Math.max(m, c.progress), 0);
     const maxProgress = completedCourses > 0 ? 100 : inProgressMax;

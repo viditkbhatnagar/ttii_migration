@@ -562,6 +562,13 @@ export class StudentPortalApi {
     authToken: string,
     options?: { includeFiles?: boolean },
   ): Promise<StudentLearningSnapshot> {
+    // Streak only depends on a date window, not on courses/lessons — fire it
+    // up front so it resolves in parallel instead of tacking an extra
+    // round-trip onto the end of the subjects/lessons fan-out.
+    const streakPromise = this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/streak_data', authToken, {
+      from_date: dayOffset(-30),
+      to_date: toDateOnly(new Date()),
+    });
     const [coursesPayload, catalogPayload] = await Promise.all([
       this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken),
       this.get<LegacyEnvelope<unknown[]>>('/course/catalog', authToken),
@@ -638,10 +645,7 @@ export class StudentPortalApi {
         ).flat()
       : [];
 
-    const streakPayload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/lesson_file/streak_data', authToken, {
-      from_date: dayOffset(-30),
-      to_date: toDateOnly(new Date()),
-    });
+    const streakPayload = await streakPromise;
     const streak = asRecord(streakPayload.data) ?? {};
 
     return {

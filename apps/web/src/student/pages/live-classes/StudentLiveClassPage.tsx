@@ -94,7 +94,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
   const [courseFilter, setCourseFilter] = useState('all');
   const [subjectFilter, setSubjectFilter] = useState('all');
 
-  const rows = data ?? [];
+  const rows = useMemo(() => data ?? [], [data]);
 
   const courseOptions = useMemo(
     () => [...new Set(rows.map((r) => asString(r.cohort_title)).filter(Boolean))].sort(),
