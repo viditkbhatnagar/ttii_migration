@@ -565,7 +565,7 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
       {/* Assignment detail / view page — matches the EduPulse view (Naji 2026-06-05). */}
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
-        <DialogContent className="max-w-6xl gap-0 overflow-hidden p-0">
+        <DialogContent className="sm:max-w-6xl gap-0 overflow-hidden p-0">
           <DialogHeader className="sr-only">
             <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
