@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ClipboardList,
   FileText,
@@ -15,9 +15,14 @@ import {
   AlertCircle,
   Award,
   PlayCircle,
+  Download,
+  Upload,
+  GraduationCap,
+  Loader2,
+  type LucideIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
@@ -575,129 +580,357 @@ export default function StudentAssessmentsPage({ api, session }: StudentPageProp
         </div>
       )}
 
-      {/* Submission / feedback dialog */}
+      {/* Assignment detail / view page — matches the EduPulse view (Naji 2026-06-05). */}
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0">
+          <DialogHeader className="sr-only">
             <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
-          {detailItem ? <SubmissionDetail item={detailItem} /> : null}
+          {detailItem ? (
+            <AssignmentDetail
+              item={detailItem}
+              onClose={() => setDetailItem(null)}
+              onSubmitFiles={async (files) => {
+                await api.submitAssignmentFiles(session.token, asString(detailItem.id), files);
+                reload();
+              }}
+              onSaveDraft={async () => {
+                await api.toggleSavedAssignment(session.token, asString(detailItem.id));
+                reload();
+              }}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function SubmissionDetail({ item }: { item: Record<string, unknown> }) {
+// Strip HTML tags to plain text for legacy rich-text instruction blobs.
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Instruction lines — the backend pre-splits HTML <li>/<p> into item.instruction[];
+// fall back to description / raw instructions as a single block.
+function instructionLines(item: Record<string, unknown>): string[] {
+  const arr = item.instruction;
+  if (Array.isArray(arr)) {
+    const lines = arr.map((x) => stripHtml(asString(x))).filter((s) => s !== '');
+    if (lines.length > 0) return lines;
+  }
+  const block = asString(item.description) || stripHtml(asString(item.instructions));
+  return block ? [block] : [];
+}
+
+function daysRemainingLabel(due: string): string {
+  if (!due) return '';
+  const ms = new Date(due).getTime();
+  if (Number.isNaN(ms)) return '';
+  const days = Math.ceil((ms - Date.now()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return 'Overdue';
+  if (days === 0) return 'Due today';
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+function QuickInfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-student-primary" />
+      <div className="min-w-0">
+        <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+        <dd className="truncate text-sm font-medium text-student-text">{value}</dd>
+      </div>
+    </div>
+  );
+}
+
+// The assignment detail "view page" — a rich modal mirroring the EduPulse demo:
+// header (code · subject · course, title, status), Assignment Information, the
+// Description & Instructions, Attachments, Your Submission (real upload), a Quick
+// Info sidebar, and a Close / Save Draft / Submit footer. Submission uploads the
+// chosen file to /assignment/submit_assignment (Naji 2026-06-05).
+function AssignmentDetail({
+  item,
+  onClose,
+  onSubmitFiles,
+  onSaveDraft,
+}: {
+  item: Record<string, unknown>;
+  onClose: () => void;
+  onSubmitFiles: (files: File[]) => Promise<void>;
+  onSaveDraft: () => Promise<void>;
+}) {
+  const id = asString(item.id);
+  const title = asString(item.title) || 'Assignment';
+  const subject = asString(item.subject_title);
+  const course = asString(item.course_title);
+  const totalMarks = asString(item.total_marks) || '100';
   const marks = asString(item.marks);
-  const totalMarks = asString(item.total_marks);
   const isReviewed = asNumber(item.is_reviewed) === 1;
   const isSubmitted = asNumber(item.is_submitted) > 0;
+  const dueDisplay = asString(item.formatted_date) || asString(item.date) || asString(item.due_date);
+  const timeRange = asString(item.time);
+  const briefUrl = asString(item.file);
+  const faculty = asString(item.instructor_name) || asString(item.faculty);
   const remarks = asString(item.remarks);
   const submittedFiles = parseSubmittedFiles(item.submitted_file);
   const submittedDate = asString(item.submitted_date) || asString(item.updated_at);
-  const subject = asString(item.subject_title) || asString(item.course_title);
-  const dueDate = asString(item.due_date) || asString(item.to_date) || asString(item.due_at);
-  const briefUrl = asString(item.file);
-  const instructions = asString(item.instructions) || asString(item.description);
+  const lines = instructionLines(item);
+  const remaining = daysRemainingLabel(dueDisplay);
+  const statusLabel = isReviewed ? 'Reviewed' : isSubmitted ? 'Submitted' : 'Not started';
+  const canSubmit = !isReviewed;
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState<'submit' | 'draft' | null>(null);
+
+  const submit = async () => {
+    if (!file) {
+      toast.error('Choose a file to submit.');
+      return;
+    }
+    setBusy('submit');
+    try {
+      await onSubmitFiles([file]);
+      toast.success('Assignment submitted.');
+      setBusy(null);
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Submission failed.');
+      setBusy(null);
+    }
+  };
+
+  const saveDraft = async () => {
+    setBusy('draft');
+    try {
+      await onSaveDraft();
+      toast.success('Draft saved.');
+    } catch {
+      toast.error('Could not save draft.');
+    }
+    setBusy(null);
+  };
+
+  const stats: Array<{ label: string; value: string }> = [
+    { label: 'Due Date', value: dueDisplay || '—' },
+    { label: 'Submitted', value: isSubmitted && submittedDate ? formatDate(submittedDate) : '—' },
+    { label: 'Max Marks', value: totalMarks },
+    { label: 'Time', value: timeRange || '—' },
+  ];
+
+  const scoreValue = `${isReviewed && marks ? (marks.includes('/') ? marks.split('/')[0] : marks) : '—'}/${totalMarks}`;
 
   return (
-    <div className="space-y-4">
-      {/* Meta: subject + due date */}
-      {subject || dueDate ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-          {subject ? (
-            <span className="inline-flex items-center gap-1.5">
-              <ClipboardList aria-hidden="true" className="size-4" />
-              {subject}
+    <div className="flex max-h-[85vh] flex-col">
+      {/* Header */}
+      <div className="flex items-start gap-4 border-b border-slate-200 p-5 sm:p-6">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-student-primary-light text-student-primary">
+          <FileText aria-hidden="true" className="size-6" />
+        </div>
+        <div className="min-w-0 flex-1 pr-8">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold tracking-wide text-slate-600">
+              ASG-{id}
             </span>
-          ) : null}
-          {dueDate ? (
-            <span className="inline-flex items-center gap-1.5">
-              <CalendarDays aria-hidden="true" className="size-4" />
-              Due {formatDate(dueDate)}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Instructions + brief (replaces the row-level download) */}
-      {instructions ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Instructions</p>
-          <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{instructions}</p>
-        </div>
-      ) : null}
-      {briefUrl ? (
-        <a
-          href={briefUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-xl border border-student-primary/30 px-3 py-2 text-sm font-semibold text-student-primary transition-colors hover:bg-student-primary/5"
-        >
-          <FileText aria-hidden="true" className="size-4" />
-          View assignment brief
-        </a>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-xl bg-slate-50 p-4">
-          <p className="mb-1 text-xs text-slate-500">Score</p>
-          <p className="text-lg font-bold text-slate-800">
-            {isReviewed && marks ? (marks.includes('/') ? marks : `${marks}/${totalMarks}`) : '—'}
-          </p>
-        </div>
-        <div className="rounded-xl bg-slate-50 p-4">
-          <p className="mb-1 text-xs text-slate-500">Status</p>
-          <div className="mt-1">
-            {isReviewed ? (
-              <Badge className="border-green-200 bg-green-100 text-green-700">Reviewed</Badge>
-            ) : isSubmitted ? (
-              <Badge className="border-yellow-200 bg-yellow-100 text-yellow-700">Pending Review</Badge>
-            ) : (
-              <Badge className="border-slate-200 bg-slate-100 text-slate-600">Not submitted</Badge>
-            )}
+            {subject ? <span>{subject}</span> : null}
+            {subject && course ? <span aria-hidden="true">·</span> : null}
+            {course ? <span>{course}</span> : null}
           </div>
+          <h2 className="mt-1.5 text-xl font-bold text-student-text">{title}</h2>
+          <span
+            className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              isReviewed
+                ? 'bg-green-100 text-green-700'
+                : isSubmitted
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {statusLabel}
+          </span>
         </div>
-        {submittedDate && isSubmitted ? (
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="mb-1 text-xs text-slate-500">Submitted</p>
-            <p className="text-sm font-medium text-slate-800">{formatDate(submittedDate)}</p>
-          </div>
-        ) : null}
       </div>
 
-      {remarks ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-start gap-2">
-            <MessageSquare aria-hidden="true" className="mt-0.5 size-4 text-amber-600" />
-            <div>
-              <p className="text-xs font-semibold text-amber-700">Instructor Feedback</p>
-              <p className="mt-1 text-sm text-amber-900">{remarks}</p>
+      {/* Body — scrollable, two columns */}
+      <div className="grid flex-1 gap-6 overflow-y-auto p-5 sm:p-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          {/* Assignment information */}
+          <section>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Assignment Information
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {stats.map((s) => (
+                <div key={s.label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{s.label}</p>
+                  <p className="mt-1 truncate text-sm font-bold text-student-text">{s.value}</p>
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
-      ) : null}
+          </section>
 
-      {submittedFiles.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Submitted Files</p>
-          {submittedFiles.map((sf, idx) => (
-            <div key={idx} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white p-3">
-              <Link2 aria-hidden="true" className="size-4 shrink-0 text-blue-500" />
-              <a
-                href={sf.file}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 truncate text-sm text-blue-600 hover:underline"
-              >
-                {getFileName(sf.file)}
-              </a>
-              {sf.date ? <span className="shrink-0 text-xs text-slate-400">{formatDate(sf.date)}</span> : null}
-            </div>
-          ))}
+          {/* Description & instructions */}
+          {lines.length > 0 ? (
+            <section>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Description &amp; Instructions
+              </p>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                {lines.length === 1 ? (
+                  <p className="whitespace-pre-line">{lines[0]}</p>
+                ) : (
+                  <ul className="list-disc space-y-1 pl-5">
+                    {lines.map((line, idx) => (
+                      <li key={idx}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Attachments */}
+          {briefUrl ? (
+            <section>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Attachments &amp; Resources
+              </p>
+              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                  <FileText aria-hidden="true" className="size-5" />
+                </div>
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-student-text">
+                  {getFileName(briefUrl) || 'Assignment brief'}
+                </p>
+                <a
+                  href={briefUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-student-primary hover:underline"
+                >
+                  <Eye aria-hidden="true" className="size-4" />
+                  View
+                </a>
+                <a
+                  href={briefUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <Download aria-hidden="true" className="size-4" />
+                  Download
+                </a>
+              </div>
+            </section>
+          ) : null}
+
+          {/* Your submission — real file upload */}
+          {canSubmit ? (
+            <section>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Your Submission</p>
+              <div className="rounded-xl border-2 border-dashed border-slate-300 p-6 text-center">
+                <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-student-primary-light text-student-primary">
+                  <Upload aria-hidden="true" className="size-5" />
+                </div>
+                <p className="mt-3 text-sm font-semibold text-student-text">
+                  {file ? file.name : 'Drag & drop your file here'}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-400">PDF, DOCX, PPTX up to 25MB</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx"
+                  className="hidden"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 rounded-xl"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {file ? 'Choose another file' : 'Browse Files'}
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
+          {/* Instructor feedback */}
+          {remarks ? (
+            <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-2">
+                <MessageSquare aria-hidden="true" className="mt-0.5 size-4 text-amber-600" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-700">Instructor Feedback</p>
+                  <p className="mt-1 text-sm text-amber-900">{remarks}</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {/* Submitted files */}
+          {submittedFiles.length > 0 ? (
+            <section>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Submitted Files</p>
+              <div className="space-y-2">
+                {submittedFiles.map((sf, idx) => (
+                  <div key={idx} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white p-3">
+                    <Link2 aria-hidden="true" className="size-4 shrink-0 text-blue-500" />
+                    <a
+                      href={sf.file}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 truncate text-sm text-blue-600 hover:underline"
+                    >
+                      {getFileName(sf.file)}
+                    </a>
+                    {sf.date ? <span className="shrink-0 text-xs text-slate-400">{formatDate(sf.date)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
-      ) : null}
+
+        {/* Quick info sidebar */}
+        <aside className="lg:col-span-1">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Quick Info</p>
+          <dl className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            {dueDisplay ? <QuickInfoRow icon={CalendarDays} label="Due Date" value={dueDisplay} /> : null}
+            {remaining ? <QuickInfoRow icon={Clock3} label="Remaining" value={remaining} /> : null}
+            <QuickInfoRow icon={AlertCircle} label="Status" value={statusLabel} />
+            <QuickInfoRow icon={Award} label="Marks" value={scoreValue} />
+            {faculty ? <QuickInfoRow icon={GraduationCap} label="Faculty" value={faculty} /> : null}
+            {briefUrl ? <QuickInfoRow icon={FileText} label="Attachments" value="1 file" /> : null}
+          </dl>
+        </aside>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4">
+        <Button variant="outline" onClick={onClose} disabled={busy !== null}>
+          Close
+        </Button>
+        {canSubmit ? (
+          <>
+            <Button variant="outline" onClick={() => void saveDraft()} disabled={busy !== null}>
+              {busy === 'draft' ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : null}
+              Save Draft
+            </Button>
+            <Button
+              className="bg-student-primary text-white hover:bg-student-primary/90"
+              onClick={() => void submit()}
+              disabled={busy !== null || !file}
+            >
+              {busy === 'submit' ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : null}
+              Submit Assignment
+            </Button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -742,6 +742,22 @@ export class StudentPortalApi {
     });
   }
 
+  // Upload the student's work and submit it. The backend /assignment/submit_assignment
+  // route accepts multipart: it stores each file and records its URL. Auth rides
+  // on the URL (multipart body fields are invisible to the auth middleware),
+  // mirroring uploadProfileImage.
+  async submitAssignmentFiles(authToken: string, assignmentId: string, files: File[]): Promise<void> {
+    const formData = new FormData();
+    formData.append('assignment_id', assignmentId);
+    for (const file of files) formData.append('file', file);
+    const url = `${this.apiClient.getBaseUrl()}assignment/submit_assignment?auth_token=${encodeURIComponent(authToken)}`;
+    const response = await fetch(url, { method: 'POST', body: formData });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok || (payload && (payload.status === 0 || payload.status === false))) {
+      throw new Error((payload?.message as string) || 'Submission failed');
+    }
+  }
+
   async startExamAttempt(authToken: string, examId: string): Promise<string> {
     const payload = await this.post<Record<string, unknown>>('/exams/exam_save_start', authToken, {
       exam_id: examId,
