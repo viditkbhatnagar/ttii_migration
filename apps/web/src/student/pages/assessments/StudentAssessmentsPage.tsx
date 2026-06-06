@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
+import { SegmentedTabs } from '../../components/SegmentedTabs.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -64,6 +65,7 @@ interface ExamView {
   title: string;
   code: string;
   course: string;
+  subject: string;
   state: string;
   dateLabel: string;
   windowLabel: string;
@@ -152,6 +154,7 @@ function toExamView(raw: Record<string, unknown>): ExamView {
     title: asString(raw.title) || `Exam ${id}`,
     code: asString(raw.exam_code),
     course: asString(raw.course_title),
+    subject: asString(raw.subject_title),
     state: asString(raw.state),
     dateLabel: asString(raw.date) ? asString(raw.date) : start ? formatDate(start) : '',
     windowLabel:
@@ -229,6 +232,8 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
   const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [examCourseFilter, setExamCourseFilter] = useState('all');
+  const [examSubjectFilter, setExamSubjectFilter] = useState('all');
   const [detailItem, setDetailItem] = useState<Record<string, unknown> | null>(null);
 
   const { data, loading, error, reload } = useAdminPageData(
@@ -313,13 +318,27 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
   const activeAssignments = assignmentBuckets[assignmentSubTab];
   const activeExams = examBuckets[examSubTab];
 
+  // Exam filter options across ALL buckets — course + question-derived subject
+  // (Naji 2026-06-06: add subject/course filters to the Exams page).
+  const allExams = [
+    ...examBuckets.available,
+    ...examBuckets.upcoming,
+    ...examBuckets.completed,
+    ...examBuckets.missed,
+  ];
+  const examCourseOptions = [...new Set(allExams.map((e) => e.course).filter(Boolean))].sort();
+  const examSubjectOptions = [...new Set(allExams.map((e) => e.subject).filter(Boolean))].sort();
+
   const query = searchQuery.trim().toLowerCase();
   const filteredAssignments = query
     ? activeAssignments.filter((a) => a.title.toLowerCase().includes(query))
     : activeAssignments;
-  const filteredExams = query
-    ? activeExams.filter((e) => e.title.toLowerCase().includes(query))
-    : activeExams;
+  const filteredExams = activeExams.filter((e) => {
+    if (examCourseFilter !== 'all' && e.course !== examCourseFilter) return false;
+    if (examSubjectFilter !== 'all' && e.subject !== examSubjectFilter) return false;
+    if (query && !e.title.toLowerCase().includes(query)) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -453,14 +472,10 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
             ))}
           </div>
 
-          {/* Filter bar: search + status tabs */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <AdminTabBar
-              tabs={examStatCards.map((c) => ({ id: c.id, label: c.label, count: c.count }))}
-              activeTab={examSubTab}
-              onChange={(id) => setExamSubTab(id as ExamSubTab)}
-            />
-            <div className="relative w-full sm:max-w-xs">
+          {/* Search + course/subject filters (Naji 2026-06-06). Course is the
+              exam's course; subject is derived from the exam's question bank. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative w-full flex-1">
               <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <Input
                 aria-label="Search exams"
@@ -470,7 +485,41 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                 className="rounded-xl pl-10"
               />
             </div>
+            {examCourseOptions.length > 0 ? (
+              <select
+                aria-label="Filter by course"
+                value={examCourseFilter}
+                onChange={(e) => setExamCourseFilter(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
+              >
+                <option value="all">All courses</option>
+                {examCourseOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            ) : null}
+            {examSubjectOptions.length > 0 ? (
+              <select
+                aria-label="Filter by subject"
+                value={examSubjectFilter}
+                onChange={(e) => setExamSubjectFilter(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
+              >
+                <option value="all">All subjects</option>
+                {examSubjectOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            ) : null}
           </div>
+
+          {/* Status tabs — EduPulse segmented pills. */}
+          <SegmentedTabs
+            tabs={examStatCards.map((c) => ({ id: c.id, label: c.label, count: c.count }))}
+            active={examSubTab}
+            onChange={(id) => setExamSubTab(id as ExamSubTab)}
+            ariaLabel="Exam status filters"
+          />
 
           {filteredExams.length === 0 ? (
             <div role="status" aria-live="polite" className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
@@ -494,9 +543,9 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                         </div>
                         <div className="min-w-0">
                           <h3 className="truncate font-bold leading-snug text-student-text">{e.title}</h3>
-                          {e.code || e.course ? (
+                          {e.code || e.course || e.subject ? (
                             <p className="mt-0.5 truncate text-xs text-student-muted">
-                              {[e.code, e.course].filter(Boolean).join(' · ')}
+                              {[e.code, e.course, e.subject].filter(Boolean).join(' · ')}
                             </p>
                           ) : null}
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

@@ -613,6 +613,47 @@ export class AssessmentService {
     });
     const courseTitle = toStringValue(courseRow?.title);
 
+    // Per-exam subject. The exam table has no subject column, but each exam's
+    // questions come from the subject-tagged question_bank, so derive a primary
+    // subject for the exam from its questions (batched — 3 queries, not N+1).
+    // This powers the subject filter on the student Exams page.
+    const examIds = exams.map((e) => e.id).filter((id): id is number => id !== null && id !== undefined);
+    const examSubjectTitle = new Map<number, string>();
+    if (examIds.length > 0) {
+      const eqRows = await this.prisma.exam_questions.findMany({
+        where: { exam_id: { in: examIds }, deleted_at: null },
+        select: { exam_id: true, question_id: true },
+      });
+      const questionIds = [
+        ...new Set(eqRows.map((r) => r.question_id).filter((id): id is number => id !== null && id !== undefined)),
+      ];
+      const questionRows = questionIds.length > 0
+        ? await this.prisma.question_bank.findMany({
+            where: { id: { in: questionIds }, deleted_at: null },
+            select: { id: true, subject_id: true },
+          })
+        : [];
+      const questionSubject = new Map<number, number>();
+      for (const q of questionRows) {
+        if (q.subject_id !== null && q.subject_id !== undefined) questionSubject.set(q.id, q.subject_id);
+      }
+      const subjectIds = [...new Set([...questionSubject.values()])];
+      const subjectRows = subjectIds.length > 0
+        ? await this.prisma.subject.findMany({
+            where: { id: { in: subjectIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+      const subjectTitleById = new Map(subjectRows.map((s) => [s.id, toStringValue(s.title)]));
+      // First resolvable subject per exam (most exams are single-subject).
+      for (const r of eqRows) {
+        if (r.exam_id === null || r.exam_id === undefined || examSubjectTitle.has(r.exam_id)) continue;
+        const sid = r.question_id !== null && r.question_id !== undefined ? questionSubject.get(r.question_id) : undefined;
+        const title = sid !== undefined ? subjectTitleById.get(sid) : undefined;
+        if (title) examSubjectTitle.set(r.exam_id, title);
+      }
+    }
+
     const now = Date.now();
     const upcomingExams: Record<string, unknown>[] = [];
     const expiredExams: Record<string, unknown>[] = [];
@@ -624,7 +665,11 @@ export class AssessmentService {
         continue;
       }
 
-      const enriched = { ...examInfo, course_title: courseTitle };
+      const enriched = {
+        ...examInfo,
+        course_title: courseTitle,
+        subject_title: examSubjectTitle.get(exam.id) ?? '',
+      };
       const examDateTime = combineDateAndTime(exam.from_date, exam.from_time);
       if (examDateTime && examDateTime.getTime() > now) {
         upcomingExams.push(enriched);
