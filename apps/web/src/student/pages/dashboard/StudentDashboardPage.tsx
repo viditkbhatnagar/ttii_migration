@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import {
   BookOpen, Calendar, ClipboardList, Wallet, Award, PlayCircle, ArrowRight,
   FileText, Video, Bell, CheckCircle, Flame, Trophy, Sparkles, Clock,
-  Rocket, TrendingUp, Crown,
+  Rocket, TrendingUp, Crown, Info, UserPlus,
   type LucideIcon,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -19,6 +19,7 @@ import type {
 } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 import { EnrollPathModal } from '../../components/EnrollPathModal.js';
+import { CourseInfoModal } from '../../components/CourseInfoModal.js';
 
 /* ─── Constants ──────────────────────────────────────────────── */
 
@@ -53,9 +54,13 @@ interface CourseProgressRow {
 interface CatalogCourseRow {
   id: string;
   title: string;
+  code: string;
+  duration: string;
   subjectCount: number;
+  lessonCount: number;
   price: number;
   offerPrice: number;
+  description: string;
 }
 
 type PriorityKind = 'assignment' | 'quiz' | 'payment';
@@ -222,9 +227,13 @@ function deriveRecommendedCourses(learning: StudentLearningSnapshot): CatalogCou
     .map((course): CatalogCourseRow => ({
       id: asString(course.id),
       title: asString(course.title) || 'Untitled Course',
+      code: asString(course.code),
+      duration: asString(course.duration),
       subjectCount: asNumber(course.subjects_count) || asNumber(course.subject_count) || asNumber(course.total_subjects),
+      lessonCount: asNumber(course.lessons_count) || asNumber(course.lessons),
       price: asNumber(course.price),
       offerPrice: asNumber(course.offer_price),
+      description: asString(course.short_description) || asString(course.description),
     }));
 }
 
@@ -437,6 +446,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   );
   const { currentUser } = useStudentLayout();
   const [enrollCourse, setEnrollCourse] = useState<CatalogCourseRow | null>(null);
+  const [infoCourse, setInfoCourse] = useState<CatalogCourseRow | null>(null);
 
   const dashboard = data?.[0];
   const assessments = data?.[1];
@@ -637,38 +647,47 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         </div>
       ) : null}
 
-      {/* 4 · Achievements & Badges (full width, EduPulse) */}
-      {badges.length > 0 ? (
-        <SectionCard
-          title="Achievements & Badges"
-          subtitle="Your learning milestones and accomplishments"
-          titleIcon={Sparkles}
-          pill={`${earnedBadgeCount} Earned`}
-          pillTone="amber"
-          pillIcon={Trophy}
-        >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-            {badges.map((badge) => (
-              <BadgeTile key={badge.label} badge={badge} />
-            ))}
-          </div>
-        </SectionCard>
-      ) : null}
+      {/* 4 · Achievements + Recent Activity (left) | Today's Priorities (right)
+          — EduPulse 2-column layout (Naji 2026-06-06: match the demo's left/right
+          arrangement instead of three stacked full-width cards). */}
+      {badges.length > 0 || activity.length > 0 || priorities.length > 0 ? (
+        <div className="grid gap-6 lg:grid-cols-3">
+          {badges.length > 0 || activity.length > 0 ? (
+            <div className={`space-y-6 ${priorities.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+              {badges.length > 0 ? (
+                <SectionCard
+                  title="Achievements & Badges"
+                  subtitle="Your learning milestones and accomplishments"
+                  titleIcon={Sparkles}
+                  pill={`${earnedBadgeCount} Earned`}
+                  pillTone="amber"
+                  pillIcon={Trophy}
+                >
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+                    {badges.map((badge) => (
+                      <BadgeTile key={badge.label} badge={badge} />
+                    ))}
+                  </div>
+                </SectionCard>
+              ) : null}
+              {activity.length > 0 ? (
+                <SectionCard title="Recent Activity" subtitle="Your latest learning activity">
+                  <ol className="space-y-1">
+                    {activity.map((row, idx) => (
+                      <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
+                    ))}
+                  </ol>
+                </SectionCard>
+              ) : null}
+            </div>
+          ) : null}
 
-      {/* 5 · Recent Activity (full width, directly under Achievements) */}
-      {activity.length > 0 ? (
-        <SectionCard title="Recent Activity" subtitle="Your latest learning activity">
-          <ol className="space-y-1">
-            {activity.map((row, idx) => (
-              <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
-            ))}
-          </ol>
-        </SectionCard>
-      ) : null}
-
-      {/* 5b · Today's Priorities (full width, EduPulse) */}
-      {priorities.length > 0 ? (
-        <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
+          {priorities.length > 0 ? (
+            <div className={badges.length > 0 || activity.length > 0 ? 'lg:col-span-1' : 'lg:col-span-3'}>
+              <PrioritiesSection priorities={priorities} onNavigate={onNavigate} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {/* 6 · Recommended Courses (big card, full width) */}
@@ -684,7 +703,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               <RecommendedCard
                 key={course.id}
                 course={course}
-                onMore={() => onNavigate('/student/courses')}
+                onMore={() => setInfoCourse(course)}
                 onEnroll={() => setEnrollCourse(course)}
               />
             ))}
@@ -700,6 +719,17 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         onRequestEnrol={async (courseId) => {
           const res = await api.requestEnrolment(session.token, courseId);
           if (res.status !== 1) throw new Error(res.message || 'Could not send your request.');
+        }}
+      />
+
+      {/* More Info → course detail modal; its Enrol Now hands off to the
+          learning-path modal for the same course (Naji 2026-06-06). */}
+      <CourseInfoModal
+        course={infoCourse}
+        onClose={() => setInfoCourse(null)}
+        onEnrol={() => {
+          setEnrollCourse(infoCourse);
+          setInfoCourse(null);
         }}
       />
     </div>
@@ -1053,38 +1083,51 @@ function RecommendedCard({
   const hasOffer = course.offerPrice > 0 && course.offerPrice < course.price;
   const displayPrice = hasOffer ? course.offerPrice : course.price;
   const isFree = course.price <= 0;
+  const meta: Array<{ icon: LucideIcon; text: string }> = [];
+  if (course.duration) meta.push({ icon: Clock, text: course.duration });
+  if (course.subjectCount > 0) meta.push({ icon: BookOpen, text: `${course.subjectCount} Subjects` });
+  if (course.lessonCount > 0) meta.push({ icon: FileText, text: `${course.lessonCount} Lessons` });
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="relative flex h-16 items-center bg-gradient-to-br from-student-primary to-student-accent px-4">
-        <BookOpen aria-hidden="true" className="size-6 text-white/90" />
-        {isFree ? (
-          <span className="absolute right-2.5 top-2.5 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
-            Free
-          </span>
-        ) : displayPrice > 0 ? (
-          <span className="absolute right-2.5 top-2.5 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
-            {formatCurrency(displayPrice)}
-          </span>
-        ) : null}
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      {/* Gradient header with the price/Free badge top-right (EduPulse). */}
+      <div className="relative h-20 bg-gradient-to-br from-student-primary to-student-accent">
+        <span className="absolute right-2.5 top-2.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-student-text shadow-sm">
+          {isFree ? 'Free' : displayPrice > 0 ? formatCurrency(displayPrice) : '—'}
+        </span>
       </div>
       <div className="flex flex-1 flex-col p-4">
-        <h3 className="line-clamp-2 text-sm font-bold text-student-text">{course.title}</h3>
-        <p className="mt-0.5 text-xs text-student-muted">
-          {course.subjectCount > 0 ? `${course.subjectCount} Subjects` : 'Curriculum inside'}
-        </p>
+        <h3 className="line-clamp-2 font-bold leading-snug text-student-text">{course.title}</h3>
+        {course.code ? (
+          <p className="mt-0.5 text-xs font-medium text-student-muted">{course.code}</p>
+        ) : null}
+        {meta.length > 0 ? (
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-student-muted">
+            {meta.map((m) => {
+              const Icon = m.icon;
+              return (
+                <span key={m.text} className="inline-flex items-center gap-1">
+                  <Icon aria-hidden="true" className="size-3.5" />
+                  {m.text}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="mt-auto flex gap-2 pt-4">
           <Button
             onClick={onMore}
             variant="outline"
             className="h-9 flex-1 rounded-xl border-student-primary/30 px-2 text-xs font-semibold text-student-primary hover:bg-student-primary/5"
           >
+            <Info aria-hidden="true" className="mr-1 size-3.5" />
             More Info
           </Button>
           <Button
             onClick={onEnroll}
             className="h-9 flex-1 rounded-xl bg-student-primary px-2 text-xs font-semibold text-white hover:bg-student-primary/90"
           >
-            Enroll
+            <UserPlus aria-hidden="true" className="mr-1 size-3.5" />
+            Enrol
           </Button>
         </div>
       </div>

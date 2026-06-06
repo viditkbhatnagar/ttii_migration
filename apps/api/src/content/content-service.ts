@@ -1011,6 +1011,7 @@ export class ContentService {
     return {
       id: courseIdInt,
       title: toStringValue(course.title),
+      code: toStringValue(course.code),
       label: toStringValue(course.label),
       status: toStringValue(course.status),
       price: toStringValue(course.price),
