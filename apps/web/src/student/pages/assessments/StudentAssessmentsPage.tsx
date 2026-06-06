@@ -485,32 +485,28 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                 className="rounded-xl pl-10"
               />
             </div>
-            {examCourseOptions.length > 0 ? (
-              <select
-                aria-label="Filter by course"
-                value={examCourseFilter}
-                onChange={(e) => setExamCourseFilter(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
-              >
-                <option value="all">All courses</option>
-                {examCourseOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            ) : null}
-            {examSubjectOptions.length > 0 ? (
-              <select
-                aria-label="Filter by subject"
-                value={examSubjectFilter}
-                onChange={(e) => setExamSubjectFilter(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
-              >
-                <option value="all">All subjects</option>
-                {examSubjectOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            ) : null}
+            <select
+              aria-label="Filter by course"
+              value={examCourseFilter}
+              onChange={(e) => setExamCourseFilter(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
+            >
+              <option value="all">All courses</option>
+              {examCourseOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by subject"
+              value={examSubjectFilter}
+              onChange={(e) => setExamSubjectFilter(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-student-text sm:w-48"
+            >
+              <option value="all">All subjects</option>
+              {examSubjectOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
           </div>
 
           {/* Status tabs — EduPulse segmented pills. */}
