@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AdminTabBar } from '../../../admin/shared/components/AdminTabBar.js';
+import { SegmentedTabs } from '../../components/SegmentedTabs.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asBoolean } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -226,7 +226,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
         </select>
       </div>
 
-      <AdminTabBar tabs={tabs} activeTab={tab} onChange={(id) => setTab(id as LiveTab)} />
+      <SegmentedTabs tabs={tabs} active={tab} onChange={(id) => setTab(id as LiveTab)} ariaLabel="Live class filters" />
 
       {current.length === 0 ? (
         <div role="status" className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
@@ -296,8 +296,8 @@ function LiveClassCard({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {isOngoing ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
-              <span className="inline-block size-1.5 animate-pulse rounded-full bg-white" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+              <span className="inline-block size-2 animate-pulse rounded-full bg-white" />
               Live
             </span>
           ) : null}
