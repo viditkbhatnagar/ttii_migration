@@ -11,7 +11,6 @@ import {
   Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
@@ -292,93 +291,100 @@ function LiveClassCard({
   const hasRecording = asBoolean(row.has_recording);
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      {/* Top row: subject tag (left) + duration (right), per reference §5. */}
-      <div className="mb-3 flex items-start justify-between gap-3">
-        {subject ? (
-          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
-            {subject}
-          </span>
-        ) : <span />}
+    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      {/* Top row: LIVE + subject pills inline (left), duration (right) — EduPulse. */}
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {isOngoing ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+              <span className="inline-block size-1.5 animate-pulse rounded-full bg-white" />
+              Live
+            </span>
+          ) : null}
+          {subject ? (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+              {subject}
+            </span>
+          ) : null}
+        </div>
         {duration ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-            <Clock aria-hidden="true" className="size-3" />
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-500">
+            <Clock aria-hidden="true" className="size-3.5" />
             {duration}
           </span>
         ) : null}
       </div>
 
-      {isOngoing ? (
-        <Badge className="mb-2 w-fit rounded-full border-red-200 bg-red-100 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-          <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-red-500" />
-          Live
-        </Badge>
-      ) : null}
-
-      <h3 className="text-base font-bold leading-snug text-student-text">{title}</h3>
+      <h3 className="text-lg font-bold leading-snug text-student-text">{title}</h3>
 
       {instructor ? (
-        <p className="mt-1 text-xs text-student-muted">
+        <p className="mt-1 text-sm text-student-muted">
           with <span className="font-medium text-student-text">{instructor}</span>
         </p>
       ) : null}
 
-      {/* Footer meta: date + time. No attendee count — the API does not return one. */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-student-muted">
-        {date ? (
-          <span className="inline-flex items-center gap-1">
+      {/* Meta row: status-aware, icon-led. No attendee count — the API does not
+          return one, so we don't fabricate it (EduPulse shows it; our data lacks it). */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-student-muted">
+        {isOngoing ? (
+          <span className="inline-flex items-center gap-1.5 font-medium text-red-600">
+            <CalendarDays aria-hidden="true" className="size-3.5" />
+            Live now
+          </span>
+        ) : date ? (
+          <span className="inline-flex items-center gap-1.5">
             <CalendarDays aria-hidden="true" className="size-3.5" />
             {date}
           </span>
         ) : null}
-        {timeRange ? (
-          <span className="inline-flex items-center gap-1">
-            <Clock aria-hidden="true" className="size-3.5" />
-            {timeRange}
-          </span>
-        ) : null}
-        {sinceStart ? (
-          <span className="inline-flex items-center gap-1 font-medium text-red-600">
-            <span className="inline-block size-1.5 animate-pulse rounded-full bg-red-500" />
-            {sinceStart}
-          </span>
-        ) : null}
+        {isOngoing
+          ? sinceStart
+            ? <span>{sinceStart}</span>
+            : null
+          : timeRange
+            ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Clock aria-hidden="true" className="size-3.5" />
+                {timeRange}
+              </span>
+            )
+            : null}
         {isPast ? (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1.5">
             <Video aria-hidden="true" className="size-3.5" />
             Recorded
           </span>
         ) : null}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
+      <div className="mt-5">
         {isPast ? (
           hasRecording ? (
             <Button
               onClick={onWatch}
               disabled={recPending}
-              className="h-10 flex-1 rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
+              className="h-12 w-full rounded-xl bg-student-primary text-sm font-semibold text-white shadow-sm transition-all hover:bg-student-primary/90 hover:shadow-md active:scale-[0.99] disabled:opacity-70"
             >
-              <Play aria-hidden="true" className="mr-1.5 size-4" />
+              <Play aria-hidden="true" className="mr-2 size-4" />
               {recPending ? 'Loading…' : 'View Recording'}
             </Button>
           ) : (
-            <span className="flex-1 rounded-xl bg-slate-50 py-2.5 text-center text-xs text-student-muted">
+            <span className="block w-full rounded-xl bg-slate-50 py-3.5 text-center text-xs font-medium text-student-muted">
               Recording not available yet
             </span>
           )
         ) : joinUrl ? (
           <Button
             asChild
-            className="h-10 flex-1 rounded-xl bg-student-primary text-sm font-semibold text-white hover:bg-student-primary/90"
+            className="h-12 w-full rounded-xl bg-student-primary text-sm font-semibold text-white shadow-sm transition-all hover:bg-student-primary/90 hover:shadow-md active:scale-[0.99]"
           >
             <a href={joinUrl} target="_blank" rel="noopener noreferrer">
-              <Video aria-hidden="true" className="mr-1.5 size-4" />
+              <Video aria-hidden="true" className="mr-2 size-4" />
               {joinLabel}
             </a>
           </Button>
         ) : (
-          <span className="flex-1 rounded-xl bg-slate-50 py-2.5 text-center text-xs text-student-muted">
+          <span className="block w-full rounded-xl bg-slate-50 py-3.5 text-center text-xs font-medium text-student-muted">
             Join link not available yet
           </span>
         )}
