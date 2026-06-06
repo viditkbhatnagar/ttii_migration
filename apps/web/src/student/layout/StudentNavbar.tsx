@@ -159,6 +159,7 @@ export function StudentNavbar({ api, session, onNavigate, onLogout }: StudentNav
   const displayName = currentUser?.name || 'Student';
   const initials = currentUser?.initials ?? 'ST';
   const avatarImage = currentUser?.image ?? '';
+  const studentId = currentUser?.studentId ?? '';
 
   const formattedTime = now.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -227,7 +228,12 @@ export function StudentNavbar({ api, session, onNavigate, onLogout }: StudentNav
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm font-medium sm:inline">{displayName}</span>
+              <span className="hidden flex-col items-start leading-tight sm:flex">
+                <span className="text-sm font-medium text-student-text">{displayName}</span>
+                {studentId ? (
+                  <span className="text-[11px] font-normal text-slate-400">{studentId}</span>
+                ) : null}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">

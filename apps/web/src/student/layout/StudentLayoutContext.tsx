@@ -7,6 +7,7 @@ interface StudentCurrentUser {
   initials: string;
   username: string;
   image: string;
+  studentId: string;
 }
 
 interface StudentLayoutState {
@@ -74,10 +75,11 @@ export function StudentLayoutProvider({ children, api, session }: StudentLayoutP
           initials: computeInitials(name),
           username: profile.username,
           image: profile.image,
+          studentId: profile.studentId,
         });
       } catch {
         if (cancelled) return;
-        setCurrentUser({ name: '', initials: 'ST', username: '', image: '' });
+        setCurrentUser({ name: '', initials: 'ST', username: '', image: '', studentId: '' });
       }
     })();
     return () => {
