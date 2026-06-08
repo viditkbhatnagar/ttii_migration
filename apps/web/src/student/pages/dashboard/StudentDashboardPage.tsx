@@ -662,6 +662,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                   pill={`${earnedBadgeCount} Earned`}
                   pillTone="amber"
                   pillIcon={Trophy}
+                  fill={false}
                 >
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
                     {badges.map((badge) => (
@@ -671,7 +672,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 </SectionCard>
               ) : null}
               {activity.length > 0 ? (
-                <SectionCard title="Recent Activity" subtitle="Your latest learning activity">
+                <SectionCard title="Recent Activity" subtitle="Your latest learning activity" fill={false}>
                   <ol className="space-y-1">
                     {activity.map((row, idx) => (
                       <ActivityItem key={row.id} row={row} isLast={idx === activity.length - 1} />
@@ -817,14 +818,18 @@ function SectionHeader({ title, subtitle, actionLabel, onAction, pill, pillTone,
 interface SectionCardProps extends SectionHeaderProps {
   children: ReactNode;
   className?: string;
+  // Defaults true (the card stretches to fill its grid cell). Set false when
+  // STACKING multiple SectionCards in one grid column — otherwise each h-full
+  // card claims 100% of the column and they overflow/overlap (Naji 2026-06-08).
+  fill?: boolean;
 }
 
 // A section rendered as one big white container card with its header + items
 // inside (Naji 2026-06-05: "big one card, items listed inside, same all others").
-function SectionCard({ title, subtitle, actionLabel, onAction, pill, pillTone, pillIcon, titleIcon, children, className }: SectionCardProps) {
+function SectionCard({ title, subtitle, actionLabel, onAction, pill, pillTone, pillIcon, titleIcon, children, className, fill = true }: SectionCardProps) {
   return (
     <section
-      className={`flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
+      className={`flex ${fill ? 'h-full' : ''} flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${className ?? ''}`}
     >
       <SectionHeader
         title={title}
