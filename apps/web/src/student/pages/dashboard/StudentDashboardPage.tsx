@@ -1035,25 +1035,27 @@ function PriorityItem({ row, onAction }: { row: PriorityRow; onAction: () => voi
   const status = PRIORITY_STATUS_STYLE[row.status];
   const KindIcon = kind.icon;
   return (
-    <div className="mb-2 flex items-center gap-4 rounded-xl border border-slate-200 p-4 transition-all last:mb-0 hover:border-student-primary/30 hover:shadow-sm">
+    <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 p-4 transition-all last:mb-0 hover:border-student-primary/30 hover:shadow-sm sm:gap-4">
       <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${TINTS[row.kind === 'quiz' ? 'blue' : row.kind === 'payment' ? 'amber' : 'primary']}`}>
         <KindIcon aria-hidden="true" className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        {/* Kind label + status badge share one line; the badge is shrink-0 and
+            the label truncates so they can never overlap on narrow widths. */}
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className={`inline-block size-2 shrink-0 rounded-full ${kind.dot}`} aria-hidden="true" />
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-student-muted">{kind.label}</span>
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-student-muted">{kind.label}</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}>
+            {status.label}
+          </span>
         </div>
         <h3 className="mt-0.5 truncate text-sm font-semibold text-student-text">{row.title}</h3>
         {row.context ? <p className="truncate text-xs text-student-muted">{row.context}</p> : null}
       </div>
-      <span className={`hidden shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:inline-flex ${status.className}`}>
-        {status.label}
-      </span>
       <Button
         onClick={onAction}
         variant={row.status === 'completed' ? 'outline' : 'default'}
-        className={`h-9 shrink-0 rounded-xl px-4 text-xs font-semibold ${
+        className={`h-9 shrink-0 rounded-xl px-3.5 text-xs font-semibold sm:px-4 ${
           row.status === 'completed'
             ? 'border-slate-200 text-student-text'
             : 'bg-student-primary text-white hover:bg-student-primary/90'
