@@ -90,10 +90,16 @@ const envSchema = z.object({
   OTP_HTTP_SENDER_ID: optionalStringFromEnv,
   OTP_HTTP_TIMEOUT_MS: z.coerce.number().int().min(100).default(5000),
 
+  // Object storage. 's3' = any S3-compatible store; TTII production uses
+  // DigitalOcean Spaces (Spaces speaks the S3 API — this is NOT Amazon AWS).
+  // For Spaces: set S3_ENDPOINT to https://<region>.digitaloceanspaces.com and
+  // S3_REGION to the Space's datacenter slug (e.g. blr1). See .env.example.
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().default('/tmp/ttii-storage'),
   STORAGE_LOCAL_SIGNING_KEY: z.string().min(16).default('ttii-dev-storage-signing-key'),
   S3_BUCKET: optionalStringFromEnv,
+  // SigV4 signing region. For DigitalOcean Spaces this must equal the Space's
+  // datacenter slug (blr1/sgp1/nyc3/...), not an AWS region.
   S3_REGION: z.string().default('ap-south-1'),
   S3_ACCESS_KEY_ID: optionalStringFromEnv,
   S3_SECRET_ACCESS_KEY: optionalStringFromEnv,

@@ -197,6 +197,21 @@ doctl compute droplet-action reboot 565131739 --wait
 doctl compute ssh-key list
 ```
 
+### Live-class recordings storage (DigitalOcean Spaces)
+
+Teams live-class recordings auto-upload to **DigitalOcean Spaces** (S3-compatible
+object storage — *not* Amazon AWS) via a 5-minute cron, and replay to students
+through short-lived signed URLs (objects stay private). The code ships ready;
+turning it on is **configuration only**.
+
+- Activate by setting `STORAGE_PROVIDER=s3` + the `S3_*` Spaces vars in
+  `/opt/ttii-lms/.env`, then `pm2 restart ttii-api`.
+- **`S3_REGION` must be the Space's datacenter slug** (`blr1`), not an AWS region
+  — it signs the SigV4 request.
+- Full step-by-step (create Space, generate keys, env block, verify, rollback):
+  **[`docs/digitalocean-spaces-setup.md`](docs/digitalocean-spaces-setup.md)**.
+- Re-run the end-to-end proof locally: `bash scripts/spaces-e2e.sh` (Docker + MinIO).
+
 ### Access the live MariaDB (from new droplet, read/write)
 ```bash
 ssh root@68.183.94.1 'mysql -h 10.122.0.2 -u lms_ttii -p lms_ttii'
