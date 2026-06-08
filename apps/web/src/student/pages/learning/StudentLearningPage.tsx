@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -41,6 +41,9 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 import type { StudentPortalApi } from '../../student-portal-api.js';
 import { ExamPlayer } from '../../components/ExamPlayer.js';
 import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
+import { RecommendedCourseCard } from '../../components/RecommendedCourseCard.js';
+import { CourseInfoModal } from '../../components/CourseInfoModal.js';
+import { EnrollPathModal } from '../../components/EnrollPathModal.js';
 
 // Map file type → icon. Naji 2026-05-04 / 05-05: every content type
 // should look distinct. PDF and article were sharing FileText so they
@@ -208,6 +211,39 @@ function isLocked(record: Record<string, unknown>): boolean {
   return v === true || v === 1 || v === '1';
 }
 
+/**
+ * Normalized non-enrolled course used by the "Recommended" card + its modals.
+ * Superset of RecommendedCourse (card), CourseInfo (More Info modal) and
+ * EnrollCourse (Enrol modal), so one object feeds all three.
+ */
+interface CatalogCourse {
+  id: string;
+  title: string;
+  code: string;
+  duration: string;
+  subjectCount: number;
+  lessonCount: number;
+  price: number;
+  offerPrice: number;
+  description: string;
+  tags: string[];
+}
+
+function toCatalogCourse(course: Record<string, unknown>): CatalogCourse {
+  return {
+    id: asString(course.id),
+    title: asString(course.title) || 'Untitled Course',
+    code: asString(course.code) || asString(course.course_code),
+    duration: asString(course.duration),
+    subjectCount: asNumber(course.subject_count),
+    lessonCount: asNumber(course.lessons_count),
+    price: asNumber(course.price),
+    offerPrice: asNumber(course.offer_price),
+    description: asString(course.description),
+    tags: Array.isArray(course.tags) ? (course.tags as unknown[]).map((t) => asString(t)).filter((t) => t !== '') : [],
+  };
+}
+
 export default function StudentLearningPage({ api, session, onNavigate: _onNavigate }: StudentPageProps) {
   void _onNavigate;
   const { data, loading, error, reload } = useAdminPageData(
@@ -234,6 +270,9 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   const [courseFilter, setCourseFilter] = useState<'all' | 'in-progress' | 'completed' | 'not-started'>('all');
   // List view: free-text search across enrolled course titles (EduPulse §2).
   const [courseSearch, setCourseSearch] = useState('');
+  // Recommended-card modals for non-enrolled ("All Other") courses.
+  const [infoCourse, setInfoCourse] = useState<CatalogCourse | null>(null);
+  const [enrollCourse, setEnrollCourse] = useState<CatalogCourse | null>(null);
 
   useEffect(() => {
     if (activeCourseId === null || leftTab !== 'live') return;
@@ -908,23 +947,22 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         </div>
       ) : null}
 
-      {/* All other courses */}
+      {/* Recommended / available courses — EduPulse recommended-card design
+          (gradient header, price, tags, More Info + Enrol), matching the
+          dashboard. More Info opens the course detail modal; Enrol opens the
+          learning-path request modal. */}
       {otherCourses.length > 0 ? (
         <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-student-text">All Other Courses</h2>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <h2 className="text-lg font-semibold text-student-text">Recommended Courses</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {otherCourses.map((course) => {
-              const id = asString(course.id);
+              const cat = toCatalogCourse(course);
               return (
-                <CourseCard
-                  key={id}
-                  course={course}
-                  subjectCount={asNumber(course.subject_count)}
-                  lessonCount={asNumber(course.lessons_count)}
-                  completion={0}
-                  enrolled={false}
-                  api={api}
-                  authToken={session.token}
+                <RecommendedCourseCard
+                  key={cat.id}
+                  course={cat}
+                  onMore={() => setInfoCourse(cat)}
+                  onEnroll={() => setEnrollCourse(cat)}
                 />
               );
             })}
@@ -942,16 +980,31 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
           </p>
         </div>
       ) : null}
+
+      {/* Enrol → "Choose your learning path" request modal (no self-enrol). */}
+      <EnrollPathModal
+        course={enrollCourse}
+        onClose={() => setEnrollCourse(null)}
+        onRequestEnrol={async (courseId) => {
+          const res = await api.requestEnrolment(session.token, courseId);
+          if (res.status !== 1) throw new Error(res.message || 'Could not send your request.');
+        }}
+      />
+
+      {/* More Info → course detail modal; Enrol Now hands off to the path modal. */}
+      <CourseInfoModal
+        course={infoCourse}
+        onClose={() => setInfoCourse(null)}
+        onEnrol={() => {
+          setEnrollCourse(infoCourse);
+          setInfoCourse(null);
+        }}
+      />
     </div>
   );
 }
 
 /* ─── Sub-components ────────────────────────────────────────── */
-
-function formatInr(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '';
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
-}
 
 // EduPulse §2 course card — gradient banner with a status badge + book
 // icon, then title, course label, x/y lessons + duration, a progress bar,
@@ -1709,142 +1762,6 @@ function InstructorCard({ course }: { course: Record<string, unknown> }) {
   );
 }
 
-function CourseCard({
-  course,
-  subjectCount,
-  lessonCount,
-  completion,
-  enrolled,
-  onClick,
-  api,
-  authToken,
-}: {
-  course: Record<string, unknown>;
-  subjectCount: number;
-  lessonCount: number;
-  completion: number;
-  enrolled: boolean;
-  onClick?: () => void;
-  api?: StudentPortalApi;
-  authToken?: string;
-}) {
-  const id = asString(course.id);
-  const title = asString(course.title) || 'Untitled Course';
-  const thumbnail = asString(course.thumbnail);
-  const price = asNumber(course.price);
-  const offerPrice = asNumber(course.offer_price);
-  const hasOffer = offerPrice > 0 && offerPrice < price;
-  const displayPrice = hasOffer ? offerPrice : price;
-
-  const [requesting, setRequesting] = useState(false);
-  const [requestState, setRequestState] = useState<{ kind: 'idle' } | { kind: 'success'; message: string } | { kind: 'error'; message: string }>({ kind: 'idle' });
-
-  const handleRequest = async (e: MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    if (!api || !authToken || !id || requesting) return;
-    setRequesting(true);
-    try {
-      const result = await api.requestEnrolment(authToken, id);
-      if (result.status === 1) {
-        setRequestState({ kind: 'success', message: result.message || 'Request sent.' });
-      } else {
-        setRequestState({ kind: 'error', message: result.message || 'Request failed.' });
-      }
-    } catch (err) {
-      setRequestState({ kind: 'error', message: err instanceof Error ? err.message : 'Request failed.' });
-    } finally {
-      setRequesting(false);
-    }
-  };
-
-  const inner = (
-    <>
-      <div className="aspect-[4/3] w-full overflow-hidden bg-slate-100">
-        {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt=""
-            className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={(e) => {
-              const img = e.currentTarget as HTMLImageElement;
-              img.style.display = 'none';
-            }}
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <BookOpen aria-hidden="true" className="size-8 text-slate-300" />
-          </div>
-        )}
-      </div>
-      <div className="space-y-1.5 p-3">
-        <h3 className="line-clamp-2 text-xs font-semibold leading-snug text-student-text">{title}</h3>
-        <p className="text-[10px] text-student-muted">
-          {subjectCount} sub &middot; {lessonCount} less
-        </p>
-        {enrolled ? (
-          <>
-            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-student-primary transition-all duration-500"
-                style={{ width: `${Math.min(completion, 100)}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="font-medium text-student-primary">{completion}% complete</span>
-              <span className="inline-flex items-center text-student-primary">
-                Continue <ChevronRight aria-hidden="true" className="ml-0.5 size-3" />
-              </span>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-1.5 pt-0.5">
-            {displayPrice > 0 ? (
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-sm font-bold text-student-text">{formatInr(displayPrice)}</span>
-                {hasOffer ? (
-                  <span className="text-[10px] text-student-muted line-through">{formatInr(price)}</span>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-[10px] text-student-muted">Contact for pricing</p>
-            )}
-            {requestState.kind === 'success' ? (
-              <p role="status" className="text-[10px] text-emerald-600">{requestState.message}</p>
-            ) : requestState.kind === 'error' ? (
-              <p role="alert" className="text-[10px] text-red-600">{requestState.message}</p>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => { void handleRequest(e); }}
-                disabled={requesting || !api}
-                className="w-full rounded-md bg-student-primary px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {requesting ? 'Sending…' : 'Request Enrolment'}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </>
-  );
-
-  const baseClass = 'group block overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-shadow';
-
-  if (enrolled && onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={`${baseClass} hover:border-student-primary hover:shadow-md`}
-      >
-        {inner}
-      </button>
-    );
-  }
-
-  return <div className={`${baseClass} hover:border-student-primary/40 hover:shadow-sm`}>{inner}</div>;
-}
-
 function SubjectNode({
   subject,
   lessons,
@@ -2334,7 +2251,9 @@ function ContentPlayer({
             <p className="text-sm font-semibold">Reading Material</p>
           </div>
           <div className="flex items-center gap-2">
-            {content.url ? (
+            {/* PDFs are view-only (no download) — only articles get the
+                open-in-new-tab shortcut. */}
+            {content.url && content.type !== 'pdf' ? (
               <a
                 href={content.url}
                 target="_blank"
@@ -2386,9 +2305,16 @@ function ContentPlayer({
               </audio>
             </div>
           ) : (
+            // PDFs are view-only: #toolbar=0&navpanes=0 hides the built-in PDF
+            // viewer's download/print toolbar so students can read but not
+            // download. (Other embeds pass through unchanged.)
             <iframe
               key={content.id}
-              src={content.url}
+              src={
+                content.type === 'pdf' && !content.url.includes('#')
+                  ? `${content.url}#toolbar=0&navpanes=0&scrollbar=0`
+                  : content.url
+              }
               title={content.title}
               className="h-[70vh] w-full bg-white"
             />
