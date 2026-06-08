@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Radio,
@@ -253,7 +253,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
 
       {/* Recording player */}
       <Dialog open={recording !== null} onOpenChange={(open) => { if (!open) setRecording(null); }}>
-        <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-[min(820px,calc(100vw-2rem))]">
+        <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-[min(820px,calc(100vw-2rem))] sm:max-w-[min(820px,calc(100vw-2rem))]">
           <DialogHeader>
             <DialogTitle className="truncate">{recording?.title}</DialogTitle>
           </DialogHeader>
@@ -397,23 +397,48 @@ function LiveClassCard({
 function RecordingPlayer({ url }: { url: string }) {
   // Legacy recordings come back as Vimeo/YouTube *watch* URLs (un-embeddable);
   // Teams recordings come back as signed MP4s. Convert watch URLs to their
-  // embeddable player form so the iframe renders instead of showing a broken
-  // frame. MP4s pass through unchanged and use the native <video> element.
+  // embeddable player form so the iframe renders instead of a broken frame.
+  // MP4s pass through unchanged and use the native <video> element.
   const isEmbed = /vimeo|youtube|youtu\.be/i.test(url);
   const embedUrl = toEmbeddableVideoUrl(url);
+
+  // Recordings have mixed aspect ratios (16:9, ultrawide screen-shares, …).
+  // Size the frame to the video's real ratio so each one fills cleanly instead
+  // of letterboxing inside a fixed 16:9 box. Resolved from Vimeo's oEmbed;
+  // falls back to 16:9 while loading or for non-Vimeo sources.
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  useEffect(() => {
+    setAspectRatio(null);
+    const vimeo = url.match(/vimeo\.com\/(\d+)/);
+    if (!vimeo) return;
+    let active = true;
+    fetch(`https://vimeo.com/api/oembed.json?url=https://vimeo.com/${vimeo[1]}`)
+      .then((res) => res.json() as Promise<{ width?: number; height?: number }>)
+      .then((data) => {
+        if (active && data.width && data.height) setAspectRatio(data.width / data.height);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [url]);
+
   return (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-xl bg-black">
+    <div className="min-w-0 space-y-3">
+      <div
+        className={`w-full min-w-0 overflow-hidden rounded-xl bg-black ${aspectRatio ? '' : 'aspect-video'}`}
+        style={aspectRatio ? { aspectRatio: String(aspectRatio) } : undefined}
+      >
         {isEmbed ? (
           <iframe
             src={embedUrl}
             title="Live class recording"
-            className="aspect-video w-full"
+            className="block size-full"
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
           />
         ) : (
-          <video controls preload="metadata" className="aspect-video w-full" src={url}>
+          <video controls preload="metadata" className="block size-full" src={url}>
             <track kind="captions" />
           </video>
         )}
