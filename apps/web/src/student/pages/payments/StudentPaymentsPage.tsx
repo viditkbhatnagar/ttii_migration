@@ -543,7 +543,10 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         open={payDialogCourseId !== null}
         onOpenChange={(open) => { if (!open) setPayDialogCourseId(null); }}
       >
-        <DialogContent className="w-[min(960px,calc(100vw-2rem))] max-w-[min(960px,calc(100vw-2rem))] p-6">
+        <DialogContent
+          className="p-6 sm:max-w-[960px]"
+          style={{ width: 'min(960px, calc(100vw - 2rem))', maxWidth: 'min(960px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle>
               Pay {payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''}

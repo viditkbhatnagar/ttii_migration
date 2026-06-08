@@ -9,18 +9,26 @@
   justify-content: center;
   padding: 8px 0;
   color: #0d0c22;
+  /* Establish a query container so the layout below responds to the modal's
+     width, not the viewport. The dialog is far narrower than the screen, so a
+     viewport media query left the two columns side-by-side and overflowing the
+     modal on desktop. */
+  container-type: inline-size;
 }
 
 .wrap {
   width: 100%;
   max-width: 920px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) lets columns shrink below their content's min-size, avoiding
+     the CSS-grid blow-out that pushed the panel out of the dialog. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   align-items: center;
 }
 
-@media (max-width: 920px) {
+/* Stack when the dialog itself (the container) is narrow. */
+@container (max-width: 820px) {
   .wrap {
     grid-template-columns: 1fr;
   }
@@ -30,6 +38,7 @@
 .card {
   position: relative;
   width: 100%;
+  min-width: 0;
   max-width: 420px;
   margin: 0 auto;
 }
@@ -141,6 +150,7 @@
 /* PANEL */
 .panel {
   width: 100%;
+  min-width: 0;
   max-width: 480px;
   margin: 0 auto;
   background: #fff;
