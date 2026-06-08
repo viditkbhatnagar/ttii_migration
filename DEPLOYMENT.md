@@ -197,20 +197,20 @@ doctl compute droplet-action reboot 565131739 --wait
 doctl compute ssh-key list
 ```
 
-### Live-class recordings storage (DigitalOcean Spaces)
+### Live-class recordings storage (DigitalOcean Spaces) — LIVE
 
 Teams live-class recordings auto-upload to **DigitalOcean Spaces** (S3-compatible
 object storage — *not* Amazon AWS) via a 5-minute cron, and replay to students
-through short-lived signed URLs (objects stay private). The code ships ready;
-turning it on is **configuration only**.
+through short-lived signed URLs (objects stay private).
 
-- Activate by setting `STORAGE_PROVIDER=s3` + the `S3_*` Spaces vars in
-  `/opt/ttii-lms/.env`, then `pm2 restart ttii-api`.
-- **`S3_REGION` must be the Space's datacenter slug** (`blr1`), not an AWS region
+- **Already configured + verified in production:** `STORAGE_PROVIDER=s3`, bucket
+  `ttii-lms-recordings`, region `sgp1`, Spaces CDN. A live upload→signed-download
+  →delete round-trip against the real Space passes.
+- **`S3_REGION` must be the Space's datacenter slug** (`sgp1`), not an AWS region
   — it signs the SigV4 request.
-- Full step-by-step (create Space, generate keys, env block, verify, rollback):
+- Verify the live Space + view config, cron health, and the local protocol proof:
   **[`docs/digitalocean-spaces-setup.md`](docs/digitalocean-spaces-setup.md)**.
-- Re-run the end-to-end proof locally: `bash scripts/spaces-e2e.sh` (Docker + MinIO).
+- Local protocol proof (no prod creds): `bash scripts/spaces-e2e.sh` (Docker + MinIO).
 
 ### Access the live MariaDB (from new droplet, read/write)
 ```bash
