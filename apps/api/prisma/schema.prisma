@@ -1456,7 +1456,7 @@ model live_class {
   updated_at    DateTime? @db.DateTime(0)
   deleted_at    DateTime? @db.DateTime(0)
 
-  @@index([platform, toDate, recording_fetched_at, attendance_fetched_at], map: "idx_live_class_teams_sync")
+  @@index([platform, date, recording_fetched_at, attendance_fetched_at], map: "idx_live_class_teams_sync")
 }
 
 model live_class_attendance {

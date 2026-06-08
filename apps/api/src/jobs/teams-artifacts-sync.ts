@@ -54,9 +54,15 @@ const DEFAULT_RETRY_WINDOW_DAYS = 7;
  * One-pass sync of Microsoft Teams recordings + attendance reports for
  * recently-ended live classes. Idempotent: safe to invoke every 5 minutes.
  *
- * Candidate rows: platform='teams', toDate within [now-retryWindow, now],
- * with either recording_fetched_at or attendance_fetched_at still NULL,
- * and a non-null external_meeting_id + host_email.
+ * Candidate rows: platform='teams', scheduled `date` within
+ * [now-retryWindow, now], with either recording_fetched_at or
+ * attendance_fetched_at still NULL, and a non-null external_meeting_id +
+ * host_email.
+ *
+ * NOTE: we filter on `date` (the always-populated class date), NOT `toDate`.
+ * The admin live-session flow only sets `date`; `toDate`/`fromDate` are left
+ * NULL for single-day classes, so filtering on `toDate` silently skipped every
+ * normally-created Teams class (only a hand-crafted test row had toDate set).
  *
  * Errors are isolated per row and per artifact (recording vs attendance).
  * On failure we set *_fetch_error but do NOT set *_fetched_at — so the next
@@ -87,7 +93,7 @@ export async function syncPendingTeamsArtifacts(
       platform: 'teams',
       external_meeting_id: { not: null },
       host_email: { not: null },
-      toDate: { gte: windowStart, lte: now },
+      date: { gte: windowStart, lte: now },
       OR: [{ recording_fetched_at: null }, { attendance_fetched_at: null }],
       deleted_at: null,
     },
@@ -97,11 +103,11 @@ export async function syncPendingTeamsArtifacts(
       host_email: true,
       fromTime: true,
       toTime: true,
-      toDate: true,
+      date: true,
       recording_fetched_at: true,
       attendance_fetched_at: true,
     },
-    orderBy: { toDate: 'desc' },
+    orderBy: { date: 'desc' },
     take: batchSize,
   });
 
