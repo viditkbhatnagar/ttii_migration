@@ -253,7 +253,10 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
 
       {/* Recording player */}
       <Dialog open={recording !== null} onOpenChange={(open) => { if (!open) setRecording(null); }}>
-        <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-[min(820px,calc(100vw-2rem))] sm:max-w-[min(820px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[820px]"
+          style={{ width: 'min(820px, calc(100vw - 2rem))', maxWidth: 'min(820px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle className="truncate">{recording?.title}</DialogTitle>
           </DialogHeader>
