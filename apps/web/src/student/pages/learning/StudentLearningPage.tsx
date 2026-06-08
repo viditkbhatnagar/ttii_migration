@@ -31,7 +31,7 @@ import {
   User,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
-import { PageLoader } from '@/components/ui/page-loader';
+import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EChart } from '@/components/EChart';

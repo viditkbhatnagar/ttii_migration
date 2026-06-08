@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Radio, FileText, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PageLoader } from '@/components/ui/page-loader';
+import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPortalApi } from '../../student-portal-api.js';

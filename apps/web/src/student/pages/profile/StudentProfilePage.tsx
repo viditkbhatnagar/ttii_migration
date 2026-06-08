@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { PageLoader } from '@/components/ui/page-loader';
+import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { Camera, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { useStudentLayout } from '../../layout/StudentLayoutContext.js';

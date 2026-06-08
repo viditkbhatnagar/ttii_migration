@@ -1,0 +1,158 @@
+/* Interactive "EduPulse" student loader. Brand violet pulse rings around a
+   floating graduation badge that leans toward the cursor, a rotating tip, and
+   an indeterminate progress shimmer. Motion is transform/opacity only. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 72px 24px;
+  min-height: 320px;
+}
+
+.badge {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  transform: translate3d(var(--ttx, 0px), var(--tty, 0px), 0);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.glyph {
+  position: relative;
+  z-index: 2;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-student-primary, #8047e1), #b388ff);
+  box-shadow: 0 14px 32px -8px rgba(128, 71, 225, 0.55);
+  animation: floaty 2.8s ease-in-out infinite;
+}
+
+.icon {
+  width: 30px;
+  height: 30px;
+  color: #fff;
+}
+
+/* Expanding pulse rings — the "pulse" in EduPulse. */
+.ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--color-student-primary, #8047e1);
+  opacity: 0;
+  animation: pulse 2.4s ease-out infinite;
+}
+
+.ring:nth-child(2) {
+  animation-delay: 0.8s;
+}
+
+.ring:nth-child(3) {
+  animation-delay: 1.6s;
+}
+
+.label {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-student-text, #100f22);
+  text-align: center;
+}
+
+.tip {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-student-muted, #616174);
+  text-align: center;
+  max-width: 340px;
+  min-height: 18px;
+  animation: tipIn 0.5s ease;
+}
+
+.bar {
+  width: 200px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-student-primary-light, #f2efff);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--color-student-primary, #8047e1), transparent);
+  animation: slide 1.3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.15);
+    opacity: 0;
+  }
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes tipIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge,
+  .glyph,
+  .tip,
+  .barFill {
+    animation: none;
+    transition: none;
+  }
+  .ring {
+    display: none;
+  }
+  .barFill {
+    width: 100%;
+    opacity: 0.55;
+  }
+}

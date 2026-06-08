@@ -1,6 +1,6 @@
 import { Award, BarChart3, GraduationCap, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PageLoader } from '@/components/ui/page-loader';
+import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asNumber, asString, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';

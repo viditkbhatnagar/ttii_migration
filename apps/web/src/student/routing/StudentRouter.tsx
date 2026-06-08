@@ -1,5 +1,5 @@
 import { Suspense, useMemo } from 'react';
-import { PageLoader } from '@/components/ui/page-loader';
+import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { resolveStudentRoute, type StudentPageProps } from './student-routes.js';
 import type { StudentPortalApi } from '../student-portal-api.js';
 import type { AuthSession } from '@ttii/frontend-core';
