@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { SegmentedTabs } from '../../components/SegmentedTabs.js';
+import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asBoolean } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
@@ -394,13 +395,18 @@ function LiveClassCard({
 }
 
 function RecordingPlayer({ url }: { url: string }) {
+  // Legacy recordings come back as Vimeo/YouTube *watch* URLs (un-embeddable);
+  // Teams recordings come back as signed MP4s. Convert watch URLs to their
+  // embeddable player form so the iframe renders instead of showing a broken
+  // frame. MP4s pass through unchanged and use the native <video> element.
   const isEmbed = /vimeo|youtube|youtu\.be/i.test(url);
+  const embedUrl = toEmbeddableVideoUrl(url);
   return (
     <div className="space-y-3">
       <div className="overflow-hidden rounded-xl bg-black">
         {isEmbed ? (
           <iframe
-            src={url}
+            src={embedUrl}
             title="Live class recording"
             className="aspect-video w-full"
             allow="autoplay; fullscreen; picture-in-picture"

@@ -40,6 +40,7 @@ import { asString, asNumber, asBoolean, asRecord } from '../../../admin/shared/u
 import type { StudentPageProps } from '../../routing/student-routes.js';
 import type { StudentPortalApi } from '../../student-portal-api.js';
 import { ExamPlayer } from '../../components/ExamPlayer.js';
+import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 
 // Map file type → icon. Naji 2026-05-04 / 05-05: every content type
 // should look distinct. PDF and article were sharing FileText so they
@@ -101,24 +102,6 @@ function stripHtml(html: string): string {
     .replace(/&#39;/gi, "'")
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Vimeo: https://vimeo.com/{id}  →  https://player.vimeo.com/video/{id}
-// YouTube: https://(www\.)?youtube\.com/watch\?v={id}  →  https://www.youtube.com/embed/{id}
-// YouTube short: https://youtu.be/{id}  →  https://www.youtube.com/embed/{id}
-// Anything already pointing at an embed path is left alone.
-function toEmbeddableVideoUrl(url: string): string {
-  if (!url) return '';
-  if (url.includes('player.vimeo.com') || url.includes('youtube.com/embed') || url.includes('youtube-nocookie.com/embed')) {
-    return url;
-  }
-  const vimeo = url.match(/vimeo\.com\/(\d+)/);
-  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
-  const ytWatch = url.match(/youtube\.com\/watch\?v=([\w-]+)/);
-  if (ytWatch) return `https://www.youtube.com/embed/${ytWatch[1]}`;
-  const ytShort = url.match(/youtu\.be\/([\w-]+)/);
-  if (ytShort) return `https://www.youtube.com/embed/${ytShort[1]}`;
-  return url;
 }
 
 interface SelectedContent {
