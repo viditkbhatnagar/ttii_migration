@@ -1041,9 +1041,9 @@ function PriorityItem({ row, onAction }: { row: PriorityRow; onAction: () => voi
       </span>
       <div className="min-w-0 flex-1">
         {/* Kind label + status badge share one line; the badge is shrink-0 and
-            the label truncates so they can never overlap on narrow widths. */}
+            the label truncates so they can never overlap on narrow widths. The
+            left icon already conveys the kind, so no extra colour dot here. */}
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className={`inline-block size-2 shrink-0 rounded-full ${kind.dot}`} aria-hidden="true" />
           <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-student-muted">{kind.label}</span>
           <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}>
             {status.label}
