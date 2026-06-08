@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   BookOpen, Users, Video, ClipboardList, Calendar, Megaphone,
-  Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download,
+  Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download, Copy,
   CheckCircle2, FileText, LayoutList, LayoutGrid,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -534,6 +534,18 @@ function LearnersTab({
 /* ═══════════════════════════════════════════════════════════════════
    LIVE SESSIONS TAB — upcoming cards + completed list
    ═══════════════════════════════════════════════════════════════════ */
+// Copy a live session's join link to the clipboard (Naji/Ansaba 2026-06-08:
+// "just a copy button" on cohort live sessions).
+function copyLiveLink(url: string): void {
+  if (!url) {
+    toast.error('No link available for this session yet.');
+    return;
+  }
+  void navigator.clipboard.writeText(url)
+    .then(() => toast.success('Live class link copied'))
+    .catch(() => toast.error('Could not copy link.'));
+}
+
 function LiveSessionsTab({
   upcomingSessions,
   completedSessions,
@@ -689,6 +701,16 @@ function LiveSessionsTab({
                       >
                         <ExternalLink className="size-3" /> Join
                       </Button>
+                      {joinUrl && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 text-xs"
+                          onClick={() => copyLiveLink(joinUrl)}
+                        >
+                          <Copy className="size-3" /> Copy Link
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -768,6 +790,17 @@ function LiveSessionsTab({
                       >
                         <ExternalLink className="size-3.5" />
                       </Button>
+                      {joinUrl && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1 px-2 text-xs"
+                          onClick={() => copyLiveLink(joinUrl)}
+                          title="Copy link"
+                        >
+                          <Copy className="size-3.5" />
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
