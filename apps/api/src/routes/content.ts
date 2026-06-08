@@ -621,6 +621,7 @@ export function registerContentRoutes(
         outcomes: toStringValue(payload.outcomes),
         requirements: toStringValue(payload.requirements),
         language: toStringValue(payload.language),
+        tags: Array.isArray(payload.tags) ? payload.tags.map((t) => toStringValue(t)).filter((t) => t !== '') : [],
       };
       const result = await contentService.createCourse(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Course created', data: result });
@@ -654,6 +655,7 @@ export function registerContentRoutes(
         outcomes: toStringValue(payload.outcomes),
         requirements: toStringValue(payload.requirements),
         language: toStringValue(payload.language),
+        tags: Array.isArray(payload.tags) ? payload.tags.map((t) => toStringValue(t)).filter((t) => t !== '') : [],
       };
       const result = await contentService.updateCourse(requestUserId(request), courseId, input);
       reply.code(200).send({ status: 1, message: 'Course updated', data: result });

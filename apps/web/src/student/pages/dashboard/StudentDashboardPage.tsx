@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import {
   BookOpen, Calendar, ClipboardList, Wallet, Award, PlayCircle, ArrowRight,
   FileText, Video, Bell, CheckCircle, Flame, Trophy, Sparkles, Clock,
-  Rocket, TrendingUp, Crown, Info, UserPlus,
+  Rocket, TrendingUp, Crown, Info, UserPlus, Star, Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -61,7 +61,18 @@ interface CatalogCourseRow {
   price: number;
   offerPrice: number;
   description: string;
+  tags: string[];
 }
+
+// Tag badge styles for the Recommended cards — keep in sync with the admin
+// COURSE_TAG_OPTIONS (Naji 2026-06-08). Unknown tags fall back to a grey pill.
+const TAG_STYLE: Record<string, { icon: LucideIcon; className: string }> = {
+  'Best Seller': { icon: Star, className: 'bg-rose-50 text-rose-600' },
+  Trending: { icon: TrendingUp, className: 'bg-amber-50 text-amber-700' },
+  New: { icon: Sparkles, className: 'bg-sky-50 text-sky-600' },
+  Recommended: { icon: Award, className: 'bg-emerald-50 text-emerald-700' },
+  'Placement Support': { icon: Briefcase, className: 'bg-violet-50 text-violet-700' },
+};
 
 type PriorityKind = 'assignment' | 'quiz' | 'payment';
 type PriorityStatus = 'due-today' | 'overdue' | 'upcoming' | 'completed';
@@ -234,6 +245,7 @@ function deriveRecommendedCourses(learning: StudentLearningSnapshot): CatalogCou
       price: asNumber(course.price),
       offerPrice: asNumber(course.offer_price),
       description: asString(course.short_description) || asString(course.description),
+      tags: Array.isArray(course.tags) ? (course.tags as unknown[]).map((t) => asString(t)).filter((t) => t !== '') : [],
     }));
 }
 
@@ -1104,6 +1116,23 @@ function RecommendedCard({
         <h3 className="line-clamp-2 font-bold leading-snug text-student-text">{course.title}</h3>
         {course.code ? (
           <p className="mt-0.5 text-xs font-medium text-student-muted">{course.code}</p>
+        ) : null}
+        {course.tags.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {course.tags.map((tag) => {
+              const style = TAG_STYLE[tag];
+              const Icon = style?.icon;
+              return (
+                <span
+                  key={tag}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${style?.className ?? 'bg-slate-100 text-slate-600'}`}
+                >
+                  {Icon ? <Icon aria-hidden="true" className="size-3" /> : null}
+                  {tag}
+                </span>
+              );
+            })}
+          </div>
         ) : null}
         {meta.length > 0 ? (
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-student-muted">

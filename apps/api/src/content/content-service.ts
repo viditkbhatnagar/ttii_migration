@@ -330,6 +330,10 @@ export type AdminCourseInput = {
   outcomes?: string | undefined;        // learning outcomes
   requirements?: string | undefined;    // prerequisites
   language?: string | undefined;
+  // Marketing tags shown on the student Recommended cards (Best Seller /
+  // Trending / New / Recommended / Placement Support). Stored as a JSON array
+  // in the otherwise-unused `meta_keywords` column (Naji 2026-06-08).
+  tags?: string[] | undefined;
 };
 
 export type AdminSubjectInput = {
@@ -1011,7 +1015,8 @@ export class ContentService {
     return {
       id: courseIdInt,
       title: toStringValue(course.title),
-      code: toStringValue(course.code),
+      code: toStringValue(course.course_code) || toStringValue(course.code),
+      tags: this.parseCourseTags(course.meta_keywords),
       label: toStringValue(course.label),
       status: toStringValue(course.status),
       price: toStringValue(course.price),
@@ -2298,9 +2303,24 @@ export class ContentService {
       thumbnail: this.toFileUrl(course.thumbnail),
       course_icon: this.toFileUrl(course.course_icon),
       features: course.features ?? '',
+      tags: this.parseCourseTags(course.meta_keywords),
       is_free_course: course.is_free_course,
       visibility: course.visibility ?? 'public',
     };
+  }
+
+  // Marketing tags are stored as a JSON array in the legacy `meta_keywords`
+  // column; tolerate a plain comma-separated string too (Naji 2026-06-08).
+  private parseCourseTags(raw: unknown): string[] {
+    const s = typeof raw === 'string' ? raw.trim() : '';
+    if (!s) return [];
+    try {
+      const arr: unknown = JSON.parse(s);
+      if (Array.isArray(arr)) return arr.map((t) => String(t).trim()).filter((t) => t !== '');
+    } catch {
+      return s.split(',').map((t) => t.trim()).filter((t) => t !== '');
+    }
+    return [];
   }
 
   async createCourse(actorUserId: string, input: AdminCourseInput): Promise<Record<string, unknown>> {
@@ -2324,6 +2344,8 @@ export class ContentService {
         price: input.price ?? null,
         sale_price: input.sale_price ?? null,
         features: toNullableString(input.features),
+        // Marketing tags → JSON in meta_keywords (unused legacy SEO column).
+        meta_keywords: input.tags && input.tags.length > 0 ? JSON.stringify(input.tags) : null,
         label: toNullableString(input.label),
         status: input.status ?? 'active',
         visibility: visibilityInt,
@@ -2359,6 +2381,8 @@ export class ContentService {
         price: input.price ?? null,
         sale_price: input.sale_price ?? null,
         features: toNullableString(input.features),
+        // Marketing tags → JSON in meta_keywords (unused legacy SEO column).
+        meta_keywords: input.tags && input.tags.length > 0 ? JSON.stringify(input.tags) : null,
         label: toNullableString(input.label),
         status: input.status ?? 'active',
         visibility: visibilityInt,

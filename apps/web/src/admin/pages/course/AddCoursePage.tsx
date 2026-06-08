@@ -35,9 +35,15 @@ interface FormState {
   thumbnail: string;
   features: string;
   status: string;
+  // Marketing tags shown on the student Recommended cards (Naji 2026-06-08).
+  tags: string[];
 }
 
 const DURATION_UNITS = ['Year', 'Month', 'Week', 'Day'] as const;
+
+// The selectable course tags (must match the badge styles on the student
+// Recommended cards). "Free" is derived from price, so it is not listed here.
+const COURSE_TAG_OPTIONS = ['Best Seller', 'Trending', 'New', 'Recommended', 'Placement Support'] as const;
 
 function parseDurationString(raw: string): { count: string; unit: string } {
   const trimmed = raw.trim();
@@ -68,6 +74,7 @@ const emptyForm: FormState = {
   thumbnail: '',
   features: '',
   status: 'draft',
+  tags: [],
 };
 
 export default function AddCoursePage({ api, session, onNavigate }: AdminPageProps) {
@@ -149,11 +156,19 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       thumbnail: asString(c.thumbnail),
       features: asString(c.features),
       status: asString(c.status) || 'draft',
+      tags: Array.isArray(c.tags) ? (c.tags as unknown[]).map((t) => asString(t)).filter((t) => t !== '') : [],
     });
   }, [isEdit, courseData]);
 
   const set = useCallback((key: keyof FormState, value: string) => {
     setForm((f) => ({ ...f, [key]: value }));
+  }, []);
+
+  const toggleTag = useCallback((tag: string) => {
+    setForm((f) => ({
+      ...f,
+      tags: f.tags.includes(tag) ? f.tags.filter((t) => t !== tag) : [...f.tags, tag],
+    }));
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -212,6 +227,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         features: form.features.trim(),
         label: '',
         status: form.status,
+        tags: form.tags,
         visibility: 'public',
       };
 
@@ -404,6 +420,32 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
               </select>
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-2">
+                {COURSE_TAG_OPTIONS.map((tag) => {
+                  const active = form.tags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      aria-pressed={active}
+                      className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                        active
+                          ? 'border-transparent bg-ttii-primary text-white'
+                          : 'border-input bg-background text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500">
+                Shown as badges on the student Recommended Courses cards. Pick any that apply (or none).
+              </p>
             </div>
           </div>
         </CardContent>
