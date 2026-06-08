@@ -29,6 +29,7 @@ import { CounsellorPortal, normalizeCounsellorPath } from './counsellor/counsell
 import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
+import { StudentLoader } from './student/components/StudentLoader.js';
 import ForgotPasswordFlow from './auth/ForgotPasswordFlow.js';
 import { SsoButtons } from './auth/SsoButtons.js';
 import { SsoCompleteProfileModal } from './auth/SsoCompleteProfileModal.js';
@@ -349,6 +350,11 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
   }, [guardStatus, pathname, phase]);
 
   if (guardStatus === 'checking') {
+    // Students get the branded interactive loader during session restore; the
+    // other surfaces keep the technical guard notice.
+    if (route.surface === 'student') {
+      return <StudentLoader label="Restoring your session…" />;
+    }
     return (
       <InlineNotice tone="info" title="Route guard in progress">
         {guardMessage}
