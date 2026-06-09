@@ -175,22 +175,24 @@ function toExamView(raw: Record<string, unknown>): ExamView {
 // start_datetime string (avoids new Date() timezone shifts on a naive value).
 function examStartLabel(raw: Record<string, unknown>): string {
   const m = asString(raw.start_datetime).match(/[T\s](\d{2}:\d{2})/);
-  return m ? m[1] : '';
+  return m?.[1] ?? '';
 }
 
 // Build the FormalExamPlayer meta from the list row + the logged-in student,
 // so the instructions + attempt screens can show real context (course, subject,
 // date, marks, name, enrolment). Only what we actually have.
 function buildExamMeta(e: ExamView, currentUser: { name: string; studentId: string } | null): FormalExamMeta {
+  // Empty strings are fine — the player truthy-checks each field, so blanks are
+  // treated as "absent". Avoids exactOptionalPropertyTypes errors from undefined.
   return {
-    code: e.code || undefined,
-    course: e.course || undefined,
-    subject: e.subject || undefined,
-    dateLabel: e.dateLabel || undefined,
-    startLabel: examStartLabel(e.raw) || undefined,
-    totalMarksLabel: (asString(e.raw.total_mark) || asString(e.raw.total_marks)) || undefined,
-    studentName: currentUser?.name || undefined,
-    enrollmentNo: currentUser?.studentId || undefined,
+    code: e.code,
+    course: e.course,
+    subject: e.subject,
+    dateLabel: e.dateLabel,
+    startLabel: examStartLabel(e.raw),
+    totalMarksLabel: asString(e.raw.total_mark) || asString(e.raw.total_marks),
+    studentName: currentUser?.name ?? '',
+    enrollmentNo: currentUser?.studentId ?? '',
   };
 }
 

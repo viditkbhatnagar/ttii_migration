@@ -144,9 +144,10 @@ function parseDurationMin(raw: string): number {
   if (/^\d+$/.test(s)) return Number.parseInt(s, 10);
   const parts = s.split(':').map((p) => Number.parseInt(p, 10));
   if (parts.some((n) => Number.isNaN(n))) return Number.parseInt(s, 10) || 0;
-  if (parts.length === 3) return parts[0] * 60 + parts[1] + Math.round(parts[2] / 60);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] || 0;
+  const [a = 0, b = 0, c = 0] = parts;
+  if (parts.length === 3) return a * 60 + b + Math.round(c / 60);
+  if (parts.length === 2) return a * 60 + b;
+  return a || 0;
 }
 
 export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, meta, proctored = true, onClose }: Props) {
