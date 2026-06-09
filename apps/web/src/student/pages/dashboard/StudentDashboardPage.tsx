@@ -19,7 +19,6 @@ import type {
 } from '../../student-portal-api.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
 import { EnrollPathModal } from '../../components/EnrollPathModal.js';
-import { CourseInfoModal } from '../../components/CourseInfoModal.js';
 import { RecommendedCourseCard } from '../../components/RecommendedCourseCard.js';
 
 /* ─── Constants ──────────────────────────────────────────────── */
@@ -449,7 +448,6 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
   );
   const { currentUser } = useStudentLayout();
   const [enrollCourse, setEnrollCourse] = useState<CatalogCourseRow | null>(null);
-  const [infoCourse, setInfoCourse] = useState<CatalogCourseRow | null>(null);
 
   const dashboard = data?.[0];
   const assessments = data?.[1];
@@ -707,7 +705,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
               <RecommendedCourseCard
                 key={course.id}
                 course={course}
-                onMore={() => setInfoCourse(course)}
+                onMore={() => onNavigate(`/student/course-detail?courseId=${course.id}`)}
                 onEnroll={() => setEnrollCourse(course)}
               />
             ))}
@@ -726,16 +724,6 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
         }}
       />
 
-      {/* More Info → course detail modal; its Enrol Now hands off to the
-          learning-path modal for the same course (Naji 2026-06-06). */}
-      <CourseInfoModal
-        course={infoCourse}
-        onClose={() => setInfoCourse(null)}
-        onEnrol={() => {
-          setEnrollCourse(infoCourse);
-          setInfoCourse(null);
-        }}
-      />
     </div>
   );
 }

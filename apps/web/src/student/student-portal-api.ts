@@ -429,6 +429,29 @@ export class StudentPortalApi {
     };
   }
 
+  // Course detail (full info page). `/course/get_course_details` returns the
+  // course meta under `course`, plus subjects + reviews. Subjects + lessons for
+  // the curriculum accordion come from the dedicated endpoints (lessons fetched
+  // lazily per subject so we don't hammer the API up front).
+  async getCourseDetail(authToken: string, courseId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/course/get_course_details', authToken, { course_id: courseId });
+    return asRecord(payload.data);
+  }
+
+  async getCourseSubjects(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, { course_id: courseId });
+    return asArray(payload.data)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+  }
+
+  async getCourseLessons(authToken: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons', authToken, { subject_id: subjectId });
+    return asArray(payload.data)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+  }
+
   // Auth token rides on the URL because @fastify/multipart isn't configured
   // with attachFieldsToBody — body fields are invisible to the auth
   // middleware on multipart requests. Mirrors AdminPortalApi.uploadFile.

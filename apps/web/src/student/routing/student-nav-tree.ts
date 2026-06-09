@@ -50,6 +50,7 @@ export function findActiveStudentNav(pathname: string): string | null {
   // Backward compat aliases
   if (normalized === '/student' || normalized === '/student/') return 'dashboard';
   if (normalized.startsWith('/student/learning')) return 'courses';
+  if (normalized.startsWith('/student/course-detail')) return 'courses';
   if (normalized.startsWith('/student/live')) return 'live-classes';
   if (normalized.startsWith('/student/assessments')) return 'assignments';
   if (normalized.startsWith('/student/profile')) return 'settings';

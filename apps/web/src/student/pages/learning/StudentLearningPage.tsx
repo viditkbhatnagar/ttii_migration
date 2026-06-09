@@ -42,7 +42,6 @@ import type { StudentPortalApi } from '../../student-portal-api.js';
 import { ExamPlayer } from '../../components/ExamPlayer.js';
 import { toEmbeddableVideoUrl } from '../../lib/video-embed.js';
 import { RecommendedCourseCard } from '../../components/RecommendedCourseCard.js';
-import { CourseInfoModal } from '../../components/CourseInfoModal.js';
 import { EnrollPathModal } from '../../components/EnrollPathModal.js';
 
 // Map file type → icon. Naji 2026-05-04 / 05-05: every content type
@@ -244,8 +243,7 @@ function toCatalogCourse(course: Record<string, unknown>): CatalogCourse {
   };
 }
 
-export default function StudentLearningPage({ api, session, onNavigate: _onNavigate }: StudentPageProps) {
-  void _onNavigate;
+export default function StudentLearningPage({ api, session, onNavigate }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLearning(session.token),
     [api, session.token],
@@ -271,7 +269,6 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
   // List view: free-text search across enrolled course titles (EduPulse §2).
   const [courseSearch, setCourseSearch] = useState('');
   // Recommended-card modals for non-enrolled ("All Other") courses.
-  const [infoCourse, setInfoCourse] = useState<CatalogCourse | null>(null);
   const [enrollCourse, setEnrollCourse] = useState<CatalogCourse | null>(null);
 
   useEffect(() => {
@@ -961,7 +958,7 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
                 <RecommendedCourseCard
                   key={cat.id}
                   course={cat}
-                  onMore={() => setInfoCourse(cat)}
+                  onMore={() => onNavigate(`/student/course-detail?courseId=${cat.id}`)}
                   onEnroll={() => setEnrollCourse(cat)}
                 />
               );
@@ -991,15 +988,6 @@ export default function StudentLearningPage({ api, session, onNavigate: _onNavig
         }}
       />
 
-      {/* More Info → course detail modal; Enrol Now hands off to the path modal. */}
-      <CourseInfoModal
-        course={infoCourse}
-        onClose={() => setInfoCourse(null)}
-        onEnrol={() => {
-          setEnrollCourse(infoCourse);
-          setInfoCourse(null);
-        }}
-      />
     </div>
   );
 }
