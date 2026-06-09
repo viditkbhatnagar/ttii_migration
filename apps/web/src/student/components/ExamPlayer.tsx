@@ -285,7 +285,7 @@ export function ExamPlayer({
       {/* Header card with metadata + timer chip */}
       <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
               <GraduationCap className="size-6" />
             </div>
@@ -301,7 +301,7 @@ export function ExamPlayer({
               ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex shrink-0 flex-wrap gap-2 text-xs">
             {meta?.examDateLabel ? <Pill icon={<Calendar className="size-3.5" />} label="Date" value={meta.examDateLabel} /> : null}
             {meta?.startTimeLabel ? <Pill icon={<Clock className="size-3.5" />} label="Start" value={meta.startTimeLabel} /> : null}
             {timeLeftSec !== null ? (
@@ -322,7 +322,7 @@ export function ExamPlayer({
           {currentQ ? (
             <>
               <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question {currentIdx + 1} of {total}</p>
                   <h3 className="mt-1 text-base font-semibold leading-relaxed text-slate-900">{currentQ.question}</h3>
                 </div>
@@ -359,7 +359,7 @@ export function ExamPlayer({
                       }`}>
                         {String.fromCharCode(65 + idx)}
                       </span>
-                      <span className="flex-1">{opt}</span>
+                      <span className="min-w-0 flex-1 break-words">{opt}</span>
                     </button>
                   );
                 })}
@@ -427,7 +427,10 @@ export function ExamPlayer({
 
       {/* Submit confirmation modal */}
       <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
-        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[560px]"
+          style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle>Submit your exam?</DialogTitle>
             <DialogDescription>
@@ -457,7 +460,10 @@ export function ExamPlayer({
           if (!o) onClose();
         }}
       >
-        <DialogContent className="w-[min(640px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[640px]"
+          style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="size-5 text-emerald-600" /> Exam Submitted Successfully</DialogTitle>
             <DialogDescription>Your responses have been recorded. Here is a summary of your attempt.</DialogDescription>

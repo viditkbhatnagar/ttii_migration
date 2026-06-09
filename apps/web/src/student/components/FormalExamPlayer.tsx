@@ -481,7 +481,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question {currentIdx + 1} of {total}</p>
                   <div
-                    className="prose prose-sm mt-1 max-w-none text-base font-semibold leading-relaxed text-slate-900"
+                    className="prose prose-sm mt-1 max-w-none break-words text-base font-semibold leading-relaxed text-slate-900 [&_img]:h-auto [&_img]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
                     dangerouslySetInnerHTML={{ __html: currentQ.question }}
                   />
                 </div>
@@ -515,7 +515,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                       }`}>
                         {String.fromCharCode(65 + idx)}
                       </span>
-                      <span className="prose prose-sm max-w-none flex-1 [&_p]:m-0" dangerouslySetInnerHTML={{ __html: opt }} />
+                      <span className="prose prose-sm min-w-0 max-w-none flex-1 break-words [&_img]:h-auto [&_img]:max-w-full [&_p]:m-0" dangerouslySetInnerHTML={{ __html: opt }} />
                     </button>
                   );
                 })}
@@ -577,7 +577,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
       {/* Proctoring warning */}
       <Dialog open={proctorWarning !== null} onOpenChange={(o) => { if (!o) setProctorWarning(null); }}>
-        <DialogContent className="w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[480px]"
+          style={{ width: 'min(480px, calc(100vw - 2rem))', maxWidth: 'min(480px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700">
               <AlertTriangle className="size-5" /> Stay on the exam screen
@@ -597,7 +600,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
       {/* Submit confirmation */}
       <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
-        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[560px]"
+          style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle>Submit your exam?</DialogTitle>
             <DialogDescription>Once submitted, you cannot change your answers.</DialogDescription>
@@ -620,7 +626,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         open={resultOpen && phase.kind === 'submitted'}
         onOpenChange={(o) => { setResultOpen(o); if (!o) onClose(); }}
       >
-        <DialogContent className="w-[min(640px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))]">
+        <DialogContent
+          className="sm:max-w-[640px]"
+          style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="size-5 text-emerald-600" /> Exam Submitted Successfully</DialogTitle>
             <DialogDescription>Your responses have been recorded. Results will be published by your institute.</DialogDescription>

@@ -21,6 +21,20 @@ export function clearAdminPageDataCache(cacheKey?: string): void {
   else pageDataCache.clear();
 }
 
+/** A 401/403 or "not authenticated" message means the session expired mid-use. */
+function isAuthError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const code = (error as { statusCode?: number }).statusCode;
+    if (code === 401 || code === 403) return true;
+  }
+  const message = messageFromError(error).toLowerCase();
+  return (
+    message.includes('not authenticated') ||
+    message.includes('unauthenticated') ||
+    message.includes('unauthorized')
+  );
+}
+
 export function useAdminPageData<T>(
   loader: () => Promise<T>,
   deps: unknown[] = [],
@@ -46,6 +60,13 @@ export function useAdminPageData<T>(
       setData(result);
       setError(null);
     } catch (err: unknown) {
+      // A mid-session 401/"not authenticated" means the token expired — signal
+      // the global SessionExpiredDialog (listens for 'ttii:auth-expired') so the
+      // user gets a clear sign-in-again / log-out choice instead of a cryptic
+      // "User not authenticated!" card.
+      if (isAuthError(err) && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('ttii:auth-expired'));
+      }
       // Keep showing cached data on a transient revalidation failure rather than
       // blanking the page; only surface the error on a cold (uncached) load.
       if (!hasCached) setError(messageFromError(err));

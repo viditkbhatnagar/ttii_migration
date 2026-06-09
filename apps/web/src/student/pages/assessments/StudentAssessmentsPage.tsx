@@ -591,21 +591,21 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
                     {/* Metadata strip: DATE / WINDOW / DURATION / MARKS */}
                     <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-4">
-                      <div>
+                      <div className="min-w-0">
                         <dt className="text-[10px] uppercase tracking-wide text-student-muted">Date</dt>
-                        <dd className="mt-0.5 text-xs font-semibold text-student-text">{e.dateLabel || '—'}</dd>
+                        <dd className="mt-0.5 truncate text-xs font-semibold text-student-text">{e.dateLabel || '—'}</dd>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <dt className="text-[10px] uppercase tracking-wide text-student-muted">Window</dt>
-                        <dd className="mt-0.5 text-xs font-semibold text-student-text">{e.windowLabel || '—'}</dd>
+                        <dd className="mt-0.5 truncate text-xs font-semibold text-student-text">{e.windowLabel || '—'}</dd>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <dt className="text-[10px] uppercase tracking-wide text-student-muted">Duration</dt>
-                        <dd className="mt-0.5 text-xs font-semibold text-student-text">{e.durationLabel || '—'}</dd>
+                        <dd className="mt-0.5 truncate text-xs font-semibold text-student-text">{e.durationLabel || '—'}</dd>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <dt className="text-[10px] uppercase tracking-wide text-student-muted">Marks</dt>
-                        <dd className="mt-0.5 text-xs font-semibold text-student-text">
+                        <dd className="mt-0.5 truncate text-xs font-semibold text-student-text">
                           {e.marksLabel || '—'}
                           {e.questionCount > 0 ? (
                             <span className="font-normal text-student-muted"> · {e.questionCount} Q</span>

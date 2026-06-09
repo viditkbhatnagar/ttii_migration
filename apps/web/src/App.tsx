@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { ConfirmDialogProvider } from '@/components/confirm-dialog';
+import { SessionExpiredDialog } from '@/components/SessionExpiredDialog';
 
 import { detectPortalFromSubdomain, getSubdomainRedirectPath } from './lib/subdomain.js';
 import { AdminPortal, normalizeAdminPath } from './admin/admin-portal.js';
@@ -1172,6 +1173,7 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
             instructorPortalApi={resolvedInstructorPortalApi}
             counsellorPortalApi={resolvedCounsellorPortalApi}
           />
+          <SessionExpiredDialog />
         </ConfirmDialogProvider>
       </AuthProvider>
       <Toaster position="bottom-right" richColors closeButton />
