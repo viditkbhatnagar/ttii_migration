@@ -36,7 +36,8 @@ import { SegmentedTabs } from '../../components/SegmentedTabs.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { StudentPageProps } from '../../routing/student-routes.js';
-import { FormalExamPlayer } from '../../components/FormalExamPlayer.js';
+import { FormalExamPlayer, type FormalExamMeta } from '../../components/FormalExamPlayer.js';
+import { useStudentLayout } from '../../layout/StudentLayoutContext.js';
 
 type MainTab = 'assignments' | 'exams';
 type AssignmentSubTab = 'pending' | 'submitted' | 'graded';
@@ -170,6 +171,29 @@ function toExamView(raw: Record<string, unknown>): ExamView {
   };
 }
 
+// Pull a clean "HH:MM" start label straight from the ISO/space-separated
+// start_datetime string (avoids new Date() timezone shifts on a naive value).
+function examStartLabel(raw: Record<string, unknown>): string {
+  const m = asString(raw.start_datetime).match(/[T\s](\d{2}:\d{2})/);
+  return m ? m[1] : '';
+}
+
+// Build the FormalExamPlayer meta from the list row + the logged-in student,
+// so the instructions + attempt screens can show real context (course, subject,
+// date, marks, name, enrolment). Only what we actually have.
+function buildExamMeta(e: ExamView, currentUser: { name: string; studentId: string } | null): FormalExamMeta {
+  return {
+    code: e.code || undefined,
+    course: e.course || undefined,
+    subject: e.subject || undefined,
+    dateLabel: e.dateLabel || undefined,
+    startLabel: examStartLabel(e.raw) || undefined,
+    totalMarksLabel: (asString(e.raw.total_mark) || asString(e.raw.total_marks)) || undefined,
+    studentName: currentUser?.name || undefined,
+    enrollmentNo: currentUser?.studentId || undefined,
+  };
+}
+
 // Exam status pill keyed off the backend-derived `state`.
 function examStatusBadge(state: string): { label: string; className: string } {
   switch (state) {
@@ -230,7 +254,8 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
   const surface: MainTab = pathname.includes('/exams') ? 'exams' : 'assignments';
   const [assignmentSubTab, setAssignmentSubTab] = useState<AssignmentSubTab>('pending');
   const [examSubTab, setExamSubTab] = useState<ExamSubTab>('available');
-  const [activeExam, setActiveExam] = useState<{ examId: string; title: string } | null>(null);
+  const [activeExam, setActiveExam] = useState<{ examId: string; title: string; meta: FormalExamMeta } | null>(null);
+  const { currentUser } = useStudentLayout();
   const [searchQuery, setSearchQuery] = useState('');
   const [examCourseFilter, setExamCourseFilter] = useState('all');
   const [examSubjectFilter, setExamSubjectFilter] = useState('all');
@@ -286,19 +311,18 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
   // Proctored formal-exam player — must stay fully intact (full-screen +
   // tab-switch detection lives inside FormalExamPlayer; proctored defaults true).
+  // The player owns its full layout now (instructions + focused attempt screen),
+  // so render it directly rather than inside a constrained card.
   if (activeExam) {
     return (
-      <div className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <FormalExamPlayer
-            api={api}
-            authToken={session.token}
-            examId={activeExam.examId}
-            title={activeExam.title}
-            onClose={() => { setActiveExam(null); reload(); }}
-          />
-        </div>
-      </div>
+      <FormalExamPlayer
+        api={api}
+        authToken={session.token}
+        examId={activeExam.examId}
+        title={activeExam.title}
+        meta={activeExam.meta}
+        onClose={() => { setActiveExam(null); reload(); }}
+      />
     );
   }
 
@@ -568,7 +592,7 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                       <div className="shrink-0 sm:pt-0.5">
                         {e.state === 'available' ? (
                           <Button
-                            onClick={() => setActiveExam({ examId: e.id, title: e.title })}
+                            onClick={() => setActiveExam({ examId: e.id, title: e.title, meta: buildExamMeta(e, currentUser) })}
                             className="h-10 w-full rounded-xl bg-student-primary px-5 text-sm font-semibold text-white hover:bg-student-primary/90 sm:w-auto"
                           >
                             Start Exam

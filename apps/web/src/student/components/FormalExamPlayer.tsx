@@ -10,10 +10,45 @@
 // opens in full screen on start; tab switches, window blur and full-screen
 // exits are recorded as violations, surfaced as escalating warnings, and the
 // exam auto-submits once the limit is reached. Frontend-only guard for now
-// (no server persistence). Styling is unchanged — our existing student theme.
+// (no server persistence).
+//
+// EduPulse UI match 2026-06-09 (Naji) — the intro (instructions) and attempt
+// screens were rebuilt to mirror the lovable reference exactly:
+//   • /exams/ex-001/instructions → the intro phase (header card with stat
+//     chips + proctoring banner, "Please read carefully" grid, agree gate)
+//   • /exams/ex-001/attempt → the in_progress phase (focused top bar with the
+//     student/enrolment + timer + submit, question card with pills + option
+//     rows, right "Question Palette" + "Summary" sidebar)
+// Only fields the backend actually provides are shown — pass marks, per-question
+// marks and auto-save do not exist server-side, so they are deliberately omitted
+// rather than faked.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Flag, X, GraduationCap, Hourglass, CheckCircle2, AlertTriangle, Maximize, ShieldCheck } from 'lucide-react';
+import {
+  Flag,
+  X,
+  GraduationCap,
+  Hourglass,
+  CheckCircle2,
+  AlertTriangle,
+  Maximize,
+  ShieldCheck,
+  Wifi,
+  RefreshCw,
+  Ban,
+  AlertCircle,
+  Lock,
+  CalendarDays,
+  Clock,
+  FileText,
+  Award,
+  ChevronLeft,
+  ChevronRight,
+  Eraser,
+  Send,
+  ArrowLeft,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,6 +65,20 @@ interface ExamQuestion {
   qType: number;
   question: string;
   options: string[];
+}
+
+/** Extra exam context the list page already holds (the `exam_take` payload does
+ * not carry course/subject/date/marks). All optional — the screens degrade
+ * gracefully when a field is missing. */
+export interface FormalExamMeta {
+  code?: string;
+  course?: string;
+  subject?: string;
+  dateLabel?: string;
+  startLabel?: string;
+  totalMarksLabel?: string;
+  studentName?: string;
+  enrollmentNo?: string;
 }
 
 type Phase =
@@ -56,6 +105,7 @@ interface Props {
   examId: string;
   title: string;
   headerLabel?: string;
+  meta?: FormalExamMeta;
   /** Whether browser proctoring (full screen + focus tracking) is enforced. Defaults to on for formal exams. */
   proctored?: boolean;
   onClose: () => void;
@@ -65,6 +115,18 @@ interface Props {
 // the exam auto-submits. Frontend-only guard (no server persistence yet).
 const PROCTOR_MAX_VIOLATIONS = 3;
 
+// The "Please read carefully" rules. Each is true for this player: there is no
+// auto-save (refresh loses answers), proctoring records tab/window switches,
+// and the timer auto-submits at zero.
+const EXAM_RULES: Array<{ icon: LucideIcon; text: string }> = [
+  { icon: Wifi, text: 'A stable internet connection is required throughout the exam.' },
+  { icon: RefreshCw, text: 'Do not refresh the page — your answers will be lost.' },
+  { icon: Ban, text: 'Do not close the browser or switch tabs during the exam.' },
+  { icon: Hourglass, text: 'Submit your exam before the timer ends.' },
+  { icon: AlertCircle, text: 'Unanswered questions will be scored zero.' },
+  { icon: Lock, text: 'The exam will auto-submit when the timer reaches zero.' },
+];
+
 function fmtHMS(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
   const h = Math.floor(s / 3600);
@@ -73,7 +135,21 @@ function fmtHMS(sec: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
-export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, proctored = true, onClose }: Props) {
+// Exam duration ships as a DB VARCHAR — could be plain minutes ("60"), "HH:MM"
+// or "HH:MM:SS". Parse all three to whole minutes (a plain Number.parseInt on
+// "01:00:00" wrongly yields 1).
+function parseDurationMin(raw: string): number {
+  const s = (raw ?? '').trim();
+  if (s === '') return 0;
+  if (/^\d+$/.test(s)) return Number.parseInt(s, 10);
+  const parts = s.split(':').map((p) => Number.parseInt(p, 10));
+  if (parts.some((n) => Number.isNaN(n))) return Number.parseInt(s, 10) || 0;
+  if (parts.length === 3) return parts[0] * 60 + parts[1] + Math.round(parts[2] / 60);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
+export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, meta, proctored = true, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [tick, setTick] = useState(0);
   const [agreed, setAgreed] = useState(false);
@@ -149,7 +225,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           kind: 'intro',
           attemptId: data.attemptId,
           title: data.title || initialTitle,
-          durationMin: Number.parseInt(data.duration, 10) || 0,
+          durationMin: parseDurationMin(data.duration),
           questions: data.questions,
         });
       })
@@ -203,10 +279,10 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       document.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [phase.kind, proctored]);  
+  }, [phase.kind, proctored]);
 
   // Exit full screen when the player unmounts.
-  useEffect(() => () => { exitFullscreen(); }, []);  
+  useEffect(() => () => { exitFullscreen(); }, []);
 
   const handleStart = () => {
     // Enter full screen on the start gesture (must run inside the click handler).
@@ -342,78 +418,143 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
   // ── Render ──────────────────────────────────────────────────────
   if (phase.kind === 'loading') {
-    return <Frame onClose={onClose} title={initialTitle}><div className="py-12 text-center text-sm text-slate-500">Loading exam…</div></Frame>;
+    return (
+      <CenterFrame onClose={onClose} title={initialTitle}>
+        <div className="py-12 text-center text-sm text-student-muted">Loading exam…</div>
+      </CenterFrame>
+    );
   }
   if (phase.kind === 'error') {
     return (
-      <Frame onClose={onClose} title={initialTitle}>
+      <CenterFrame onClose={onClose} title={initialTitle}>
         <div className="py-12 text-center">
           <p role="alert" className="text-sm text-red-600">{phase.message}</p>
           <Button variant="outline" className="mt-4" onClick={onClose}>Close</Button>
         </div>
-      </Frame>
+      </CenterFrame>
     );
   }
+
+  // ── Instructions screen (intro) — mirrors /exams/:id/instructions ──
   if (phase.kind === 'intro') {
+    const subtitle = [meta?.course, meta?.subject].filter(Boolean).join(' · ');
+    const chips: Array<{ icon: LucideIcon; label: string; value: string }> = [];
+    if (meta?.dateLabel) chips.push({ icon: CalendarDays, label: 'Date', value: meta.dateLabel });
+    if (meta?.startLabel) chips.push({ icon: Clock, label: 'Start', value: meta.startLabel });
+    chips.push({ icon: FileText, label: 'Questions', value: String(phase.questions.length) });
+    if (meta?.totalMarksLabel) chips.push({ icon: Award, label: 'Total Marks', value: meta.totalMarksLabel });
+
     return (
-      <Frame onClose={onClose} title={phase.title}>
-        <div className="mx-auto max-w-md space-y-4 py-8 text-center">
-          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-student-primary/10 text-student-primary">
-            <GraduationCap aria-hidden="true" className="size-7" />
+      <div className="mx-auto max-w-4xl space-y-4">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-student-muted transition-colors hover:text-student-text"
+        >
+          <ArrowLeft aria-hidden="true" className="size-4" /> Back to exams
+        </button>
+
+        {/* Header card */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-start sm:justify-between sm:p-7">
+            <div className="min-w-0">
+              <span className="inline-flex items-center rounded-full bg-student-primary-light px-3 py-1 text-xs font-semibold text-student-primary">
+                Exam Instructions
+              </span>
+              <h1 className="mt-2 text-2xl font-bold leading-tight text-student-text sm:text-3xl">
+                {phase.title}
+              </h1>
+              {subtitle ? <p className="mt-1 text-sm text-student-muted">{subtitle}</p> : null}
+              {meta?.code ? <p className="mt-0.5 text-xs font-medium uppercase tracking-wider text-slate-400">{meta.code}</p> : null}
+            </div>
+            {phase.durationMin > 0 ? (
+              <div className="shrink-0 text-left sm:text-right">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-student-muted">Duration</p>
+                <p className="leading-none">
+                  <span className="text-3xl font-bold text-student-primary">{phase.durationMin}</span>
+                  <span className="ml-1 text-sm font-medium text-student-muted">min</span>
+                </p>
+              </div>
+            ) : null}
           </div>
-          <h2 className="text-lg font-semibold text-student-text">{phase.title}</h2>
-          <p className="text-sm text-student-muted">
-            {phase.questions.length} question{phase.questions.length === 1 ? '' : 's'}
-            {phase.durationMin > 0 ? ` · ${phase.durationMin} min` : ''}
-          </p>
+
+          {chips.length > 0 ? (
+            <div className="flex flex-wrap gap-3 border-t border-slate-100 px-6 py-4 sm:px-7">
+              {chips.map((c) => (
+                <StatChip key={c.label} icon={c.icon} label={c.label} value={c.value} />
+              ))}
+            </div>
+          ) : null}
+
           {proctored ? (
-            <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
-              <p className="flex items-center gap-1.5 font-semibold text-amber-800">
-                <ShieldCheck className="size-3.5" /> This is a proctored exam
-              </p>
-              <ul className="list-disc space-y-1 pl-4">
-                <li>The exam opens in full screen — stay in full screen until you submit.</li>
-                <li>Switching tabs, leaving the window or exiting full screen is recorded.</li>
-                <li>After {PROCTOR_MAX_VIOLATIONS} warnings the exam is submitted automatically.</li>
-                <li>The timer runs continuously and auto-submits at zero. Results are published by your institute.</li>
-              </ul>
+            <div className="flex items-center gap-2 border-t border-sky-100 bg-sky-50/70 px-6 py-3 text-sm text-sky-800 sm:px-7">
+              <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-sky-600" />
+              <span>
+                <strong className="font-semibold">Proctoring:</strong> this exam runs in full screen and your tab
+                switches are monitored.
+              </span>
             </div>
-          ) : (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
-              Once you start, the timer runs continuously. Submit before time runs out — the exam auto-submits at zero. Your results will be published by your institute.
-            </div>
-          )}
-          {/* Terms gate — Start is disabled until the student agrees
-              (Naji 2026-06-06: exam opening page needs an agree checkbox). */}
-          <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
+          ) : null}
+        </div>
+
+        {/* Please read carefully */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+          <h2 className="text-lg font-bold text-student-text">Please read carefully</h2>
+          <p className="mt-1 text-sm text-student-muted">
+            You will not be able to start the exam until you agree to the instructions below.
+          </p>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {EXAM_RULES.map((rule) => {
+              const Icon = rule.icon;
+              return (
+                <div
+                  key={rule.text}
+                  className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 p-4"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-student-primary-light text-student-primary">
+                    <Icon aria-hidden="true" className="size-4" />
+                  </span>
+                  <p className="mt-1 text-sm text-slate-700">{rule.text}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <label className="mt-5 flex items-start gap-3 rounded-2xl border border-dashed border-student-primary/40 bg-student-primary-light/40 p-4">
             <input
               type="checkbox"
               checked={agreed}
               onChange={(e) => setAgreed(e.target.checked)}
               className="mt-0.5 size-4 shrink-0 rounded border-slate-300 text-student-primary focus:ring-student-primary"
             />
-            <span className="text-xs text-slate-600">
-              I have read and understood the {proctored ? 'proctoring rules and ' : ''}exam
-              instructions, and I agree to follow them. I understand the timer runs continuously
-              and my exam is submitted automatically when time runs out.
+            <span className="text-sm text-slate-700">
+              I have read and agree to the exam instructions. I understand that my exam will be
+              monitored and auto-submitted when the timer ends.
             </span>
           </label>
-          <Button
-            onClick={handleStart}
-            disabled={!agreed}
-            className="bg-student-primary hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {proctored ? (<><Maximize className="mr-2 size-4" /> Start Exam in Full Screen</>) : 'Start Exam'}
-          </Button>
-          {!agreed ? (
-            <p className="text-[11px] text-slate-400">Tick the box above to enable Start.</p>
-          ) : null}
+
+          <div className="mt-5 flex flex-col-reverse items-stretch gap-2 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
+            <Button variant="ghost" onClick={onClose} className="text-student-muted hover:text-student-text">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStart}
+              disabled={!agreed}
+              className="bg-gradient-to-br from-student-primary to-student-accent text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {proctored ? <Maximize aria-hidden="true" className="mr-2 size-4" /> : null}
+              Start Exam Now
+            </Button>
+          </div>
         </div>
-      </Frame>
+      </div>
     );
   }
 
+  // ── Attempt screen (in_progress) + submitted ──────────────────────
   const inProgress = phase.kind === 'in_progress' ? phase : null;
+  const submittedPhase = phase.kind === 'submitted' ? phase : null;
   const questions = inProgress?.questions ?? [];
   const currentIdx = inProgress?.current ?? 0;
   const currentQ = questions[currentIdx];
@@ -426,41 +567,52 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     ? questions.filter((q) => inProgress.visited.has(q.questionId) && (!inProgress.answers.has(q.questionId) || inProgress.answers.get(q.questionId) === null)).length
     : 0;
   const notVisitedCount = inProgress ? questions.filter((q) => !inProgress.visited.has(q.questionId)).length : 0;
+  const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+  const examTitle = inProgress?.title ?? submittedPhase?.title ?? initialTitle;
+  const topSubtitle = [meta?.course, meta?.subject].filter(Boolean).join(' · ') || headerLabel || '';
+  const currentFlagged = currentQ ? Boolean(inProgress?.flagged.has(currentQ.questionId)) : false;
 
   return (
-    <Frame onClose={onClose} title={inProgress?.title ?? initialTitle}>
-      {/* Header card with timer chip */}
-      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
-              <GraduationCap className="size-6" />
-            </div>
+    <div className="-m-4 min-h-[calc(100vh-4rem)] bg-student-bg sm:-m-6">
+      {/* Focused top bar */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white shadow-sm">
+              <GraduationCap aria-hidden="true" className="size-5" />
+            </span>
             <div className="min-w-0">
-              {headerLabel ? <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{headerLabel}</p> : null}
-              <h2 className="text-base font-semibold text-slate-900">{inProgress?.title ?? initialTitle}</h2>
-              <p className="mt-1 text-[11px] text-slate-500">Total Questions: <strong className="text-slate-700">{total}</strong></p>
+              <h2 className="truncate text-sm font-bold text-student-text">{examTitle}</h2>
+              {topSubtitle ? <p className="truncate text-xs text-student-muted">{topSubtitle}</p> : null}
             </div>
           </div>
+
+          {meta?.studentName ? (
+            <div className="hidden items-center gap-6 md:flex">
+              <TopMeta label="Student" value={meta.studentName} />
+              {meta.enrollmentNo ? <TopMeta label="Enrollment" value={meta.enrollmentNo} mono /> : null}
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            {proctored ? (
+            {inProgress && proctored ? (
               <Pill
                 icon={<ShieldCheck className="size-3.5" />}
                 label="Proctored"
-                value={`${violations}/${PROCTOR_MAX_VIOLATIONS} warnings`}
+                value={`${violations}/${PROCTOR_MAX_VIOLATIONS}`}
                 tone={violations === 0 ? 'neutral' : violations >= PROCTOR_MAX_VIOLATIONS - 1 ? 'red' : 'amber'}
               />
             ) : null}
-            {proctored && !isFullscreen ? (
+            {inProgress && proctored && !isFullscreen ? (
               <button
                 type="button"
                 onClick={enterFullscreen}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-student-primary/30 bg-student-primary/5 px-2.5 py-1 font-medium text-student-primary transition hover:bg-student-primary/10"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-student-primary/30 bg-student-primary/5 px-2.5 py-1.5 font-medium text-student-primary transition hover:bg-student-primary/10"
               >
-                <Maximize className="size-3.5" /> Resume full screen
+                <Maximize className="size-3.5" /> Full screen
               </button>
             ) : null}
-            {timeLeftSec !== null ? (
+            {inProgress && timeLeftSec !== null ? (
               <Pill
                 icon={<Hourglass className="size-3.5" />}
                 label="Time Left"
@@ -468,111 +620,171 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                 tone={timeLeftSec < 60 ? 'red' : timeLeftSec < 5 * 60 ? 'amber' : 'neutral'}
               />
             ) : null}
+            {inProgress ? (
+              <Button
+                onClick={() => setSubmitConfirmOpen(true)}
+                className="h-9 rounded-xl bg-gradient-to-br from-student-primary to-student-accent px-4 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+              >
+                <Send aria-hidden="true" className="mr-1.5 size-3.5" /> Submit Exam
+              </Button>
+            ) : null}
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        {/* Question pane */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          {currentQ ? (
-            <>
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question {currentIdx + 1} of {total}</p>
+      <div className="mx-auto max-w-6xl p-4 sm:p-6">
+        {submittedPhase ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+            <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+              <CheckCircle2 className="size-7" />
+            </span>
+            <h3 className="text-lg font-bold text-student-text">Exam submitted</h3>
+            <p className="mt-1 text-sm text-student-muted">Your responses have been recorded. Results will be published by your institute.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+            {/* Question card */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              {currentQ ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-student-primary-light px-3 py-1 text-xs font-semibold text-student-primary">
+                      Question {currentIdx + 1} of {total}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                      {currentQ.qType === 1 ? 'MCQ · Single Answer' : 'MCQ'}
+                    </span>
+                  </div>
+
                   <div
-                    className="prose prose-sm mt-1 max-w-none break-words text-base font-semibold leading-relaxed text-slate-900 [&_img]:h-auto [&_img]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
+                    className="prose prose-sm mt-3 max-w-none break-words text-lg font-medium leading-relaxed text-student-text [&_img]:h-auto [&_img]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
                     dangerouslySetInnerHTML={{ __html: currentQ.question }}
                   />
+
+                  <div className="mt-5 space-y-3">
+                    {currentQ.options.map((opt, idx) => {
+                      const answered = inProgress?.answers.has(currentQ.questionId) ? inProgress.answers.get(currentQ.questionId) : null;
+                      const isActive = answered === idx;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => inProgress && select(currentQ.questionId, idx)}
+                          className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left text-sm transition ${
+                            isActive
+                              ? 'border-student-primary bg-student-primary/5 text-student-text'
+                              : 'border-slate-200 bg-slate-50/40 hover:border-student-primary/40 hover:bg-white'
+                          }`}
+                        >
+                          <span className={`flex size-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${
+                            isActive ? 'border-student-primary bg-student-primary text-white' : 'border-slate-300 text-slate-500'
+                          }`}>
+                            {String.fromCharCode(65 + idx)}
+                          </span>
+                          <span className="prose prose-sm min-w-0 max-w-none flex-1 break-words [&_img]:h-auto [&_img]:max-w-full [&_p]:m-0" dangerouslySetInnerHTML={{ __html: opt }} />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-5">
+                    <Button variant="outline" onClick={goPrev} disabled={currentIdx === 0} className="rounded-xl">
+                      <ChevronLeft aria-hidden="true" className="mr-1 size-4" /> Previous
+                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        onClick={() => clearResponse(currentQ.questionId)}
+                        disabled={!inProgress?.answers.has(currentQ.questionId)}
+                        className="rounded-xl text-slate-500 hover:text-slate-700"
+                      >
+                        <Eraser aria-hidden="true" className="mr-1.5 size-4" /> Clear Response
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => toggleFlag(currentQ.questionId)}
+                        className={`rounded-xl ${currentFlagged ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100' : 'text-slate-600'}`}
+                      >
+                        <Flag aria-hidden="true" className={`mr-1.5 size-4 ${currentFlagged ? 'fill-amber-500 text-amber-600' : ''}`} />
+                        {currentFlagged ? 'Marked' : 'Mark for Review'}
+                      </Button>
+                      <Button
+                        onClick={goNext}
+                        disabled={currentIdx === total - 1}
+                        className="rounded-xl bg-gradient-to-br from-student-primary to-student-accent text-white shadow-sm hover:opacity-95"
+                      >
+                        Save &amp; Next <ChevronRight aria-hidden="true" className="ml-1 size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* Right rail: palette + summary + submit */}
+            <aside className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-student-text">Question Palette</h4>
+                  <span className="text-xs text-student-muted">{total} total</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => toggleFlag(currentQ.questionId)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition ${inProgress?.flagged.has(currentQ.questionId) ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-700'}`}
-                >
-                  <Flag className={`size-3.5 ${inProgress?.flagged.has(currentQ.questionId) ? 'fill-amber-500 text-amber-600' : ''}`} />
-                  {inProgress?.flagged.has(currentQ.questionId) ? 'Marked' : 'Mark for Review'}
-                </button>
+                <div className="grid grid-cols-6 gap-2">
+                  {questions.map((q, idx) => {
+                    const isCurrent = idx === currentIdx;
+                    const isAnswered = inProgress?.answers.has(q.questionId) && inProgress.answers.get(q.questionId) !== null;
+                    const isFlagged = inProgress?.flagged.has(q.questionId);
+                    const isVisited = inProgress?.visited.has(q.questionId);
+                    let cls = 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+                    if (isCurrent) cls = 'bg-gradient-to-br from-student-primary to-student-accent text-white shadow-sm';
+                    else if (isFlagged) cls = 'bg-amber-500 text-white hover:bg-amber-600';
+                    else if (isAnswered) cls = 'bg-emerald-500 text-white hover:bg-emerald-600';
+                    else if (isVisited) cls = 'bg-red-500 text-white hover:bg-red-600';
+                    return (
+                      <button
+                        key={q.questionId}
+                        type="button"
+                        onClick={() => jumpTo(idx)}
+                        aria-current={isCurrent ? 'true' : undefined}
+                        className={`flex size-9 items-center justify-center rounded-xl text-xs font-semibold transition ${cls}`}
+                      >
+                        {idx + 1}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="space-y-2">
-                {currentQ.options.map((opt, idx) => {
-                  const answered = inProgress?.answers.has(currentQ.questionId) ? inProgress.answers.get(currentQ.questionId) : null;
-                  const isActive = answered === idx;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => inProgress && select(currentQ.questionId, idx)}
-                      className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm transition ${
-                        isActive
-                          ? 'border-student-primary bg-student-primary/5 text-slate-900'
-                          : 'border-slate-200 hover:border-student-primary/40 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className={`flex size-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${
-                        isActive ? 'border-student-primary bg-student-primary text-white' : 'border-slate-300 text-slate-500'
-                      }`}>
-                        {String.fromCharCode(65 + idx)}
-                      </span>
-                      <span className="prose prose-sm min-w-0 max-w-none flex-1 break-words [&_img]:h-auto [&_img]:max-w-full [&_p]:m-0" dangerouslySetInnerHTML={{ __html: opt }} />
-                    </button>
-                  );
-                })}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h4 className="mb-3 text-sm font-bold text-student-text">Summary</h4>
+                <div className="space-y-2 text-sm">
+                  <SummaryRow dot="bg-emerald-500" label="Answered" value={answeredCount} />
+                  <SummaryRow dot="bg-red-500" label="Not Answered" value={visitedNotAnswered} />
+                  <SummaryRow dot="bg-amber-500" label="Marked for Review" value={flaggedCount} />
+                  <SummaryRow dot="bg-slate-400" label="Not Visited" value={notVisitedCount} />
+                </div>
+                <div className="mt-4 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-student-muted">Progress</span>
+                    <span className="font-semibold text-student-text">{progressPct}%</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-                <Button variant="outline" onClick={goPrev} disabled={currentIdx === 0}>‹ Previous</Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => clearResponse(currentQ.questionId)}
-                  disabled={!inProgress?.answers.has(currentQ.questionId)}
-                  className="text-slate-500 hover:text-slate-700"
-                >
-                  Clear Response
-                </Button>
-                <Button onClick={goNext} disabled={currentIdx === total - 1} className="bg-slate-900 text-white hover:bg-slate-800">Save &amp; Next ›</Button>
-              </div>
-            </>
-          ) : null}
-        </div>
-
-        {/* Question Navigator */}
-        <aside className="space-y-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h4 className="mb-3 text-sm font-semibold text-slate-900">Question Navigator</h4>
-            <div className="grid grid-cols-5 gap-2">
-              {questions.map((q, idx) => {
-                const isCurrent = idx === currentIdx;
-                const isAnswered = inProgress?.answers.has(q.questionId) && inProgress.answers.get(q.questionId) !== null;
-                const isFlagged = inProgress?.flagged.has(q.questionId);
-                const isVisited = inProgress?.visited.has(q.questionId);
-                let cls = 'border border-slate-200 bg-white text-slate-500 hover:bg-slate-50';
-                if (isFlagged) cls = 'bg-amber-500 text-white hover:bg-amber-600';
-                else if (isAnswered) cls = 'bg-emerald-500 text-white hover:bg-emerald-600';
-                else if (isVisited) cls = 'bg-red-500 text-white hover:bg-red-600';
-                return (
-                  <button
-                    key={q.questionId}
-                    type="button"
-                    onClick={() => jumpTo(idx)}
-                    aria-current={isCurrent ? 'true' : undefined}
-                    className={`size-10 rounded-md text-sm font-semibold transition ${cls} ${isCurrent ? 'ring-2 ring-student-primary ring-offset-1' : ''}`}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-4 space-y-1.5 text-xs text-slate-600">
-              <Legend swatch="bg-emerald-500" label="Attempted" value={answeredCount} />
-              <Legend swatch="bg-red-500" label="Missed (visited)" value={visitedNotAnswered} />
-              <Legend swatch="bg-amber-500" label="Marked" value={flaggedCount} />
-              <Legend swatch="border border-slate-300 bg-white" label="Not visited" value={notVisitedCount} />
-            </div>
+              <Button
+                onClick={() => setSubmitConfirmOpen(true)}
+                className="h-12 w-full rounded-[22px] bg-gradient-to-br from-student-primary to-student-accent text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              >
+                <Send aria-hidden="true" className="mr-2 size-4" /> Submit Exam
+              </Button>
+            </aside>
           </div>
-          <Button onClick={() => setSubmitConfirmOpen(true)} className="w-full bg-slate-900 text-white hover:bg-slate-800">Submit Exam</Button>
-        </aside>
+        )}
       </div>
 
       {/* Proctoring warning */}
@@ -611,12 +823,17 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           <div className="grid grid-cols-2 gap-3 py-2">
             <StatTile label="Total Questions" value={String(total)} />
             <StatTile label="Answered" value={String(answeredCount)} tone="emerald" />
-            <StatTile label="Missed" value={String(total - answeredCount)} tone="red" />
-            <StatTile label="Marked" value={String(flaggedCount)} tone="amber" />
+            <StatTile label="Not Answered" value={String(total - answeredCount)} tone="red" />
+            <StatTile label="Marked for Review" value={String(flaggedCount)} tone="amber" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>Continue Exam</Button>
-            <Button onClick={() => { void submit(); }} className="bg-slate-900 text-white hover:bg-slate-800">Confirm &amp; Submit</Button>
+            <Button
+              onClick={() => { void submit(); }}
+              className="bg-gradient-to-br from-student-primary to-student-accent text-white hover:opacity-95"
+            >
+              Confirm &amp; Submit
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -638,22 +855,29 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
             <div className="grid grid-cols-2 gap-3 py-2">
               <StatTile label="Total Questions" value={String(phase.total)} />
               <StatTile label="Answered" value={String(phase.answered)} tone="emerald" />
-              <StatTile label="Missed" value={String(phase.total - phase.answered)} tone="red" />
+              <StatTile label="Not Answered" value={String(phase.total - phase.answered)} tone="red" />
               <StatTile label="Time Used" value={fmtHMS(phase.timeUsedSec)} />
             </div>
           ) : null}
           <DialogFooter>
-            <Button onClick={() => { setResultOpen(false); onClose(); }} className="bg-slate-900 text-white hover:bg-slate-800">Done</Button>
+            <Button
+              onClick={() => { setResultOpen(false); onClose(); }}
+              className="bg-gradient-to-br from-student-primary to-student-accent text-white hover:opacity-95"
+            >
+              Done
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Frame>
+    </div>
   );
 }
 
-function Frame({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+// A simple centred panel used for the loading / error states (the full screens
+// are rendered inline for intro + attempt).
+function CenterFrame({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
   return (
-    <div>
+    <div className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-wider text-student-muted">Exam</p>
@@ -668,6 +892,29 @@ function Frame({ children, onClose, title }: { children: React.ReactNode; onClos
   );
 }
 
+function StatChip({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-2">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-student-primary-light text-student-primary">
+        <Icon aria-hidden="true" className="size-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[10px] font-semibold uppercase tracking-wider text-student-muted">{label}</span>
+        <span className="block truncate text-sm font-bold text-student-text">{value}</span>
+      </span>
+    </span>
+  );
+}
+
+function TopMeta({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-[10px] font-semibold uppercase tracking-wider text-student-muted">{label}</span>
+      <span className={`block max-w-[180px] truncate text-sm font-semibold text-student-text ${mono ? 'font-mono' : ''}`}>{value}</span>
+    </span>
+  );
+}
+
 function Pill({ icon, label, value, tone = 'neutral' }: { icon: React.ReactNode; label: string; value: string; tone?: 'neutral' | 'amber' | 'red' }) {
   const cls = tone === 'red'
     ? 'border-red-200 bg-red-50 text-red-700'
@@ -675,7 +922,7 @@ function Pill({ icon, label, value, tone = 'neutral' }: { icon: React.ReactNode;
       ? 'border-amber-200 bg-amber-50 text-amber-800'
       : 'border-slate-200 bg-white text-slate-700';
   return (
-    <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 ${cls}`}>
+    <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${cls}`}>
       <span className="text-slate-500">{icon}</span>
       <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</span>
       <span className="font-mono text-xs font-semibold">{value}</span>
@@ -683,11 +930,14 @@ function Pill({ icon, label, value, tone = 'neutral' }: { icon: React.ReactNode;
   );
 }
 
-function Legend({ swatch, label, value }: { swatch: string; label: string; value: number }) {
+function SummaryRow({ dot, label, value }: { dot: string; label: string; value: number }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="flex items-center gap-2"><span className={`inline-block size-3 rounded-sm ${swatch}`} />{label}</span>
-      <span className="font-medium text-slate-700">{value}</span>
+      <span className="flex items-center gap-2 text-slate-600">
+        <span className={`inline-block size-2.5 rounded-full ${dot}`} />
+        {label}
+      </span>
+      <span className="font-semibold text-student-text">{value}</span>
     </div>
   );
 }
