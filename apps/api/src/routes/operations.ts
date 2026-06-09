@@ -1578,6 +1578,37 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Question assignment — the wizard step that actually links question_bank
+  // rows to the exam (exam_questions), making a wizard-built exam takeable.
+  app.get('/admin/exam/draft/question-options', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.listExamQuestionOptions(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam/draft/questions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamQuestions(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam/draft/questions/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const rowsRaw = Array.isArray(payload.questions) ? payload.questions : [];
+      const questions = rowsRaw
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((r) => ({ questionId: toInteger(r.question_id), mark: toNumber(r.mark) }))
+        .filter((v) => v.questionId > 0);
+      const result = await operationsService.saveExamQuestions(requestUserId(request), toStringValue(payload.exam_id), questions);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.get('/admin/exam/draft/eligible-students', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

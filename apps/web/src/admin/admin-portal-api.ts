@@ -1312,7 +1312,20 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/exam/draft/components/save', authToken, { exam_id: examId, rows });
   }
 
-  // Step 4 — allocations.
+  // Step 4 — question assignment (links question_bank rows -> exam_questions).
+  async listExamQuestionOptions(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/question-options', authToken, { exam_id: examId });
+    return toRecords(payload.data);
+  }
+  async getExamQuestions(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/questions', authToken, { exam_id: examId });
+    return toRecords(payload.data);
+  }
+  async saveExamQuestions(authToken: string, examId: string, questions: Array<{ question_id: number; mark: number }>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/draft/questions/save', authToken, { exam_id: examId, questions });
+  }
+
+  // Step 5 — allocations.
   async getExamEligibleStudents(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/eligible-students', authToken, { exam_id: examId });
     return toRecords(payload.data);

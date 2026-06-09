@@ -12,23 +12,26 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { titleCaseEachWord } from '@/lib/text-format';
 
 // Naji 2026-05-09 — new Exam Creation wizard.
-// Five steps:
+// Six steps:
 //   1) Add Exam (basic info)
 //   2) Scheduling
-//   3) Question Setup
-//   4) Student Allocation
-//   5) Instructions + Notification (Publish)
+//   3) Question Setup (component plan: counts/marks per subject)
+//   4) Assign Questions (pick real questions from the bank -> exam_questions)
+//   5) Student Allocation
+//   6) Instructions + Notification (Publish)
 // Re-Examination is a separate module that ships after this is done.
 //
-// Step 1 is fully functional in this commit. Steps 2–5 render
-// placeholders so admins can see the layout while we build them out.
+// Naji 2026-06-09 — added step 4 "Assign Questions". The component step only
+// stores planning metadata; the student player serves questions from
+// exam_questions, so without this step an exam is never takeable.
 
 const STEPS: Array<{ id: number; label: string }> = [
   { id: 1, label: 'Add Exam' },
   { id: 2, label: 'Scheduling' },
   { id: 3, label: 'Question Setup' },
-  { id: 4, label: 'Student Allocation' },
-  { id: 5, label: 'Instructions & Notification' },
+  { id: 4, label: 'Assign Questions' },
+  { id: 5, label: 'Student Allocation' },
+  { id: 6, label: 'Instructions & Notification' },
 ];
 
 interface DraftState {
@@ -395,7 +398,7 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
       ) : null}
 
       {activeStep === 4 ? (
-        <AllocationsStep
+        <QuestionsStep
           api={api}
           authToken={session.token}
           examId={draft.id}
@@ -406,12 +409,23 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
       ) : null}
 
       {activeStep === 5 ? (
+        <AllocationsStep
+          api={api}
+          authToken={session.token}
+          examId={draft.id}
+          onSaved={() => setActiveStep(6)}
+          onBack={() => setActiveStep(4)}
+          onClose={() => onNavigate('/admin/exam/index')}
+        />
+      ) : null}
+
+      {activeStep === 6 ? (
         <PublishStep
           api={api}
           authToken={session.token}
           examId={draft.id}
           onPublished={() => onNavigate('/admin/exam/index')}
-          onBack={() => setActiveStep(4)}
+          onBack={() => setActiveStep(5)}
         />
       ) : null}
     </div>
@@ -836,7 +850,210 @@ function ComponentsStep({
   );
 }
 
-// ─── Step 4: Student Allocation ────────────────────────────────────
+// ─── Step 4: Assign Questions ──────────────────────────────────────
+// Picks real question_bank rows for the exam and writes exam_questions —
+// the link the student player + availability check require (Naji 2026-06-09).
+interface QuestionOption {
+  id: number;
+  title: string;
+  subject_id: number | null;
+  subject_title: string;
+}
+
+function QuestionsStep({
+  api,
+  authToken,
+  examId,
+  onSaved,
+  onBack,
+  onClose,
+}: {
+  api: AdminPageProps['api'];
+  authToken: string;
+  examId: string;
+  onSaved: () => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const [options, setOptions] = useState<QuestionOption[]>([]);
+  // questionId -> marks (insertion order preserved => question_no order).
+  const [selected, setSelected] = useState<Map<number, number>>(new Map());
+  const [defaultMark, setDefaultMark] = useState(1);
+  const [subjectFilter, setSubjectFilter] = useState<'all' | number>('all');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!examId) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const [opts, assigned] = await Promise.all([
+          api.listExamQuestionOptions(authToken, examId),
+          api.getExamQuestions(authToken, examId),
+        ]);
+        if (cancelled) return;
+        setOptions(opts.map((o) => ({
+          id: asNumber(o.id),
+          title: asString(o.title),
+          subject_id: o.subject_id === null || o.subject_id === undefined ? null : asNumber(o.subject_id),
+          subject_title: asString(o.subject_title),
+        })));
+        const sel = new Map<number, number>();
+        for (const a of assigned) {
+          const qid = asNumber(a.question_id);
+          if (qid > 0) sel.set(qid, Number(a.mark ?? 0) || 0);
+        }
+        setSelected(sel);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, authToken, examId]);
+
+  const toggle = (id: number) =>
+    setSelected((cur) => {
+      const next = new Map(cur);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, defaultMark);
+      return next;
+    });
+  const setMark = (id: number, mark: number) =>
+    setSelected((cur) => {
+      if (!cur.has(id)) return cur;
+      const next = new Map(cur);
+      next.set(id, mark);
+      return next;
+    });
+
+  const subjects = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const o of options) if (o.subject_id !== null) m.set(o.subject_id, o.subject_title || `Subject #${o.subject_id}`);
+    return [...m.entries()].map(([id, title]) => ({ id, title }));
+  }, [options]);
+
+  const filtered = options.filter((o) => {
+    if (subjectFilter !== 'all' && o.subject_id !== subjectFilter) return false;
+    const q = query.trim().toLowerCase();
+    if (q && !o.title.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const totalMarks = [...selected.values()].reduce((s, m) => s + (Number.isFinite(m) ? m : 0), 0);
+
+  const handleSave = async (then: 'next' | 'close') => {
+    setSaving(true);
+    try {
+      const questions = [...selected.entries()].map(([question_id, mark]) => ({ question_id, mark }));
+      const res = await api.saveExamQuestions(authToken, examId, questions);
+      const status = (res as { status?: number }).status;
+      const message = asString((res as { message?: unknown }).message) || 'Saved.';
+      if (status === 1) {
+        if (questions.length === 0) toast('No questions assigned — students won’t be able to take this exam yet.');
+        else toast.success(message);
+        if (then === 'next') onSaved(); else onClose();
+      } else {
+        toast.error(message);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign questions.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!examId) return (
+    <Card><CardContent className="space-y-2 py-8 text-center text-sm text-slate-600">
+      <p>Save Step 1 first to assign questions.</p>
+      <div className="pt-2"><Button variant="outline" onClick={onBack}>‹ Back</Button></div>
+    </CardContent></Card>
+  );
+  if (loading) return <Card><CardContent className="py-10 text-center text-sm text-slate-500">Loading questions…</CardContent></Card>;
+  if (options.length === 0) return (
+    <Card><CardContent className="space-y-2 py-8 text-center text-sm text-slate-600">
+      <p>No questions found for this exam’s course(s).</p>
+      <p className="text-xs">Add questions in the Question Bank for the exam’s course, then revisit this step.</p>
+      <div className="flex justify-center gap-2 pt-2">
+        <Button variant="outline" onClick={onBack}>‹ Back</Button>
+        <Button variant="outline" onClick={onClose}>Close</Button>
+      </div>
+    </CardContent></Card>
+  );
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Pick the questions for this exam</p>
+            <p className="text-xs text-slate-500">Selected: <strong>{selected.size}</strong> · Total marks: <strong>{totalMarks}</strong></p>
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <Label className="text-xs">Default mark</Label>
+              <Input type="number" step="0.5" min={0} value={defaultMark} onChange={(e) => setDefaultMark(Number(e.target.value) || 0)} className="mt-1 h-9 w-24" />
+            </div>
+            {subjects.length > 1 ? (
+              <div>
+                <Label className="text-xs">Subject</Label>
+                <select
+                  value={String(subjectFilter)}
+                  onChange={(e) => setSubjectFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                  className="mt-1 flex h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All subjects</option>
+                  {subjects.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                </select>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <Input placeholder="Search questions…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-9" />
+
+        <div className="max-h-[420px] space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
+          {filtered.length === 0 ? (
+            <p className="py-6 text-center text-xs text-slate-500">No questions match.</p>
+          ) : filtered.map((o) => {
+            const isOn = selected.has(o.id);
+            return (
+              <div key={o.id} className={`flex items-center gap-3 rounded-md p-2 text-sm transition ${isOn ? 'bg-ttii-primary/10' : 'hover:bg-slate-50'}`}>
+                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                  <input type="checkbox" checked={isOn} onChange={() => toggle(o.id)} className="mt-0.5 size-4 shrink-0 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary" />
+                  <span className="min-w-0">
+                    <span className={`block truncate ${isOn ? 'font-medium text-slate-900' : 'text-slate-700'}`}>{o.title || `Question #${o.id}`}</span>
+                    {o.subject_title ? <span className="block text-xs text-slate-400">{o.subject_title}</span> : null}
+                  </span>
+                </label>
+                {isOn ? (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="text-xs text-slate-400">marks</span>
+                    <Input type="number" step="0.5" min={0} value={selected.get(o.id) ?? 0} onChange={(e) => setMark(o.id, Number(e.target.value) || 0)} className="h-8 w-20" />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => { void handleSave('close'); }} disabled={saving}>Save & Close</Button>
+            <Button className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => { void handleSave('next'); }} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Continue ›'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Step 5: Student Allocation ────────────────────────────────────
 interface EligibleStudent {
   user_id: number;
   student_id: string;
@@ -974,7 +1191,7 @@ function AllocationsStep({
   );
 }
 
-// ─── Step 5: Instructions + Notification + Publish ─────────────────
+// ─── Step 6: Instructions + Notification + Publish ─────────────────
 interface InstructionTemplate { id: number; title: string; body: string }
 
 function PublishStep({

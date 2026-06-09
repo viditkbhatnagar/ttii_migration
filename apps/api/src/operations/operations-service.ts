@@ -4239,6 +4239,101 @@ export class OperationsService {
     return { status: 1, message: 'Components saved.' };
   }
 
+  // Naji 2026-06-09 — Question assignment (the missing wizard step). The
+  // component step (above) only stores planning metadata; the student player
+  // serves questions exclusively from exam_questions and availability counts
+  // exam_questions only — so without this an exam built in the wizard has
+  // questionCount 0 and is never takeable. These three methods let the admin
+  // pick real question_bank rows for the exam and persist exam_questions.
+
+  // Candidate questions: every live question in the exam's course(s); a flag
+  // marks those whose subject is one the exam is scheduled for.
+  async listExamQuestionOptions(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const links = await this.prisma.exam_courses.findMany({ where: { exam_id: id }, select: { course_id: true } });
+    let courseIds = links.map((l) => l.course_id).filter((x): x is number => x !== null && x !== undefined);
+    if (courseIds.length === 0) {
+      const ex = await this.prisma.exam.findUnique({ where: { id }, select: { course_id: true } });
+      if (ex?.course_id) courseIds = [ex.course_id];
+    }
+    if (courseIds.length === 0) return [];
+    const scheduled = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { subject_id: true } });
+    const scheduledSubjects = new Set(scheduled.map((s) => s.subject_id).filter((x): x is number => x !== null && x !== undefined));
+    const questions = await this.prisma.question_bank.findMany({
+      where: { deleted_at: null, course_id: { in: courseIds } },
+      select: { id: true, title: true, q_type: true, subject_id: true, course_id: true, number_of_options: true },
+      orderBy: [{ subject_id: 'asc' }, { id: 'desc' }],
+    });
+    const subjectIds = [...new Set(questions.map((q) => q.subject_id).filter((x): x is number => x !== null && x !== undefined))];
+    const subjects = subjectIds.length > 0
+      ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
+      : [];
+    const subjectMap = new Map(subjects.map((s) => [s.id, s.title ?? '']));
+    return questions.map((q) => ({
+      id: q.id,
+      title: (q.title ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+      subject_id: q.subject_id,
+      subject_title: q.subject_id !== null && q.subject_id !== undefined ? (subjectMap.get(q.subject_id) ?? '') : '',
+      q_type: q.q_type,
+      number_of_options: q.number_of_options,
+      in_scheduled_subject: q.subject_id !== null && q.subject_id !== undefined && scheduledSubjects.has(q.subject_id),
+    }));
+  }
+
+  async getExamQuestions(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const rows = await this.prisma.exam_questions.findMany({
+      where: { exam_id: id, deleted_at: null },
+      orderBy: [{ question_no: 'asc' }, { id: 'asc' }],
+      select: { id: true, question_id: true, question_no: true, mark: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      question_id: r.question_id,
+      question_no: r.question_no,
+      mark: r.mark === null ? 0 : Number(r.mark),
+    }));
+  }
+
+  async saveExamQuestions(
+    actorUserId: string,
+    examId: string,
+    questions: Array<{ questionId: number; mark: number }>,
+  ): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    // Only keep ids that still point at a live question_bank row.
+    const ids = questions.map((q) => q.questionId).filter((n) => Number.isInteger(n) && n > 0);
+    const valid = ids.length > 0
+      ? await this.prisma.question_bank.findMany({ where: { id: { in: ids }, deleted_at: null }, select: { id: true } })
+      : [];
+    const validSet = new Set(valid.map((v) => v.id));
+    const finalRows = questions.filter((q) => validSet.has(q.questionId));
+    // Replace strategy — matches schedule/components/allocations.
+    await this.prisma.exam_questions.deleteMany({ where: { exam_id: id } });
+    if (finalRows.length > 0) {
+      await this.prisma.exam_questions.createMany({
+        data: finalRows.map((q, idx) => ({
+          exam_id: id,
+          question_id: q.questionId,
+          question_no: idx + 1,
+          mark: Number.isFinite(q.mark) ? q.mark : 0,
+          created_by: actor,
+          created_at: now,
+          updated_at: now,
+        })),
+      });
+    }
+    // Keep exam.mark in sync so the student exam list shows the right total.
+    const totalMarks = finalRows.reduce((sum, q) => sum + (Number.isFinite(q.mark) ? q.mark : 0), 0);
+    await this.prisma.exam.updateMany({ where: { id }, data: { mark: totalMarks, updated_at: now, updated_by: actor } });
+    return { status: 1, message: 'Questions assigned.', data: { count: finalRows.length, totalMarks } };
+  }
+
   // Naji 2026-05-09 — Step 4: eligible students = active enrolments in
   // the exam's picked courses. Default scoping until the new Student
   // Eligibility module's rules go live.
