@@ -8,8 +8,13 @@
   align-items: center;
   justify-content: center;
   gap: 18px;
-  padding: 72px 24px;
-  min-height: 320px;
+  padding: 24px;
+  /* Fill the visible content area so the badge sits vertically centred rather
+     than near the top (Naji 2026-06-09). ~full viewport minus the navbar/page
+     padding, so justify-center lands the badge mid-screen in both the full-page
+     session-restore and the in-shell page loads. */
+  min-height: calc(100vh - 8rem);
+  width: 100%;
 }
 
 .badge {

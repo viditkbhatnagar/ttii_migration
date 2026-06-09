@@ -48,7 +48,10 @@ export function CourseInfoModal({
 
   return (
     <Dialog open={course !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl!">
+      <DialogContent
+        className="gap-0 overflow-hidden p-0 sm:max-w-[640px]"
+        style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>{course?.title ?? 'Course'}</DialogTitle>
         </DialogHeader>
