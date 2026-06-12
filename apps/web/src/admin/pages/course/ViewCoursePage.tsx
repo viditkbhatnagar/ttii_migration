@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
-import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -56,6 +57,9 @@ function LessonFilesNode({
     [lessonId],
   );
   const files = useMemo(() => toRecords(data), [data]);
+  // Quiz rows have no file URL (questions live in the quiz table), so they get a
+  // "Preview" button that opens the questions dialog (Ishfaq 2026-06-09).
+  const [quizFileId, setQuizFileId] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -68,29 +72,119 @@ function LessonFilesNode({
     return <p className="ml-12 text-xs text-slate-400">No content yet.</p>;
   }
   return (
-    <ul className="ml-12 space-y-1">
-      {files.map((f) => {
-        const fileUrl = asString(f.attachment_url) || asString(f.video_url) || asString(f.audio_url);
-        return (
-          <li key={asString(f.id)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
-            <LessonFileIcon type={asString(f.lesson_type)} />
-            <span className="flex-1 text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
-            <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(f.lesson_type) || 'file'}</span>
-            {fileUrl ? (
-              <a
-                href={fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-              >
-                <ExternalLink aria-hidden="true" className="size-3" />
-                View
-              </a>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      <ul className="ml-12 space-y-1">
+        {files.map((f) => {
+          const fileUrl = asString(f.attachment_url) || asString(f.video_url) || asString(f.audio_url);
+          const isQuiz = asString(f.lesson_type).toLowerCase() === 'quiz';
+          return (
+            <li key={asString(f.id)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
+              <LessonFileIcon type={asString(f.lesson_type)} />
+              <span className="flex-1 text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(f.lesson_type) || 'file'}</span>
+              {isQuiz ? (
+                <button
+                  type="button"
+                  onClick={() => setQuizFileId(asString(f.id))}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-orange-600 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                >
+                  <Eye aria-hidden="true" className="size-3" />
+                  Preview
+                </button>
+              ) : fileUrl ? (
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                >
+                  <ExternalLink aria-hidden="true" className="size-3" />
+                  View
+                </a>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      <QuizPreviewDialog api={api} token={token} fileId={quizFileId} onClose={() => setQuizFileId(null)} />
+    </>
+  );
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Read-only preview of a lesson quiz's questions + correct answers, fetched
+ * from /admin/course/lesson_files/quiz_questions (Ishfaq 2026-06-09). */
+function QuizPreviewDialog({
+  api,
+  token,
+  fileId,
+  onClose,
+}: {
+  api: AdminPageProps['api'];
+  token: string;
+  fileId: string | null;
+  onClose: () => void;
+}) {
+  const [questions, setQuestions] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!fileId) return;
+    let cancelled = false;
+    setLoading(true);
+    setQuestions([]);
+    void api
+      .listLessonQuizQuestions(token, fileId)
+      .then((rows) => { if (!cancelled) setQuestions(rows); })
+      .catch(() => { if (!cancelled) setQuestions([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [api, token, fileId]);
+
+  return (
+    <Dialog open={fileId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent
+        className="max-h-[85vh] overflow-y-auto sm:max-w-[640px]"
+        style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
+      >
+        <DialogHeader>
+          <DialogTitle>Quiz preview</DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <p className="py-6 text-center text-sm text-slate-500">Loading questions…</p>
+        ) : questions.length === 0 ? (
+          <p className="rounded-md border border-dashed py-6 text-center text-sm text-slate-500">No questions added to this quiz yet.</p>
+        ) : (
+          <ol className="space-y-3">
+            {questions.map((q, idx) => {
+              const correct = asString(q.correct_answer).toUpperCase();
+              return (
+                <li key={asString(q.id) || idx} className="rounded border p-3">
+                  <div className="mb-2 text-sm font-semibold text-slate-900">Q{idx + 1}. {stripHtml(asString(q.question))}</div>
+                  <ul className="space-y-1">
+                    {(['A', 'B', 'C', 'D'] as const).map((letter) => {
+                      const text = stripHtml(asString(q[`option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d']));
+                      if (!text) return null;
+                      const isCorrect = letter === correct;
+                      return (
+                        <li key={letter} className={`flex items-start gap-2 text-sm ${isCorrect ? 'font-medium text-green-700' : 'text-slate-600'}`}>
+                          {isCorrect ? <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0" /> : <span className="w-4 shrink-0" />}
+                          <span className="w-4 shrink-0 font-semibold">{letter}.</span>
+                          <span className="min-w-0">{text}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

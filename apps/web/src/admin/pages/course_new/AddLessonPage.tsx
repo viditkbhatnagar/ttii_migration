@@ -185,6 +185,16 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
   );
   const files = useMemo(() => toRecords(filesData), [filesData]);
 
+  // Risha 2026-06-09 — also surface Content Library items linked to this lesson.
+  // They live in `content_asset` (not `lesson_files`), so the file table above
+  // never showed them ("couldn't see the article I uploaded through content
+  // library"). Read-only here; they are managed in the Content Library.
+  const { data: libraryData } = useAdminPageData(
+    () => (selectedLessonId ? api.listLessonAssets(session.token, selectedLessonId) : Promise.resolve(null)),
+    [selectedLessonId],
+  );
+  const libraryItems = useMemo(() => toRecords(libraryData), [libraryData]);
+
   // --- Lesson handlers ---
 
   const openAddLesson = useCallback(() => {
@@ -441,6 +451,14 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
 
   const fileActions: DataTableAction[] = useMemo(
     () => [
+      {
+        label: 'View',
+        onClick: (row) => {
+          const url = asString(row.attachment_url) || asString(row.video_url) || asString(row.audio_url);
+          if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          else toast.error('No file to open — quizzes/articles have no file. Use Edit to see the content.');
+        },
+      },
       { label: 'Edit', onClick: (row) => openEditFile(row) },
       { label: 'Delete', onClick: (row) => void handleDeleteFile(row), variant: 'destructive' },
     ],
@@ -625,6 +643,40 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
               </p>
             )}
           </CardContent>
+          {libraryItems.length > 0 && (
+            <CardContent className="border-t pt-4">
+              <p className="text-sm font-semibold text-slate-900">Content Library items in this lesson</p>
+              <p className="mb-3 text-xs text-slate-500">
+                Added via the Content Library / Subject content (stored separately from the files above).
+                Edit or remove them from the Content Library.
+              </p>
+              <ul className="space-y-1">
+                {libraryItems.map((a) => {
+                  const url =
+                    asString(a.attachment) || asString(a.video_url) || asString(a.download_url) || asString(a.audio_file);
+                  const type = asString(a.asset_type) || 'item';
+                  return (
+                    <li key={asString(a.id)} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50">
+                      <Badge variant="outline" className="capitalize">{type}</Badge>
+                      <span className="flex-1 truncate text-sm text-slate-700">{asString(a.title) || '(untitled)'}</span>
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">in Content Library</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardContent>
+          )}
         </Card>
       )}
 

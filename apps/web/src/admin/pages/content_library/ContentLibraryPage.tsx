@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown, Upload as UploadIcon } from 'lucide-react';
+import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, Upload as UploadIcon } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -914,16 +914,27 @@ export default function ContentLibraryPage({ api, session }: AdminPageProps) {
               {(() => {
                 const url = asString(previewAsset?.attachment) || asString(previewAsset?.download_url);
                 if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No file uploaded.</p>;
+                // Render the inline viewer for PDFs and any non-Office URL (the
+                // upload often strips the .pdf suffix, so don't gate purely on
+                // extension — only Office formats can't be iframed). Always offer
+                // "Open in new tab" since some hosts force-download in an iframe.
+                const isOffice = /\.(docx?|pptx?|xlsx?)($|\?)/i.test(url);
+                const showInline = isDocPdf(url) || !isOffice;
                 return (
                   <>
-                    {isDocPdf(url) ? (
-                      <iframe src={url} className="h-[60vh] w-full rounded border" />
+                    {showInline ? (
+                      <iframe src={url} title="Document preview" className="h-[60vh] w-full rounded border" />
                     ) : (
                       <p className="py-6 text-center text-sm text-muted-foreground">
-                        Preview not available for this file type. Use Download below.
+                        Inline preview isn&apos;t available for this format — open or download below.
                       </p>
                     )}
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
+                      <Button asChild variant="outline" size="sm">
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="mr-2 h-4 w-4" /> Open in new tab
+                        </a>
+                      </Button>
                       <Button asChild variant="default" size="sm">
                         <a href={url} target="_blank" rel="noopener noreferrer" download>
                           <Download className="mr-2 h-4 w-4" /> Download
