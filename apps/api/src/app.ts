@@ -66,7 +66,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   });
 
   app.register(multipart, {
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+    // Course documents (e.g. multi-chapter PDFs) can be large — Risha hit a hard
+    // wall on a 62.6 MB PDF at the old 50 MB cap. 200 MB matches the nginx
+    // client_max_body_size in deploy/nginx-ttii.conf.template (both must agree;
+    // nginx 413s first with an HTML page → the client saw "Unexpected token '<'").
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
   });
 
   // --- API routes ---

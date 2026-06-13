@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { ArrowUpDown } from 'lucide-react';
 import { SortableList } from '../../shared/components/SortableList.js';
@@ -27,6 +27,12 @@ const textareaClass =
   'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
 type FileType = 'video' | 'audio' | 'article' | 'document' | 'quiz';
+
+// Quiz question/option text is stored with HTML wrappers (e.g. "<p>..</p>") —
+// strip tags for a clean inline preview.
+function stripPreviewHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 interface LessonForm {
   title: string;
@@ -194,6 +200,54 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
     [selectedLessonId],
   );
   const libraryItems = useMemo(() => toRecords(libraryData), [libraryData]);
+
+  // Risha 2026-06-09 — show directly-uploaded files (lesson_files) AND Content
+  // Library items (content_asset) in ONE table. content_asset rows are mapped to
+  // the lesson_files row shape + flagged source:'library' so the actions can
+  // route correctly (library items are managed in the Content Library).
+  const allFiles = useMemo<Record<string, unknown>[]>(() => {
+    const lessonRows = files.map((f) => ({ ...f, source: 'lesson' }));
+    const libraryRows = libraryItems.map((a) => ({
+      id: asString(a.id),
+      title: asString(a.title),
+      lesson_type: asString(a.asset_type),
+      duration: asString(a.duration),
+      free: '',
+      attachment_url: asString(a.attachment),
+      video_url: asString(a.video_url),
+      audio_url: asString(a.audio_file),
+      summary: asString(a.summary),
+      source: 'library',
+    }));
+    return [...lessonRows, ...libraryRows];
+  }, [files, libraryItems]);
+
+  // Quiz / article preview (lets Risha SEE an uploaded quiz's questions or an
+  // article's body without opening Edit). Quiz questions are fetched on open.
+  const [previewItem, setPreviewItem] = useState<Record<string, unknown> | null>(null);
+  const [previewQuestions, setPreviewQuestions] = useState<Record<string, unknown>[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    const item = previewItem;
+    if (!item || asString(item.lesson_type) !== 'quiz') {
+      setPreviewQuestions([]);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewQuestions([]);
+    const id = asString(item.id);
+    const fetcher =
+      asString(item.source) === 'library'
+        ? api.getContentAsset(session.token, id).then((a) => toRecords(a?.questions))
+        : api.listLessonQuizQuestions(session.token, id);
+    void Promise.resolve(fetcher)
+      .then((rows) => { if (!cancelled) setPreviewQuestions(rows); })
+      .catch(() => { if (!cancelled) setPreviewQuestions([]); })
+      .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [previewItem, api, session.token]);
 
   // --- Lesson handlers ---
 
@@ -445,6 +499,16 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
             <Badge variant="secondary">Paid</Badge>
           ),
       },
+      {
+        key: 'source',
+        label: 'Source',
+        render: (v) =>
+          v === 'library' ? (
+            <Badge variant="secondary">Content Library</Badge>
+          ) : (
+            <span className="text-xs text-slate-400">Lesson</span>
+          ),
+      },
     ],
     [],
   );
@@ -454,13 +518,38 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
       {
         label: 'View',
         onClick: (row) => {
+          const type = asString(row.lesson_type).toLowerCase();
+          // Quizzes + articles have no file URL — preview their content inline.
+          if (type === 'quiz' || type === 'article') {
+            setPreviewItem(row);
+            return;
+          }
           const url = asString(row.attachment_url) || asString(row.video_url) || asString(row.audio_url);
           if (url) window.open(url, '_blank', 'noopener,noreferrer');
-          else toast.error('No file to open — quizzes/articles have no file. Use Edit to see the content.');
+          else toast.error('No file to open for this item.');
         },
       },
-      { label: 'Edit', onClick: (row) => openEditFile(row) },
-      { label: 'Delete', onClick: (row) => void handleDeleteFile(row), variant: 'destructive' },
+      {
+        label: 'Edit',
+        onClick: (row) => {
+          if (asString(row.source) === 'library') {
+            toast('This item is from the Content Library — edit it there.');
+            return;
+          }
+          openEditFile(row);
+        },
+      },
+      {
+        label: 'Delete',
+        variant: 'destructive',
+        onClick: (row) => {
+          if (asString(row.source) === 'library') {
+            toast('This item is from the Content Library — remove it there.');
+            return;
+          }
+          void handleDeleteFile(row);
+        },
+      },
     ],
     [openEditFile, handleDeleteFile],
   );
@@ -629,54 +718,29 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
-            ) : files.length > 0 ? (
-              <AdminDataTable
-                columns={fileColumns}
-                rows={files}
-                actions={fileActions}
-                searchable={false}
-                exportable={false}
-              />
+            ) : allFiles.length > 0 ? (
+              <>
+                <AdminDataTable
+                  columns={fileColumns}
+                  rows={allFiles}
+                  actions={fileActions}
+                  searchable={false}
+                  exportable={false}
+                />
+                {libraryItems.length > 0 ? (
+                  <p className="px-4 pb-3 pt-1 text-xs text-slate-400">
+                    Rows tagged “Content Library” were added via the Content Library / Subject content — edit or remove
+                    them there.
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="py-8 text-center text-sm text-gray-400">
-                No files in this lesson yet. Add content using the buttons above.
+                No files in this lesson yet. Add content using the buttons above, or attach items from the Content
+                Library.
               </p>
             )}
           </CardContent>
-          {libraryItems.length > 0 && (
-            <CardContent className="border-t pt-4">
-              <p className="text-sm font-semibold text-slate-900">Content Library items in this lesson</p>
-              <p className="mb-3 text-xs text-slate-500">
-                Added via the Content Library / Subject content (stored separately from the files above).
-                Edit or remove them from the Content Library.
-              </p>
-              <ul className="space-y-1">
-                {libraryItems.map((a) => {
-                  const url =
-                    asString(a.attachment) || asString(a.video_url) || asString(a.download_url) || asString(a.audio_file);
-                  const type = asString(a.asset_type) || 'item';
-                  return (
-                    <li key={asString(a.id)} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50">
-                      <Badge variant="outline" className="capitalize">{type}</Badge>
-                      <span className="flex-1 truncate text-sm text-slate-700">{asString(a.title) || '(untitled)'}</span>
-                      {url ? (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs font-medium text-blue-600 hover:underline"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">in Content Library</span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </CardContent>
-          )}
         </Card>
       )}
 
@@ -1098,6 +1162,52 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setShowFileReorder(false)}>Done</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quiz / article content preview (Risha 2026-06-09) — see a quiz's
+          questions or an article's body without opening Edit. */}
+      <Dialog open={previewItem !== null} onOpenChange={(o) => { if (!o) setPreviewItem(null); }}>
+        <DialogContent className="max-h-[85vh] w-[min(640px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{asString(previewItem?.title) || 'Preview'}</DialogTitle>
+          </DialogHeader>
+          {asString(previewItem?.lesson_type).toLowerCase() === 'quiz' ? (
+            previewLoading ? (
+              <p className="py-6 text-center text-sm text-slate-500">Loading questions…</p>
+            ) : previewQuestions.length === 0 ? (
+              <p className="rounded-md border border-dashed py-6 text-center text-sm text-slate-500">No questions in this quiz yet.</p>
+            ) : (
+              <ol className="space-y-3">
+                {previewQuestions.map((q, idx) => {
+                  const correct = asString(q.correct_answer).toUpperCase();
+                  return (
+                    <li key={asString(q.id) || idx} className="rounded border p-3">
+                      <div className="mb-2 text-sm font-semibold text-slate-900">Q{idx + 1}. {stripPreviewHtml(asString(q.question))}</div>
+                      <ul className="space-y-1">
+                        {(['A', 'B', 'C', 'D'] as const).map((letter) => {
+                          const text = stripPreviewHtml(asString(q[`option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d']));
+                          if (!text) return null;
+                          const isCorrect = letter === correct;
+                          return (
+                            <li key={letter} className={`flex items-start gap-2 text-sm ${isCorrect ? 'font-medium text-green-700' : 'text-slate-600'}`}>
+                              <span className="w-4 shrink-0 font-semibold">{letter}.</span>
+                              <span className="min-w-0 flex-1">{text}</span>
+                              {isCorrect ? <span aria-label="correct answer" className="shrink-0 text-xs font-semibold">✓</span> : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ol>
+            )
+          ) : asString(previewItem?.summary) ? (
+            <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: asString(previewItem?.summary) }} />
+          ) : (
+            <p className="py-6 text-center text-sm text-slate-500">No content to preview. Use Edit to view this item.</p>
+          )}
         </DialogContent>
       </Dialog>
     </div>

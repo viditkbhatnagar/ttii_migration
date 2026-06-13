@@ -21,7 +21,11 @@ upstream ttii_api {
 server {
     server_name admin.teachersindia.in learn.teachersindia.in admissions.teachersindia.in;
 
-    client_max_body_size 50M;
+    # Course documents (multi-chapter PDFs etc.) can be large. Must match the
+    # @fastify/multipart fileSize limit in apps/api/src/app.ts (200 MB). If this
+    # is smaller, nginx 413s with an HTML page before the request reaches the API
+    # and the upload client sees "Unexpected token '<' … is not valid JSON".
+    client_max_body_size 200M;
     gzip on;
     gzip_types text/plain text/css application/json application/javascript application/xml+rss text/xml font/opentype image/svg+xml;
 
@@ -37,6 +41,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 90s;
+        # Large document uploads need a longer send window than the 60s default.
+        proxy_send_timeout 300s;
+        proxy_request_buffering off;
     }
 
     location /assets/ {

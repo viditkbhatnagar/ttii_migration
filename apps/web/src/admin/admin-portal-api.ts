@@ -2746,6 +2746,16 @@ export class AdminPortalApi {
       method: 'POST',
       body: formData,
     });
+    // A too-large upload is rejected by nginx (413) with an HTML body, so a blind
+    // response.json() throws the cryptic "Unexpected token '<'". Detect non-JSON
+    // / error responses and surface a clear, actionable message instead.
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || !contentType.includes('application/json')) {
+      if (response.status === 413) {
+        throw new Error('File is too large to upload (max 200 MB). Please compress it or split it into smaller files.');
+      }
+      throw new Error(`Upload failed (${response.status}). The file may be too large or the server rejected it.`);
+    }
     const payload = (await response.json()) as Record<string, unknown>;
     if (!payload || payload.status !== 1) {
       throw new Error((payload?.message as string) || 'Upload failed');
