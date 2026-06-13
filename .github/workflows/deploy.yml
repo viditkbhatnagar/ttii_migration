@@ -50,7 +50,17 @@ jobs:
             pm2 restart ttii-api --update-env
             pm2 save
             echo
-            echo "=== post-deploy ==="
+            echo "=== post-deploy health check (retry until the API is up) ==="
             pm2 list | grep ttii-api
-            sleep 2
-            curl -sS -m 5 -w "\nhealth_code=%{http_code}\n" http://127.0.0.1:4000/api/health
+            # The API needs a few seconds to bind after `pm2 restart`. A single
+            # immediate curl raced the boot and failed the whole deploy (exit 7
+            # under set -e / script_stop) even though build + restart succeeded.
+            # Poll for up to ~60s and only fail if it genuinely never returns 200.
+            ok=0
+            for i in $(seq 1 30); do
+              code=$(curl -sS -m 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:4000/api/health || echo 000)
+              if [ "$code" = "200" ]; then echo "health OK after attempt ${i} (HTTP 200)"; ok=1; break; fi
+              echo "waiting for API to boot… attempt ${i}/30 (HTTP ${code})"
+              sleep 2
+            done
+            if [ "$ok" != "1" ]; then echo "ERROR: API did not return 200 after retries — deploy is unhealthy"; exit 1; fi
