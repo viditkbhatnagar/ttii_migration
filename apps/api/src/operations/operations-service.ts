@@ -11461,6 +11461,47 @@ export class OperationsService {
     return null;
   }
 
+  // Persist an externally-hosted recording link (e.g. a Vimeo URL) for a live
+  // session. Writing to recording_url lets getLiveSessionRecordingTarget hand it
+  // back as a kind:'url' target, so the admin "View Recording" button opens it.
+  async updateLiveSessionRecording(
+    actorUserId: string,
+    sessionId: string,
+    recordingUrl: string,
+  ): Promise<Record<string, unknown>> {
+    const liveClassIdInt = toIntId(sessionId);
+    if (!liveClassIdInt) {
+      return { status: 0, message: 'Invalid session id.' };
+    }
+    const url = (recordingUrl ?? '').trim();
+    if (!url) {
+      return { status: 0, message: 'Recording link is required.' };
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      return { status: 0, message: 'Enter a valid link starting with http:// or https://' };
+    }
+    const session = await this.prisma.live_class.findFirst({
+      where: { id: liveClassIdInt, deleted_at: null },
+      select: { id: true },
+    });
+    if (!session) {
+      return { status: 0, message: 'Live session not found.' };
+    }
+    await this.prisma.live_class.update({
+      where: { id: liveClassIdInt },
+      data: {
+        recording_url: url,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: new Date(),
+      },
+    });
+    return {
+      status: 1,
+      message: 'Recording link saved.',
+      data: { id: String(liveClassIdInt), recording_url: url },
+    };
+  }
+
   async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {
     const liveClassIdInt = toIntId(liveClassId);
     if (!liveClassIdInt) {
