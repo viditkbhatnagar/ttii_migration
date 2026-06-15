@@ -1390,6 +1390,21 @@ export class OperationsService {
       ];
     }
 
+    // Counsellor scoping (Naji 2026-06-15): a counsellor (role 9) only sees the
+    // students they enrolled (created_by — set by convertApplication), referred
+    // (referred_by), or are assigned to (counsellor_id) — mirrors the
+    // applications-index counsellor scope. Admins (roles 1/8) keep seeing all.
+    // Kept on `where.AND` so it composes with the search `where.OR` above.
+    if (scope === 'admin' && actorUserId) {
+      const actor = await this.prisma.users.findFirst({
+        where: { id: toIntId(actorUserId), deleted_at: null },
+        select: { id: true, role_id: true },
+      });
+      if (actor?.role_id === 9) {
+        where.AND = [{ OR: [{ created_by: actor.id }, { referred_by: actor.id }, { counsellor_id: actor.id }] }];
+      }
+    }
+
     const users = await this.prisma.users.findMany({
       where: where as Prisma.usersWhereInput,
       select: {
@@ -7363,6 +7378,23 @@ export class OperationsService {
 
   // ─── Phase A: CRUD for Instructors, Users, Counsellors, Associates, Targets ──
 
+  // Multi-role one-password-per-person: when adding a NEW role to an email that
+  // already has an account, reuse that person's existing password so the new
+  // role joins their single login + the post-login role switcher, instead of
+  // minting a separate password they'd never use. Returns null for a brand-new
+  // person (then a fresh credential is issued + emailed as before).
+  private async findSharedPasswordForEmail(email: string): Promise<string | null> {
+    const normalized = email.trim();
+    if (!normalized) return null;
+    const sibling = await this.prisma.users.findFirst({
+      where: { deleted_at: null, password: { not: null }, OR: [{ user_email: normalized }, { email: normalized }] },
+      orderBy: { id: 'asc' },
+      select: { password: true },
+    });
+    const password = sibling?.password;
+    return typeof password === 'string' && password.length > 0 ? password : null;
+  }
+
   async addInstructor(actorUserId: string, input: AddInstructorInput): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     if (!input.email.trim()) return { status: 0, message: 'Email is required.' };
@@ -7372,22 +7404,32 @@ export class OperationsService {
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: 3, deleted_at: null } });
     if (existing) return { status: 0, message: 'An Instructor with this email already exists.' };
 
-    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
-    const creds = await issueAndEmailCredentials({
-      name: input.name.trim(),
-      email: input.email.trim(),
-      roleLabel: 'Instructor',
-    });
+    const email = input.email.trim();
+    const sharedPassword = await this.findSharedPasswordForEmail(email);
+
+    let passwordHash: string;
+    let message: string;
+    if (sharedPassword) {
+      passwordHash = sharedPassword;
+      message = 'Instructor role added to the existing account — they keep their current password and can switch to it from the role dropdown after logging in.';
+    } else {
+      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+      const creds = await issueAndEmailCredentials({ name: input.name.trim(), email, roleLabel: 'Instructor' });
+      passwordHash = creds.hashedPassword;
+      message = creds.emailDelivered
+        ? 'Instructor added. Login credentials have been emailed.'
+        : `Instructor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    }
 
     const now = new Date();
     const qualification = input.qualification?.trim() || null;
     await this.prisma.users.create({
       data: {
         name: input.name.trim(),
-        user_email: input.email.trim(),
-        email: input.email.trim(),
+        user_email: email,
+        email,
         phone: input.phone?.trim() || null,
-        password: creds.hashedPassword,
+        password: passwordHash,
         role_id: 3,
         status: input.status ?? 1,
         gender: '',
@@ -7400,9 +7442,6 @@ export class OperationsService {
         updated_at: now,
       },
     });
-    const message = creds.emailDelivered
-      ? 'Instructor added. Login credentials have been emailed.'
-      : `Instructor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
     return { status: 1, message };
   }
 
@@ -12757,21 +12796,31 @@ export class OperationsService {
     const existing = await this.prisma.users.findFirst({ where: { user_email: input.email.trim(), role_id: 9, deleted_at: null } });
     if (existing) return { status: 0, message: 'A Counsellor with this email already exists.' };
 
-    const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
-    const creds = await issueAndEmailCredentials({
-      name: input.name.trim(),
-      email: input.email.trim(),
-      roleLabel: 'Counsellor',
-    });
+    const email = input.email.trim();
+    const sharedPassword = await this.findSharedPasswordForEmail(email);
+
+    let passwordHash: string;
+    let message: string;
+    if (sharedPassword) {
+      passwordHash = sharedPassword;
+      message = 'Counsellor role added to the existing account — they keep their current password and can switch to it from the role dropdown after logging in.';
+    } else {
+      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+      const creds = await issueAndEmailCredentials({ name: input.name.trim(), email, roleLabel: 'Counsellor' });
+      passwordHash = creds.hashedPassword;
+      message = creds.emailDelivered
+        ? 'Counsellor added. Login credentials have been emailed.'
+        : `Counsellor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
+    }
 
     const now = new Date();
     await this.prisma.users.create({
       data: {
         name: input.name.trim(),
-        user_email: input.email.trim(),
-        email: input.email.trim(),
+        user_email: email,
+        email,
         phone: input.phone?.trim() || null,
-        password: creds.hashedPassword,
+        password: passwordHash,
         role_id: 9,
         status: input.status ?? 1,
         gender: '',
@@ -12783,9 +12832,6 @@ export class OperationsService {
         updated_at: now,
       },
     });
-    const message = creds.emailDelivered
-      ? 'Counsellor added. Login credentials have been emailed.'
-      : `Counsellor added, but the credentials email failed to send (${creds.emailError ?? 'unknown error'}). Resend from the user actions menu.`;
     return { status: 1, message };
   }
 
