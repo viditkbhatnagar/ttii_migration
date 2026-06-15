@@ -8,6 +8,7 @@ import {
   COUNSELLOR_PORTAL_ROLES,
   INSTRUCTOR_PORTAL_ROLES,
   LEGACY_ROLE,
+  resolveLegacyPortalPath,
 } from '../auth/roles.js';
 import { AuthError, type RequestMeta } from '../auth/types.js';
 
@@ -529,6 +530,60 @@ export function registerAuthRoutes(app: FastifyInstance, options: RegisterAuthRo
         image: user.image ?? user.profile_picture ?? '',
       },
     });
+  });
+
+  // ─── Post-login role switcher ──────────────────────────────────────
+  // GET /auth/my_roles  → the roles this authenticated session may switch
+  // into (the login-verified same-email set). The frontend filters these to
+  // the current subdomain's surfaces and only renders a switcher when more
+  // than one same-subdomain role exists.
+  app.get('/auth/my_roles', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const authContext = request.authContext;
+      if (!authContext) {
+        throw new AuthError(401, 'User not authenticated!', 'UNAUTHORIZED');
+      }
+
+      const roles = await authService.getSwitchableRoles(authContext);
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data: { roles },
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
+  });
+
+  // POST /auth/switch_role { user_id } → re-issue a session for the target
+  // role (which MUST be in the session's login-verified set) and return a
+  // login-shaped payload so the frontend reuses its session-persist logic.
+  app.post('/auth/switch_role', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const authContext = request.authContext;
+      if (!authContext) {
+        throw new AuthError(401, 'User not authenticated!', 'UNAUTHORIZED');
+      }
+
+      const payload = requestPayload(request);
+      const targetUserId = toNumber(payload.user_id);
+      if (targetUserId === undefined) {
+        throw new AuthError(400, 'Missing target role.', 'VALIDATION_ERROR');
+      }
+
+      const result = await authService.switchRole(authContext, targetUserId, requestMeta(request));
+      reply.code(200).send({
+        status: 1,
+        message: 'Role switched',
+        userdata: result.userData,
+        data: {
+          redirect_path: resolveLegacyPortalPath(result.roleId),
+          session_expires_at: result.expiresAt.toISOString(),
+        },
+      });
+    } catch (error: unknown) {
+      sendAuthError(reply, error);
+    }
   });
 
   app.get(

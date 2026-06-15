@@ -8,6 +8,8 @@ export {
   type AuthSession,
   type LoginInput,
   type LoginCandidate,
+  type SwitchableRole,
+  type SwitchRoleResult,
 } from './auth/auth-api.js';
 export {
   AuthProvider,

@@ -2516,6 +2516,11 @@ model auth_session {
   revoked_reason String?   @db.VarChar(255)
   ip_address     String?   @db.VarChar(64)
   user_agent     String?   @db.VarChar(500)
+  // JSON array of user.id values this session is allowed to switch into
+  // (the same-email rows whose password was verified at login, or all
+  // same-email rows for SSO logins). Drives the post-login role switcher.
+  // Nullable for backwards-compat: an absent value means "[user_id]" only.
+  linked_user_ids String? @db.Text
 
   @@index([user_id, revoked_at])
   @@index([expires_at])

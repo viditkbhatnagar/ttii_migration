@@ -100,6 +100,17 @@ export interface SsoLoginResult {
   requiresProfileCompletion: boolean;
 }
 
+export interface SwitchableRole {
+  userId: string;
+  roleId: number;
+  name: string;
+}
+
+export interface SwitchRoleResult {
+  session: AuthSession;
+  redirectPath: string;
+}
+
 export interface AuthApi {
   login(input: LoginInput): Promise<AuthSession>;
   resolveLoginRoles(input: { email: string; password: string }): Promise<number[]>;
@@ -112,6 +123,8 @@ export interface AuthApi {
   resetPassword(input: { email: string; resetToken: string; newPassword: string; roleId?: number }): Promise<ResetPasswordResult>;
   loadSsoConfig(): Promise<SsoConfig>;
   loginWithGoogleSso(idToken: string): Promise<SsoLoginResult>;
+  getSwitchableRoles(authToken: string): Promise<SwitchableRole[]>;
+  switchRole(authToken: string, userId: string): Promise<SwitchRoleResult>;
 }
 
 export class LegacyAuthApi implements AuthApi {
@@ -285,6 +298,64 @@ export class LegacyAuthApi implements AuthApi {
     return {
       session: { token, userId, roleId },
       requiresProfileCompletion: data.requires_profile_completion === true,
+    };
+  }
+
+  async getSwitchableRoles(authToken: string): Promise<SwitchableRole[]> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'GET',
+      path: '/auth/my_roles',
+      authToken,
+    });
+    const data = isRecord(response) && isRecord(response.data) ? response.data : {};
+    if (!Array.isArray(data.roles)) {
+      return [];
+    }
+    return data.roles
+      .map((entry): SwitchableRole | null => {
+        if (!isRecord(entry)) return null;
+        const userId = asNumber(entry.user_id);
+        const roleId = asNumber(entry.role_id);
+        if (userId === null || roleId === null) return null;
+        return {
+          userId: String(userId),
+          roleId,
+          name: typeof entry.name === 'string' ? entry.name : '',
+        };
+      })
+      .filter((role): role is SwitchableRole => role !== null);
+  }
+
+  async switchRole(authToken: string, userId: string): Promise<SwitchRoleResult> {
+    const response = await this.apiClient.request<Record<string, unknown>>({
+      method: 'POST',
+      path: '/auth/switch_role',
+      authToken,
+      body: { user_id: userId },
+    });
+    if (!isRecord(response) || !isRecord(response.userdata)) {
+      throw new ApiError('Invalid role-switch response payload.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/switch_role',
+      });
+    }
+    const token = asString(response.userdata.auth_token);
+    const rawUserId = response.userdata.user_id;
+    const nextUserId = asString(rawUserId) ?? (typeof rawUserId === 'number' ? String(rawUserId) : '');
+    const roleId = asNumber(response.userdata.role_id);
+    if (!token || !nextUserId || roleId === null) {
+      throw new ApiError('Role-switch response is missing required session fields.', {
+        statusCode: 500,
+        payload: response,
+        path: '/auth/switch_role',
+      });
+    }
+    const data = isRecord(response.data) ? response.data : {};
+    const redirectPath = asString(data.redirect_path) ?? '';
+    return {
+      session: { token, userId: nextUserId, roleId },
+      redirectPath,
     };
   }
 

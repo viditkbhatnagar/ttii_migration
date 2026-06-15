@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAdminLayout } from './AdminLayoutContext.js';
+import { RoleSwitcher } from '@/components/RoleSwitcher';
 
 interface AdminNavbarProps {
   onNavigate: (href: string) => void;
@@ -113,6 +114,8 @@ export function AdminNavbar({ onNavigate, onLogout, api, session }: AdminNavbarP
 
       {/* Right side */}
       <div className="flex items-center gap-1">
+        {/* Same-subdomain role switcher (renders only for multi-role users). */}
+        <RoleSwitcher session={session} variant="dark" />
         <Button
           variant="ghost"
           size="icon"

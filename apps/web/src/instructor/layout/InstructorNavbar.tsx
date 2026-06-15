@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useInstructorLayout } from './InstructorLayoutContext.js';
 import type { AuthSession } from '@ttii/frontend-core';
+import { RoleSwitcher } from '@/components/RoleSwitcher';
 
 // Naji UAT 2026-05-22 — top bar now mirrors the Lovable mockup:
 // sidebar toggle (left), a pill-shaped search input (center, fills
@@ -23,7 +24,7 @@ interface InstructorNavbarProps {
   onLogout: () => void;
 }
 
-export function InstructorNavbar({ session: _session, onNavigate, onLogout }: InstructorNavbarProps) {
+export function InstructorNavbar({ session, onNavigate, onLogout }: InstructorNavbarProps) {
   const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar, currentUser } = useInstructorLayout();
 
   const displayName = currentUser?.name || 'Instructor';
@@ -67,6 +68,9 @@ export function InstructorNavbar({ session: _session, onNavigate, onLogout }: In
           />
         </div>
       </div>
+
+      {/* Same-subdomain role switcher (renders only for multi-role users). */}
+      <RoleSwitcher session={session} variant="light" />
 
       <Button
         variant="ghost"

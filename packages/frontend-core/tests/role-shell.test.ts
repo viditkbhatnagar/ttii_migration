@@ -16,6 +16,8 @@ describe('loadRoleShellAccess', () => {
       resetPassword: vi.fn(),
       loadSsoConfig: vi.fn(),
       loginWithGoogleSso: vi.fn(),
+      getSwitchableRoles: vi.fn().mockResolvedValue([]),
+      switchRole: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({
@@ -42,6 +44,8 @@ describe('loadRoleShellAccess', () => {
       resetPassword: vi.fn(),
       loadSsoConfig: vi.fn(),
       loginWithGoogleSso: vi.fn(),
+      getSwitchableRoles: vi.fn().mockResolvedValue([]),
+      switchRole: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({
@@ -77,6 +81,8 @@ describe('loadRoleShellAccess', () => {
       resetPassword: vi.fn(),
       loadSsoConfig: vi.fn(),
       loginWithGoogleSso: vi.fn(),
+      getSwitchableRoles: vi.fn().mockResolvedValue([]),
+      switchRole: vi.fn(),
     };
 
     const result = await loadRoleShellAccess({

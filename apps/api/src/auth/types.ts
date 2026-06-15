@@ -4,6 +4,13 @@ export interface AuthContext {
   sessionId: string;
   tokenHash: string;
   user: users;
+  /**
+   * user.id values this session is permitted to switch into — the
+   * same-email rows the person password-verified at login (or all
+   * same-email rows for SSO). Always includes the current user's id.
+   * Drives + gates the post-login role switcher.
+   */
+  linkedUserIds: number[];
 }
 
 export interface RequestMeta {

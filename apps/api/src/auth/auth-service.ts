@@ -165,7 +165,34 @@ export class AuthService {
       sessionId: String(session.id),
       tokenHash,
       user,
+      linkedUserIds: this.parseLinkedUserIds(session.linked_user_ids, user.id),
     };
+  }
+
+  // Parse the persisted JSON array of switchable user ids. Falls back to
+  // `[fallbackUserId]` (the session's own user) when the column is null,
+  // unparseable, empty, or doesn't already contain the current user — so
+  // an old session (created before this column existed) can still at least
+  // "switch" to itself and never gains access to a row it didn't earn.
+  private parseLinkedUserIds(raw: string | null | undefined, fallbackUserId: number): number[] {
+    const result = new Set<number>([fallbackUserId]);
+
+    if (isTruthyString(raw)) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const value of parsed) {
+            if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+              result.add(value);
+            }
+          }
+        }
+      } catch {
+        // Malformed JSON → fall back to the session's own user only.
+      }
+    }
+
+    return Array.from(result);
   }
 
   async login(input: LoginInput): Promise<{
@@ -297,7 +324,16 @@ export class AuthService {
       },
     })) ?? user;
 
-    const issuedSession = await this.createSession(latestUser.id, input);
+    // Compute the switchable set from the SAME password the user just
+    // proved. Only same-email rows whose password matches this plaintext
+    // (and which pass the status gate) become switch targets — this is the
+    // security boundary the role switcher is gated against.
+    const canonicalEmail = this.getCanonicalUserEmail(latestUser);
+    const linkedUserIds = isTruthyString(canonicalEmail)
+      ? await this.computeLinkedUserIds(canonicalEmail, input.password, latestUser.id)
+      : [latestUser.id];
+
+    const issuedSession = await this.createSession(latestUser.id, input, linkedUserIds);
     const userData = this.toLegacyUserData(latestUser, issuedSession.token);
 
     await this.writeAuditLog({
@@ -1266,7 +1302,11 @@ export class AuthService {
       );
     }
 
-    const issuedSession = await this.createSession(user.id, input.requestMeta);
+    // SSO proves email ownership, so every same-email row passing the
+    // status gate is legitimately this person's — no password to verify.
+    const linkedUserIds = await this.computeLinkedUserIdsForVerifiedEmail(input.email, user.id);
+
+    const issuedSession = await this.createSession(user.id, input.requestMeta, linkedUserIds);
     const userData = this.toLegacyUserData(user, issuedSession.token);
 
     await this.writeAuditLog({
@@ -1584,6 +1624,142 @@ export class AuthService {
     return matched;
   }
 
+  /* ─── Post-login role switcher ──────────────────────────────────────
+     A user who proved (at login) ownership of several same-email `users`
+     rows can switch between them WITHOUT re-entering their password. The
+     allowed set is captured on the session as `linked_user_ids` and is the
+     ONLY thing switchRole trusts — a target id outside that set is rejected.
+     ──────────────────────────────────────────────────────────────────── */
+
+  // List the roles this session may switch into. Loads only the linked
+  // users (non-deleted) and returns id + role_id + name. The frontend
+  // filters to same-subdomain surfaces; the backend returns ALL linked
+  // roles so other clients can present the full set if they choose.
+  async getSwitchableRoles(
+    authContext: AuthContext,
+  ): Promise<Array<{ user_id: number; role_id: number; name: string }>> {
+    const ids = authContext.linkedUserIds.filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const rows = await this.prisma.users.findMany({
+      where: {
+        id: { in: ids },
+        deleted_at: null,
+      },
+      select: { id: true, role_id: true, name: true },
+    });
+
+    return rows
+      .filter((row): row is { id: number; role_id: number; name: string | null } => row.role_id !== null)
+      .map((row) => ({
+        user_id: row.id,
+        role_id: row.role_id,
+        name: row.name ?? '',
+      }));
+  }
+
+  // Switch the active session to another role the user already earned at
+  // login. Issues a NEW session for the target user, carrying the SAME
+  // linked set forward, and revokes the old session. The security gate is
+  // (a) targetUserId MUST be in the persisted linked set, AND (b) the target
+  // row MUST share the current user's canonical email (defense in depth).
+  async switchRole(
+    authContext: AuthContext,
+    targetUserId: number,
+    requestMeta: RequestMeta,
+  ): Promise<{ token: string; expiresAt: Date; roleId: number; userData: LegacyUserData }> {
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      throw new AuthErrorClass(400, 'Invalid target role.', 'VALIDATION_ERROR');
+    }
+
+    // (a) Gate strictly against the persisted, login-verified set. A target
+    // not in this set was never password-proven by this session → refuse.
+    if (!authContext.linkedUserIds.includes(targetUserId)) {
+      await this.writeAuditLog({
+        event: 'ROLE_SWITCH_FORBIDDEN',
+        success: false,
+        identifier: this.getCanonicalUserEmail(authContext.user) || null,
+        userId: authContext.user.id,
+        requestMeta,
+        details: { target_user_id: targetUserId },
+      });
+      throw new AuthErrorClass(403, 'Role not available for this account.', 'FORBIDDEN');
+    }
+
+    const targetUser = await this.prisma.users.findFirst({
+      where: { id: targetUserId, deleted_at: null, disabled_at: null },
+    });
+
+    if (!targetUser || targetUser.role_id === null) {
+      throw new AuthErrorClass(404, 'Target role not found.', 'NOT_FOUND');
+    }
+
+    // (b) Defense in depth — never trust the set alone. The target row must
+    // share the current session user's canonical email. If the underlying
+    // data shifted (email changed, row reassigned) since login, refuse.
+    const currentEmail = this.getCanonicalUserEmail(authContext.user);
+    const targetEmail = this.getCanonicalUserEmail(targetUser);
+    if (!isTruthyString(currentEmail) || normalizeEmail(currentEmail) !== normalizeEmail(targetEmail)) {
+      await this.writeAuditLog({
+        event: 'ROLE_SWITCH_EMAIL_MISMATCH',
+        success: false,
+        identifier: currentEmail || null,
+        userId: authContext.user.id,
+        requestMeta,
+        details: { target_user_id: targetUserId },
+      });
+      throw new AuthErrorClass(403, 'Role not available for this account.', 'FORBIDDEN');
+    }
+
+    // Mint the new session, carrying the SAME linked set forward so the user
+    // can keep hopping between their roles without re-authenticating.
+    const issuedSession = await this.createSession(
+      targetUser.id,
+      requestMeta,
+      authContext.linkedUserIds,
+    );
+
+    // Revoke the old session so a single active token represents the user at
+    // any time (and a stolen pre-switch token can't outlive the switch).
+    const now = new Date();
+    await this.prisma.auth_session.updateMany({
+      where: { id: this.parseSessionId(authContext.sessionId), revoked_at: null },
+      data: { revoked_at: now, revoked_reason: 'role_switch', updated_at: now },
+    });
+
+    const userData = this.toLegacyUserData(targetUser, issuedSession.token);
+
+    await this.writeAuditLog({
+      event: 'ROLE_SWITCH_SUCCESS',
+      success: true,
+      identifier: currentEmail,
+      userId: targetUser.id,
+      requestMeta,
+      details: {
+        from_user_id: authContext.user.id,
+        to_user_id: targetUser.id,
+        to_role_id: targetUser.role_id,
+      },
+    });
+
+    return {
+      token: issuedSession.token,
+      expiresAt: issuedSession.expiresAt,
+      roleId: targetUser.role_id,
+      userData,
+    };
+  }
+
+  private parseSessionId(sessionId: string): number {
+    const n = parseInt(sessionId, 10);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new AuthErrorClass(400, 'Invalid session.', 'VALIDATION_ERROR');
+    }
+    return n;
+  }
+
   private async findUserForLogin(input: LoginInput): Promise<users | null> {
     // When the picker disambiguates a multi-row email, the client sends the
     // exact user id alongside email + role.
@@ -1624,7 +1800,11 @@ export class AuthService {
     });
   }
 
-  private async createSession(userId: number, requestMeta: RequestMeta): Promise<{ token: string; expiresAt: Date }> {
+  private async createSession(
+    userId: number,
+    requestMeta: RequestMeta,
+    linkedUserIds?: number[],
+  ): Promise<{ token: string; expiresAt: Date }> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + env.AUTH_SESSION_TTL_SECONDS * 1000);
     const token = generateOpaqueAuthToken();
@@ -1639,6 +1819,10 @@ export class AuthService {
         revoked_at: null,
         ip_address: requestMeta.ipAddress ?? null,
         user_agent: requestMeta.userAgent ?? null,
+        // Persist the switchable set as a JSON array. Null when not
+        // supplied (e.g. OTP/phone login that doesn't compute a set) so
+        // authenticateAuthToken falls back to [user_id] only.
+        linked_user_ids: linkedUserIds && linkedUserIds.length > 0 ? JSON.stringify(linkedUserIds) : null,
       },
     });
 
@@ -1646,6 +1830,72 @@ export class AuthService {
       token,
       expiresAt,
     };
+  }
+
+  // Compute the set of user.id values a password login is allowed to switch
+  // into: every non-deleted `users` row sharing this email (email OR
+  // user_email) whose stored password verifies against the SAME plaintext,
+  // and which passes the login status gate (status===0 && role!==2 blocked).
+  // Mirrors resolveLoginCandidates exactly. The just-authenticated user's id
+  // is always included even if some race changed its password mid-login.
+  private async computeLinkedUserIds(email: string, password: string, currentUserId: number): Promise<number[]> {
+    const identifier = normalizeEmail(email);
+    const ids = new Set<number>([currentUserId]);
+
+    if (!identifier || !isTruthyString(password)) {
+      return Array.from(ids);
+    }
+
+    const candidates = await this.prisma.users.findMany({
+      where: {
+        deleted_at: null,
+        disabled_at: null,
+        OR: [{ email: identifier }, { user_email: identifier }],
+      },
+      select: { id: true, role_id: true, password: true, status: true },
+    });
+
+    for (const candidate of candidates) {
+      if (!isTruthyString(candidate.password) || candidate.role_id === null) continue;
+      // Same status gate the login path enforces: a deactivated admin-side
+      // row (status 0, role !== student) can never be a switch target.
+      if (candidate.status === 0 && candidate.role_id !== 2) continue;
+      const ok = await verifyPassword(password, candidate.password);
+      if (ok) {
+        ids.add(candidate.id);
+      }
+    }
+
+    return Array.from(ids);
+  }
+
+  // Email-verified variant (SSO): the IdP proved ownership of the email, so
+  // every non-deleted same-email row passing the status gate is legitimately
+  // this person's. No password check is possible (SSO rows have no password).
+  private async computeLinkedUserIdsForVerifiedEmail(email: string, currentUserId: number): Promise<number[]> {
+    const identifier = normalizeEmail(email);
+    const ids = new Set<number>([currentUserId]);
+
+    if (!identifier) {
+      return Array.from(ids);
+    }
+
+    const candidates = await this.prisma.users.findMany({
+      where: {
+        deleted_at: null,
+        disabled_at: null,
+        OR: [{ email: identifier }, { user_email: identifier }],
+      },
+      select: { id: true, role_id: true, status: true },
+    });
+
+    for (const candidate of candidates) {
+      if (candidate.role_id === null) continue;
+      if (candidate.status === 0 && candidate.role_id !== 2) continue;
+      ids.add(candidate.id);
+    }
+
+    return Array.from(ids);
   }
 
   private toLegacyUserData(user: users, authToken: string): LegacyUserData {

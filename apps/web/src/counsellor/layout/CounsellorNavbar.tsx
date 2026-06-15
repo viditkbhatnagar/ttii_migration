@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useCounsellorLayout } from './CounsellorLayoutContext.js';
 import type { AuthSession } from '@ttii/frontend-core';
+import { RoleSwitcher } from '@/components/RoleSwitcher';
 
 interface CounsellorNavbarProps {
   session: AuthSession;
@@ -27,7 +28,7 @@ function useCurrentTime() {
   return time;
 }
 
-export function CounsellorNavbar({ session: _session, onNavigate, onLogout }: CounsellorNavbarProps) {
+export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNavbarProps) {
   const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar, currentUser } = useCounsellorLayout();
   const now = useCurrentTime();
 
@@ -76,6 +77,9 @@ export function CounsellorNavbar({ session: _session, onNavigate, onLogout }: Co
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Same-subdomain role switcher (renders only for multi-role users). */}
+        <RoleSwitcher session={session} variant="light" />
+
         <span className="hidden sm:flex text-sm text-slate-500 mr-2">
           {formattedTime}
         </span>
