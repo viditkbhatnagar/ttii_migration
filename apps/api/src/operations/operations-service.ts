@@ -1390,18 +1390,32 @@ export class OperationsService {
       ];
     }
 
-    // Counsellor scoping (Naji 2026-06-15): a counsellor (role 9) only sees the
-    // students they enrolled (created_by — set by convertApplication), referred
-    // (referred_by), or are assigned to (counsellor_id) — mirrors the
-    // applications-index counsellor scope. Admins (roles 1/8) keep seeing all.
-    // Kept on `where.AND` so it composes with the search `where.OR` above.
+    // Counsellor scoping (Naji 2026-06-15): a counsellor (role 9) only sees
+    // THEIR students. The primary link is the application: an application
+    // carries `pipeline_user` = the owning counsellor, and the converted
+    // student carries that application's id in `application_id`. Also include
+    // any students directly created/referred/assigned to them. Admins (roles
+    // 1/8) keep seeing all. Kept on `where.AND` so it composes with the search
+    // `where.OR` above.
     if (scope === 'admin' && actorUserId) {
       const actor = await this.prisma.users.findFirst({
         where: { id: toIntId(actorUserId), deleted_at: null },
         select: { id: true, role_id: true },
       });
       if (actor?.role_id === 9) {
-        where.AND = [{ OR: [{ created_by: actor.id }, { referred_by: actor.id }, { counsellor_id: actor.id }] }];
+        const ownedApps = await this.prisma.applications.findMany({
+          where: { pipeline_user: actor.id },
+          select: { id: true },
+        });
+        const ownedAppIds = ownedApps.map((a) => a.id);
+        where.AND = [{
+          OR: [
+            ...(ownedAppIds.length > 0 ? [{ application_id: { in: ownedAppIds } }] : []),
+            { created_by: actor.id },
+            { referred_by: actor.id },
+            { counsellor_id: actor.id },
+          ],
+        }];
       }
     }
 
