@@ -853,6 +853,16 @@ export class AuthService {
     const newPasswordHash = await hashPassword(input.password);
     const now = new Date();
 
+    // One-password-per-person: a reset applies to EVERY same-email role-row
+    // (and revokes all their sessions), so a multi-role person's accounts stay
+    // in sync and the role switcher keeps working from a single login.
+    const resetEmail = normalizeEmail(state.canonicalEmail);
+    const linkedRows = await this.prisma.users.findMany({
+      where: { deleted_at: null, OR: [{ email: resetEmail }, { user_email: resetEmail }] },
+      select: { id: true },
+    });
+    const linkedIds = Array.from(new Set([state.user.id, ...linkedRows.map((r) => r.id)]));
+
     await this.prisma.$transaction(async (tx) => {
       const usedToken = await tx.password_reset_token.updateMany({
         where: {
@@ -871,7 +881,7 @@ export class AuthService {
 
       await tx.users.updateMany({
         where: {
-          id: state.user.id,
+          id: { in: linkedIds },
           deleted_at: null,
         },
         data: {
@@ -882,7 +892,7 @@ export class AuthService {
 
       await tx.auth_session.updateMany({
         where: {
-          user_id: state.user.id,
+          user_id: { in: linkedIds },
           revoked_at: null,
         },
         data: {
