@@ -538,7 +538,6 @@ const SUBDOMAIN_ROLE_OPTIONS: Record<string, { value: string; label: string }[]>
     { value: '1', label: 'Super Admin' },
     { value: '3', label: 'Instructor' },
     { value: '8', label: 'Sub Admin' },
-    { value: '9', label: 'Counsellor' },
   ],
   student: [{ value: '2', label: 'Student' }],
   // Naji UAT 2026-05-15 — Centre portal login was blocking every
@@ -549,9 +548,12 @@ const SUBDOMAIN_ROLE_OPTIONS: Record<string, { value: string; label: string }[]>
   // passwords; the only reason they couldn't sign in was this list.
   // Backend CENTRE_PORTAL_ROLES was already [7, 10] — only the frontend
   // candidate filter was wrong.
+  // Counsellor (role 9) was moved off admin.teachersindia.in to admissions.
+  // (Naji 2026-06-15). They log in here and land on /counsellor.
   centre: [
     { value: '7', label: 'Centre' },
     { value: '10', label: 'Associate' },
+    { value: '9', label: 'Counsellor' },
   ],
 };
 

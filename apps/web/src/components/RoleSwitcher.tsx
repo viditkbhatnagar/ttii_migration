@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { detectPortalFromSubdomain } from '@/lib/subdomain';
 
 // Human-readable labels for each legacy role id. Mirrors ROLE_LABELS in the
 // admin navbar so the switcher reads the same as the role badge.
@@ -34,9 +35,25 @@ const ROLE_LABELS: Record<number, string> = {
 };
 
 // The role switcher only ever moves a user between roles served on the SAME
-// subdomain. admin.teachersindia.in serves the admin, instructor, and
-// counsellor surfaces, so those are the only switch targets we surface.
-const SAME_SUBDOMAIN_SURFACES = new Set(['admin', 'instructor', 'counsellor']);
+// subdomain. Each subdomain serves a fixed set of surfaces:
+//   admin.teachersindia.in       → admin + instructor
+//   admissions.teachersindia.in  → centre + counsellor (Counsellor moved here
+//                                   off admin, Naji 2026-06-15)
+//   learn.teachersindia.in       → student
+const PORTAL_SURFACE_SETS: Record<string, Set<string>> = {
+  admin: new Set(['admin', 'instructor']),
+  centre: new Set(['centre', 'counsellor']),
+  student: new Set(['student']),
+};
+
+// Surfaces switchable on the CURRENT subdomain. Off-subdomain (dev / direct
+// path) we allow the full admin-side + admissions-side set so the switcher
+// still works locally.
+function switchableSurfacesForCurrentHost(): Set<string> {
+  const portal = detectPortalFromSubdomain();
+  if (portal) return PORTAL_SURFACE_SETS[portal] ?? new Set<string>();
+  return new Set(['admin', 'instructor', 'centre', 'counsellor']);
+}
 
 function resolveApiBaseUrl(): string {
   const value: unknown = import.meta.env.VITE_API_BASE_URL;
@@ -96,11 +113,11 @@ export function RoleSwitcher({ session, authApi, variant = 'dark' }: RoleSwitche
     };
   }, [resolvedAuthApi, session.token]);
 
-  // Only roles served on this subdomain are valid switch targets.
-  const sameSubdomainRoles = useMemo(
-    () => roles.filter((role) => SAME_SUBDOMAIN_SURFACES.has(resolvePortalSurfaceForRole(role.roleId))),
-    [roles],
-  );
+  // Only roles served on the CURRENT subdomain are valid switch targets.
+  const sameSubdomainRoles = useMemo(() => {
+    const allowed = switchableSurfacesForCurrentHost();
+    return roles.filter((role) => allowed.has(resolvePortalSurfaceForRole(role.roleId)));
+  }, [roles]);
 
   const handleSwitch = async (role: SwitchableRole): Promise<void> => {
     // No-op when picking the role you're already in.
