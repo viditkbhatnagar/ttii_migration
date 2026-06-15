@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
@@ -209,6 +209,9 @@ export function registerOperationsRoutes(
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
   const requireCentreRole = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
+  // Editing a student (profile / enrolment / credentials) is admin-only —
+  // counsellors (role 9) may only VIEW + add enrolments (Naji 2026-06-15).
+  const requireStudentEditRole = requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES);
 
   app.get('/admin/applications/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
@@ -3690,7 +3693,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/students/change_username', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/students/change_username', { preHandler: [requireAuth, requireStudentEditRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.changeStudentUsername(requestUserId(request), toStringValue(payload.id), toStringValue(payload.username));
@@ -3698,7 +3701,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/students/change_password', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/students/change_password', { preHandler: [requireAuth, requireStudentEditRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.changeStudentPassword(requestUserId(request), toStringValue(payload.id), toStringValue(payload.password));
@@ -3706,7 +3709,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/students/edit_enrollment_id', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/students/edit_enrollment_id', { preHandler: [requireAuth, requireStudentEditRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.editStudentEnrollmentId(requestUserId(request), toStringValue(payload.id), toStringValue(payload.enrollment_id));
@@ -3714,7 +3717,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/students/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/students/edit', { preHandler: [requireAuth, requireStudentEditRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.editStudentInfo(requestUserId(request), toStringValue(payload.id), {

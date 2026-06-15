@@ -105,6 +105,10 @@ function InfoChip({ icon: Icon, label, value }: {
 }
 
 export default function ViewStudentPage({ api, session, onNavigate }: AdminPageProps) {
+  // Counsellors (role 9) reuse this page but may only VIEW students — Edit
+  // Student / Edit Profile / Edit Enrolment are hidden for them (Naji 2026-06-15).
+  // They keep View + Add Enrolment.
+  const canEditStudent = session.roleId !== 9;
   const [activeTab, setActiveTab] = useState(0);
   const [selectedEnrollmentIdx, setSelectedEnrollmentIdx] = useState<number | null>(null);
   const [enrollmentSubTab, setEnrollmentSubTab] = useState(0);
@@ -689,9 +693,11 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         <Button variant="outline" onClick={() => onNavigate('/admin/students')}>
           ← Back to Students
         </Button>
-        <Button onClick={() => onNavigate(`/admin/students/edit/${studentId}`)} className="bg-ttii-primary hover:bg-ttii-primary/90">
-          Edit Student
-        </Button>
+        {canEditStudent ? (
+          <Button onClick={() => onNavigate(`/admin/students/edit/${studentId}`)} className="bg-ttii-primary hover:bg-ttii-primary/90">
+            Edit Student
+          </Button>
+        ) : null}
       </AdminPageHeader>
 
       {/* Hero identity card — Naji UAT 2026-05-13 redesign modelled on
@@ -749,13 +755,15 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                 <MessageSquare className="mr-1.5 h-4 w-4" />
                 Message
               </Button>
-              <Button
-                size="sm"
-                onClick={() => onNavigate(`/admin/students/edit/${studentId}`)}
-                className="bg-ttii-primary hover:bg-ttii-primary/90"
-              >
-                Edit profile
-              </Button>
+              {canEditStudent ? (
+                <Button
+                  size="sm"
+                  onClick={() => onNavigate(`/admin/students/edit/${studentId}`)}
+                  className="bg-ttii-primary hover:bg-ttii-primary/90"
+                >
+                  Edit profile
+                </Button>
+              ) : null}
             </div>
           </div>
 
@@ -1495,13 +1503,15 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                     <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700">
                       {ENROLLMENT_SUB_TABS[enrollmentSubTab]}
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { if (selectedEnrollment) openEditEnrol(selectedEnrollment); }}
-                    >
-                      Edit enrolment
-                    </Button>
+                    {canEditStudent ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { if (selectedEnrollment) openEditEnrol(selectedEnrollment); }}
+                      >
+                        Edit enrolment
+                      </Button>
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>
