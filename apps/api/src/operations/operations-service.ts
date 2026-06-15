@@ -11502,6 +11502,42 @@ export class OperationsService {
     };
   }
 
+  // Soft-delete a cohort live session. Every live-class list (cohort detail,
+  // calendar, counts) filters `deleted_at: null`, so stamping deleted_at hides
+  // the session everywhere while keeping its attendance/recording history intact
+  // and making the action reversible at the DB level.
+  async deleteLiveSession(
+    actorUserId: string,
+    sessionId: string,
+  ): Promise<Record<string, unknown>> {
+    const liveClassIdInt = toIntId(sessionId);
+    if (!liveClassIdInt) {
+      return { status: 0, message: 'Invalid session id.' };
+    }
+    const session = await this.prisma.live_class.findFirst({
+      where: { id: liveClassIdInt, deleted_at: null },
+      select: { id: true },
+    });
+    if (!session) {
+      return { status: 0, message: 'Live session not found.' };
+    }
+    const now = new Date();
+    await this.prisma.live_class.update({
+      where: { id: liveClassIdInt },
+      data: {
+        deleted_at: now,
+        deleted_by: toNullableIntId(actorUserId),
+        updated_at: now,
+        updated_by: toNullableIntId(actorUserId),
+      },
+    });
+    return {
+      status: 1,
+      message: 'Live session deleted.',
+      data: { id: String(liveClassIdInt) },
+    };
+  }
+
   async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {
     const liveClassIdInt = toIntId(liveClassId);
     if (!liveClassIdInt) {

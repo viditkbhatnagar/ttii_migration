@@ -3607,6 +3607,17 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  app.post('/admin/cohorts/delete_live_session', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteLiveSession(
+        requestUserId(request),
+        toStringValue(payload.id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/resources/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
