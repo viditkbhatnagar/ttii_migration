@@ -12707,12 +12707,31 @@ export class OperationsService {
     return { status: 1, message };
   }
 
-  async editCounsellor(actorUserId: string, id: string, input: { name: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {
+  async editCounsellor(actorUserId: string, id: string, input: { name: string; email?: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
+    const counsellorId = toIntId(id);
+    if (!counsellorId) return { status: 0, message: 'Invalid counsellor id.' };
+
     const now = new Date();
     const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
     if (input.status !== undefined) data.status = input.status;
-    await this.prisma.users.updateMany({ where: { id: toIntId(id), deleted_at: null }, data });
+
+    // Email is the counsellor's login identity. Allow changing it, but guard
+    // uniqueness against OTHER counsellors (role_id=9) — same scoping as
+    // addCounsellor — and keep both legacy columns (user_email + email) in sync.
+    const email = input.email?.trim();
+    if (email) {
+      const clash = await this.prisma.users.findFirst({
+        where: { user_email: email, role_id: 9, deleted_at: null, id: { not: counsellorId } },
+        select: { id: true },
+      });
+      if (clash) return { status: 0, message: 'A Counsellor with this email already exists.' };
+      data.user_email = email;
+      data.email = email;
+    }
+
+    const result = await this.prisma.users.updateMany({ where: { id: counsellorId, deleted_at: null }, data });
+    if (result.count === 0) return { status: 0, message: 'Counsellor not found.' };
     return { status: 1, message: 'Counsellor updated successfully.' };
   }
 

@@ -28,6 +28,16 @@ import { registerTelephonyRoutes } from './routes/telephony.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Prisma returns BigInt for columns like `live_class.recording_size_bytes`, and
+// Fastify's JSON serializer (JSON.stringify) throws "Do not know how to
+// serialize a BigInt" the moment such a value reaches a response — which 500'd
+// the cohort-detail page for any cohort whose live session had a recording size.
+// Serialize BigInt as a Number app-wide; our only BigInt column is a byte count,
+// comfortably within Number.MAX_SAFE_INTEGER (~9 PB).
+(BigInt.prototype as unknown as { toJSON(): number }).toJSON = function (this: bigint): number {
+  return Number(this);
+};
+
 export interface BuildAppOptions {
   integrations?: IntegrationRegistry;
   authService?: AuthService;

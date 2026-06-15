@@ -431,11 +431,10 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
                 value={formEmail}
                 onChange={(e) => setFormEmail(e.target.value)}
                 placeholder="email@example.com"
-                disabled={dialogMode === 'edit'}
                 required
                 onBlur={(e) => {
                   const v = e.target.value.trim();
-                  if (!v || dialogMode === 'edit') return;
+                  if (!v) return;
                   if (!EMAIL_REGEX.test(v)) {
                     toast.error('Email is not a valid format.');
                     return;
