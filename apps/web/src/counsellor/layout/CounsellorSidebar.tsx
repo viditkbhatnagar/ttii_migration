@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   FileText,
   LayoutDashboard,
@@ -50,163 +51,181 @@ function SidebarNavItem({
       aria-current={isActive ? 'page' : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 group text-left',
+        // Match the admin sidebar theme: light surface, dark text, blue active.
+        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
         isActive
-          ? 'bg-white/10 text-white shadow-lg'
-          : 'text-white/60 hover:bg-white/5 hover:text-white',
+          ? 'bg-ttii-sidebar-active/10 text-ttii-sidebar-active'
+          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
         collapsed && 'justify-center px-2',
       )}
       onClick={() => onNavigate(item.href)}
       title={collapsed ? item.label : undefined}
     >
-      {Icon ? (
-        <Icon
-          aria-hidden="true"
-          className={cn(
-            'size-5 shrink-0 transition-colors duration-200',
-            isActive
-              ? 'text-student-accent'
-              : 'text-white/50 group-hover:text-white/80',
-          )}
-        />
-      ) : null}
-      {!collapsed ? (
-        <>
-          <span className={cn('truncate', isActive ? 'font-semibold' : '')}>{item.label}</span>
-          {isActive ? (
-            <span aria-hidden="true" className="ml-auto size-1.5 shrink-0 rounded-full bg-student-accent" />
-          ) : null}
-        </>
-      ) : null}
+      {Icon ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
+      {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </button>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+      {children}
+    </p>
+  );
+}
+
+function UserFooter({
+  displayName,
+  initials,
+  onLogout,
+  collapsed,
+}: {
+  displayName: string;
+  initials: string;
+  onLogout?: (() => void) | undefined;
+  collapsed: boolean;
+}) {
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <div
+          aria-label={displayName}
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ttii-sidebar-active text-white font-bold text-xs"
+        >
+          {initials}
+        </div>
+        {onLogout ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Log out"
+            className="text-gray-500 hover:bg-red-50 hover:text-red-600"
+            onClick={onLogout}
+            title="Log out"
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-gray-50">
+        <div
+          aria-hidden="true"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-sidebar-active text-white font-bold text-sm"
+        >
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
+          <p className="text-xs text-gray-500 truncate">Counsellor Portal</p>
+        </div>
+      </div>
+      {onLogout ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-gray-600 hover:bg-red-50 hover:text-red-600"
+          onClick={onLogout}
+        >
+          <LogOut className="mr-2 size-4" aria-hidden="true" />
+          <span className="text-sm font-medium">Log out</span>
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+function SidebarNav({
+  pathname,
+  collapsed,
+  onNavigate,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  onNavigate: (href: string) => void;
+}) {
+  const activeItemId = findActiveCounsellorNav(pathname);
+  const generalItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'general');
+  const toolsItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'tools');
+
+  return (
+    <nav aria-label="Counsellor sections" className="flex flex-col gap-1">
+      {!collapsed ? <SectionLabel>General</SectionLabel> : null}
+      {generalItems.map((item) => (
+        <SidebarNavItem
+          key={item.id}
+          item={item}
+          isActive={item.id === activeItemId}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+        />
+      ))}
+
+      <div aria-hidden="true" className="my-4 border-t border-gray-200" />
+
+      {!collapsed ? <SectionLabel>Tools</SectionLabel> : null}
+      {toolsItems.map((item) => (
+        <SidebarNavItem
+          key={item.id}
+          item={item}
+          isActive={item.id === activeItemId}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </nav>
+  );
+}
+
+function SidebarLogo({ collapsed, onNavigate }: { collapsed: boolean; onNavigate: (href: string) => void }) {
+  return (
+    <div className={cn('flex h-20 items-center border-b border-gray-200 bg-white px-4', collapsed && 'justify-center px-2')}>
+      <button
+        type="button"
+        onClick={() => onNavigate('/counsellor/dashboard')}
+        aria-label="Go to counsellor dashboard"
+        className="flex items-center hover:opacity-95 transition-opacity"
+      >
+        {collapsed ? (
+          <img src="/logos/ttii-icon-color.svg" alt="TTII" className="h-9 w-auto" />
+        ) : (
+          <img
+            src="/logos/ttii-full-color.svg"
+            alt="Teachers' Training Institute of India"
+            className="h-10 w-auto max-w-full"
+          />
+        )}
+      </button>
+    </div>
   );
 }
 
 export function CounsellorSidebar({ pathname, session: _session, onNavigate, onLogout }: CounsellorSidebarProps) {
   const { sidebarCollapsed, currentUser } = useCounsellorLayout();
-  const activeItemId = findActiveCounsellorNav(pathname);
-
   const displayName = currentUser?.name || 'Counsellor';
   const initials = currentUser?.initials ?? 'CN';
-
-  const generalItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'tools');
 
   return (
     <aside
       aria-label="Counsellor navigation"
       className={cn(
-        'hidden md:flex h-screen flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to shadow-2xl transition-all duration-300',
+        'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-64',
       )}
     >
-      <div className={cn(
-        'flex h-20 items-center border-b border-white/10 bg-white px-4',
-        sidebarCollapsed && 'justify-center px-2',
-      )}>
-        <button
-          type="button"
-          onClick={() => onNavigate('/counsellor/dashboard')}
-          aria-label="Go to counsellor dashboard"
-          className="flex items-center hover:opacity-95 transition-opacity"
-        >
-          {sidebarCollapsed ? (
-            <img src="/logos/ttii-icon-color.svg" alt="TTII" className="h-9 w-auto" />
-          ) : (
-            <img
-              src="/logos/ttii-full-color.svg"
-              alt="Teachers' Training Institute of India"
-              className="h-10 w-auto max-w-full"
-            />
-          )}
-        </button>
-      </div>
+      <SidebarLogo collapsed={sidebarCollapsed} onNavigate={onNavigate} />
 
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav aria-label="Counsellor sections" className="flex flex-col gap-1">
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-              General
-            </p>
-          ) : null}
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          <div aria-hidden="true" className="my-5 border-t border-white/10" />
-
-          {!sidebarCollapsed ? (
-            <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-              Tools
-            </p>
-          ) : null}
-          {toolsItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={sidebarCollapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </nav>
+        <SidebarNav pathname={pathname} collapsed={sidebarCollapsed} onNavigate={onNavigate} />
       </ScrollArea>
 
-      <div className="p-4 border-t border-white/10">
-        {!sidebarCollapsed ? (
-          <>
-            <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-              <div
-                aria-hidden="true"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-              >
-                {initials}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{displayName}</p>
-                <p className="text-xs text-white/50 truncate">Counsellor Portal</p>
-              </div>
-            </div>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
-                onClick={onLogout}
-              >
-                <LogOut className="mr-2 size-4" aria-hidden="true" />
-                <span className="text-sm font-medium">Log out</span>
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <div
-              aria-label={displayName}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-xs shadow-lg"
-            >
-              {initials}
-            </div>
-            {onLogout ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Log out"
-                className="text-white/50 hover:bg-red-500/20 hover:text-red-400"
-                onClick={onLogout}
-                title="Log out"
-              >
-                <LogOut className="size-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-        )}
+      <div className="p-4 border-t border-gray-200">
+        <UserFooter displayName={displayName} initials={initials} onLogout={onLogout} collapsed={sidebarCollapsed} />
       </div>
     </aside>
   );
@@ -214,86 +233,19 @@ export function CounsellorSidebar({ pathname, session: _session, onNavigate, onL
 
 export function CounsellorSidebarMobile({ pathname, session: _session, onNavigate, onLogout }: CounsellorSidebarProps) {
   const { currentUser } = useCounsellorLayout();
-  const activeItemId = findActiveCounsellorNav(pathname);
   const displayName = currentUser?.name || 'Counsellor';
   const initials = currentUser?.initials ?? 'CN';
 
-  const generalItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'general');
-  const toolsItems = COUNSELLOR_NAV_TREE.filter((item) => item.section === 'tools');
-
   return (
-    <div className="flex h-full flex-col bg-gradient-to-b from-student-sidebar-from to-student-sidebar-to">
-      <div className="flex h-20 items-center border-b border-white/10 bg-white px-4">
-        <button
-          type="button"
-          onClick={() => onNavigate('/counsellor/dashboard')}
-          aria-label="Go to counsellor dashboard"
-          className="flex items-center hover:opacity-95 transition-opacity"
-        >
-          <img
-            src="/logos/ttii-full-color.svg"
-            alt="Teachers' Training Institute of India"
-            className="h-10 w-auto max-w-full"
-          />
-        </button>
-      </div>
+    <div className="flex h-full flex-col bg-white">
+      <SidebarLogo collapsed={false} onNavigate={onNavigate} />
 
       <ScrollArea className="flex-1 min-h-0 py-6 px-3">
-        <nav aria-label="Counsellor sections" className="flex flex-col gap-1">
-          <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-            General
-          </p>
-          {generalItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-
-          <div aria-hidden="true" className="my-5 border-t border-white/10" />
-
-          <p className="px-4 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-            Tools
-          </p>
-          {toolsItems.map((item) => (
-            <SidebarNavItem
-              key={item.id}
-              item={item}
-              isActive={item.id === activeItemId}
-              collapsed={false}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </nav>
+        <SidebarNav pathname={pathname} collapsed={false} onNavigate={onNavigate} />
       </ScrollArea>
 
-      <div className="p-4 border-t border-white/10">
-        <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-white/5">
-          <div
-            aria-hidden="true"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-student-accent to-student-accent-light text-white font-bold text-sm shadow-lg"
-          >
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{displayName}</p>
-            <p className="text-xs text-white/50 truncate">Counsellor Portal</p>
-          </div>
-        </div>
-        {onLogout ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-white/50 hover:bg-red-500/20 hover:text-red-400"
-            onClick={onLogout}
-          >
-            <LogOut className="mr-2 size-4" aria-hidden="true" />
-            <span className="text-sm font-medium">Log out</span>
-          </Button>
-        ) : null}
+      <div className="p-4 border-t border-gray-200">
+        <UserFooter displayName={displayName} initials={initials} onLogout={onLogout} collapsed={false} />
       </div>
     </div>
   );
