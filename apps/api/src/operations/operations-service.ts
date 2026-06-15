@@ -340,12 +340,46 @@ export type BannerInput = {
   image?: string;
   courseId?: string;
   status?: string;
+  url?: string;
+  isCourseBanner?: boolean;
 };
 
 export type FaqInput = {
   question: string;
   answer?: string;
   status?: string;
+};
+
+export type EventInput = {
+  title?: string;
+  image?: string;
+  description?: string;
+  instructorId?: string;
+  eventDate?: string;
+  fromTime?: string;
+  toTime?: string;
+  duration?: string;
+  isRecordingAvailable?: number;
+  numObjectives?: number;
+};
+
+export type FeedInput = {
+  title?: string;
+  image?: string;
+  courseId?: string;
+  instructorId?: string;
+  description?: string;
+};
+
+export type LanguageInput = {
+  title: string;
+};
+
+export type ReviewInput = {
+  courseId?: string;
+  userId?: string;
+  rating?: string;
+  review?: string;
 };
 
 export type AdminCohortFilters = {
@@ -3049,6 +3083,47 @@ export class OperationsService {
     return { status: 1, message: 'Banner Added Successfully!' };
   }
 
+  async editBanner(actorUserId: string, bannerId: string, input: BannerInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(bannerId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid banner ID.' };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.banners.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: {
+        title: input.title ?? '',
+        image: input.image ?? '',
+        url: input.url ?? '',
+        course_id: input.courseId ? toNullableIntId(input.courseId) : null,
+        is_course_banner: input.isCourseBanner ? 1 : 0,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Banner not found.' };
+    }
+
+    return { status: 1, message: 'Banner Updated Successfully!' };
+  }
+
+  async deleteBanner(actorUserId: string, bannerId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(bannerId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid banner ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.banners.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'Banner Deleted Successfully!' };
+  }
+
   // ─── Phase 1: FAQ ────────────────────────────────────────────────────────
 
   async listFaqs(): Promise<SqlRow[]> {
@@ -3067,6 +3142,42 @@ export class OperationsService {
     });
 
     return { status: 1, message: 'FAQ Added Successfully!' };
+  }
+
+  async editFaq(actorUserId: string, faqId: string, input: FaqInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(faqId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid FAQ ID.' };
+    }
+    if (!input.question.trim()) {
+      return { status: 0, message: 'Question is required.' };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.faq.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { question: input.question, answer: input.answer ?? '', updated_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'FAQ not found.' };
+    }
+
+    return { status: 1, message: 'FAQ Updated Successfully!' };
+  }
+
+  async deleteFaq(actorUserId: string, faqId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(faqId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid FAQ ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.faq.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'FAQ Deleted Successfully!' };
   }
 
   // ─── Phase 1: Contact Settings ────────────────────────────────────────────
@@ -6452,6 +6563,104 @@ export class OperationsService {
     })) as unknown as SqlRow[];
   }
 
+  // events.event_date is @db.Date and from_time/to_time are @db.Time(0). Prisma
+  // needs Date objects for both. Mirror the parseTime approach in addLiveClasses:
+  // wrap times in the 1970 epoch so MariaDB stores just the time component, and
+  // build a UTC midnight for the date. Returns null for blank/invalid inputs so
+  // the column stays NULL rather than throwing.
+  private parseEventDate(value?: string): Date | null {
+    const v = (value ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}/.test(v)) return null;
+    const d = new Date(`${v.slice(0, 10)}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  private parseEventTime(value?: string): Date | null {
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec((value ?? '').trim());
+    if (!m) return null;
+    // Pad a single-digit hour ("9:00" → "09:00:00") so the ISO string parses;
+    // an HTML <input type="time"> pads already, but other callers may not.
+    const [, hh = '', mm = '', ss = '00'] = m;
+    const d = new Date(`1970-01-01T${hh.padStart(2, '0')}:${mm}:${ss}Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  async addEvent(actorUserId: string, input: EventInput): Promise<Record<string, unknown>> {
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    await this.prisma.events.create({
+      data: {
+        title: input.title ?? '',
+        image: input.image ?? '',
+        description: input.description ?? '',
+        instructor_id: toNullableIntId(input.instructorId),
+        event_date: this.parseEventDate(input.eventDate),
+        from_time: this.parseEventTime(input.fromTime),
+        to_time: this.parseEventTime(input.toTime),
+        duration: input.duration ?? '',
+        is_recording_available: input.isRecordingAvailable ? 1 : 0,
+        num_objectives: input.numObjectives ?? 0,
+        created_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Event Added Successfully!' };
+  }
+
+  async editEvent(actorUserId: string, eventId: string, input: EventInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(eventId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid event ID.' };
+    }
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.events.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: {
+        title: input.title ?? '',
+        image: input.image ?? '',
+        description: input.description ?? '',
+        instructor_id: toNullableIntId(input.instructorId),
+        event_date: this.parseEventDate(input.eventDate),
+        from_time: this.parseEventTime(input.fromTime),
+        to_time: this.parseEventTime(input.toTime),
+        duration: input.duration ?? '',
+        is_recording_available: input.isRecordingAvailable ? 1 : 0,
+        num_objectives: input.numObjectives ?? 0,
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Event not found.' };
+    }
+
+    return { status: 1, message: 'Event Updated Successfully!' };
+  }
+
+  async deleteEvent(actorUserId: string, eventId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(eventId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid event ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.events.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'Event Deleted Successfully!' };
+  }
+
   // TODO: circular model does not exist in MySQL schema — feature stubbed.
   listCirculars(): Promise<SqlRow[]> {
     return Promise.resolve([]);
@@ -6697,12 +6906,82 @@ export class OperationsService {
 
     return feeds.map(f => ({
       ...f,
+      // The Feeds page edits the body via row.description; the column is `content`.
+      description: f.content ?? null,
       instructor_name: f.instructor_id ? instructorMap.get(f.instructor_id) ?? null : null,
       course_title: f.course_id ? courseMap.get(f.course_id) ?? null : null,
       watch_count: watchMap.get(f.id) ?? 0,
       like_count: likeMap.get(f.id) ?? 0,
       comment_count: commentMap.get(f.id) ?? 0,
     })) as unknown as SqlRow[];
+  }
+
+  // The Feeds page sends `description` but the feed model stores the body in
+  // `content` — map it here. course_id/instructor_id arrive as strings.
+  async addFeed(actorUserId: string, input: FeedInput): Promise<Record<string, unknown>> {
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    await this.prisma.feed.create({
+      data: {
+        title: input.title ?? '',
+        content: input.description ?? '',
+        image: input.image ?? '',
+        course_id: toNullableIntId(input.courseId),
+        instructor_id: toNullableIntId(input.instructorId),
+        created_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Feed Added Successfully!' };
+  }
+
+  async editFeed(actorUserId: string, feedId: string, input: FeedInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(feedId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid feed ID.' };
+    }
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.feed.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: {
+        title: input.title ?? '',
+        content: input.description ?? '',
+        image: input.image ?? '',
+        course_id: toNullableIntId(input.courseId),
+        instructor_id: toNullableIntId(input.instructorId),
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Feed not found.' };
+    }
+
+    return { status: 1, message: 'Feed Updated Successfully!' };
+  }
+
+  async deleteFeed(actorUserId: string, feedId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(feedId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid feed ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.feed.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'Feed Deleted Successfully!' };
   }
 
   async listIntegrationSettings(): Promise<SqlRow[]> {
@@ -6751,6 +7030,66 @@ export class OperationsService {
     })) as unknown as SqlRow[];
   }
 
+  // rating arrives as a string from the form; coerce to Float (null when blank).
+  async addReview(actorUserId: string, input: ReviewInput): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const ratingStr = (input.rating ?? '').trim();
+    await this.prisma.review.create({
+      data: {
+        course_id: toNullableIntId(input.courseId),
+        user_id: toNullableIntId(input.userId),
+        rating: ratingStr ? Number(ratingStr) : null,
+        review: input.review ?? '',
+        created_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+
+    return { status: 1, message: 'Review Added Successfully!' };
+  }
+
+  async editReview(actorUserId: string, reviewId: string, input: ReviewInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(reviewId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid review ID.' };
+    }
+
+    const now = new Date();
+    const ratingStr = (input.rating ?? '').trim();
+    const result = await this.prisma.review.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: {
+        course_id: toNullableIntId(input.courseId),
+        user_id: toNullableIntId(input.userId),
+        rating: ratingStr ? Number(ratingStr) : null,
+        review: input.review ?? '',
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Review not found.' };
+    }
+
+    return { status: 1, message: 'Review Updated Successfully!' };
+  }
+
+  async deleteReview(actorUserId: string, reviewId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(reviewId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid review ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.review.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'Review Deleted Successfully!' };
+  }
+
   async listLanguages(): Promise<SqlRow[]> {
     const languages = await this.prisma.languages.findMany({
       where: { deleted_at: null },
@@ -6758,6 +7097,175 @@ export class OperationsService {
       select: { id: true, title: true, created_at: true },
     });
     return languages as unknown as SqlRow[];
+  }
+
+  // Writes to the `languages` master table (NOT the `language` translation table).
+  async addLanguage(actorUserId: string, input: LanguageInput): Promise<Record<string, unknown>> {
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    await this.prisma.languages.create({
+      data: { title: input.title, created_by: toNullableIntId(actorUserId), created_at: now, updated_at: now },
+    });
+
+    return { status: 1, message: 'Language Added Successfully!' };
+  }
+
+  async editLanguage(actorUserId: string, languageId: string, input: LanguageInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(languageId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid language ID.' };
+    }
+    if (!input.title.trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.languages.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { title: input.title, updated_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Language not found.' };
+    }
+
+    return { status: 1, message: 'Language Updated Successfully!' };
+  }
+
+  async deleteLanguage(actorUserId: string, languageId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(languageId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid language ID.' };
+    }
+
+    const now = new Date();
+    await this.prisma.languages.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+
+    return { status: 1, message: 'Language Deleted Successfully!' };
+  }
+
+  // ─── Bucket C: admin list endpoints (page-load lists) ─────────────────────
+
+  // Books library — id column is `book_id`. chapters_count is computed by
+  // grouping books_chapters; the page filters on status==='published' and sums
+  // chapters_count. Surface a string `id` so the table key resolves.
+  async listBooks(): Promise<SqlRow[]> {
+    const books = await this.prisma.books.findMany({ where: { deleted_at: null }, orderBy: { book_id: 'desc' } });
+    const bookIds = books.map(b => b.book_id);
+    const chapterCounts = bookIds.length > 0
+      ? await this.prisma.books_chapters.groupBy({
+          by: ['book_id'],
+          where: { book_id: { in: bookIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const countMap = new Map(chapterCounts.map(c => [c.book_id, c._count?.id ?? 0]));
+
+    return books.map(b => ({
+      ...b,
+      id: String(b.book_id),
+      chapters_count: countMap.get(b.book_id) ?? 0,
+    })) as unknown as SqlRow[];
+  }
+
+  // Enquiries page renders three tabs: general enquiries, course enquiries
+  // (enquiry_form), and contact submissions (contact_form). Map remarks→message
+  // and first/last name→name to match the columns the page reads.
+  async listEnquiries(): Promise<Record<string, unknown>> {
+    const [enquiries, courseEnquiries, contactForms] = await Promise.all([
+      this.prisma.enquiry.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } }),
+      this.prisma.enquiry_form.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } }),
+      this.prisma.contact_form.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } }),
+    ]);
+
+    // contact_form has a course_id FK; resolve titles for the Course column.
+    const contactCourseIds = [...new Set(contactForms.map(c => c.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    const contactCourses = contactCourseIds.length > 0
+      ? await this.prisma.course.findMany({ where: { id: { in: contactCourseIds } }, select: { id: true, title: true } })
+      : [];
+    const contactCourseMap = new Map(contactCourses.map(c => [c.id, c.title]));
+
+    return {
+      enquiries: enquiries.map(e => ({
+        ...e,
+        message: e.remarks ?? null,
+      })),
+      course_enquiries: courseEnquiries.map(f => ({
+        ...f,
+        name: [f.first_name, f.last_name].filter(Boolean).join(' ').trim() || null,
+        email: f.email_id ?? null,
+        course_title: null,
+      })),
+      contact_forms: contactForms.map(c => ({
+        ...c,
+        message: c.remarks ?? null,
+        course_title: c.course_id ? contactCourseMap.get(c.course_id) ?? null : null,
+      })),
+    };
+  }
+
+  // Packages — model is mapped to the `package` table (Renamedpackage). The page
+  // reads title/type/course_title/amount/discount/duration/status/features_count.
+  // The table has no status column; derive it from is_free (free → 'inactive')
+  // is misleading, so report all rows as 'active'. features_count is grouped.
+  async listPackages(): Promise<SqlRow[]> {
+    const packages = await this.prisma.renamedpackage.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } });
+    const packageIds = packages.map(p => p.id);
+    const courseIds = [...new Set(packages.map(p => p.course_id).filter((x): x is number => x !== null && x !== undefined))];
+
+    const [courses, featureCounts] = await Promise.all([
+      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
+      packageIds.length > 0 ? this.prisma.package_features.groupBy({
+        by: ['package_id'],
+        where: { package_id: { in: packageIds } },
+        _count: { id: true },
+      }) : [],
+    ]);
+
+    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+    const featureMap = new Map(featureCounts.map(f => [f.package_id, f._count?.id ?? 0]));
+
+    return packages.map(p => ({
+      ...p,
+      course_title: p.course_id ? courseMap.get(p.course_id) ?? null : null,
+      status: 'active',
+      features_count: featureMap.get(p.id) ?? 0,
+    })) as unknown as SqlRow[];
+  }
+
+  // Short content page renders two tabs from short_videos and stories. The page
+  // also reads views/category/duration (videos) and views/author (stories),
+  // none of which exist on these tables — the frontend coerces missing keys to 0.
+  async listShortContent(): Promise<Record<string, unknown>> {
+    const [shortVideos, stories] = await Promise.all([
+      this.prisma.short_videos.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } }),
+      this.prisma.stories.findMany({ where: { deleted_at: null }, orderBy: { id: 'desc' } }),
+    ]);
+    return { short_videos: shortVideos, stories };
+  }
+
+  // Testimonials — the legacy table has NO status/created_at/deleted_at columns,
+  // so do not filter deleted_at; inject a constant status and null created_at to
+  // satisfy the page's badge/date columns. course_id is resolved to a title.
+  async listTestimonials(): Promise<SqlRow[]> {
+    const testimonials = await this.prisma.testimonial.findMany({ orderBy: { id: 'desc' } });
+    const courseIds = [...new Set(testimonials.map(t => t.course_id).filter((x): x is number => x !== null && x !== undefined))];
+    const courses = courseIds.length > 0
+      ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+      : [];
+    const courseMap = new Map(courses.map(c => [c.id, c.title]));
+
+    return testimonials.map(t => ({
+      ...t,
+      course_title: t.course_id ? courseMap.get(t.course_id) ?? null : null,
+      status: 'active',
+      created_at: null,
+    })) as unknown as SqlRow[];
   }
 
   // Naji 2026-05-11 — Country list for the searchable Country / Nationality
@@ -11538,6 +12046,77 @@ export class OperationsService {
     };
   }
 
+  // Soft-remove a learner from a cohort. cohort_students.cohort_id is a TEXT
+  // column that historically stored either the numeric cohorts.id (stringified)
+  // or the legacy text cohort code, so match against both keys — mirrors the
+  // dual-key logic in addCohortLearners.
+  async removeCohortLearner(
+    actorUserId: string,
+    cohortId: string,
+    studentId: string,
+  ): Promise<Record<string, unknown>> {
+    const cId = toIntId(cohortId);
+    if (!cId) return { status: 0, message: 'Invalid cohort id.' };
+    const userIdInt = toIntId(studentId);
+    if (!userIdInt) return { status: 0, message: 'Invalid student id.' };
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cId, deleted_at: null },
+      select: { id: true, cohort_id: true },
+    });
+    if (!cohort) return { status: 0, message: 'Cohort not found.' };
+
+    const cohortKeys = [String(cohort.id)];
+    if (cohort.cohort_id) cohortKeys.push(cohort.cohort_id);
+
+    const now = new Date();
+    const actor = toNullableIntId(actorUserId);
+    const result = await this.prisma.cohort_students.updateMany({
+      where: { cohort_id: { in: cohortKeys }, user_id: userIdInt, deleted_at: null },
+      data: { deleted_at: now, deleted_by: actor, updated_at: now, updated_by: actor },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Learner not found in cohort.' };
+    }
+
+    return { status: 1, message: 'Learner removed from cohort.', data: {} };
+  }
+
+  // Soft-delete an assignment submission row. Every submission list filters
+  // `deleted_at: null`, so stamping deleted_at hides it everywhere while keeping
+  // the marks/file history intact and the action reversible at the DB level.
+  async deleteAssignmentSubmission(
+    actorUserId: string,
+    submissionId: string,
+  ): Promise<Record<string, unknown>> {
+    const subIdInt = toIntId(submissionId);
+    if (!subIdInt) {
+      return { status: 0, message: 'Invalid submission id.' };
+    }
+    const submission = await this.prisma.assignment_submissions.findFirst({
+      where: { id: subIdInt, deleted_at: null },
+      select: { id: true },
+    });
+    if (!submission) {
+      return { status: 0, message: 'Submission not found.' };
+    }
+    const now = new Date();
+    await this.prisma.assignment_submissions.update({
+      where: { id: subIdInt },
+      data: {
+        deleted_at: now,
+        deleted_by: toNullableIntId(actorUserId),
+        updated_at: now,
+        updated_by: toNullableIntId(actorUserId),
+      },
+    });
+    return {
+      status: 1,
+      message: 'Submission deleted.',
+      data: { id: String(subIdInt) },
+    };
+  }
+
   async getLiveSessionAttendance(liveClassId: string): Promise<Record<string, unknown>> {
     const liveClassIdInt = toIntId(liveClassId);
     if (!liveClassIdInt) {
@@ -11698,6 +12277,24 @@ export class OperationsService {
       submissions_count: subCountMap.get(a.id) ?? 0,
     }));
 
+    // Announcements — cohort_announcements.cohort_id is the numeric cohorts.id.
+    // The View page (AnnouncementsTab) renders title/content/description, so
+    // surface those plus the audit timestamps for ordering/display.
+    const announcementRows = await this.prisma.cohort_announcements.findMany({
+      where: { cohort_id: cohortIdInt, deleted_at: null },
+      orderBy: { id: 'desc' },
+    });
+    const announcements = announcementRows.map((a) => ({
+      id: String(a.id),
+      cohort_id: a.cohort_id,
+      title: a.title,
+      content: a.content,
+      description: a.description,
+      status: a.status,
+      created_at: a.created_at,
+      updated_at: a.updated_at,
+    }));
+
     const instructorPhoto = instructor
       ? toLegacyFileUrl(instructor.profile_picture) || toLegacyFileUrl(instructor.image)
       : '';
@@ -11719,6 +12316,7 @@ export class OperationsService {
       learners,
       live_sessions: liveSessions,
       assignments: assignmentsWithCounts,
+      announcements,
     };
   }
 

@@ -28,10 +28,14 @@ import {
   type CentreInput,
   type CohortInput,
   type EntranceExamInput,
+  type EventInput,
   type ExamInput,
   type ExportReportInput,
   type FaqInput,
+  type FeedInput,
+  type LanguageInput,
   type QuestionBankFilters,
+  type ReviewInput,
   type QuestionBankInput,
   type TrainingVideoInput,
   type UpdateCentreInput,
@@ -1169,6 +1173,35 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.post('/admin/banners/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: BannerInput = {
+        title: toStringValue(payload.title),
+        image: toStringValue(payload.image),
+        courseId: toStringValue(payload.course_id),
+        status: toStringValue(payload.status) || 'active',
+        url: toStringValue(payload.url),
+        isCourseBanner: toInteger(payload.is_course_banner) === 1,
+      };
+
+      const result = await operationsService.editBanner(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/banners/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteBanner(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   // ─── Phase 1: FAQ ──────────────────────────────────────────────────────
 
   app.get('/admin/faq/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
@@ -1190,6 +1223,32 @@ export function registerOperationsRoutes(
       };
 
       const result = await operationsService.addFaq(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/faq/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: FaqInput = {
+        question: toStringValue(payload.question),
+        answer: toStringValue(payload.answer),
+        status: toStringValue(payload.status) || 'active',
+      };
+
+      const result = await operationsService.editFaq(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/faq/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteFaq(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -2355,6 +2414,53 @@ export function registerOperationsRoutes(
     }
   });
 
+  // event_date arrives as YYYY-MM-DD; from_time/to_time as HH:mm — the service
+  // converts these to the Date objects Prisma needs for @db.Date / @db.Time(0).
+  function buildEventInput(payload: Record<string, unknown>): EventInput {
+    return {
+      title: toStringValue(payload.title),
+      image: toStringValue(payload.image),
+      description: toStringValue(payload.description),
+      instructorId: toStringValue(payload.instructor_id),
+      eventDate: toStringValue(payload.event_date),
+      fromTime: toStringValue(payload.from_time),
+      toTime: toStringValue(payload.to_time),
+      duration: toStringValue(payload.duration),
+      isRecordingAvailable: toInteger(payload.is_recording_available),
+      numObjectives: toInteger(payload.num_objectives),
+    };
+  }
+
+  app.post('/admin/events/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addEvent(requestUserId(request), buildEventInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/events/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editEvent(requestUserId(request), toStringValue(payload.id), buildEventInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/events/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteEvent(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/circulars/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listCirculars();
@@ -2511,6 +2617,48 @@ export function registerOperationsRoutes(
     }
   });
 
+  // The Feeds page sends the body as `description`; the service maps it to the
+  // feed.content column.
+  function buildFeedInput(payload: Record<string, unknown>): FeedInput {
+    return {
+      title: toStringValue(payload.title),
+      image: toStringValue(payload.image),
+      courseId: toStringValue(payload.course_id),
+      instructorId: toStringValue(payload.instructor_id),
+      description: toStringValue(payload.description),
+    };
+  }
+
+  app.post('/admin/feed/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addFeed(requestUserId(request), buildFeedInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/feed/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editFeed(requestUserId(request), toStringValue(payload.id), buildFeedInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/feed/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteFeed(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/integration/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listIntegrationSettings();
@@ -2529,6 +2677,45 @@ export function registerOperationsRoutes(
     }
   });
 
+  function buildReviewInput(payload: Record<string, unknown>): ReviewInput {
+    return {
+      courseId: toStringValue(payload.course_id),
+      userId: toStringValue(payload.user_id),
+      rating: toStringValue(payload.rating),
+      review: toStringValue(payload.review),
+    };
+  }
+
+  app.post('/admin/review/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addReview(requestUserId(request), buildReviewInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/review/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editReview(requestUserId(request), toStringValue(payload.id), buildReviewInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/review/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteReview(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/language/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listLanguages();
@@ -2538,10 +2725,89 @@ export function registerOperationsRoutes(
     }
   });
 
+  app.post('/admin/language/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: LanguageInput = { title: toStringValue(payload.title) };
+      const result = await operationsService.addLanguage(requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/language/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const input: LanguageInput = { title: toStringValue(payload.title) };
+      const result = await operationsService.editLanguage(requestUserId(request), toStringValue(payload.id), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/language/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteLanguage(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   // Naji 2026-05-11 — Country list for searchable dropdowns.
   app.get('/admin/country/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listCountries();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // ─── Bucket C: admin list endpoints (page-load lists) ────────────────────
+
+  app.get('/admin/books/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listBooks();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/admin/enquiries/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listEnquiries();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/admin/packages/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listPackages();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/admin/short_content/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listShortContent();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/admin/testimonials/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listTestimonials();
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -3611,6 +3877,29 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const result = await operationsService.deleteLiveSession(
+        requestUserId(request),
+        toStringValue(payload.id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/cohorts/remove_learner', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.removeCohortLearner(
+        requestUserId(request),
+        toStringValue(payload.cohort_id),
+        toStringValue(payload.student_id),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/cohorts/delete_submission_file', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteAssignmentSubmission(
         requestUserId(request),
         toStringValue(payload.id),
       );

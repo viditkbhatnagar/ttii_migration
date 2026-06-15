@@ -971,12 +971,15 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/cohorts/delete_submission_file', authToken, { id: submissionId });
   }
 
+  // Announcements are served by the real AnnouncementService routes:
+  // POST /admin/announcements (create, cohort_id in body),
+  // POST /admin/announcements/:id/update and /:id/delete (id in path).
   async addCohortAnnouncement(
     authToken: string,
     cohortId: string,
     input: { title: string; content: string; description?: string },
   ): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/cohorts/add_announcement', authToken, {
+    return this.post<Record<string, unknown>>('/admin/announcements', authToken, {
       cohort_id: cohortId,
       title: input.title,
       content: input.content,
@@ -985,8 +988,7 @@ export class AdminPortalApi {
   }
 
   async editCohortAnnouncement(authToken: string, id: string, input: { title: string; content: string; description?: string }): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/cohorts/edit_announcement', authToken, {
-      id,
+    return this.post<Record<string, unknown>>(`/admin/announcements/${encodeURIComponent(id)}/update`, authToken, {
       title: input.title,
       content: input.content,
       ...(input.description ? { description: input.description } : {}),
@@ -994,7 +996,7 @@ export class AdminPortalApi {
   }
 
   async deleteCohortAnnouncement(authToken: string, id: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/cohorts/delete_announcement', authToken, { id });
+    return this.post<Record<string, unknown>>(`/admin/announcements/${encodeURIComponent(id)}/delete`, authToken, {});
   }
 
   // ─── Phase 1: Admin Centre Payments ───────────────────────────────────────
