@@ -898,6 +898,29 @@ model events {
   deleted_at             DateTime? @db.DateTime(0)
 }
 
+// Notices / circulars. Same shape as `events` (the admin page is a sibling of
+// Events). Created out-of-band via CREATE TABLE because the app DB user has no
+// DDL privilege; keep this model in sync with that table.
+model circular {
+  id             Int       @id @default(autoincrement())
+  title          String?   @db.VarChar(255)
+  image          String?   @db.Text
+  description    String?   @db.Text
+  instructor_id  Int?
+  event_date     DateTime? @db.Date
+  from_time      DateTime? @db.Time(0)
+  to_time        DateTime? @db.Time(0)
+  duration       String?   @db.Text
+  num_objectives Int?
+  objectives     String?   @db.LongText
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime? @db.DateTime(0)
+  updated_at     DateTime? @db.DateTime(0)
+  deleted_at     DateTime? @db.DateTime(0)
+}
+
 model exam {
   id                  Int       @id @default(autoincrement())
   // Naji 2026-05-09 — auto-generated identifier (e.g. TTIIEXM2600001)

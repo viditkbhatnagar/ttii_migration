@@ -6661,9 +6661,91 @@ export class OperationsService {
     return { status: 1, message: 'Event Deleted Successfully!' };
   }
 
-  // TODO: circular model does not exist in MySQL schema — feature stubbed.
-  listCirculars(): Promise<SqlRow[]> {
-    return Promise.resolve([]);
+  // Circulars (notices) — sibling of events. Surface instructor_name for the
+  // admin table the same way listAdminEvents does.
+  async listCirculars(): Promise<SqlRow[]> {
+    const circulars = await this.prisma.circular.findMany({
+      where: { deleted_at: null },
+      orderBy: [{ event_date: 'desc' }, { id: 'desc' }],
+    });
+    const instructorIds = [...new Set(circulars.map(c => c.instructor_id).filter((x): x is number => x !== null && x !== undefined))];
+    const instructors = instructorIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: instructorIds } }, select: { id: true, name: true } })
+      : [];
+    const instructorMap = new Map(instructors.map(u => [u.id, u.name]));
+    return circulars.map(c => ({
+      ...c,
+      instructor_name: c.instructor_id ? instructorMap.get(c.instructor_id) ?? null : null,
+    })) as unknown as SqlRow[];
+  }
+
+  async addCircular(actorUserId: string, input: EventInput): Promise<Record<string, unknown>> {
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+    const now = new Date();
+    await this.prisma.circular.create({
+      data: {
+        title: input.title ?? '',
+        image: input.image ?? '',
+        description: input.description ?? '',
+        instructor_id: toNullableIntId(input.instructorId),
+        event_date: this.parseEventDate(input.eventDate),
+        from_time: this.parseEventTime(input.fromTime),
+        to_time: this.parseEventTime(input.toTime),
+        duration: input.duration ?? '',
+        created_by: toNullableIntId(actorUserId),
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { status: 1, message: 'Circular Added Successfully!' };
+  }
+
+  async editCircular(actorUserId: string, circularId: string, input: EventInput): Promise<Record<string, unknown>> {
+    const idInt = toIntId(circularId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid circular ID.' };
+    }
+    if (!(input.title ?? '').trim()) {
+      return { status: 0, message: 'Title is required.' };
+    }
+    const now = new Date();
+    const result = await this.prisma.circular.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: {
+        title: input.title ?? '',
+        image: input.image ?? '',
+        description: input.description ?? '',
+        instructor_id: toNullableIntId(input.instructorId),
+        event_date: this.parseEventDate(input.eventDate),
+        from_time: this.parseEventTime(input.fromTime),
+        to_time: this.parseEventTime(input.toTime),
+        duration: input.duration ?? '',
+        updated_by: toNullableIntId(actorUserId),
+        updated_at: now,
+      },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Circular not found.' };
+    }
+    return { status: 1, message: 'Circular Updated Successfully!' };
+  }
+
+  async deleteCircular(actorUserId: string, circularId: string): Promise<Record<string, unknown>> {
+    const idInt = toIntId(circularId);
+    if (!idInt) {
+      return { status: 0, message: 'Invalid circular ID.' };
+    }
+    const now = new Date();
+    const result = await this.prisma.circular.updateMany({
+      where: { id: idInt, deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+    if (result.count === 0) {
+      return { status: 0, message: 'Circular not found.' };
+    }
+    return { status: 1, message: 'Circular Deleted Successfully!' };
   }
 
   // TODO: mentorship_session model does not exist in MySQL schema — feature stubbed.

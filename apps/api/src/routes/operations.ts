@@ -2470,6 +2470,37 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Circulars share the Events payload shape (buildEventInput).
+  app.post('/admin/circulars/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.addCircular(requestUserId(request), buildEventInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/circulars/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.editCircular(requestUserId(request), toStringValue(payload.id), buildEventInput(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/circulars/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteCircular(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/mentorship/history', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listMentorshipHistory();
