@@ -206,6 +206,27 @@ export class CounsellorPortalApi {
     return toRecords(payload.data);
   }
 
+  /**
+   * Rich counsellor dashboard payload (KPIs, admissions trend, course
+   * performance, pipeline snapshot) from the dedicated backend endpoint.
+   */
+  async loadCounsellorDashboard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/counsellor/dashboard', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** Per-application fee status + collection summary, scoped to the counsellor. */
+  async loadCounsellorPayments(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/counsellor/payments', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** Training video library — global (every counsellor sees all videos). */
+  async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/training_videos', authToken);
+    return toRecords(payload.data);
+  }
+
   /** Quick numeric counts used by the dashboard skeleton. */
   async loadDashboardStats(authToken: string): Promise<{
     totalApplications: number;

@@ -1,12 +1,17 @@
 import type { ReactNode } from 'react';
 import {
+  BarChart3,
+  BookOpen,
+  CreditCard,
+  FileBarChart2,
   FileText,
+  GraduationCap,
   LayoutDashboard,
   LogOut,
+  PlayCircle,
   Settings,
   Share2,
   Target,
-  Users,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,7 +24,12 @@ import type { AuthSession } from '@ttii/frontend-core';
 const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
   FileText,
-  Users,
+  GraduationCap,
+  BarChart3,
+  BookOpen,
+  CreditCard,
+  PlayCircle,
+  FileBarChart2,
   Target,
   Share2,
   Settings,

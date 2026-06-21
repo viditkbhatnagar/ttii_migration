@@ -2363,6 +2363,38 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Counsellor dashboard — KPIs, admissions trend, course performance, pipeline
+  // snapshot. Scoped to the caller (their applications via pipeline_user).
+  app.get('/admin/counsellor/dashboard', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const counsellorId = request.authContext?.user.id ?? null;
+      if (counsellorId === null) {
+        reply.code(401).send({ status: 0, message: 'User not authenticated!' });
+        return;
+      }
+      const data = await operationsService.getCounsellorDashboard(counsellorId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // Counsellor payments — per-application fee status + collection summary,
+  // scoped to the caller's applications.
+  app.get('/admin/counsellor/payments', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const counsellorId = request.authContext?.user.id ?? null;
+      if (counsellorId === null) {
+        reply.code(401).send({ status: 0, message: 'User not authenticated!' });
+        return;
+      }
+      const data = await operationsService.getCounsellorPayments(counsellorId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/associates/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listAssociates();

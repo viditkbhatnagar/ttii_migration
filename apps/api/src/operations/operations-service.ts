@@ -6457,6 +6457,234 @@ export class OperationsService {
   }
 
   /**
+   * Counsellor dashboard payload — KPIs, admissions trend, course performance
+   * and a pipeline snapshot, all scoped to the logged-in counsellor via
+   * applications.pipeline_user (same role_id=9 scoping used elsewhere).
+   * Computed in JS from a single bounded applications fetch to avoid raw-SQL
+   * date grouping. "Dropouts" uses the unambiguous drop_out_at timestamp.
+   */
+  async getCounsellorDashboard(counsellorId: number): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const [apps, targets, dropoutCount] = await Promise.all([
+      this.prisma.applications.findMany({
+        where: { pipeline_user: counsellorId, deleted_at: null },
+        select: {
+          id: true,
+          application_id: true,
+          name: true,
+          course_id: true,
+          stage: true,
+          is_converted: true,
+          created_at: true,
+        },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.counsellor_target.findMany({
+        where: { counsellor_id: counsellorId, deleted_at: null },
+        orderBy: [{ from_date: 'desc' }, { counsellor_target_id: 'desc' }],
+      }),
+      this.prisma.users.count({
+        where: {
+          role_id: 2,
+          deleted_at: null,
+          drop_out_at: { not: null },
+          OR: [
+            { counsellor_id: counsellorId },
+            { referred_by: counsellorId },
+            { created_by: counsellorId },
+            { pipeline_user: counsellorId },
+          ],
+        },
+      }),
+    ]);
+
+    const isEnrolled = (a: { stage: string | null; is_converted: number | null }): boolean =>
+      a.stage === 'enrolled' || a.is_converted === 1;
+    const isRejected = (a: { stage: string | null }): boolean => a.stage === 'rejected';
+
+    const totalApplications = apps.length;
+    const totalEnrollments = apps.filter(isEnrolled).length;
+    const pendingApplications = apps.filter((a) => !isEnrolled(a) && !isRejected(a)).length;
+    const ytd = apps.filter((a) => a.created_at != null && a.created_at >= yearStart).length;
+
+    // Active target window (covers today); else the most-recent target.
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const activeTarget = targets.find((t) => t.from_date <= today && t.to_date >= today) ?? targets[0] ?? null;
+    let monthlyTargetPoint = 0;
+    let targetAchieved = 0;
+    if (activeTarget) {
+      monthlyTargetPoint = activeTarget.value;
+      const windowEnd = new Date(activeTarget.to_date);
+      windowEnd.setHours(23, 59, 59, 999);
+      targetAchieved = apps.filter(
+        (a) => a.created_at != null && a.created_at >= activeTarget.from_date && a.created_at <= windowEnd,
+      ).length;
+    }
+    const achievementPct =
+      monthlyTargetPoint > 0 ? Math.min(100, Math.round((targetAchieved / monthlyTargetPoint) * 100)) : 0;
+
+    // Admissions trend — last 6 calendar months (applications + enrollments).
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const trendBuckets: { label: string; applications: number; enrollments: number }[] = [];
+    const trendIndex = new Map<string, number>();
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      trendIndex.set(`${d.getFullYear()}-${d.getMonth()}`, trendBuckets.length);
+      trendBuckets.push({ label: monthLabels[d.getMonth()] ?? '', applications: 0, enrollments: 0 });
+    }
+    for (const a of apps) {
+      if (a.created_at == null) continue;
+      const idx = trendIndex.get(`${a.created_at.getFullYear()}-${a.created_at.getMonth()}`);
+      if (idx === undefined) continue;
+      const bucket = trendBuckets[idx];
+      if (!bucket) continue;
+      bucket.applications += 1;
+      if (isEnrolled(a)) bucket.enrollments += 1;
+    }
+
+    // Course performance — group by course_id, resolve titles, top 6 by volume.
+    const byCourse = new Map<number, { applications: number; enrollments: number }>();
+    for (const a of apps) {
+      if (a.course_id == null) continue;
+      const entry = byCourse.get(a.course_id) ?? { applications: 0, enrollments: 0 };
+      entry.applications += 1;
+      if (isEnrolled(a)) entry.enrollments += 1;
+      byCourse.set(a.course_id, entry);
+    }
+    const courseIds = [...byCourse.keys()];
+    const courses =
+      courseIds.length > 0
+        ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : [];
+    const courseMap = new Map<number, string>(courses.map((c) => [c.id, c.title ?? `Course #${c.id}`]));
+    const courseTitle = (id: number | null): string =>
+      id != null ? courseMap.get(id) ?? `Course #${id}` : '—';
+    const coursePerformance = [...byCourse.entries()]
+      .map(([courseId, v]) => ({
+        courseId,
+        courseTitle: courseTitle(courseId),
+        applications: v.applications,
+        enrollments: v.enrollments,
+        conversionPct: v.applications > 0 ? Math.round((v.enrollments / v.applications) * 100) : 0,
+      }))
+      .sort((a, b) => b.applications - a.applications)
+      .slice(0, 6);
+
+    // Pipeline snapshot — most recent rows per pending stage.
+    const snapshotRow = (a: (typeof apps)[number]) => ({
+      id: a.id,
+      applicationId: a.application_id ?? `#${a.id}`,
+      name: a.name ?? '—',
+      course: courseTitle(a.course_id),
+      date: a.created_at ? a.created_at.toISOString() : null,
+      stage: a.stage ?? 'lead',
+    });
+    const byStage = (stage: string) => apps.filter((a) => a.stage === stage).slice(0, 5).map(snapshotRow);
+
+    return {
+      kpis: {
+        totalApplications,
+        totalEnrollments,
+        pendingApplications,
+        totalDropouts: dropoutCount,
+        monthlyTargetPoint,
+        targetAchieved,
+        achievementPct,
+        ytd,
+      },
+      admissionsTrend: {
+        labels: trendBuckets.map((b) => b.label),
+        applications: trendBuckets.map((b) => b.applications),
+        enrollments: trendBuckets.map((b) => b.enrollments),
+      },
+      coursePerformance,
+      pipelineSnapshot: {
+        paymentPending: byStage('payment_pending'),
+        formPending: byStage('form_pending'),
+        approvalWaiting: byStage('approval_waiting'),
+      },
+    };
+  }
+
+  /**
+   * Counsellor payments — per-application fee status (paid / pending / no link)
+   * scoped to the counsellor's applications, plus a collection summary. Derived
+   * from the applications table (pipeline_user) so it needs no payment_info join.
+   */
+  async getCounsellorPayments(counsellorId: number): Promise<Record<string, unknown>> {
+    const apps = await this.prisma.applications.findMany({
+      where: { pipeline_user: counsellorId, deleted_at: null },
+      select: {
+        id: true,
+        application_id: true,
+        name: true,
+        course_id: true,
+        application_final_fee: true,
+        payment_status: true,
+        payment_link_url: true,
+        payment_marked_paid_at: true,
+        stage: true,
+        created_at: true,
+      },
+      orderBy: { id: 'desc' },
+    });
+
+    const courseIds = [...new Set(apps.map((a) => a.course_id).filter((x): x is number => x != null))];
+    const courses =
+      courseIds.length > 0
+        ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : [];
+    const courseMap = new Map<number, string>(courses.map((c) => [c.id, c.title ?? `Course #${c.id}`]));
+
+    const PAID_STAGES = new Set(['paid', 'form_pending', 'form_submitted', 'approval_waiting', 'enrolled']);
+    const isPaid = (a: {
+      stage: string | null;
+      payment_status: string | null;
+      payment_marked_paid_at: Date | null;
+    }): boolean =>
+      a.payment_marked_paid_at != null ||
+      (a.payment_status ?? '').toLowerCase() === 'paid' ||
+      (a.stage != null && PAID_STAGES.has(a.stage));
+
+    let collectedAmount = 0;
+    let pendingAmount = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
+
+    const rows = apps.map((a) => {
+      const fee = Number(a.application_final_fee ?? 0) || 0;
+      const paid = isPaid(a);
+      const hasLink = (a.payment_link_url ?? '') !== '';
+      const state = paid ? 'paid' : hasLink || a.stage === 'payment_pending' ? 'pending' : 'no_link';
+      if (paid) {
+        collectedAmount += fee;
+        paidCount += 1;
+      } else if (state === 'pending') {
+        pendingAmount += fee;
+        pendingCount += 1;
+      }
+      return {
+        id: a.id,
+        applicationId: a.application_id ?? `#${a.id}`,
+        name: a.name ?? '—',
+        course: a.course_id != null ? courseMap.get(a.course_id) ?? `Course #${a.course_id}` : '—',
+        fee,
+        state,
+        paymentLink: a.payment_link_url ?? '',
+        paidAt: a.payment_marked_paid_at ? a.payment_marked_paid_at.toISOString() : null,
+        createdAt: a.created_at ? a.created_at.toISOString() : null,
+      };
+    });
+
+    return {
+      summary: { collectedAmount, pendingAmount, paidCount, pendingCount, total: apps.length },
+      rows,
+    };
+  }
+
+  /**
    * Refer-a-friend rows joined with the referring user's name. The legacy
    * `refer_a_friend` table only stores name/phone/user_id; admins see all
    * rows, counsellors see only their own (rows where `user_id = caller`).
