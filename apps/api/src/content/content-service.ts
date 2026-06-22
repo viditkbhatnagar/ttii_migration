@@ -588,6 +588,116 @@ export class ContentService {
     });
   }
 
+  // Resolve a subject's display title (used to tag-match legacy content_asset
+  // rows that were tagged by name but never FK-linked to a lesson).
+  private async getSubjectTitleById(subjectId: unknown): Promise<string> {
+    const sid = toNullableIntId(toStringValue(subjectId));
+    if (sid === null) return '';
+    const subject = await this.prisma.subject.findUnique({
+      where: { id: sid },
+      select: { title: true },
+    });
+    return subject?.title ?? '';
+  }
+
+  // Content Library assets (content_asset) that belong to a lesson — surfaced
+  // to the student player so library content is no longer admin-only. Matched
+  // by the FK lesson_id when set, OR by the legacy text lesson_tag + subject_tag
+  // for older assets that were tagged by name but never FK-linked. Each row is
+  // mapped to the EXACT lesson-file shape so both the web and Flutter players
+  // render it as ordinary lesson content. Quizzes are excluded (content_asset
+  // quizzes use a different question store than the lesson-file quiz flow).
+  private async getContentAssetFilesForLesson(
+    lessonId: string,
+    lessonTitle: string,
+    subjectTitle: string,
+  ): Promise<Record<string, unknown>[]> {
+    const lid = toNullableIntId(lessonId);
+    if (lid === null) return [];
+
+    const or: Record<string, unknown>[] = [{ lesson_id: lid }];
+    const lt = lessonTitle.trim();
+    const st = subjectTitle.trim();
+    if (lt !== '' && st !== '') {
+      // Only tag-match UNLINKED assets so an asset FK-linked to another lesson
+      // can never leak in here via a name collision.
+      or.push({ lesson_id: null, lesson_tag: lt, subject_tag: st });
+    }
+
+    const assets = await this.prisma.content_asset.findMany({
+      where: { deleted_at: null, asset_type: { not: 'quiz' }, OR: or },
+      orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+    });
+
+    return assets.map((a) => this.mapContentAssetToLessonFile(a, lid));
+  }
+
+  // Map one content_asset row onto the lesson-file shape produced by
+  // buildLessonFileData (every field present + correctly typed so the strict
+  // Flutter model never crashes). Ids are offset by 1e9 so they never collide
+  // with real lesson_files ids inside the same lesson.
+  private mapContentAssetToLessonFile(
+    a: Record<string, unknown>,
+    lessonIdInt: number,
+  ): Record<string, unknown> {
+    const assetType = toStringValue(a.asset_type).trim().toLowerCase();
+    const videoUrl = toStringValue(a.video_url);
+    let lessonType = assetType;
+    let attachmentType = '';
+    let lessonProvider = toStringValue(a.provider).trim().toLowerCase();
+
+    if (assetType === 'video') {
+      lessonType = 'video';
+      if (lessonProvider === '') {
+        lessonProvider = /youtu/i.test(videoUrl) ? 'youtube' : /vimeo/i.test(videoUrl) ? 'vimeo' : '';
+      }
+    } else if (assetType === 'audio') {
+      lessonType = 'audio';
+      attachmentType = 'audio';
+    } else if (assetType === 'article') {
+      lessonType = 'article';
+      attachmentType = 'article';
+    } else if (assetType === 'document') {
+      lessonType = 'document';
+      attachmentType = /\.pdf($|\?)/i.test(toStringValue(a.attachment)) ? 'pdf' : 'document';
+    }
+
+    const resolvedType = this.resolveLessonType({
+      lesson_type: lessonType,
+      lesson_provider: lessonProvider,
+      attachment_type: attachmentType,
+    });
+    const downloadUrl = toNullableString(a.download_url);
+
+    return {
+      id: 1_000_000_000 + toDbNumber(a.id),
+      sub_title: '',
+      title: toStringValue(a.title),
+      lesson_id: lessonIdInt,
+      parent_file_id: 0,
+      description: toStringValue(a.summary),
+      duration: toStringValue(a.duration),
+      lesson_provider: lessonProvider,
+      video_type: '',
+      video_url: videoUrl,
+      is_downloadable: downloadUrl ? 1 : 0,
+      download_url: downloadUrl ?? '',
+      lesson_type: lessonType,
+      attachment_type: attachmentType,
+      attachment_url: this.toFileUrl(a.attachment),
+      audio_url: this.toFileUrl(a.audio_file),
+      video_url_id: '',
+      video_files: [] as unknown[],
+      quiz_link: '',
+      practice_link: '',
+      progress: 0,
+      vimeo_access_token: '',
+      is_completed: 0,
+      contact_number: '',
+      type: resolvedType,
+    };
+  }
+
   private async getFileProgress(userId: string, lessonFileId: string, lessonType: string): Promise<number> {
     if (lessonType === 'youtube_video' || lessonType === 'vimeo_video' || lessonType === 'audio') {
       const progressRow = await this.prisma.video_progress_status.findFirst({
@@ -1562,6 +1672,17 @@ export class ContentService {
     for (const lessonFile of lessonFiles) {
       lessonFileData.push(await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId));
     }
+
+    // Also surface Content Library assets attached to this lesson (FK or legacy
+    // tag) so library content reaches students. Supplementary: completion and
+    // locking below stay driven by the real lesson_files count.
+    const subjectTitle = await this.getSubjectTitleById(lesson.subject_id);
+    const assetFiles = await this.getContentAssetFilesForLesson(
+      lessonId,
+      toStringValue(lesson.title),
+      subjectTitle,
+    );
+    lessonFileData.push(...assetFiles);
 
     const totalLessonFiles = lessonFiles.length;
     const completedLessonFiles = await this.getCompletedFilesForLesson(lessonId, userId, courseId);

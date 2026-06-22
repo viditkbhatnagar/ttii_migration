@@ -1,4 +1,4 @@
-import type { PrismaClient, content_asset, quiz_question } from '@prisma/client';
+import type { Prisma, PrismaClient, content_asset, quiz_question } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 
 // Legacy lesson_files content was uploaded by the old PHP LMS and lives at
@@ -449,9 +449,26 @@ export class ContentAssetService {
     });
     const lessonIds = lessons.map((l) => l.id);
 
-    const assets = lessonIds.length
+    // Map lesson title → id so legacy content_asset rows that were tagged by
+    // NAME (lesson_tag / subject_tag) but never FK-linked still group under the
+    // right lesson here, matching what the student player now surfaces.
+    const lessonIdByTitle = new Map<string, number>();
+    for (const l of lessons) {
+      const t = (l.title ?? '').trim();
+      if (t !== '' && !lessonIdByTitle.has(t)) lessonIdByTitle.set(t, l.id);
+    }
+    const subjectTitle = (subject.title ?? '').trim();
+    const lessonTitles = [...lessonIdByTitle.keys()];
+
+    const assetWhereOr: Prisma.content_assetWhereInput[] = [];
+    if (lessonIds.length) assetWhereOr.push({ lesson_id: { in: lessonIds } });
+    if (subjectTitle !== '' && lessonTitles.length) {
+      assetWhereOr.push({ lesson_id: null, subject_tag: subjectTitle, lesson_tag: { in: lessonTitles } });
+    }
+
+    const assets = assetWhereOr.length
       ? await this.prisma.content_asset.findMany({
-          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          where: { deleted_at: null, OR: assetWhereOr },
           orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
         })
       : [];
@@ -469,13 +486,16 @@ export class ContentAssetService {
 
     const assetsByLesson = new Map<number, Record<string, unknown>[]>();
     for (const a of assets) {
-      const list = assetsByLesson.get(a.lesson_id!) ?? [];
+      // FK link wins; otherwise resolve the legacy text lesson_tag to a lesson.
+      const targetLessonId = a.lesson_id ?? lessonIdByTitle.get((a.lesson_tag ?? '').trim());
+      if (targetLessonId == null) continue;
+      const list = assetsByLesson.get(targetLessonId) ?? [];
       list.push(
         serializeAsset(a, {
           question_count: a.asset_type === 'quiz' ? countMap.get(a.id) ?? 0 : undefined,
         }),
       );
-      assetsByLesson.set(a.lesson_id!, list);
+      assetsByLesson.set(targetLessonId, list);
     }
 
     return {
