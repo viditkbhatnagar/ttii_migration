@@ -22,6 +22,32 @@
   --color-ttii-status-pending: #F59E0B;
   --color-ttii-status-inactive: #6B7280;
 
+  /* Counsellor Portal — EXACT Lovable (ttiicounsellor.lovable.app) palette.
+     Naji 2026-06-21 (final): the counsellor side mirrors the lovable prototype
+     exactly — deep navy sidebar + orange primary + soft gradient page bg.
+     Scoped via cn-* utilities (used only by counsellor components) so the
+     admin/student/centre portals are unaffected. */
+  --color-cn-navy: #0B2758;
+  --color-cn-navy-2: #1E4D9B;
+  --color-cn-orange: #F47C2C;
+  --color-cn-orange-fg: #E56612;
+  --color-cn-orange-soft: #FFF3EC;
+  --color-cn-sidebar-fg: #D6E4FF;
+  --color-cn-secondary: #EEF4FF;
+  --color-cn-success: #22C55E;
+  --color-cn-success-soft: #DCFCE7;
+  --color-cn-warning: #F59E0B;
+  --color-cn-warning-soft: #FEF3C7;
+  --color-cn-info: #1E4D9B;
+  --color-cn-info-soft: #EEF4FF;
+  --color-cn-destructive: #EF4444;
+  --color-cn-destructive-soft: #FEE2E2;
+  --color-cn-muted-fg: #64748B;
+  --color-cn-border: #E2E8F0;
+  --cn-bg-gradient: linear-gradient(135deg, #F8FAFC 0%, #EEF4FF 50%, #FFF3EC 100%);
+  --cn-shadow-soft: 0 1px 2px rgba(11, 39, 88, 0.06), 0 4px 16px rgba(11, 39, 88, 0.08);
+  --cn-shadow-card: 0 1px 3px rgba(11, 39, 88, 0.06), 0 8px 24px rgba(11, 39, 88, 0.08);
+
   /* shadcn/ui integration */
   --color-background: #F3F6F9;
   --color-foreground: #1a1a2e;

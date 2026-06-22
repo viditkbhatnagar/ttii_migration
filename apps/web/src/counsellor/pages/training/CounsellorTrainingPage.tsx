@@ -90,8 +90,8 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
               className={
                 'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ' +
                 (category === c
-                  ? 'border-ttii-primary bg-ttii-primary text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-ttii-primary/40')
+                  ? 'border-cn-orange bg-cn-orange text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-cn-orange/40')
               }
             >
               {c === 'all' ? 'All' : c}
@@ -113,7 +113,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
               <button
                 type="button"
                 onClick={() => v.videoUrl && window.open(v.videoUrl, '_blank', 'noopener,noreferrer')}
-                className="group relative flex h-32 w-full items-center justify-center bg-gradient-to-br from-ttii-primary to-[#F06543]"
+                className="group relative flex h-32 w-full items-center justify-center bg-gradient-to-br from-cn-navy to-cn-navy-2"
                 aria-label={`Watch ${v.title}`}
               >
                 <PlayCircle aria-hidden="true" className="size-12 text-white/90 transition-transform group-hover:scale-110" />

@@ -33,28 +33,23 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
   const now = useCurrentTime();
 
   const displayName = currentUser?.name || 'Counsellor';
+  const firstName = displayName.split(' ')[0] || displayName;
   const initials = currentUser?.initials ?? 'CN';
   const avatarImage = currentUser?.image ?? '';
 
-  const formattedTime = now.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }) + ', ' + now.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  const formattedTime =
+    now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) +
+    ', ' +
+    now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/60 bg-white/80 px-4 backdrop-blur-md">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-cn-border bg-white/80 px-4 backdrop-blur-md lg:px-8">
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"
           size="icon"
           aria-label="Open navigation menu"
-          className="md:hidden size-11 text-slate-500 hover:text-student-primary"
+          className="size-11 text-slate-500 hover:text-cn-navy md:hidden"
           onClick={toggleMobileSidebar}
         >
           <Menu className="size-5" aria-hidden="true" />
@@ -65,7 +60,7 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
           size="icon"
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-expanded={!sidebarCollapsed}
-          className="hidden md:flex text-student-primary hover:bg-student-primary/10"
+          className="hidden text-cn-navy hover:bg-cn-navy/10 md:flex"
           onClick={toggleSidebar}
         >
           {sidebarCollapsed ? (
@@ -74,28 +69,31 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
             <PanelLeftClose className="size-5" aria-hidden="true" />
           )}
         </Button>
+
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold tracking-tight text-slate-900 lg:text-lg">
+            Welcome back, {firstName}
+          </h1>
+          <p className="hidden text-xs text-cn-muted-fg sm:block">Here&apos;s your admissions snapshot</p>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
         {/* Same-subdomain role switcher (renders only for multi-role users). */}
         <RoleSwitcher session={session} variant="light" />
 
-        <span className="hidden sm:flex text-sm text-slate-500 mr-2">
-          {formattedTime}
-        </span>
+        <span className="mr-2 hidden text-sm text-cn-muted-fg lg:flex">{formattedTime}</span>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               aria-label={`Account menu for ${displayName}`}
-              className="ml-1 gap-2 text-student-text hover:bg-student-primary/10"
+              className="ml-1 gap-2 text-slate-700 hover:bg-cn-navy/5"
             >
               <Avatar className="size-8">
                 {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
-                <AvatarFallback className="bg-gradient-to-br from-student-accent to-student-accent/70 text-xs text-white font-semibold">
-                  {initials}
-                </AvatarFallback>
+                <AvatarFallback className="bg-cn-orange text-xs font-semibold text-white">{initials}</AvatarFallback>
               </Avatar>
               <span className="hidden text-sm font-medium sm:inline">{displayName}</span>
             </Button>

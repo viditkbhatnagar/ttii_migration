@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, type LucideIcon } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
+import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { EChart } from '@/components/EChart';
 
-// TTII brand palette — match the admin dashboard exactly. Shared across all
-// counsellor analytics surfaces (Dashboard, Performance, Courses).
-export const BRAND_PRIMARY = '#8F2774';
-export const BRAND_ACCENT = '#F06543';
+// EXACT Lovable (ttiicounsellor.lovable.app) palette — deep navy + orange.
+export const CN_NAVY = '#0B2758';
+export const CN_ORANGE = '#F47C2C';
+// Back-compat aliases (older imports).
+export const BRAND_PRIMARY = CN_NAVY;
+export const BRAND_ACCENT = CN_ORANGE;
 
 export function asRecord(value: unknown): Record<string, unknown> {
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -16,18 +19,18 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-/* ─── Section title (matches admin) ─────────────────────────── */
+/* ─── Section title (Lovable look: orange accent + navy heading) ─ */
 
 export function SectionTitle({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span aria-hidden="true" className="block h-5 w-1 rounded-full bg-gradient-to-b from-[#8F2774] to-[#F06543]" />
-      <h2 className="text-base font-semibold text-[#8F2774]">{title}</h2>
+      <span aria-hidden="true" className="block h-5 w-1 rounded-full bg-cn-orange" />
+      <h2 className="text-base font-semibold text-cn-navy">{title}</h2>
     </div>
   );
 }
 
-/* ─── KPI card ──────────────────────────────────────────────── */
+/* ─── KPI card (exact prototype: tone chip + delta pill + progress) ─ */
 
 export type KpiTone = 'primary' | 'accent' | 'success' | 'info' | 'warning';
 
@@ -38,27 +41,42 @@ export interface KpiCardProps {
   tone: KpiTone;
   sub: string;
   progress?: number;
+  delta?: number;
 }
 
 const TONE_MAP: Record<KpiTone, { chip: string; bar: string }> = {
-  primary: { chip: 'bg-ttii-primary/10 text-ttii-primary', bar: 'bg-ttii-primary' },
-  accent: { chip: 'bg-[#F06543]/10 text-[#F06543]', bar: 'bg-[#F06543]' },
-  success: { chip: 'bg-emerald-50 text-emerald-600', bar: 'bg-emerald-500' },
-  info: { chip: 'bg-blue-50 text-[rgb(27,97,197)]', bar: 'bg-[rgb(27,97,197)]' },
-  warning: { chip: 'bg-amber-50 text-amber-600', bar: 'bg-amber-500' },
+  primary: { chip: 'bg-cn-orange-soft text-cn-orange-fg', bar: 'bg-cn-orange' },
+  accent: { chip: 'bg-cn-orange-soft text-cn-orange-fg', bar: 'bg-cn-orange' },
+  success: { chip: 'bg-cn-success-soft text-cn-success', bar: 'bg-cn-success' },
+  info: { chip: 'bg-cn-info-soft text-cn-info', bar: 'bg-cn-info' },
+  warning: { chip: 'bg-cn-warning-soft text-amber-700', bar: 'bg-cn-warning' },
 };
 
-export function KpiCard({ label, value, icon: Icon, tone, sub, progress }: KpiCardProps) {
+export function KpiCard({ label, value, icon: Icon, tone, sub, progress, delta }: KpiCardProps) {
   const t = TONE_MAP[tone];
+  const up = (delta ?? 0) >= 0;
   return (
-    <Card className="border-slate-200 bg-white transition-shadow hover:shadow-md">
+    <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] transition-shadow hover:shadow-[var(--cn-shadow-card)]">
       <CardContent className="p-5">
-        <div aria-hidden="true" className={`flex size-10 items-center justify-center rounded-xl ${t.chip}`}>
-          <Icon className="size-5" />
+        <div className="flex items-start justify-between">
+          <div aria-hidden="true" className={`flex size-10 items-center justify-center rounded-lg ${t.chip}`}>
+            <Icon className="size-5" />
+          </div>
+          {delta !== undefined ? (
+            <span
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium',
+                up ? 'bg-cn-success-soft text-cn-success' : 'bg-cn-destructive-soft text-cn-destructive',
+              )}
+            >
+              {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+              {Math.abs(delta)}%
+            </span>
+          ) : null}
         </div>
-        <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-cn-muted-fg">{label}</p>
         <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value}</p>
-        <p className="mt-0.5 text-xs text-slate-400">{sub}</p>
+        <p className="mt-0.5 text-xs text-cn-muted-fg">{sub}</p>
         {progress !== undefined ? (
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div className={`h-full rounded-full ${t.bar}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
@@ -87,7 +105,7 @@ export function StageBadge({ stage }: { stage: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${s.cls}`}>{s.label}</span>;
 }
 
-/* ─── Admissions / two-series trend chart ───────────────────── */
+/* ─── Admissions / two-series trend chart (navy + orange) ───── */
 
 export interface TrendData {
   labels: string[];
@@ -118,7 +136,7 @@ export function AdmissionsChart({
       },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(15,23,42,0.92)',
+        backgroundColor: 'rgba(11,39,88,0.94)',
         borderWidth: 0,
         textStyle: { color: '#f8fafc', fontSize: 12 },
         axisPointer: { lineStyle: { color: '#cbd5e1' } },
@@ -146,8 +164,8 @@ export function AdmissionsChart({
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
-          itemStyle: { color: BRAND_PRIMARY, borderColor: '#ffffff', borderWidth: 2 },
-          lineStyle: { color: BRAND_PRIMARY, width: 2.4 },
+          itemStyle: { color: CN_NAVY, borderColor: '#ffffff', borderWidth: 2 },
+          lineStyle: { color: CN_NAVY, width: 2.4 },
           areaStyle: {
             color: {
               type: 'linear',
@@ -156,8 +174,8 @@ export function AdmissionsChart({
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(143,39,116,0.30)' },
-                { offset: 1, color: 'rgba(143,39,116,0.02)' },
+                { offset: 0, color: 'rgba(11,39,88,0.22)' },
+                { offset: 1, color: 'rgba(11,39,88,0.02)' },
               ],
             },
           },
@@ -169,8 +187,8 @@ export function AdmissionsChart({
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
-          itemStyle: { color: BRAND_ACCENT, borderColor: '#ffffff', borderWidth: 2 },
-          lineStyle: { color: BRAND_ACCENT, width: 2.4 },
+          itemStyle: { color: CN_ORANGE, borderColor: '#ffffff', borderWidth: 2 },
+          lineStyle: { color: CN_ORANGE, width: 2.4 },
           areaStyle: {
             color: {
               type: 'linear',
@@ -179,8 +197,8 @@ export function AdmissionsChart({
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(240,101,67,0.28)' },
-                { offset: 1, color: 'rgba(240,101,67,0.02)' },
+                { offset: 0, color: 'rgba(244,124,44,0.26)' },
+                { offset: 1, color: 'rgba(244,124,44,0.02)' },
               ],
             },
           },
@@ -196,7 +214,7 @@ export function AdmissionsChart({
   return <EChart option={option} className="h-64 w-full" ariaLabel="Trend over the last 6 months" />;
 }
 
-/* ─── Achievement gauge ─────────────────────────────────────── */
+/* ─── Achievement gauge (orange ring) ───────────────────────── */
 
 export function AchievementGauge({ pct }: { pct: number }) {
   const option = useMemo<EChartsOption>(
@@ -210,7 +228,7 @@ export function AchievementGauge({ pct }: { pct: number }) {
           center: ['50%', '50%'],
           min: 0,
           max: 100,
-          progress: { show: true, width: 12, roundCap: true, itemStyle: { color: BRAND_PRIMARY } },
+          progress: { show: true, width: 12, roundCap: true, itemStyle: { color: CN_ORANGE } },
           axisLine: { lineStyle: { width: 12, color: [[1, '#f1f5f9']] } },
           pointer: { show: false },
           axisTick: { show: false },
@@ -221,7 +239,7 @@ export function AchievementGauge({ pct }: { pct: number }) {
             valueAnimation: true,
             offsetCenter: [0, 0],
             formatter: (v) => `${Math.round(Number(v))}%`,
-            color: BRAND_PRIMARY,
+            color: CN_NAVY,
             fontSize: 24,
             fontWeight: 700,
           },

@@ -42,6 +42,7 @@ interface CounsellorSidebarProps {
   onLogout?: () => void;
 }
 
+// Lovable prototype sidebar — deep navy (#0B2758), orange (#F47C2C) active item.
 function SidebarNavItem({
   item,
   isActive,
@@ -61,28 +62,23 @@ function SidebarNavItem({
       aria-current={isActive ? 'page' : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={cn(
-        // Match the admin sidebar theme: light surface, dark text, blue active.
-        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+        'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
         isActive
-          ? 'bg-ttii-sidebar-active/10 text-ttii-sidebar-active'
-          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+          ? 'bg-cn-orange text-white shadow-sm'
+          : 'text-cn-sidebar-fg hover:bg-cn-navy-2 hover:text-white',
         collapsed && 'justify-center px-2',
       )}
       onClick={() => onNavigate(item.href)}
       title={collapsed ? item.label : undefined}
     >
-      {Icon ? <Icon aria-hidden="true" className="size-5 shrink-0" /> : null}
+      {Icon ? <Icon aria-hidden="true" className="size-4 shrink-0" /> : null}
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </button>
   );
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
-      {children}
-    </p>
-  );
+  return <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-cn-sidebar-fg/50">{children}</p>;
 }
 
 function UserFooter({
@@ -101,7 +97,7 @@ function UserFooter({
       <div className="flex flex-col items-center gap-2">
         <div
           aria-label={displayName}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ttii-sidebar-active text-white font-bold text-xs"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-cn-orange text-xs font-bold text-white"
         >
           {initials}
         </div>
@@ -110,7 +106,7 @@ function UserFooter({
             variant="ghost"
             size="icon"
             aria-label="Log out"
-            className="text-gray-500 hover:bg-red-50 hover:text-red-600"
+            className="text-cn-sidebar-fg hover:bg-white/10 hover:text-white"
             onClick={onLogout}
             title="Log out"
           >
@@ -123,23 +119,23 @@ function UserFooter({
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-3 p-3 rounded-xl bg-gray-50">
+      <div className="mb-3 flex items-center gap-3 rounded-xl bg-white/5 p-3">
         <div
           aria-hidden="true"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ttii-sidebar-active text-white font-bold text-sm"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-cn-orange text-sm font-bold text-white"
         >
           {initials}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
-          <p className="text-xs text-gray-500 truncate">Counsellor Portal</p>
+          <p className="truncate text-sm font-semibold text-white">{displayName}</p>
+          <p className="truncate text-xs text-cn-sidebar-fg/70">Counsellor Portal</p>
         </div>
       </div>
       {onLogout ? (
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-gray-600 hover:bg-red-50 hover:text-red-600"
+          className="w-full justify-start text-cn-sidebar-fg hover:bg-white/10 hover:text-white"
           onClick={onLogout}
         >
           <LogOut className="mr-2 size-4" aria-hidden="true" />
@@ -176,7 +172,7 @@ function SidebarNav({
         />
       ))}
 
-      <div aria-hidden="true" className="my-4 border-t border-gray-200" />
+      <div aria-hidden="true" className="my-4 border-t border-cn-navy-2" />
 
       {!collapsed ? <SectionLabel>Tools</SectionLabel> : null}
       {toolsItems.map((item) => (
@@ -192,24 +188,25 @@ function SidebarNav({
   );
 }
 
+// Navy header with the orange app mark + TTII wordmark + tagline (Lovable look).
 function SidebarLogo({ collapsed, onNavigate }: { collapsed: boolean; onNavigate: (href: string) => void }) {
   return (
-    <div className={cn('flex h-20 items-center border-b border-gray-200 bg-white px-4', collapsed && 'justify-center px-2')}>
+    <div className={cn('flex h-16 items-center gap-2 border-b border-cn-navy-2 px-4', collapsed && 'justify-center px-2')}>
       <button
         type="button"
         onClick={() => onNavigate('/counsellor/dashboard')}
         aria-label="Go to counsellor dashboard"
-        className="flex items-center hover:opacity-95 transition-opacity"
+        className="flex items-center gap-2 transition-opacity hover:opacity-95"
       >
-        {collapsed ? (
-          <img src="/logos/ttii-icon-color.svg" alt="TTII" className="h-9 w-auto" />
-        ) : (
-          <img
-            src="/logos/ttii-full-color.svg"
-            alt="Teachers' Training Institute of India"
-            className="h-10 w-auto max-w-full"
-          />
-        )}
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-cn-orange text-white">
+          <GraduationCap className="size-5" aria-hidden="true" />
+        </span>
+        {!collapsed ? (
+          <span className="text-left leading-tight">
+            <span className="block text-sm font-semibold text-white">TTII</span>
+            <span className="block text-[10px] text-cn-sidebar-fg/70">Empower • Educate • Evolve</span>
+          </span>
+        ) : null}
       </button>
     </div>
   );
@@ -224,17 +221,17 @@ export function CounsellorSidebar({ pathname, session: _session, onNavigate, onL
     <aside
       aria-label="Counsellor navigation"
       className={cn(
-        'hidden md:flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-200',
+        'hidden h-screen flex-col border-r border-cn-navy-2 bg-cn-navy transition-all duration-200 md:flex',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-64',
       )}
     >
       <SidebarLogo collapsed={sidebarCollapsed} onNavigate={onNavigate} />
 
-      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
+      <ScrollArea className="min-h-0 flex-1 px-3 py-6">
         <SidebarNav pathname={pathname} collapsed={sidebarCollapsed} onNavigate={onNavigate} />
       </ScrollArea>
 
-      <div className="p-4 border-t border-gray-200">
+      <div className="border-t border-cn-navy-2 p-4">
         <UserFooter displayName={displayName} initials={initials} onLogout={onLogout} collapsed={sidebarCollapsed} />
       </div>
     </aside>
@@ -247,14 +244,14 @@ export function CounsellorSidebarMobile({ pathname, session: _session, onNavigat
   const initials = currentUser?.initials ?? 'CN';
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-cn-navy">
       <SidebarLogo collapsed={false} onNavigate={onNavigate} />
 
-      <ScrollArea className="flex-1 min-h-0 py-6 px-3">
+      <ScrollArea className="min-h-0 flex-1 px-3 py-6">
         <SidebarNav pathname={pathname} collapsed={false} onNavigate={onNavigate} />
       </ScrollArea>
 
-      <div className="p-4 border-t border-gray-200">
+      <div className="border-t border-cn-navy-2 p-4">
         <UserFooter displayName={displayName} initials={initials} onLogout={onLogout} collapsed={false} />
       </div>
     </div>

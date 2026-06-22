@@ -91,7 +91,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="border-slate-200 bg-white">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)]">
           <CardContent className="p-5">
             <SectionTitle title="Target Progress" />
             <div className="mt-4 flex flex-col items-center">
@@ -114,11 +114,11 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 bg-white lg:col-span-2">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] lg:col-span-2">
           <CardContent className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <SectionTitle title="Admissions Over Time" />
-              <span className="rounded-full bg-[#f5f3ff] px-3 py-1 text-xs font-medium text-[#8F2774]">Last 6 months</span>
+              <span className="rounded-full bg-cn-orange-soft px-3 py-1 text-xs font-medium text-cn-orange-fg">Last 6 months</span>
             </div>
             <AdmissionsChart trend={trend} hasData={hasTrend} />
           </CardContent>

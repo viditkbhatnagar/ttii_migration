@@ -59,9 +59,9 @@ function CoursePerformanceList({ rows }: { rows: CoursePerfRow[] }) {
           </div>
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-ttii-primary" style={{ width: `${Math.min(100, r.conversionPct)}%` }} />
+              <div className="h-full rounded-full bg-cn-orange" style={{ width: `${Math.min(100, r.conversionPct)}%` }} />
             </div>
-            <span className="w-10 shrink-0 text-right text-[11px] font-semibold text-ttii-primary">{r.conversionPct}%</span>
+            <span className="w-10 shrink-0 text-right text-[11px] font-semibold text-cn-orange">{r.conversionPct}%</span>
           </div>
         </div>
       ))}
@@ -123,15 +123,15 @@ function QuickActions({ onNavigate }: { onNavigate: (href: string) => void }) {
             key={a.href}
             type="button"
             onClick={() => onNavigate(a.href)}
-            className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition-colors hover:border-ttii-primary/40 hover:bg-ttii-primary/5"
+            className="group flex items-center justify-between rounded-xl border rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] px-3.5 py-3 text-left transition-colors hover:border-cn-orange/40 hover:bg-cn-orange/5"
           >
             <span className="flex items-center gap-2.5">
-              <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-lg bg-ttii-primary/10 text-ttii-primary">
+              <span aria-hidden="true" className="flex size-8 items-center justify-center rounded-lg bg-cn-orange/10 text-cn-orange">
                 <Icon className="size-4" />
               </span>
               <span className="text-sm font-medium text-slate-700">{a.label}</span>
             </span>
-            <ArrowRight className="size-4 text-slate-300 transition-colors group-hover:text-ttii-primary" />
+            <ArrowRight className="size-4 text-slate-300 transition-colors group-hover:text-cn-orange" />
           </button>
         );
       })}
@@ -229,7 +229,7 @@ export default function CounsellorDashboardPage({ api, session, onNavigate }: Co
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="border-slate-200 bg-white">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)]">
           <CardContent className="p-5">
             <SectionTitle title="Target Progress" />
             <div className="mt-4 flex flex-col items-center">
@@ -252,11 +252,11 @@ export default function CounsellorDashboardPage({ api, session, onNavigate }: Co
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 bg-white lg:col-span-2">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] lg:col-span-2">
           <CardContent className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <SectionTitle title="Admissions Over Time" />
-              <span className="rounded-full bg-[#f5f3ff] px-3 py-1 text-xs font-medium text-[#8F2774]">Last 6 months</span>
+              <span className="rounded-full bg-cn-orange-soft px-3 py-1 text-xs font-medium text-cn-orange-fg">Last 6 months</span>
             </div>
             <AdmissionsChart trend={trend} hasData={hasTrend} />
           </CardContent>
@@ -264,7 +264,7 @@ export default function CounsellorDashboardPage({ api, session, onNavigate }: Co
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="border-slate-200 bg-white lg:col-span-2">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] lg:col-span-2">
           <CardContent className="p-5">
             <SectionTitle title="Course Performance" />
             <div className="mt-4">
@@ -273,7 +273,7 @@ export default function CounsellorDashboardPage({ api, session, onNavigate }: Co
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 bg-white">
+        <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)]">
           <CardContent className="p-5">
             <SectionTitle title="Quick Actions" />
             <div className="mt-4">
@@ -283,7 +283,7 @@ export default function CounsellorDashboardPage({ api, session, onNavigate }: Co
         </Card>
       </div>
 
-      <Card className="border-slate-200 bg-white">
+      <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)]">
         <CardContent className="p-5">
           <div className="mb-4">
             <SectionTitle title="Application Pipeline Snapshot" />

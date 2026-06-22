@@ -111,7 +111,7 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((c) => (
             <div key={c.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white transition-shadow hover:shadow-md">
-              <div className="flex h-20 items-end justify-between bg-gradient-to-br from-ttii-primary to-[#F06543] p-4">
+              <div className="flex h-20 items-end justify-between bg-gradient-to-br from-cn-navy to-cn-navy-2 p-4">
                 <span className="font-mono text-xs font-medium text-white/90">{c.code || '—'}</span>
                 <BookOpen aria-hidden="true" className="size-5 text-white/80" />
               </div>
@@ -128,7 +128,7 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
                   ) : null}
                 </div>
                 <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                  <span className="text-sm font-bold text-ttii-primary">{formatPrice(c.price)}</span>
+                  <span className="text-sm font-bold text-cn-orange">{formatPrice(c.price)}</span>
                   <span className="text-[11px] text-slate-400">
                     {c.applications} app{c.applications === 1 ? '' : 's'} · {c.enrollments} enrolled
                   </span>

@@ -124,8 +124,8 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-student-text">Settings</h1>
-        <p className="mt-1 text-sm text-student-muted">Update your profile and password.</p>
+        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+        <p className="mt-1 text-sm text-cn-muted-fg">Update your profile and password.</p>
       </div>
 
       {loadError ? (
@@ -136,12 +136,12 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
 
       <form onSubmit={(e) => void onSaveProfile(e)} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
-          <div className="rounded-lg bg-student-primary/10 p-2 text-student-primary">
+          <div className="rounded-lg bg-cn-orange/10 p-2 text-cn-orange">
             <User className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-student-text">Profile</h2>
-            <p className="text-xs text-student-muted">Your name and contact details.</p>
+            <h2 className="text-base font-semibold text-slate-900">Profile</h2>
+            <p className="text-xs text-cn-muted-fg">Your name and contact details.</p>
           </div>
         </div>
 
@@ -165,7 +165,7 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
         </div>
 
         <div className="mt-6 flex justify-end">
-          <Button type="submit" className="bg-student-primary text-white hover:bg-student-primary/90" disabled={profileSaving}>
+          <Button type="submit" className="bg-cn-orange text-white hover:bg-cn-orange/90" disabled={profileSaving}>
             {profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Save Profile
           </Button>
@@ -174,12 +174,12 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
 
       <form onSubmit={(e) => void onChangePassword(e)} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
-          <div className="rounded-lg bg-student-primary/10 p-2 text-student-primary">
+          <div className="rounded-lg bg-cn-orange/10 p-2 text-cn-orange">
             <KeyRound className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-student-text">Change Password</h2>
-            <p className="text-xs text-student-muted">Pick a new password — at least 8 characters.</p>
+            <h2 className="text-base font-semibold text-slate-900">Change Password</h2>
+            <p className="text-xs text-cn-muted-fg">Pick a new password — at least 8 characters.</p>
           </div>
         </div>
 
@@ -195,7 +195,7 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
         </div>
 
         <div className="mt-6 flex justify-end">
-          <Button type="submit" className="bg-student-primary text-white hover:bg-student-primary/90" disabled={passwordSaving}>
+          <Button type="submit" className="bg-cn-orange text-white hover:bg-cn-orange/90" disabled={passwordSaving}>
             {passwordSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Update Password
           </Button>

@@ -24,7 +24,7 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
   }, [closeMobileSidebar, onNavigate]);
 
   return (
-    <div className="student-dashboard flex h-screen overflow-hidden bg-student-bg">
+    <div className="student-dashboard flex h-screen overflow-hidden bg-[#F8FAFC]">
       <CounsellorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
 
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
@@ -35,10 +35,15 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300">
         <CounsellorNavbar session={session} onNavigate={handleNavigate} onLogout={onLogout} />
-        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4 md:px-6">
+        <main
+          id="main-content"
+          aria-label="Main content"
+          className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4 md:px-6"
+          style={{ background: 'var(--cn-bg-gradient)' }}
+        >
           <CounsellorRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
-        <footer className="border-t border-slate-200/60 px-6 py-3 text-center text-xs text-student-muted">
+        <footer className="border-t border-cn-border/60 px-6 py-3 text-center text-xs text-cn-muted-fg">
           2026 &copy; Teacher&apos;s Training Institute of India.
         </footer>
       </div>
