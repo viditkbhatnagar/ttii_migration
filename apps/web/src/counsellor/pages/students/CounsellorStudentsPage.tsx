@@ -1,15 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  ArrowUpRight,
-  BookOpen,
-  CalendarPlus,
-  CalendarRange,
-  Download,
-  Eye,
-  Search,
-  Users,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarPlus, CalendarRange, Download, Eye, Search, Users } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,18 +13,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
-import { cn } from '@/lib/utils';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
-
-type Tone = 'primary' | 'success' | 'info';
-
-const toneMap: Record<Tone, { bg: string; fg: string; bar: string }> = {
-  primary: { bg: 'bg-primary-soft', fg: 'text-accent-foreground', bar: 'bg-primary' },
-  success: { bg: 'bg-success-soft', fg: 'text-success', bar: 'bg-success' },
-  info: { bg: 'bg-info-soft', fg: 'text-info', bar: 'bg-info' },
-};
+import { KpiCard } from '../../components/CounsellorWidgets.js';
 
 const RANGE_DAYS: Record<string, number> = { '30': 30, '90': 90, '180': 180 };
 const MS_PER_DAY = 86_400_000;
@@ -56,45 +38,6 @@ function initials(name: string): string {
       .join('')
       .slice(0, 2)
       .toUpperCase() || '—'
-  );
-}
-
-interface KpiCardProps {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  tone: Tone;
-  sub: string;
-  progress?: number;
-}
-
-function KpiCard({ label, value, icon: Icon, tone, sub, progress }: KpiCardProps) {
-  const t = toneMap[tone];
-  return (
-    <Card className="p-5 shadow-[var(--shadow-soft)] border-border/70 hover:shadow-[var(--shadow-card)] transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className={cn('h-10 w-10 rounded-lg flex items-center justify-center', t.bg, t.fg)}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
-          <ArrowUpRight className="h-3 w-3" />
-          Live
-        </span>
-      </div>
-      <div className="mt-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
-      </div>
-      {progress !== undefined && (
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn('h-full rounded-full transition-all', t.bar)}
-            style={{ width: `${Math.min(100, progress)}%` }}
-          />
-        </div>
-      )}
-    </Card>
   );
 }
 

@@ -42,6 +42,7 @@ import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asNumber, asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
+import { KpiCard } from '../../components/CounsellorWidgets.js';
 
 // EXACT Lovable chart palette — oklch substituted with hex (per the brief).
 const INDIGO = '#4f46e5';
@@ -55,52 +56,6 @@ function asRecord(value: unknown): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
-}
-
-/* ─── KPI card (delta badge OMITTED — no MoM data) ──────────── */
-
-type Tone = 'primary' | 'success' | 'warning' | 'info';
-
-const toneMap: Record<Tone, { bg: string; fg: string; bar: string }> = {
-  primary: { bg: 'bg-primary-soft', fg: 'text-accent-foreground', bar: 'bg-primary' },
-  success: { bg: 'bg-success-soft', fg: 'text-success', bar: 'bg-success' },
-  warning: { bg: 'bg-warning-soft', fg: 'text-warning-foreground', bar: 'bg-warning' },
-  info: { bg: 'bg-info-soft', fg: 'text-info', bar: 'bg-info' },
-};
-
-interface KpiCardProps {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  tone: Tone;
-  progress?: number;
-  sub?: string;
-}
-
-function KpiCard({ label, value, icon: Icon, tone, progress, sub }: KpiCardProps) {
-  const t = toneMap[tone];
-  return (
-    <Card className="p-5 shadow-[var(--shadow-soft)] border-border/70 hover:shadow-[var(--shadow-card)] transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${t.bg} ${t.fg}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-      <div className="mt-4">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
-        {sub ? <p className="text-xs text-muted-foreground mt-0.5">{sub}</p> : null}
-      </div>
-      {progress !== undefined ? (
-        <div className="mt-4 h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${t.bar}`}
-            style={{ width: `${Math.min(100, progress)}%` }}
-          />
-        </div>
-      ) : null}
-    </Card>
-  );
 }
 
 /* ─── Target progress ring (SVG, indigo→violet gradient) ────── */

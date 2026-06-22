@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { ArrowDownRight, ArrowUpRight, type LucideIcon } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { cn } from '@/lib/utils';
-import { Card, CardContent } from '@/components/ui/card';
 import { EChart } from '@/components/EChart';
 
 // EXACT Lovable (ttiicounsellor.lovable.app) palette — deep navy + orange.
@@ -32,58 +31,60 @@ export function SectionTitle({ title }: { title: string }) {
 
 /* ─── KPI card (exact prototype: tone chip + delta pill + progress) ─ */
 
-export type KpiTone = 'primary' | 'accent' | 'success' | 'info' | 'warning';
+export type KpiTone = 'primary' | 'accent' | 'success' | 'info' | 'warning' | 'destructive';
 
 export interface KpiCardProps {
   label: string;
   value: string;
   icon: LucideIcon;
   tone: KpiTone;
-  sub: string;
+  sub?: string;
   progress?: number;
   delta?: number;
 }
 
-const TONE_MAP: Record<KpiTone, { chip: string; bar: string }> = {
-  primary: { chip: 'bg-cn-orange-soft text-cn-orange-fg', bar: 'bg-cn-orange' },
-  accent: { chip: 'bg-cn-orange-soft text-cn-orange-fg', bar: 'bg-cn-orange' },
-  success: { chip: 'bg-cn-success-soft text-cn-success', bar: 'bg-cn-success' },
-  info: { chip: 'bg-cn-info-soft text-cn-info', bar: 'bg-cn-info' },
-  warning: { chip: 'bg-cn-warning-soft text-amber-700', bar: 'bg-cn-warning' },
+const TONE_MAP: Record<KpiTone, { bg: string; fg: string; bar: string }> = {
+  primary: { bg: 'bg-primary-soft', fg: 'text-accent-foreground', bar: 'bg-primary' },
+  accent: { bg: 'bg-primary-soft', fg: 'text-accent-foreground', bar: 'bg-primary' },
+  success: { bg: 'bg-success-soft', fg: 'text-success', bar: 'bg-success' },
+  warning: { bg: 'bg-warning-soft', fg: 'text-warning', bar: 'bg-warning' },
+  info: { bg: 'bg-info-soft', fg: 'text-info', bar: 'bg-info' },
+  destructive: { bg: 'bg-destructive-soft', fg: 'text-destructive', bar: 'bg-destructive' },
 };
 
+// Exact Lovable KpiCard (ttiicounsellor.lovable.app) — ONE card shared across
+// every counsellor module so all KPI cards are identical. `delta` is optional;
+// the up/down pill renders only when a real value is supplied (no fabrication).
 export function KpiCard({ label, value, icon: Icon, tone, sub, progress, delta }: KpiCardProps) {
   const t = TONE_MAP[tone];
   const up = (delta ?? 0) >= 0;
   return (
-    <Card className="rounded-[14px] border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)] transition-shadow hover:shadow-[var(--cn-shadow-card)]">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div aria-hidden="true" className={`flex size-10 items-center justify-center rounded-lg ${t.chip}`}>
-            <Icon className="size-5" />
-          </div>
-          {delta !== undefined ? (
-            <span
-              className={cn(
-                'inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium',
-                up ? 'bg-cn-success-soft text-cn-success' : 'bg-cn-destructive-soft text-cn-destructive',
-              )}
-            >
-              {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-              {Math.abs(delta)}%
-            </span>
-          ) : null}
+    <div className="rounded-xl border border-border/70 bg-card p-5 text-card-foreground shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-card)]">
+      <div className="flex items-start justify-between">
+        <div aria-hidden="true" className={cn('flex size-10 items-center justify-center rounded-lg', t.bg, t.fg)}>
+          <Icon className="size-5" />
         </div>
-        <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-cn-muted-fg">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value}</p>
-        <p className="mt-0.5 text-xs text-cn-muted-fg">{sub}</p>
-        {progress !== undefined ? (
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div className={`h-full rounded-full ${t.bar}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
-          </div>
+        {delta !== undefined ? (
+          <span
+            className={cn(
+              'inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium',
+              up ? 'bg-success-soft text-success' : 'bg-destructive/10 text-destructive',
+            )}
+          >
+            {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+            {Math.abs(delta)}%
+          </span>
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+      <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
+      {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+      {progress !== undefined ? (
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className={cn('h-full rounded-full transition-all', t.bar)} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
