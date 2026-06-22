@@ -16,8 +16,11 @@ import {
   CheckCircle2,
   ClipboardList,
   CreditCard,
+  FileCheck,
+  FilePlus,
   FileText,
   GraduationCap,
+  MessageSquare,
   Percent,
   PhoneCall,
   Target,
@@ -221,7 +224,7 @@ function CoursePerformance({ data }: { data: CourseRow[] }) {
               cursor={{ fill: '#f1f5f9' }}
               contentStyle={{ borderRadius: 12, border: `1px solid ${GRID}`, fontSize: 12 }}
             />
-            <Bar dataKey="admissions" radius={[8, 8, 0, 0]}>
+            <Bar dataKey="admissions" radius={[8, 8, 0, 0]} maxBarSize={72}>
               {data.map((row, i) => (
                 <Cell key={row.course} fill={COURSE_COLORS[i % COURSE_COLORS.length] ?? INDIGO} />
               ))}
@@ -258,22 +261,35 @@ interface ActivityRow {
   createdAt: string;
 }
 
-const activityIconByType: Record<string, { icon: LucideIcon; tone: string }> = {
-  created: { icon: FileText, tone: 'bg-primary-soft text-accent-foreground' },
-  application_created: { icon: FileText, tone: 'bg-primary-soft text-accent-foreground' },
-  lead_created: { icon: UserPlus, tone: 'bg-primary-soft text-accent-foreground' },
-  link_sent: { icon: CreditCard, tone: 'bg-warning-soft text-warning-foreground' },
-  payment_link_sent: { icon: CreditCard, tone: 'bg-warning-soft text-warning-foreground' },
-  marked_paid: { icon: CreditCard, tone: 'bg-success-soft text-success' },
-  payment_received: { icon: CreditCard, tone: 'bg-success-soft text-success' },
-  form_submitted: { icon: FileText, tone: 'bg-info-soft text-info' },
-  approved: { icon: CheckCircle2, tone: 'bg-success-soft text-success' },
-  rejected: { icon: UserMinus, tone: 'bg-destructive-soft text-destructive' },
-  follow_up: { icon: PhoneCall, tone: 'bg-info-soft text-info' },
-};
+// Real application_events carry raw strings (e.g. "Verified doc:3",
+// "Verified basic"). Pick a meaningful icon + colored tile from keywords in
+// the event type/title so the feed reads like the Lovable prototype's
+// (colored tiles) instead of a wall of identical grey rows.
+function activityVisual(type: string, title: string): { icon: LucideIcon; tone: string } {
+  const s = `${type} ${title}`.toLowerCase();
+  if (/paid|payment|fee|collect|invoice/.test(s)) return { icon: CreditCard, tone: 'bg-warning-soft text-warning-foreground' };
+  if (/approv|enrol|convert/.test(s)) return { icon: CheckCircle2, tone: 'bg-success-soft text-success' };
+  if (/reject|declin|cancel/.test(s)) return { icon: UserMinus, tone: 'bg-destructive-soft text-destructive' };
+  if (/verif|\bdoc\b|document|qualif|basic/.test(s)) return { icon: FileCheck, tone: 'bg-info-soft text-info' };
+  if (/form|submit/.test(s)) return { icon: FileText, tone: 'bg-info-soft text-info' };
+  if (/call|follow|remind|contact/.test(s)) return { icon: PhoneCall, tone: 'bg-info-soft text-info' };
+  if (/whatsapp|message|\bsms\b|notif/.test(s)) return { icon: MessageSquare, tone: 'bg-muted text-foreground' };
+  if (/lead/.test(s)) return { icon: UserPlus, tone: 'bg-primary-soft text-accent-foreground' };
+  return { icon: FilePlus, tone: 'bg-primary-soft text-accent-foreground' };
+}
 
-function activityIcon(type: string): { icon: LucideIcon; tone: string } {
-  return activityIconByType[type] ?? { icon: FileText, tone: 'bg-muted text-foreground' };
+// Turn raw event descriptions into human-readable titles.
+function humanizeActivity(title: string): string {
+  const t = title.trim();
+  if (t === '') return 'Activity';
+  if (/verified\s+doc/i.test(t)) return 'Document verified';
+  if (/verified\s+basic/i.test(t)) return 'Basic details verified';
+  if (/verified\s+qualif/i.test(t)) return 'Qualification verified';
+  if (/approved?\s*&?\s*(and\s+)?enroll/i.test(t)) return 'Application approved & enrolled';
+  if (/payment\s+link/i.test(t)) return 'Payment link sent';
+  // Strip a trailing ":N" index and capitalise.
+  const cleaned = t.replace(/\s*:\s*\d+\s*$/, '');
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 function relativeTime(iso: string): string {
@@ -305,7 +321,7 @@ function RecentActivity({ activities }: { activities: ActivityRow[] }) {
       ) : (
         <ul className="space-y-4">
           {activities.map((a) => {
-            const { icon: Icon, tone } = activityIcon(a.type);
+            const { icon: Icon, tone } = activityVisual(a.type, a.title);
             return (
               <li key={a.id} className="flex items-start gap-3">
                 <span className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${tone}`}>
@@ -313,7 +329,7 @@ function RecentActivity({ activities }: { activities: ActivityRow[] }) {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium truncate">{a.title}</p>
+                    <p className="text-sm font-medium truncate">{humanizeActivity(a.title)}</p>
                     <span className="text-xs text-muted-foreground whitespace-nowrap">
                       {relativeTime(a.createdAt)}
                     </span>
@@ -522,7 +538,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
 
   if (error) {
     return (
-      <div className="p-4 lg:p-8">
+      <div>
         <Card className="p-6 shadow-[var(--shadow-soft)] border-border/70">
           <p className="text-sm font-semibold text-destructive">Failed to load dashboard</p>
           <p className="text-xs text-muted-foreground mt-1">{error}</p>
@@ -547,7 +563,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
   const monthName = new Date().toLocaleString('en-IN', { month: 'long' });
 
   return (
-    <main className="flex-1 p-4 lg:p-8 space-y-6">
+    <main className="space-y-6">
       {/* KPIs Row 1 */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard

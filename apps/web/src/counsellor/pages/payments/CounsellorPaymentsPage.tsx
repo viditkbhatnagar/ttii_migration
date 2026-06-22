@@ -194,7 +194,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
 
   if (error) {
     return (
-      <main className="flex-1 space-y-6 p-4 lg:p-8">
+      <main className="space-y-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight">Payment Tracking</h1>
           <p className="text-sm text-muted-foreground">
@@ -236,7 +236,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
   }
 
   return (
-    <main className="flex-1 space-y-6 p-4 lg:p-8">
+    <main className="space-y-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold tracking-tight">Payment Tracking</h1>
         <p className="text-sm text-muted-foreground">

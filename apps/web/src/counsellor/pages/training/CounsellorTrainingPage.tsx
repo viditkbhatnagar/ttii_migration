@@ -146,7 +146,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
 
   if (error) {
     return (
-      <main className="flex-1 p-6 space-y-6">
+      <main className="space-y-6">
         <Card className="border-border/70 shadow-[var(--shadow-soft)] p-12 text-center">
           <p role="alert" className="text-sm text-red-600">
             {error}
@@ -157,7 +157,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
   }
 
   return (
-    <main className="flex-1 p-6 space-y-6">
+    <main className="space-y-6">
       {/* Header + Search */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>

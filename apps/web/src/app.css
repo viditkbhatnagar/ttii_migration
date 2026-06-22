@@ -293,6 +293,20 @@
   font-family: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
+/* Counsellor portal uses the TTII brand font (Poppins) — overrides the
+   student-dashboard font it inherits from sharing that shell class.
+   (Naji UAT 2026-06-22 — "check the font format".) Placed after the
+   .student-dashboard rule so it wins at equal specificity. */
+.counsellor-theme,
+.counsellor-theme h1,
+.counsellor-theme h2,
+.counsellor-theme h3,
+.counsellor-theme h4,
+.counsellor-theme h5,
+.counsellor-theme h6 {
+  font-family: 'Poppins', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
 @keyframes shellEnter {
   from {
     opacity: 0;

@@ -6,7 +6,6 @@ import {
   CreditCard,
   FileBarChart2,
   FileText,
-  GanttChart,
   GraduationCap,
   LayoutDashboard,
   PlayCircle,
@@ -121,8 +120,8 @@ function SidebarLogo({
         aria-label="Go to counsellor dashboard"
         className="flex items-center gap-2 transition-opacity hover:opacity-95"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-cn-orange text-white">
-          <GanttChart className="size-5" aria-hidden="true" />
+        <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-cn-orange">
+          <img src="/logos/ttii-icon-white.svg" alt="TTII" className="size-6" />
         </span>
         {!collapsed ? (
           <span className="text-left leading-tight">
