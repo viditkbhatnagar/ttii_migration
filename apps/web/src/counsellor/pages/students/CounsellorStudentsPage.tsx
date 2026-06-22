@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -27,6 +34,19 @@ function rowId(row: Record<string, unknown>): string {
 
 function rowEmail(row: Record<string, unknown>): string {
   return asString(row.email) || asString(row.user_email);
+}
+
+// Prototype date style: "12 Sep 2026" (guards invalid/empty dates).
+function formatEnrolled(value: unknown): string {
+  const str = asString(value);
+  if (!str) return '—';
+  const date = new Date(str);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 function initials(name: string): string {
@@ -141,7 +161,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           label="Total Students"
           value={String(total)}
@@ -180,31 +200,31 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select
-            value={course}
-            onChange={(e) => setCourse(e.target.value)}
-            className="h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground md:w-48"
-          >
-            <option value="all">All Courses</option>
-            {courses.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <div className="relative">
-            <CalendarRange className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <select
-              value={range}
-              onChange={(e) => setRange(e.target.value)}
-              className="h-9 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground md:w-44"
-            >
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="180">Last 6 months</option>
-              <option value="all">All time</option>
-            </select>
-          </div>
+          <Select value={course} onValueChange={setCourse}>
+            <SelectTrigger className="md:w-48">
+              <SelectValue placeholder="Course" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Courses</SelectItem>
+              {courses.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={range} onValueChange={setRange}>
+            <SelectTrigger className="md:w-44">
+              <CalendarRange className="mr-1.5 h-4 w-4 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="180">Last 6 months</SelectItem>
+              <SelectItem value="all">All time</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </Card>
 
@@ -215,7 +235,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead className="w-16">Sl No</TableHead>
-                <TableHead>Enrolment ID</TableHead>
+                <TableHead>Student ID</TableHead>
                 <TableHead>Student</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Course</TableHead>
@@ -270,7 +290,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                       {asString(r.course_name) || '—'}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {formatDate(r.created_at)}
+                      {formatEnrolled(r.created_at)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

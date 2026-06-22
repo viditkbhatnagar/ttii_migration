@@ -9,6 +9,14 @@ interface CounsellorCurrentUser {
   image: string;
 }
 
+export interface CounsellorNotification {
+  id: string;
+  type: string;
+  title: string;
+  detail: string;
+  createdAt: string | null;
+}
+
 interface CounsellorLayoutState {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -17,6 +25,10 @@ interface CounsellorLayoutState {
   closeMobileSidebar: () => void;
   currentUser: CounsellorCurrentUser | null;
   refreshCurrentUser: () => void;
+  /** Real monthly target achievement % (sidebar "Monthly Goal" card). null until loaded. */
+  monthlyGoalPct: number | null;
+  /** Latest application events, surfaced as topbar notifications. */
+  notifications: CounsellorNotification[];
 }
 
 const CounsellorLayoutCtx = createContext<CounsellorLayoutState | null>(null);
@@ -45,6 +57,8 @@ export function CounsellorLayoutProvider({ children, api, session }: CounsellorL
   const [mobileOpen, setMobileOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<CounsellorCurrentUser | null>(null);
   const [userVersion, setUserVersion] = useState(0);
+  const [monthlyGoalPct, setMonthlyGoalPct] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<CounsellorNotification[]>([]);
 
   const toggleSidebar = useCallback(() => setCollapsed((v) => !v), []);
   const toggleMobileSidebar = useCallback(() => setMobileOpen((v) => !v), []);
@@ -74,6 +88,45 @@ export function CounsellorLayoutProvider({ children, api, session }: CounsellorL
     };
   }, [api, session, userVersion]);
 
+  // Best-effort: pull the dashboard once for the sidebar Monthly-Goal % and the
+  // topbar notifications feed (real application events). Failures stay silent —
+  // the chrome simply renders its empty state.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const dash = await api.loadCounsellorDashboard(session.token);
+        if (cancelled) return;
+        const kpis = (dash.kpis ?? {}) as Record<string, unknown>;
+        const pct = Number(kpis.achievementPct);
+        setMonthlyGoalPct(Number.isFinite(pct) ? pct : 0);
+        const activity = Array.isArray(dash.recentActivity) ? dash.recentActivity : [];
+        const asStr = (v: unknown, fallback: string): string =>
+          typeof v === 'string' ? v : typeof v === 'number' ? String(v) : fallback;
+        setNotifications(
+          activity.slice(0, 6).map((raw, i) => {
+            const e = (raw ?? {}) as Record<string, unknown>;
+            const createdAt = e.createdAt;
+            return {
+              id: asStr(e.id, String(i)),
+              type: asStr(e.type, 'event'),
+              title: asStr(e.title, 'Activity'),
+              detail: asStr(e.detail, ''),
+              createdAt: typeof createdAt === 'string' ? createdAt : null,
+            };
+          }),
+        );
+      } catch {
+        if (cancelled) return;
+        setMonthlyGoalPct(0);
+        setNotifications([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session]);
+
   const value = useMemo(
     () => ({
       sidebarCollapsed: collapsed,
@@ -83,8 +136,20 @@ export function CounsellorLayoutProvider({ children, api, session }: CounsellorL
       closeMobileSidebar,
       currentUser,
       refreshCurrentUser,
+      monthlyGoalPct,
+      notifications,
     }),
-    [collapsed, toggleSidebar, mobileOpen, toggleMobileSidebar, closeMobileSidebar, currentUser, refreshCurrentUser],
+    [
+      collapsed,
+      toggleSidebar,
+      mobileOpen,
+      toggleMobileSidebar,
+      closeMobileSidebar,
+      currentUser,
+      refreshCurrentUser,
+      monthlyGoalPct,
+      notifications,
+    ],
   );
 
   return <CounsellorLayoutCtx value={value}>{children}</CounsellorLayoutCtx>;

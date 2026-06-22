@@ -4,6 +4,14 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Table,
@@ -26,18 +34,23 @@ interface StageDef {
   style: string;
 }
 
+/* The pipeline has EXACTLY 7 stages (matches the Lovable prototype). 'enrolled'
+   is intentionally NOT a pill/dropdown/count — the backend already filters
+   enrolled rows out of this list (stage: { not: 'enrolled' }). It survives only
+   as a badge-render fallback (see ENROLLED_FALLBACK). */
 const STAGES: StageDef[] = [
   { key: 'lead', label: 'Lead', style: 'bg-info-soft text-info border-transparent' },
   { key: 'payment_pending', label: 'Payment Pending', style: 'bg-warning-soft text-warning-foreground border-transparent' },
   { key: 'paid', label: 'Paid', style: 'bg-success-soft text-success border-transparent' },
-  { key: 'form_pending', label: 'Form Pending', style: 'bg-[#f3e8ff] text-[#7c3aed] border-transparent' },
+  { key: 'form_pending', label: 'Form Pending', style: 'bg-[oklch(0.95_0.05_310)] text-[oklch(0.45_0.2_310)] border-transparent' },
   { key: 'form_submitted', label: 'Form Submitted', style: 'bg-primary-soft text-accent-foreground border-transparent' },
-  { key: 'approval_waiting', label: 'Approval Waiting', style: 'bg-[#fef3c7] text-[#b45309] border-transparent' },
-  { key: 'enrolled', label: 'Enrolled', style: 'bg-success-soft text-success border-transparent' },
+  { key: 'approval_waiting', label: 'Approval Waiting', style: 'bg-[oklch(0.96_0.06_85)] text-[oklch(0.4_0.12_75)] border-transparent' },
   { key: 'rejected', label: 'Rejected', style: 'bg-destructive/10 text-destructive border-transparent' },
 ];
 
-const STAGE_BY_KEY = new Map(STAGES.map((s) => [s.key, s]));
+const ENROLLED_FALLBACK: StageDef = { key: 'enrolled', label: 'Enrolled', style: 'bg-success-soft text-success border-transparent' };
+
+const STAGE_BY_KEY = new Map([...STAGES, ENROLLED_FALLBACK].map((s) => [s.key, s]));
 const PAGE_SIZE = 8;
 
 function appStage(a: Record<string, unknown>): string {
@@ -66,6 +79,11 @@ function appOwner(a: Record<string, unknown>): string {
 
 function appId(a: Record<string, unknown>): string {
   return asString(a.id) || asString(a._id);
+}
+
+/** Real location line under the applicant name — district preferred, else state. */
+function appLocation(a: Record<string, unknown>): string {
+  return asString(a.district).trim() || asString(a.state).trim();
 }
 
 function initials(name: string): string {
@@ -238,67 +256,81 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
               }}
             />
           </div>
-          <select
+          <Select
             value={course}
-            onChange={(e) => {
-              setCourse(e.target.value);
+            onValueChange={(v) => {
+              setCourse(v);
               setPage(1);
             }}
-            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
           >
-            <option value="all">All Courses</option>
-            {courses.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="md:w-44">
+              <SelectValue placeholder="Course" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Courses</SelectItem>
+              {courses.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={offering}
-            onChange={(e) => {
-              setOffering(e.target.value);
+            onValueChange={(v) => {
+              setOffering(v);
               setPage(1);
             }}
-            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
           >
-            <option value="all">All Offerings</option>
-            {offerings.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-          <select
+            <SelectTrigger className="md:w-44">
+              <SelectValue placeholder="Offering" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Offerings</SelectItem>
+              {offerings.map((o) => (
+                <SelectItem key={o} value={o}>
+                  {o}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
             value={stage}
-            onChange={(e) => {
-              setStage(e.target.value);
+            onValueChange={(v) => {
+              setStage(v);
               setPage(1);
             }}
-            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
           >
-            <option value="all">All Stages</option>
-            {STAGES.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <div className="relative md:w-40">
-            <CalendarRange className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <select
-              value={range}
-              onChange={(e) => {
-                setRange(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm text-foreground"
-            >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="all">All time</option>
-            </select>
-          </div>
+            <SelectTrigger className="md:w-44">
+              <SelectValue placeholder="Stage" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stages</SelectItem>
+              {STAGES.map((s) => (
+                <SelectItem key={s.key} value={s.key}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={range}
+            onValueChange={(v) => {
+              setRange(v);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="md:w-40">
+              <CalendarRange className="h-4 w-4 mr-1.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="all">All time</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </Card>
 
@@ -309,12 +341,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead className="w-10">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-border accent-primary"
-                    checked={allChecked}
-                    onChange={toggleAll}
-                  />
+                  <Checkbox checked={allChecked} onCheckedChange={toggleAll} />
                 </TableHead>
                 <TableHead className="w-10">#</TableHead>
                 <TableHead>Application ID</TableHead>
@@ -345,12 +372,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
                 return (
                   <TableRow key={id || idx} className="hover:bg-muted/30 cursor-pointer group">
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-border accent-primary"
-                        checked={selected.has(id)}
-                        onChange={(e) => toggleOne(id, e.target.checked)}
-                      />
+                      <Checkbox checked={selected.has(id)} onCheckedChange={(v) => toggleOne(id, v === true)} />
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {String((safePage - 1) * PAGE_SIZE + idx + 1).padStart(2, '0')}
@@ -376,6 +398,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
                         </Avatar>
                         <div>
                           <p className="text-sm font-medium leading-tight">{name || '—'}</p>
+                          {appLocation(a) && <p className="text-[11px] text-muted-foreground">{appLocation(a)}</p>}
                         </div>
                       </button>
                     </TableCell>

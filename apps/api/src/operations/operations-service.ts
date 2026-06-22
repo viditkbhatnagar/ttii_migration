@@ -6604,6 +6604,41 @@ export class OperationsService {
       createdAt: e.created_at ? e.created_at.toISOString() : null,
     }));
 
+    // Month-over-month deltas (real, from created_at buckets) for the count KPIs.
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const inThisMonth = (d: Date | null): boolean => d != null && d >= thisMonthStart;
+    const inLastMonth = (d: Date | null): boolean => d != null && d >= lastMonthStart && d < thisMonthStart;
+    const pctChange = (cur: number, prev: number): number =>
+      prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : cur > 0 ? 100 : 0;
+    const appsThis = apps.filter((a) => inThisMonth(a.created_at));
+    const appsLast = apps.filter((a) => inLastMonth(a.created_at));
+    const isPending = (a: { stage: string | null; is_converted: number | null }): boolean =>
+      !isEnrolled(a) && !isRejected(a);
+    const deltas = {
+      totalApplications: pctChange(appsThis.length, appsLast.length),
+      totalEnrollments: pctChange(appsThis.filter(isEnrolled).length, appsLast.filter(isEnrolled).length),
+      pendingApplications: pctChange(appsThis.filter(isPending).length, appsLast.filter(isPending).length),
+    };
+
+    // Application funnel — counts per pipeline stage (Lead → Rejected) + overall conversion.
+    const FUNNEL_STAGES: { key: string; label: string }[] = [
+      { key: 'lead', label: 'Lead' },
+      { key: 'payment_pending', label: 'Payment Pending' },
+      { key: 'paid', label: 'Paid' },
+      { key: 'form_pending', label: 'Form Pending' },
+      { key: 'form_submitted', label: 'Form Submitted' },
+      { key: 'approval_waiting', label: 'Approval Waiting' },
+      { key: 'rejected', label: 'Rejected' },
+    ];
+    const funnel = FUNNEL_STAGES.map((s) => ({
+      key: s.key,
+      label: s.label,
+      count: apps.filter((a) => a.stage === s.key).length,
+    }));
+    const overallConversionPct =
+      totalApplications > 0 ? Math.round((totalEnrollments / totalApplications) * 1000) / 10 : 0;
+
     return {
       kpis: {
         totalApplications,
@@ -6615,6 +6650,9 @@ export class OperationsService {
         achievementPct,
         ytd,
       },
+      deltas,
+      funnel,
+      overallConversionPct,
       admissionsTrend: {
         labels: trendBuckets.map((b) => b.label),
         applications: trendBuckets.map((b) => b.applications),
@@ -6628,6 +6666,81 @@ export class OperationsService {
       },
       recentActivity,
     };
+  }
+
+  /**
+   * Counsellor leaderboard — ranks every counsellor (role 9) by enrollments and
+   * admissions, with target-achievement % and a tier. Real data so the
+   * Performance page "Top Counsellors" board reflects the actual team.
+   */
+  async getCounsellorLeaderboard(counsellorId: number): Promise<Record<string, unknown>> {
+    const counsellors = await this.prisma.users.findMany({
+      where: { role_id: 9, deleted_at: null },
+      select: { id: true, name: true },
+    });
+    if (counsellors.length === 0) return { leaderboard: [] };
+
+    const ids = counsellors.map((c) => c.id);
+    const [apps, targets] = await Promise.all([
+      this.prisma.applications.findMany({
+        where: { pipeline_user: { in: ids }, deleted_at: null },
+        select: { pipeline_user: true, is_converted: true, stage: true },
+      }),
+      this.prisma.counsellor_target.findMany({
+        where: { counsellor_id: { in: ids }, deleted_at: null },
+        select: { counsellor_id: true, value: true },
+      }),
+    ]);
+
+    const targetSum = new Map<number, number>();
+    for (const t of targets) targetSum.set(t.counsellor_id, (targetSum.get(t.counsellor_id) ?? 0) + (t.value ?? 0));
+
+    const agg = new Map<number, { admissions: number; enrollments: number }>();
+    for (const a of apps) {
+      if (a.pipeline_user == null) continue;
+      const e = agg.get(a.pipeline_user) ?? { admissions: 0, enrollments: 0 };
+      e.admissions += 1;
+      if (a.stage === 'enrolled' || a.is_converted === 1) e.enrollments += 1;
+      agg.set(a.pipeline_user, e);
+    }
+
+    const initialsOf = (name: string | null): string => {
+      const t = (name ?? '').trim();
+      if (t === '') return 'CN';
+      return (
+        t
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((w) => w[0] ?? '')
+          .join('')
+          .toUpperCase() || 'CN'
+      );
+    };
+    const tierFor = (pct: number): string =>
+      pct >= 100 ? 'Diamond' : pct >= 80 ? 'Platinum' : pct >= 60 ? 'Gold' : pct >= 40 ? 'Silver' : 'Bronze';
+
+    const rows = counsellors
+      .map((c) => {
+        const a = agg.get(c.id) ?? { admissions: 0, enrollments: 0 };
+        const tgt = targetSum.get(c.id) ?? 0;
+        const achievementPct = tgt > 0 ? Math.min(100, Math.round((a.enrollments / tgt) * 100)) : 0;
+        return {
+          id: c.id,
+          name: c.name ?? '—',
+          initials: initialsOf(c.name),
+          points: a.enrollments,
+          admissions: a.admissions,
+          enrollments: a.enrollments,
+          achievementPct,
+          tier: tierFor(achievementPct),
+          isCurrentUser: c.id === counsellorId,
+        };
+      })
+      .sort((x, y) => y.points - x.points || y.admissions - x.admissions)
+      .map((r, i) => ({ ...r, rank: i + 1 }))
+      .slice(0, 8);
+
+    return { leaderboard: rows };
   }
 
   /**

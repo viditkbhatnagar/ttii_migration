@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  CalendarDays,
   CreditCard,
   Download,
   Eye,
@@ -15,6 +16,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -52,6 +60,23 @@ const STATE_STYLES: Record<PaymentState, string> = {
   pending: 'bg-warning-soft text-warning-foreground border-transparent',
   no_link: 'bg-muted text-muted-foreground border-transparent',
 };
+
+const dueRanges = ['Any', 'Overdue', 'Next 7 days', 'Next 30 days'] as const;
+type DueRange = (typeof dueRanges)[number];
+
+const MS_PER_DAY = 86400000;
+
+/**
+ * Age (in days) of a payment row relative to now, derived from the real
+ * `createdAt` date we have (no installment/due-date data exists). Positive =
+ * created in the past. Returns null when there is no usable date.
+ */
+function daysSinceCreated(iso: string): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / MS_PER_DAY);
+}
 
 function formatINR(n: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -131,6 +156,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
 
   const [status, setStatus] = useState<'All' | PaymentState>('All');
   const [course, setCourse] = useState('All');
+  const [due, setDue] = useState<DueRange>('Any');
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -141,9 +167,19 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
       if (q && !`${p.name} ${p.applicationId} ${p.course}`.toLowerCase().includes(q)) {
         return false;
       }
+      if (due !== 'Any') {
+        // We have no due-date column; honest mapping uses the real createdAt age
+        // of fees that are still unpaid (pending / no link).
+        if (p.state === 'paid') return false;
+        const age = daysSinceCreated(p.createdAt);
+        if (age === null) return false;
+        if (due === 'Overdue' && !(age > 30)) return false;
+        if (due === 'Next 7 days' && !(age >= 0 && age <= 7)) return false;
+        if (due === 'Next 30 days' && !(age >= 0 && age <= 30)) return false;
+      }
       return true;
     });
-  }, [rows, status, course, search]);
+  }, [rows, status, course, due, search]);
 
   const collectedAmount = asNumber(summary.collectedAmount);
   const pendingAmount = asNumber(summary.pendingAmount);
@@ -160,7 +196,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
     return (
       <main className="flex-1 space-y-6 p-4 lg:p-8">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold tracking-tight text-cn-navy">Payment Tracking</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Payment Tracking</h1>
           <p className="text-sm text-muted-foreground">
             Monitor collections and pending fees across your applications.
           </p>
@@ -202,7 +238,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
   return (
     <main className="flex-1 space-y-6 p-4 lg:p-8">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-cn-navy">Payment Tracking</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Payment Tracking</h1>
         <p className="text-sm text-muted-foreground">
           Monitor collections and pending fees across your applications.
         </p>
@@ -255,31 +291,44 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
             />
           </div>
           <div className="grid grid-cols-2 gap-2 md:flex">
-            <select
-              aria-label="Filter by status"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as 'All' | PaymentState)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-sm md:w-36"
-            >
-              {statusList.map((s) => (
-                <option key={s} value={s}>
-                  {STATE_LABELS[s]}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter by course"
-              value={course}
-              onChange={(e) => setCourse(e.target.value)}
-              className="rounded-lg border border-border bg-card px-3 py-2 text-sm md:w-44"
-            >
-              <option value="All">All Courses</option>
-              {courses.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <Select value={status} onValueChange={(v) => setStatus(v as 'All' | PaymentState)}>
+              <SelectTrigger className="md:w-36" aria-label="Filter by status">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {statusList.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {STATE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={course} onValueChange={setCourse}>
+              <SelectTrigger className="md:w-44" aria-label="Filter by course">
+                <SelectValue placeholder="Course" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Courses</SelectItem>
+                {courses.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={due} onValueChange={(v) => setDue(v as DueRange)}>
+              <SelectTrigger className="md:w-40" aria-label="Filter by due date">
+                <CalendarDays className="mr-1 h-4 w-4 text-muted-foreground" />
+                <SelectValue placeholder="Due date" />
+              </SelectTrigger>
+              <SelectContent>
+                {dueRanges.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </Card>
@@ -299,9 +348,8 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
           <TableHeader>
             <TableRow className="bg-muted/40">
               <TableHead>Applicant</TableHead>
-              <TableHead>Application ID</TableHead>
               <TableHead>Course</TableHead>
-              <TableHead className="text-right">Fee</TableHead>
+              <TableHead className="text-right">Total Fee</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-12" />
@@ -318,15 +366,12 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium leading-tight">{p.name || '—'}</p>
+                      <p className="text-sm font-medium leading-tight group-hover:text-accent-foreground">
+                        {p.name || '—'}
+                      </p>
                       <p className="text-xs text-muted-foreground">{p.applicationId || '—'}</p>
                     </div>
                   </div>
-                </TableCell>
-                <TableCell>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {p.applicationId || '—'}
-                  </span>
                 </TableCell>
                 <TableCell className="text-sm">{p.course || '—'}</TableCell>
                 <TableCell className="text-right font-medium tabular-nums">
@@ -351,7 +396,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                           onNavigate(`/counsellor/applications/view/${encodeURIComponent(p.id)}`)
                         }
                       >
-                        <Eye className="mr-2 h-4 w-4" /> View application
+                        <Eye className="mr-2 h-4 w-4" /> View
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={!p.paymentLink}
@@ -371,7 +416,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={6}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
                   No payments match the filters.

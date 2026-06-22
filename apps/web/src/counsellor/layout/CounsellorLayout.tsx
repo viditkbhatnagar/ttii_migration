@@ -24,28 +24,27 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
   }, [closeMobileSidebar, onNavigate]);
 
   return (
-    <div className="counsellor-theme student-dashboard flex h-screen overflow-hidden bg-[#F8FAFC]">
-      <CounsellorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
+    <div
+      className="counsellor-theme student-dashboard flex h-screen overflow-hidden"
+      style={{ background: 'var(--cn-bg-gradient)' }}
+    >
+      <CounsellorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} />
 
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
         <SheetContent side="left" className="w-64 p-0 border-0" showCloseButton={false}>
-          <CounsellorSidebarMobile pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
+          <CounsellorSidebarMobile pathname={pathname} session={session} onNavigate={handleNavigate} />
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300">
-        <CounsellorNavbar session={session} onNavigate={handleNavigate} onLogout={onLogout} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <CounsellorNavbar session={session} onLogout={onLogout} />
         <main
           id="main-content"
           aria-label="Main content"
-          className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4 md:px-6"
-          style={{ background: 'var(--cn-bg-gradient)' }}
+          className="min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden p-4 lg:p-8"
         >
           <CounsellorRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
-        <footer className="border-t border-cn-border/60 px-6 py-3 text-center text-xs text-cn-muted-fg">
-          2026 &copy; Teacher&apos;s Training Institute of India.
-        </footer>
       </div>
     </div>
   );

@@ -3,6 +3,11 @@ import {
   Download,
   FileSpreadsheet,
   FileText as FileTextIcon,
+  Printer,
+  Save,
+  CalendarClock,
+  Calendar,
+  Filter,
   Search,
   ChevronRight,
   GraduationCap,
@@ -15,6 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -166,7 +178,14 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
         api.loadStudents(session.token),
         api.loadCounsellorTargets(session.token),
         api.loadReferrals(session.token),
-      ]).then(([applications, students, targets, referrals]) => ({ applications, students, targets, referrals })),
+        api.loadCourses(session.token),
+      ]).then(([applications, students, targets, referrals, courses]) => ({
+        applications,
+        students,
+        targets,
+        referrals,
+        courses,
+      })),
     [api, session.token],
   );
 
@@ -182,6 +201,18 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
 
   const [activeId, setActiveId] = useState<string>(REPORT_CATEGORIES[0]?.id ?? 'applications');
   const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState('30d');
+  const [course, setCourse] = useState('all');
+  const [pipeline, setPipeline] = useState('all');
+  const [groupBy, setGroupBy] = useState('none');
+
+  // Distinct course titles from the live catalogue, for the Course filter.
+  const courseOptions = useMemo<string[]>(() => {
+    const titles = toRecords(data?.courses)
+      .map((row) => asString(row.title) || asString(row.name))
+      .filter((title): title is string => title.length > 0);
+    return Array.from(new Set(titles)).sort((a, b) => a.localeCompare(b));
+  }, [data]);
 
   const filteredCategories = useMemo(
     () =>
@@ -222,6 +253,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
   const ActiveIcon = active.icon;
   const activeRows = datasets[active.id] ?? [];
   const previewRows = activeRows.slice(0, PREVIEW_ROWS);
+  const today = formatDate(new Date().toISOString());
 
   const exportCategory = (category: ReportCategory): void => {
     const rows = datasets[category.id] ?? [];
@@ -240,7 +272,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
             Export your applications, enrolments, targets and referrals
           </p>
         </div>
-        <Button size="sm" className="bg-primary text-primary-foreground" onClick={() => exportCategory(active)}>
+        <Button size="sm" className="bg-[image:var(--gradient-primary)] text-white" onClick={() => exportCategory(active)}>
           <Download className="h-4 w-4 mr-1.5" /> Export {active.title.replace(' Report', '')}
         </Button>
       </div>
@@ -336,19 +368,103 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                   <h2 className="text-lg font-semibold">{active.title}</h2>
                   <p className="text-sm text-muted-foreground">{active.description}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {activeRows.length.toLocaleString('en-IN')} records • {active.columns.length} columns
+                    Last generated: {today} • {activeRows.length.toLocaleString('en-IN')} records
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div className="mt-5 grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Date Range
+                </label>
+                <Select value={dateRange} onValueChange={setDateRange}>
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="7d">Last 7 days</SelectItem>
+                    <SelectItem value="30d">Last 30 days</SelectItem>
+                    <SelectItem value="quarter">This Quarter</SelectItem>
+                    <SelectItem value="fy">This FY</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
+                  <Filter className="h-3 w-3" /> Course
+                </label>
+                <Select value={course} onValueChange={setCourse}>
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Courses</SelectItem>
+                    {courseOptions.map((title) => (
+                      <SelectItem key={title} value={title}>
+                        {title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                  Pipeline
+                </label>
+                <Select value={pipeline} onValueChange={setPipeline}>
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Pipelines</SelectItem>
+                    <SelectItem value="inbound">Inbound Web</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="walkin">Walk-in</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                  Group By
+                </label>
+                <Select value={groupBy} onValueChange={setGroupBy}>
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="course">Course</SelectItem>
+                    <SelectItem value="month">Month</SelectItem>
+                    <SelectItem value="stage">Stage</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
             {/* Actions */}
             <div className="mt-5 flex flex-wrap gap-2 pt-4 border-t border-border">
               <Button size="sm" onClick={() => exportCategory(active)}>
-                <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export CSV
+                <FileTextIcon className="h-4 w-4 mr-1.5" /> Preview
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => exportCategory(active)}>
+                <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export Excel
+              </Button>
+              <Button size="sm" variant="outline" disabled>
+                <FileTextIcon className="h-4 w-4 mr-1.5" /> Export PDF
               </Button>
               <Button size="sm" variant="outline" onClick={() => window.print()}>
-                <FileTextIcon className="h-4 w-4 mr-1.5" /> Print
+                <Printer className="h-4 w-4 mr-1.5" /> Print
+              </Button>
+              <Button size="sm" variant="outline" disabled>
+                <Save className="h-4 w-4 mr-1.5" /> Save Report
+              </Button>
+              <Button size="sm" variant="outline" disabled>
+                <CalendarClock className="h-4 w-4 mr-1.5" /> Schedule
               </Button>
             </div>
           </Card>
@@ -410,7 +526,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
         </TabsList>
 
         <TabsContent value="all">
-          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             {REPORT_CATEGORIES.map((category) => {
               const Icon = category.icon;
               const count = (datasets[category.id] ?? []).length;

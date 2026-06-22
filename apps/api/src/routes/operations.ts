@@ -2395,6 +2395,22 @@ export function registerOperationsRoutes(
     }
   });
 
+  // Counsellor leaderboard — ranks every counsellor (role 9) by enrollments;
+  // visible to the whole team (the prototype's "Top Counsellors" board).
+  app.get('/admin/counsellor/leaderboard', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const counsellorId = request.authContext?.user.id ?? null;
+      if (counsellorId === null) {
+        reply.code(401).send({ status: 0, message: 'User not authenticated!' });
+        return;
+      }
+      const data = await operationsService.getCounsellorLeaderboard(counsellorId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/admin/associates/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listAssociates();

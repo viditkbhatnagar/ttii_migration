@@ -221,6 +221,15 @@ export class CounsellorPortalApi {
     return asRecord(payload.data) ?? {};
   }
 
+  /** Team leaderboard — every counsellor ranked by enrollments (Performance page). */
+  async loadCounsellorLeaderboard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>(
+      '/admin/counsellor/leaderboard',
+      authToken,
+    );
+    return asRecord(payload.data) ?? {};
+  }
+
   /** Training video library — global (every counsellor sees all videos). */
   async loadTrainingVideos(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/training_videos', authToken);

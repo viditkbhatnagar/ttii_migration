@@ -1,41 +1,97 @@
-import { useState } from 'react';
-import { Bell, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, User } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  Bell,
+  CheckCircle2,
+  CreditCard,
+  FilePlus,
+  FileText,
+  LogOut,
+  Mail,
+  Menu,
+  PhoneCall,
+  Search,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useCounsellorLayout } from './CounsellorLayoutContext.js';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useCounsellorLayout, type CounsellorNotification } from './CounsellorLayoutContext.js';
 import type { AuthSession } from '@ttii/frontend-core';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
 
 interface CounsellorNavbarProps {
   session: AuthSession;
-  onNavigate: (href: string) => void;
   onLogout: () => void;
 }
 
+interface NotificationView {
+  icon: LucideIcon;
+  tone: string;
+  title: string;
+  detail: string;
+  time: string;
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const secs = Math.floor((Date.now() - t) / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? 'Yesterday' : `${days} days ago`;
+}
+
+// Map a real application event to the prototype's tone tile + icon.
+function toView(n: CounsellorNotification): NotificationView {
+  const type = `${n.type} ${n.title}`.toLowerCase();
+  let icon: LucideIcon = FilePlus;
+  let tone = 'bg-primary-soft text-accent-foreground';
+  if (/paid|payment|fee|collect/.test(type)) {
+    icon = CreditCard;
+    tone = 'bg-warning-soft text-warning-foreground';
+  } else if (/approv|enrol|convert/.test(type)) {
+    icon = CheckCircle2;
+    tone = 'bg-success-soft text-success';
+  } else if (/reject|declin|cancel/.test(type)) {
+    icon = XCircle;
+    tone = 'bg-destructive-soft text-destructive';
+  } else if (/form|document|submit/.test(type)) {
+    icon = FileText;
+    tone = 'bg-info-soft text-info';
+  } else if (/call|follow|remind|contact/.test(type)) {
+    icon = PhoneCall;
+    tone = 'bg-info-soft text-info';
+  }
+  return { icon, tone, title: n.title, detail: n.detail, time: timeAgo(n.createdAt) };
+}
+
 // Mirrors the Lovable prototype Topbar — welcome message (left) + search,
-// notifications and account (right). Kept functional: mobile menu + sidebar
-// collapse toggles, and the multi-role RoleSwitcher (renders only when the
-// signed-in user has more than one role on this subdomain).
-export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNavbarProps) {
-  const { sidebarCollapsed, toggleSidebar, toggleMobileSidebar, currentUser } = useCounsellorLayout();
+// notifications and account (right). Kept functional: mobile menu toggle and
+// the multi-role RoleSwitcher (renders only for users with more than one role).
+export function CounsellorNavbar({ session, onLogout }: CounsellorNavbarProps) {
+  const { toggleMobileSidebar, currentUser, notifications } = useCounsellorLayout();
   const [search, setSearch] = useState('');
+  const [allRead, setAllRead] = useState(false);
 
   const displayName = currentUser?.name || 'Counsellor';
   const firstName = displayName.split(' ')[0] || displayName;
   const initials = currentUser?.initials ?? 'CN';
   const avatarImage = currentUser?.image ?? '';
+  const email = currentUser?.email ?? '';
+
+  const monthLabel = useMemo(() => new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' }), []);
+  const views = useMemo(() => notifications.map(toView), [notifications]);
+  const unreadCount = allRead ? 0 : views.length;
 
   return (
-    <header className="sticky top-0 z-30 h-16 border-b border-border bg-card/80 backdrop-blur-md">
+    <header className="sticky top-0 z-30 h-16 border-b border-border bg-card/80 backdrop-blur">
       <div className="flex h-full items-center gap-3 px-4 lg:px-8">
         <Button
           variant="ghost"
@@ -46,20 +102,12 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
         >
           <Menu className="size-5" aria-hidden="true" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!sidebarCollapsed}
-          className="hidden text-muted-foreground hover:text-foreground md:flex"
-          onClick={toggleSidebar}
-        >
-          {sidebarCollapsed ? <PanelLeftOpen className="size-5" aria-hidden="true" /> : <PanelLeftClose className="size-5" aria-hidden="true" />}
-        </Button>
 
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold tracking-tight lg:text-lg">Welcome back, {firstName}</h1>
-          <p className="hidden text-xs text-muted-foreground sm:block">Here&apos;s your admissions snapshot</p>
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Here&apos;s your admissions snapshot for {monthLabel}
+          </p>
         </div>
 
         <div className="ml-auto flex items-center gap-2 lg:gap-3">
@@ -79,24 +127,58 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
           <RoleSwitcher session={session} variant="light" />
 
           {/* Notifications */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="Notifications">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" className="relative" aria-label="Notifications">
                 <Bell className="size-4" aria-hidden="true" />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                    {unreadCount}
+                  </span>
+                ) : null}
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 p-0">
-              <div className="border-b px-4 py-3">
-                <p className="text-sm font-semibold">Notifications</p>
-                <p className="text-xs text-muted-foreground">Updates on your applications and payments</p>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 p-0">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">Notifications</p>
+                  <p className="text-xs text-muted-foreground">{unreadCount} unread</p>
+                </div>
+                {views.length > 0 ? (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setAllRead(true)}>
+                    Mark all read
+                  </Button>
+                ) : null}
               </div>
-              <div className="px-4 py-10 text-center text-sm text-muted-foreground">You&apos;re all caught up.</div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              {views.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm text-muted-foreground">You&apos;re all caught up.</div>
+              ) : (
+                <ul className="max-h-96 divide-y overflow-y-auto">
+                  {views.map((n, i) => (
+                    <li
+                      key={i}
+                      className={`flex items-start gap-3 px-4 py-3 hover:bg-muted/40 ${
+                        allRead ? '' : 'bg-primary-soft/30'
+                      }`}
+                    >
+                      <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${n.tone}`}>
+                        <n.icon className="size-4" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{n.title}</p>
+                        {n.detail ? <p className="truncate text-xs text-muted-foreground">{n.detail}</p> : null}
+                        {n.time ? <p className="mt-0.5 text-[11px] text-muted-foreground">{n.time}</p> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PopoverContent>
+          </Popover>
 
           {/* Account */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Popover>
+            <PopoverTrigger asChild>
               <button
                 type="button"
                 className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors hover:bg-muted/60"
@@ -106,30 +188,39 @@ export function CounsellorNavbar({ session, onNavigate, onLogout }: CounsellorNa
                   {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
                   <AvatarFallback className="bg-primary-soft text-sm font-semibold text-accent-foreground">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="hidden flex-col items-start leading-tight sm:flex">
+                <span className="hidden flex-col items-start leading-none sm:flex">
                   <span className="text-sm font-semibold text-foreground">{displayName}</span>
-                  <span className="text-[11px] text-muted-foreground">Counsellor</span>
+                  <span className="mt-0.5 text-[11px] text-muted-foreground">Admission Counsellor</span>
                 </span>
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{displayName}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onNavigate('/counsellor/settings')}>
-                <User className="mr-2 size-4" aria-hidden="true" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onNavigate('/counsellor/dashboard')}>
-                <LayoutDashboard className="mr-2 size-4" aria-hidden="true" />
-                Dashboard
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onLogout} className="text-destructive">
-                <LogOut className="mr-2 size-4" aria-hidden="true" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 p-0">
+              <div className="flex items-center gap-3 border-b px-4 py-4">
+                <Avatar className="size-10">
+                  {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}
+                  <AvatarFallback className="bg-primary-soft text-sm font-semibold text-accent-foreground">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{displayName}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">Admission Counsellor</p>
+                </div>
+              </div>
+              {email ? (
+                <div className="space-y-2 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Mail className="size-4" aria-hidden="true" />
+                    <span className="truncate">{email}</span>
+                  </div>
+                </div>
+              ) : null}
+              <div className="border-t px-4 py-3">
+                <Button variant="outline" size="sm" className="w-full gap-2 text-xs" onClick={onLogout}>
+                  <LogOut className="size-3.5" aria-hidden="true" />
+                  Logout
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
     </header>

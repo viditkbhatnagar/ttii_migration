@@ -71,7 +71,9 @@ function TargetProgress({ target, achieved }: { target: number; achieved: number
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Target Progress</h3>
-          <p className="text-xs text-muted-foreground">Current target window</p>
+          <p className="text-xs text-muted-foreground">
+            {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+          </p>
         </div>
         <div className="h-9 w-9 rounded-lg bg-primary-soft text-accent-foreground flex items-center justify-center">
           <Target className="h-4 w-4" />
@@ -141,7 +143,7 @@ function AdmissionsChart({ data }: { data: TrendPoint[] }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">Admissions Analytics</h3>
-          <p className="text-xs text-muted-foreground">Applications vs Enrollments</p>
+          <p className="text-xs text-muted-foreground">Applications vs Enrollments · last 6 months</p>
         </div>
         <div className="flex items-center gap-4">
           <ChartLegend color={INDIGO} label="Applications" />
@@ -207,7 +209,7 @@ function CoursePerformance({ data }: { data: CourseRow[] }) {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Course Performance</h3>
-          <p className="text-xs text-muted-foreground">Admissions by course</p>
+          <p className="text-xs text-muted-foreground">Admissions by course · MTD</p>
         </div>
       </div>
       <div className="mt-4 h-56">
@@ -339,9 +341,9 @@ interface PipelineRow {
 }
 
 const stageStyles: Record<string, string> = {
-  payment_pending: 'text-warning-foreground border-warning/40 bg-warning-soft',
-  form_pending: 'text-info border-info/40 bg-info-soft',
-  approval_waiting: 'text-accent-foreground border-primary/40 bg-primary-soft',
+  payment_pending: 'bg-warning-soft text-warning-foreground border-transparent',
+  form_pending: 'bg-[oklch(0.95_0.05_310)] text-[oklch(0.45_0.2_310)] border-transparent',
+  approval_waiting: 'bg-[oklch(0.96_0.06_85)] text-[oklch(0.4_0.12_75)] border-transparent',
 };
 
 const stageLabel: Record<string, string> = {
@@ -484,6 +486,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
     }));
 
     const pipeline = asRecord(root.pipelineSnapshot);
+    const deltas = asRecord(root.deltas);
     const activities: ActivityRow[] = toRecords(root.recentActivity).map((row) => ({
       id: asString(row.id),
       type: asString(row.type),
@@ -493,6 +496,9 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
     }));
 
     return {
+      deltaApplications: asNumber(deltas.totalApplications),
+      deltaEnrollments: asNumber(deltas.totalEnrollments),
+      deltaPending: asNumber(deltas.pendingApplications),
       monthlyTargetPoint: asNumber(kpis.monthlyTargetPoint),
       targetAchieved: asNumber(kpis.targetAchieved),
       achievementPct: asNumber(kpis.achievementPct),
@@ -534,6 +540,11 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
     view.monthlyTargetPoint > 0
       ? Math.min(100, Math.round((view.targetAchieved / view.monthlyTargetPoint) * 100))
       : 0;
+  const pendingPct =
+    view.totalApplications > 0
+      ? Math.round((view.pendingApplications / view.totalApplications) * 100)
+      : 0;
+  const monthName = new Date().toLocaleString('en-IN', { month: 'long' });
 
   return (
     <main className="flex-1 p-4 lg:p-8 space-y-6">
@@ -545,7 +556,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           icon={Target}
           tone="primary"
           progress={100}
-          sub="Goal for the current window"
+          sub={`Goal for ${monthName}`}
         />
         <KpiCard
           label="Target Achieved"
@@ -561,6 +572,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           icon={Percent}
           tone="info"
           progress={view.achievementPct}
+          sub={`${view.targetAchieved.toLocaleString()} of ${view.monthlyTargetPoint.toLocaleString()} pts`}
         />
         <KpiCard
           label="YTD"
@@ -578,12 +590,16 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           value={view.totalApplications.toLocaleString()}
           icon={ClipboardList}
           tone="info"
+          delta={view.deltaApplications}
+          progress={conversionPct}
+          sub={`${view.totalEnrollments.toLocaleString()} enrolled`}
         />
         <KpiCard
           label="Total Enrollments"
           value={view.totalEnrollments.toLocaleString()}
           icon={GraduationCap}
           tone="success"
+          delta={view.deltaEnrollments}
           progress={conversionPct}
           sub={`${conversionPct}% conversion`}
         />
@@ -592,12 +608,16 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           value={view.pendingApplications.toLocaleString()}
           icon={Timer}
           tone="warning"
+          delta={view.deltaPending}
+          progress={pendingPct}
+          sub={`of ${view.totalApplications.toLocaleString()} total`}
         />
         <KpiCard
           label="Total Dropouts"
           value={view.totalDropouts.toLocaleString()}
           icon={UserMinus}
           tone="primary"
+          sub="Students who dropped out"
         />
       </div>
 

@@ -1,9 +1,20 @@
 import { useMemo, useState } from 'react';
-import { Search, Play, Filter, Sparkles } from 'lucide-react';
+import type { ReactNode } from 'react';
+import {
+  Search,
+  Play,
+  Filter,
+  Sparkles,
+  TrendingUp,
+  Clock,
+  Award,
+  Flame,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -32,12 +43,40 @@ const GRADS = [
   'from-teal-500 via-emerald-600 to-green-600',
 ] as const;
 
+const RANK_GRADS = [
+  'from-amber-400 to-orange-500',
+  'from-slate-300 to-slate-500',
+  'from-orange-400 to-rose-500',
+  'from-sky-400 to-indigo-500',
+] as const;
+
+const CATEGORY_EMOJI: Record<string, string> = {
+  admission: '🎓',
+  product: '📦',
+  lms: '💻',
+  sales: '📈',
+  communication: '💬',
+  compliance: '🛡️',
+};
+
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
 function gradientFor(index: number): string {
   return GRADS[index % GRADS.length] ?? GRADS[0];
+}
+
+function rankGradientFor(index: number): string {
+  return RANK_GRADS[index % RANK_GRADS.length] ?? RANK_GRADS[0];
+}
+
+function emojiFor(category: string): string {
+  const key = category.toLowerCase();
+  for (const [needle, emoji] of Object.entries(CATEGORY_EMOJI)) {
+    if (key.includes(needle)) return emoji;
+  }
+  return '';
 }
 
 function initialsFor(title: string): string {
@@ -99,6 +138,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
   }, [videos, search, active]);
 
   const featured = videos[0];
+  const trending = useMemo(() => videos.slice(0, 4), [videos]);
 
   if (loading) {
     return <DashboardLoader label="training" />;
@@ -129,12 +169,41 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
         <div className="relative w-full sm:w-[380px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search videos, topics..."
+            placeholder="Search videos, instructors, topics..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-10 rounded-full"
           />
         </div>
+      </div>
+
+      {/* Learning progress strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <ProgressStat
+          icon={<Play className="h-4 w-4" />}
+          label="Videos Completed"
+          value={String(videos.length)}
+          accent="from-indigo-500 to-violet-500"
+        />
+        <ProgressStat
+          icon={<TrendingUp className="h-4 w-4" />}
+          label="Learning Progress"
+          value="—"
+          accent="from-emerald-500 to-teal-500"
+          progress={0}
+        />
+        <ProgressStat
+          icon={<Clock className="h-4 w-4" />}
+          label="Watch Time"
+          value="—"
+          accent="from-amber-500 to-orange-500"
+        />
+        <ProgressStat
+          icon={<Award className="h-4 w-4" />}
+          label="Certificates Earned"
+          value="—"
+          accent="from-pink-500 to-rose-500"
+        />
       </div>
 
       {/* Featured hero */}
@@ -169,6 +238,11 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
                 </Badge>
                 <Badge className="bg-black/40 text-white border-0 backdrop-blur">{featured.category}</Badge>
               </div>
+              <div className="absolute bottom-4 right-4">
+                <Badge className="bg-black/60 text-white border-0 backdrop-blur">
+                  {featured.videoType || featured.category}
+                </Badge>
+              </div>
             </div>
             <div className="p-6 md:p-8 flex flex-col justify-center">
               <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">New This Week</p>
@@ -176,9 +250,18 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
               {featured.description && (
                 <p className="mt-3 text-sm text-muted-foreground line-clamp-3">{featured.description}</p>
               )}
+              <div className="mt-5 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-[image:var(--gradient-primary)] text-primary-foreground flex items-center justify-center text-sm font-semibold">
+                  {featured.initials}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">TTII Training</p>
+                  <p className="text-xs text-muted-foreground">{featured.category}</p>
+                </div>
+              </div>
               <div className="mt-6">
                 <Button size="lg" className="rounded-full">
-                  <Play className="h-4 w-4" /> Watch Now
+                  <Play className="h-4 w-4" /> Resume Watching
                 </Button>
               </div>
             </div>
@@ -200,6 +283,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
             <CategoryPill
               key={c.name}
               label={c.name}
+              icon={emojiFor(c.name)}
               count={c.count}
               active={active === c.name}
               onClick={() => setActive(c.name)}
@@ -220,17 +304,83 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
           ))}
         </div>
       )}
+
+      {/* Trending */}
+      {trending.length > 0 && (
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-3">
+            <Flame className="h-4 w-4 text-orange-500" />
+            <h3 className="text-sm font-semibold">Trending This Week</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {trending.map((v, i) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => openVideo(v.videoUrl)}
+                className="text-left"
+                aria-label={`Watch ${v.title}`}
+              >
+                <Card className="p-4 flex gap-3 hover:shadow-[var(--shadow-card)] transition border-border/70">
+                  <div
+                    className={cx(
+                      'h-16 w-16 shrink-0 rounded-lg bg-gradient-to-br flex items-center justify-center text-white font-bold text-xl',
+                      rankGradientFor(i),
+                    )}
+                  >
+                    #{i + 1}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-tight line-clamp-2">{v.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{v.category}</p>
+                  </div>
+                </Card>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
+  );
+}
+
+function ProgressStat({
+  icon,
+  label,
+  value,
+  accent,
+  progress,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  accent: string;
+  progress?: number;
+}) {
+  return (
+    <Card className="p-4 border-border/70 shadow-[var(--shadow-soft)] overflow-hidden relative">
+      <div className={cx('absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br opacity-20 blur-2xl', accent)} />
+      <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+        <span className={cx('h-7 w-7 rounded-md bg-gradient-to-br text-white flex items-center justify-center', accent)}>
+          {icon}
+        </span>
+        {label}
+      </div>
+      <p className="mt-3 text-2xl font-bold">{value}</p>
+      {typeof progress === 'number' && <Progress value={progress} className="mt-2 h-1.5" />}
+    </Card>
   );
 }
 
 function CategoryPill({
   label,
+  icon,
   count,
   active,
   onClick,
 }: {
   label: string;
+  icon?: string;
   count?: number;
   active: boolean;
   onClick: () => void;
@@ -246,6 +396,7 @@ function CategoryPill({
           : 'bg-card text-foreground border-border hover:border-foreground/40 hover:bg-muted',
       )}
     >
+      {icon && <span>{icon}</span>}
       {label}
       {typeof count === 'number' && (
         <span
@@ -273,11 +424,9 @@ function VideoCard({ v, onWatch }: { v: TrainingVideo; onWatch: () => void }) {
           <div className="relative h-12 w-12 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition">
             <Play className="h-5 w-5 ml-0.5 text-foreground fill-foreground" />
           </div>
-          {v.videoType && (
-            <span className="absolute bottom-2 right-2 text-[11px] font-medium px-1.5 py-0.5 rounded bg-black/70 text-white capitalize">
-              {v.videoType}
-            </span>
-          )}
+          <span className="absolute bottom-2 right-2 text-[11px] font-medium px-1.5 py-0.5 rounded bg-black/70 text-white">
+            {v.videoType || v.category}
+          </span>
         </div>
         <div className="p-3.5">
           <div className="flex gap-3">

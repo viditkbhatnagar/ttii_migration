@@ -3,6 +3,7 @@ import {
   Award,
   BookOpen,
   Clock,
+  Filter,
   GraduationCap,
   Search,
   TrendingUp,
@@ -11,6 +12,14 @@ import {
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -33,6 +42,7 @@ interface CourseCard {
   title: string;
   code: string;
   level: string;
+  tagline: string;
   hours: number;
   price: number;
   applications: number;
@@ -47,7 +57,7 @@ function formatPrice(n: number): string {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-export default function CounsellorCoursesPage({ api, session }: CounsellorPageProps) {
+export default function CounsellorCoursesPage({ api, session, onNavigate }: CounsellorPageProps) {
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
   const [level, setLevel] = useState('all');
@@ -75,7 +85,7 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
     }
     return toRecords(data?.courses).map((c) => {
       const id = asNumber(c.id);
-      const sale = asNumber(c.sale_price);
+      const sale = asNumber(c.offer_price) || asNumber(c.sale_price);
       const price = asNumber(c.price);
       const perf = perfByCourse.get(id) ?? {
         applications: 0,
@@ -85,9 +95,10 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
       return {
         id,
         title: asString(c.title) || asString(c.short_name) || 'Untitled course',
-        code: asString(c.course_code),
-        level: asString(c.level),
-        hours: asNumber(c.total_learning_hours),
+        code: asString(c.course_code) || asString(c.code),
+        level: asString(c.level) || asString(c.label),
+        tagline: asString(c.short_description) || asString(c.description),
+        hours: asNumber(c.total_learning_hours) || asNumber(c.lessons_count),
         price: sale > 0 && sale < price ? sale : price,
         applications: perf.applications,
         enrollments: perf.enrollments,
@@ -136,8 +147,7 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Courses &amp; Offerings</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {courses.length} programme{courses.length === 1 ? '' : 's'} you can counsel and enrol
-            students into.
+            {courses.length} programs across UG, PG, and specialisations.
           </p>
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
@@ -161,19 +171,23 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
             />
           </div>
           {levels.length > 0 ? (
-            <select
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              className="w-[180px] rounded-lg border border-border bg-card px-3 py-2 text-sm"
-            >
-              <option value="all">All Levels</option>
-              {levels.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
+            <Select value={level} onValueChange={setLevel}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Levels</SelectItem>
+                {levels.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {l}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : null}
+          <Button variant="outline" size="sm" className="gap-2">
+            <Filter className="h-4 w-4" /> More
+          </Button>
         </div>
       </Card>
 
@@ -194,18 +208,22 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
                   <div className="absolute top-3 left-3 flex gap-2">
                     {c.level ? (
-                      <Badge className={cn('border', levelStyles)}>{c.level}</Badge>
+                      <Badge className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30">
+                        {c.level}
+                      </Badge>
                     ) : null}
                   </div>
-                  <BookOpen className="absolute top-3 right-3 h-5 w-5 text-white/80" />
                 </div>
                 <div className="p-5">
                   <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
                     {c.code || '—'}
                   </p>
-                  <h3 className="mt-1 font-semibold text-base leading-tight line-clamp-2">
-                    {c.title}
-                  </h3>
+                  <h3 className="mt-1 font-semibold text-base leading-tight">{c.title}</h3>
+                  {c.tagline ? (
+                    <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">
+                      {c.tagline}
+                    </p>
+                  ) : null}
 
                   <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
                     {c.hours > 0 ? (
@@ -230,6 +248,9 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
                       <p className="text-[11px] text-muted-foreground">Fee</p>
                       <p className="text-lg font-bold">{formatPrice(c.price)}</p>
                     </div>
+                    <Button size="sm" onClick={() => onNavigate('/counsellor/courses')}>
+                      View Details
+                    </Button>
                   </div>
                 </div>
               </Card>
@@ -256,6 +277,7 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
                     <TableHead className="text-right">Enrolled</TableHead>
                     <TableHead className="text-right">Conversion</TableHead>
                     <TableHead className="text-right">Fee</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -297,6 +319,15 @@ export default function CounsellorCoursesPage({ api, session }: CounsellorPagePr
                       </TableCell>
                       <TableCell className="text-right font-semibold">
                         {formatPrice(c.price)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onNavigate('/counsellor/courses')}
+                        >
+                          View
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
