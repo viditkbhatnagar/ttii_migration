@@ -6583,6 +6583,27 @@ export class OperationsService {
     });
     const byStage = (stage: string) => apps.filter((a) => a.stage === stage).slice(0, 5).map(snapshotRow);
 
+    // Recent activity — latest events across the counsellor's applications
+    // (created / link sent / marked paid / form submitted / approved / rejected).
+    const appIds = apps.map((a) => a.id);
+    const appNameById = new Map<number, string>(apps.map((a) => [a.id, a.name ?? '—']));
+    const events =
+      appIds.length > 0
+        ? await this.prisma.application_events.findMany({
+            where: { application_id: { in: appIds } },
+            orderBy: { created_at: 'desc' },
+            take: 8,
+            select: { id: true, application_id: true, event_type: true, description: true, created_at: true },
+          })
+        : [];
+    const recentActivity = events.map((e) => ({
+      id: e.id,
+      type: e.event_type ?? 'event',
+      title: e.description ?? e.event_type ?? 'Activity',
+      detail: appNameById.get(e.application_id) ?? '',
+      createdAt: e.created_at ? e.created_at.toISOString() : null,
+    }));
+
     return {
       kpis: {
         totalApplications,
@@ -6605,6 +6626,7 @@ export class OperationsService {
         formPending: byStage('form_pending'),
         approvalWaiting: byStage('approval_waiting'),
       },
+      recentActivity,
     };
   }
 
