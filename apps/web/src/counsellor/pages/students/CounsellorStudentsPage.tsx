@@ -161,7 +161,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           label="Total Students"
           value={String(total)}

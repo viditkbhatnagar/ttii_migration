@@ -398,7 +398,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
                         </Avatar>
                         <div>
                           <p className="text-sm font-medium leading-tight">{name || '—'}</p>
-                          {appLocation(a) && <p className="text-[11px] text-muted-foreground">{appLocation(a)}</p>}
+                          <p className="text-[11px] text-muted-foreground">{appLocation(a) || '—'}</p>
                         </div>
                       </button>
                     </TableCell>

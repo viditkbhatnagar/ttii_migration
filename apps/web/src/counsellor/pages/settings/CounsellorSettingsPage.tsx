@@ -423,6 +423,33 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
                 </div>
               </Card>
             </form>
+
+            {/* Contact Information — no backing fields in the profile API yet,
+                so these render as empty editable inputs (matching the prototype's
+                form look) rather than fabricated values. */}
+            <Card className="p-6 space-y-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Contact Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="settings-address" className="text-sm font-medium">Address</label>
+                  <Input id="settings-address" autoComplete="street-address" />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="settings-city" className="text-sm font-medium">City</label>
+                  <Input id="settings-city" autoComplete="address-level2" />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="settings-state" className="text-sm font-medium">State</label>
+                  <Input id="settings-state" autoComplete="address-level1" />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="settings-pin" className="text-sm font-medium">PIN Code</label>
+                  <Input id="settings-pin" autoComplete="postal-code" />
+                </div>
+              </div>
+            </Card>
           </div>
         </TabsContent>
 
@@ -590,9 +617,6 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
                     </div>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Pick a new password — at least 8 characters, and both fields must match.
-                </p>
                 <div className="flex justify-end">
                   <Button type="submit" disabled={passwordSaving} className="gap-1.5">
                     {passwordSaving ? (

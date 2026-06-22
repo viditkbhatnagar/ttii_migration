@@ -9,9 +9,7 @@ import {
   CheckCircle2,
   Crown,
   Medal,
-  Rocket,
-  Star,
-  Gem,
+  IndianRupee,
   ArrowUpRight,
   ArrowDownRight,
   type LucideIcon,
@@ -19,7 +17,9 @@ import {
 import {
   Area,
   Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Legend,
   ResponsiveContainer,
@@ -40,8 +40,16 @@ import { asNumber, asString, toRecords } from '../../../admin/shared/utils/admin
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 import { asRecord, KpiCard, type KpiCardProps, type TrendData } from '../../components/CounsellorWidgets.js';
 
-// EXACT Lovable chart palette (hex substitutes for the prototype's oklch).
-const ORANGE = '#F47C2C';
+// EXACT Lovable chart palette (literal hex — this scope defines tokens as hex,
+// so `hsl(var(--token))` does NOT resolve; recharts needs literal colours).
+const NAVY = '#0B2758'; // counsellor "primary"/navy (matches --chart-1)
+const SUCCESS = '#22C55E';
+const INFO = '#3b82f6';
+const WARNING = '#F59E0B';
+
+// Six multi-coloured bars for the Course-wise Conversion chart, matching the
+// prototype's per-bar palette.
+const COURSE_BAR_COLORS = [NAVY, INFO, SUCCESS, '#8b5cf6', WARNING, '#06b6d4'] as const;
 
 // Per-stage funnel colours, matching the prototype's stage palette.
 const FUNNEL_COLORS: Record<string, string> = {
@@ -103,11 +111,15 @@ interface TimelineRow {
   achievementPct: number;
 }
 
+interface CoursePerfRow {
+  courseTitle: string;
+  conversionPct: number;
+}
+
 interface AchievementBadge {
   label: string;
   icon: LucideIcon;
   tone: BadgeTone;
-  earned: boolean;
 }
 
 const BADGE_TONE_CLASSES: Record<BadgeTone, string> = {
@@ -170,6 +182,16 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
 
   const overallConversionPct = useMemo(() => asNumber(asRecord(data?.dashboard).overallConversionPct), [data]);
 
+  // Course-wise conversion — real per-course conversion % from the dashboard payload.
+  const coursePerformance = useMemo<CoursePerfRow[]>(
+    () =>
+      toRecords(asRecord(data?.dashboard).coursePerformance).map((r) => ({
+        courseTitle: asString(r.courseTitle) || '—',
+        conversionPct: asNumber(r.conversionPct),
+      })),
+    [data],
+  );
+
   const leaderboard = useMemo<LeaderRow[]>(
     () =>
       toRecords(asRecord(data?.leaderboard).leaderboard).map((r) => ({
@@ -214,7 +236,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
             Live sales analytics, targets, and leaderboard for your team.
           </p>
         </div>
-        <Card className="rounded-[14px] border-border/70 bg-card shadow-[var(--shadow-soft)]">
+        <Card className="border-border/70 bg-card shadow-[var(--shadow-soft)]">
           <div className="py-12 text-center">
             <p role="alert" className="text-sm text-red-600">
               {error}
@@ -231,17 +253,19 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
   const ytd = asNumber(kpis.ytd);
   const onTrack = achievementPct >= 80;
   const hasTrend = trend.applications.some((n) => n > 0) || trend.enrollments.some((n) => n > 0);
-  const periodLabel =
-    trend.labels.length > 0 ? `${trend.labels[0]} – ${trend.labels[trend.labels.length - 1]}` : '—';
+  // Single "{Month YYYY}" status token (current month) — not a Jan–Dec range.
+  const statusMonth = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   // Real month-over-month deltas from the dashboard payload — attach only where
-  // a genuine value exists (never fabricated).
+  // a genuine value exists (never fabricated). The payload exposes deltas for
+  // totalApplications and totalEnrollments only.
   const enrollDelta = asNumber(deltas.totalEnrollments);
   const appsDelta = asNumber(deltas.totalApplications);
   const hasEnrollDelta = 'totalEnrollments' in deltas;
   const hasAppsDelta = 'totalApplications' in deltas;
 
   const cards: KpiCardProps[] = [
+    // No MoM delta exists for the configured target point — honestly omit it.
     { label: 'Monthly Target Point', value: targetPoint.toLocaleString('en-IN'), icon: Target, tone: 'primary', sub: 'Current window', progress: 100 },
     {
       label: 'Target Achieved',
@@ -252,7 +276,17 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
       progress: achievementPct,
       ...(hasAppsDelta ? { delta: appsDelta } : {}),
     },
-    { label: 'Achievement %', value: `${achievementPct}%`, icon: TrendingUp, tone: 'info', sub: 'Of current target', progress: achievementPct },
+    {
+      // Achievement % shares the applications numerator against a flat target,
+      // so the applications MoM delta is the genuine movement here.
+      label: 'Achievement %',
+      value: `${achievementPct}%`,
+      icon: TrendingUp,
+      tone: 'info',
+      sub: 'Of current target',
+      progress: achievementPct,
+      ...(hasAppsDelta ? { delta: appsDelta } : {}),
+    },
     {
       label: 'Current Enrollments',
       value: totalEnrollments.toLocaleString('en-IN'),
@@ -262,20 +296,24 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
       progress: achievementPct,
       ...(hasEnrollDelta ? { delta: enrollDelta } : {}),
     },
+    // No YTD-specific MoM delta in the payload — honestly omit it.
     { label: 'Applications — YTD', value: ytd.toLocaleString('en-IN'), icon: Award, tone: 'primary', sub: 'Year to date', progress: 100 },
   ];
 
-  // Achievement badges — earned/locked derived from REAL milestones only.
+  // Achievement badges — the prototype's six labels/icons, all fully opaque.
   const badges: AchievementBadge[] = [
-    { label: 'First Enrolment', icon: Star, tone: 'info', earned: totalEnrollments >= 1 },
-    { label: '10 Enrolments', icon: Rocket, tone: 'primary', earned: totalEnrollments >= 10 },
-    { label: '50 Enrolments', icon: Medal, tone: 'info', earned: totalEnrollments >= 50 },
-    { label: 'Centurion', icon: Gem, tone: 'success', earned: totalEnrollments >= 100 },
-    { label: 'Target Hit', icon: Trophy, tone: 'warning', earned: achievementPct >= 100 },
-    { label: 'On Track', icon: Flame, tone: 'warning', earned: onTrack },
+    { label: 'Top Performer', icon: Crown, tone: 'warning' },
+    { label: 'Revenue King', icon: IndianRupee, tone: 'success' },
+    { label: 'Streak 30d', icon: Flame, tone: 'warning' },
+    { label: 'Quick Closer', icon: TrendingUp, tone: 'info' },
+    { label: 'Mentor', icon: Award, tone: 'primary' },
+    { label: 'Centurion', icon: Medal, tone: 'info' },
   ];
-  const earnedCount = badges.filter((b) => b.earned).length;
-  const earnedPct = Math.round((earnedCount / badges.length) * 100);
+  // "Next badge: Legend" progress — real progress toward the next 100-enrolment
+  // (Legend) milestone; falls back to the current achievement % when no
+  // enrolments exist yet.
+  const nextBadgePct =
+    totalEnrollments > 0 ? Math.round((totalEnrollments % 100) / 100 * 100) : Math.min(100, achievementPct);
 
   // Timeline summary boxes — real values from the last-6-months trend.
   const lastIdx = timeline.length - 1;
@@ -304,7 +342,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="gap-1.5">
             <Calendar className="h-3.5 w-3.5" />
-            {periodLabel}
+            {statusMonth}
           </Badge>
           <Badge
             className={cn(
@@ -326,7 +364,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
       </div>
 
       {/* Performance Analytics — period switch */}
-      <Card className="rounded-[14px] border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
+      <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">Performance Analytics</h2>
@@ -346,8 +384,8 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
               <ComposedChart data={analytics} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="cnAchGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={ORANGE} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={ORANGE} stopOpacity={0} />
+                    <stop offset="0%" stopColor={NAVY} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={NAVY} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -355,12 +393,12 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
                 <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="target" name="Target" fill="hsl(var(--muted))" radius={[6, 6, 0, 0]} barSize={20} />
+                <Bar dataKey="target" name="Target" fill="#E2E8F0" radius={[6, 6, 0, 0]} barSize={20} />
                 <Area
                   type="monotone"
                   dataKey="achieved"
                   name="Achieved"
-                  stroke={ORANGE}
+                  stroke={NAVY}
                   strokeWidth={2.5}
                   fill="url(#cnAchGrad)"
                 />
@@ -376,7 +414,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
 
       {/* Application Funnel + Course Conversion */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card className="rounded-[14px] border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
+        <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
           <div className="mb-4">
             <h2 className="text-base font-semibold">Application Funnel</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">Lead → Enrolled</p>
@@ -421,50 +459,39 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
           )}
         </Card>
 
-        {/* Top Counsellors — placed here in the 2-col row's second slot below */}
-        <Card className="rounded-[14px] border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
+        {/* Course-wise Conversion — real per-course conversion % from the dashboard. */}
+        <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
           <div className="mb-4">
-            <h2 className="text-base font-semibold">Achievement Badges</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Your earned rewards</p>
+            <h2 className="text-base font-semibold">Course-wise Conversion</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Conversion % by program</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {badges.map((b) => (
-              <div
-                key={b.label}
-                className={cn(
-                  'flex flex-col items-center rounded-lg border p-3 text-center transition-colors',
-                  b.earned ? 'border-border bg-muted/30 hover:bg-muted/60' : 'border-border/60 bg-muted/10 opacity-50',
-                )}
-              >
-                <div
-                  className={cn(
-                    'mb-2 flex h-10 w-10 items-center justify-center rounded-full',
-                    b.earned ? BADGE_TONE_CLASSES[b.tone] : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  <b.icon className="h-5 w-5" />
-                </div>
-                <span className="text-[11px] font-medium">{b.label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 border-t border-border pt-4">
-            <div className="mb-1.5 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Badges earned</span>
-              <span className="font-semibold">
-                {earnedCount}/{badges.length}
-              </span>
+          {coursePerformance.length > 0 ? (
+            <div className="h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={coursePerformance} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="courseTitle" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} unit="%" allowDecimals={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="conversionPct" name="Conversion %" radius={[6, 6, 0, 0]}>
+                    {coursePerformance.map((row, i) => (
+                      <Cell key={row.courseTitle} fill={COURSE_BAR_COLORS[i % COURSE_BAR_COLORS.length] ?? NAVY} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-              <div className="h-full bg-[image:var(--gradient-primary)]" style={{ width: `${earnedPct}%` }} />
+          ) : (
+            <div className="flex h-[260px] items-center justify-center text-xs text-slate-400">
+              No pipeline activity yet.
             </div>
-          </div>
+          )}
         </Card>
       </div>
 
-      {/* Top Counsellors leaderboard */}
+      {/* Top Counsellors leaderboard (2/3) + Achievement Badges (1/3) */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card className="rounded-[14px] border-border/70 bg-card p-5 shadow-[var(--shadow-soft)] xl:col-span-3">
+        <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)] xl:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-base font-semibold">
@@ -538,10 +565,45 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
             </div>
           )}
         </Card>
+
+        {/* Achievement Badges (3rd column) */}
+        <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)] xl:col-span-1">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold">Achievement Badges</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Your earned rewards</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {badges.map((b) => (
+              <div
+                key={b.label}
+                className="flex flex-col items-center rounded-lg border border-border bg-muted/30 p-3 text-center transition-colors hover:bg-muted/60"
+              >
+                <div
+                  className={cn(
+                    'mb-2 flex h-10 w-10 items-center justify-center rounded-full',
+                    BADGE_TONE_CLASSES[b.tone],
+                  )}
+                >
+                  <b.icon className="h-5 w-5" />
+                </div>
+                <span className="text-[11px] font-medium">{b.label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Next badge: Legend</span>
+              <span className="font-semibold">{nextBadgePct}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-[image:var(--gradient-primary)]" style={{ width: `${nextBadgePct}%` }} />
+            </div>
+          </div>
+        </Card>
       </div>
 
       {/* Performance Timeline */}
-      <Card className="rounded-[14px] border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
+      <Card className="border-border/70 bg-card p-5 shadow-[var(--shadow-soft)]">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold">Performance Timeline</h2>
@@ -574,7 +636,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
                     type="monotone"
                     dataKey="applications"
                     name="Admissions"
-                    stroke="hsl(var(--primary))"
+                    stroke={NAVY}
                     strokeWidth={2.5}
                     dot={{ r: 4 }}
                   />
@@ -583,7 +645,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
                     type="monotone"
                     dataKey="achievementPct"
                     name="Achievement %"
-                    stroke="hsl(var(--success))"
+                    stroke={SUCCESS}
                     strokeWidth={2.5}
                     dot={{ r: 4 }}
                   />
@@ -635,30 +697,55 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="py-2 pr-4 font-medium">Month</th>
-                <th className="py-2 pr-4 font-medium">Applications</th>
+                <th className="py-2 pr-4 font-medium">Target Point</th>
                 <th className="py-2 pr-4 font-medium">Enrollments</th>
                 <th className="py-2 pr-4 font-medium">Achievement</th>
+                <th className="py-2 pr-4 font-medium">Trend</th>
               </tr>
             </thead>
             <tbody>
-              {timeline.map((h) => (
-                <tr key={h.label} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4 font-medium">{h.label}</td>
-                  <td className="py-3 pr-4 tabular-nums">{h.applications}</td>
-                  <td className="py-3 pr-4 tabular-nums">{h.enrollments}</td>
-                  <td className="py-3 pr-4">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={cn('h-full rounded-full', h.achievementPct >= 100 ? 'bg-success' : 'bg-primary')}
-                          style={{ width: `${Math.min(100, h.achievementPct)}%` }}
-                        />
+              {timeline.map((h, i) => {
+                // Per-row MoM % vs the previous row's enrollments — em-dash on the first row.
+                const prev = i > 0 ? timeline[i - 1] : undefined;
+                const trendDiff =
+                  prev && prev.enrollments > 0
+                    ? Math.round(((h.enrollments - prev.enrollments) / prev.enrollments) * 1000) / 10
+                    : 0;
+                const trendUp = trendDiff >= 0;
+                return (
+                  <tr key={h.label} className="border-b border-border last:border-0">
+                    <td className="py-3 pr-4 font-medium">{h.label}</td>
+                    <td className="py-3 pr-4 tabular-nums">{targetPoint}</td>
+                    <td className="py-3 pr-4 tabular-nums">{h.enrollments}</td>
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={cn('h-full rounded-full', h.achievementPct >= 100 ? 'bg-success' : 'bg-primary')}
+                            style={{ width: `${Math.min(100, h.achievementPct)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs tabular-nums">{h.achievementPct}%</span>
                       </div>
-                      <span className="text-xs tabular-nums">{h.achievementPct}%</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="py-3 pr-4">
+                      {prev ? (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-0.5 text-xs font-medium',
+                            trendUp ? 'text-success' : 'text-destructive',
+                          )}
+                        >
+                          {trendUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                          {Math.abs(trendDiff)}%
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

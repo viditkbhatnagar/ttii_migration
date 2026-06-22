@@ -97,7 +97,7 @@ export function CounsellorNavbar({ session, onLogout }: CounsellorNavbarProps) {
           variant="ghost"
           size="icon"
           aria-label="Open navigation menu"
-          className="text-muted-foreground hover:text-foreground md:hidden"
+          className="text-muted-foreground hover:text-foreground lg:hidden"
           onClick={toggleMobileSidebar}
         >
           <Menu className="size-5" aria-hidden="true" />

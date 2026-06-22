@@ -437,15 +437,18 @@ function VideoCard({ v, onWatch }: { v: TrainingVideo; onWatch: () => void }) {
               <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-primary transition">
                 {v.title}
               </p>
-              {v.description && (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{v.description}</p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {v.videoType || v.category}
+              </p>
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between">
             <Badge variant="outline" className="text-[10px] font-medium">
               {v.category}
             </Badge>
+            {v.videoType && (
+              <span className="text-[11px] text-muted-foreground">{v.videoType}</span>
+            )}
           </div>
         </div>
       </Card>

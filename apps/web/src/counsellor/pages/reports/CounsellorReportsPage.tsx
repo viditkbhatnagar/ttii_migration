@@ -4,8 +4,6 @@ import {
   FileSpreadsheet,
   FileText as FileTextIcon,
   Printer,
-  Save,
-  CalendarClock,
   Calendar,
   Filter,
   Search,
@@ -35,6 +33,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { cn } from '@/lib/utils';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -200,6 +206,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
   );
 
   const [activeId, setActiveId] = useState<string>(REPORT_CATEGORIES[0]?.id ?? 'applications');
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState('30d');
   const [course, setCourse] = useState('all');
@@ -448,23 +455,14 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
 
             {/* Actions */}
             <div className="mt-5 flex flex-wrap gap-2 pt-4 border-t border-border">
-              <Button size="sm" onClick={() => exportCategory(active)}>
+              <Button size="sm" onClick={() => setPreviewOpen(true)}>
                 <FileTextIcon className="h-4 w-4 mr-1.5" /> Preview
               </Button>
               <Button size="sm" variant="outline" onClick={() => exportCategory(active)}>
-                <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export Excel
-              </Button>
-              <Button size="sm" variant="outline" disabled>
-                <FileTextIcon className="h-4 w-4 mr-1.5" /> Export PDF
+                <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Export CSV
               </Button>
               <Button size="sm" variant="outline" onClick={() => window.print()}>
                 <Printer className="h-4 w-4 mr-1.5" /> Print
-              </Button>
-              <Button size="sm" variant="outline" disabled>
-                <Save className="h-4 w-4 mr-1.5" /> Save Report
-              </Button>
-              <Button size="sm" variant="outline" disabled>
-                <CalendarClock className="h-4 w-4 mr-1.5" /> Schedule
               </Button>
             </div>
           </Card>
@@ -601,6 +599,58 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{active.title} — Preview</DialogTitle>
+            <DialogDescription>
+              Showing first {previewRows.length} of {activeRows.length.toLocaleString('en-IN')} records
+              {' • '}
+              {today}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  {active.columns.map((col) => (
+                    <TableHead key={col.header} className="text-xs font-semibold whitespace-nowrap">
+                      {col.header}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {previewRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={active.columns.length} className="py-8 text-center text-sm text-muted-foreground">
+                      No records available.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  previewRows.map((row, i) => (
+                    <TableRow key={asString(row.id) || i}>
+                      {active.columns.map((col) => (
+                        <TableCell key={col.header} className="text-sm">
+                          {col.value(row) || '—'}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => exportCategory(active)}>
+              <Download className="h-4 w-4 mr-1.5" /> Export CSV
+            </Button>
+            <Button onClick={() => setPreviewOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

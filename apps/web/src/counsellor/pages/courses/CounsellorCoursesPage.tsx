@@ -170,21 +170,19 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
               className="pl-9"
             />
           </div>
-          {levels.length > 0 ? (
-            <Select value={level} onValueChange={setLevel}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Level" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Levels</SelectItem>
-                {levels.map((l) => (
-                  <SelectItem key={l} value={l}>
-                    {l}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
+          <Select value={level} onValueChange={setLevel}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Level" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Levels</SelectItem>
+              {levels.map((l) => (
+                <SelectItem key={l} value={l}>
+                  {l}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="sm" className="gap-2">
             <Filter className="h-4 w-4" /> More
           </Button>

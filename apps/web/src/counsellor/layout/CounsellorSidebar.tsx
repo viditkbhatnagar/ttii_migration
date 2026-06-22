@@ -182,7 +182,7 @@ export function CounsellorSidebar({ pathname, session: _session, onNavigate }: C
     <aside
       aria-label="Counsellor navigation"
       className={cn(
-        'hidden h-screen flex-col border-r border-cn-navy-2 bg-cn-navy transition-all duration-200 md:flex',
+        'hidden h-screen flex-col border-r border-cn-navy-2 bg-cn-navy transition-all duration-300 lg:flex',
         sidebarCollapsed ? 'w-sidebar-collapsed' : 'w-64',
       )}
     >
