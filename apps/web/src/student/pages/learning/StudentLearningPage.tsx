@@ -1378,7 +1378,7 @@ function LessonPlayerView({
       </div>
 
       {/* 3-column grid */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(260px,320px)_1fr_minmax(240px,300px)]">
+      <div className="grid gap-4 [&>*]:min-w-0 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(240px,300px)]">
         {/* LEFT — module/lesson tree + Live Classes */}
         <aside className="space-y-3">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">

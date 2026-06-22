@@ -268,14 +268,27 @@ export class CommerceService {
       return [];
     }
 
-    return this.prisma.student_payments.findMany({
-      where: {
-        user_id: userIntId,
-        course_id: courseIntId,
-        deleted_at: null,
-      },
-      orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
-    });
+    // Legacy student_payments rows store '0000-00-00' in due_date / paid_date,
+    // which Prisma's MySQL driver refuses to hydrate. Read via $queryRaw with
+    // NULLIF so those literals become NULL instead of crashing.
+    return this.prisma.$queryRaw<
+      Array<{
+        id: number;
+        installment_details: string | null;
+        amount: number | null;
+        payment_mode: string | null;
+        payment_to: string | null;
+        status: string | null;
+        due_date: Date | null;
+        paid_date: Date | null;
+      }>
+    >`
+      SELECT id, installment_details, amount, payment_mode, payment_to, status,
+             NULLIF(due_date, '0000-00-00') AS due_date,
+             NULLIF(paid_date, '0000-00-00') AS paid_date
+      FROM student_payments
+      WHERE user_id = ${userIntId} AND course_id = ${courseIntId} AND deleted_at IS NULL
+      ORDER BY due_date ASC, id ASC`;
   }
 
   private async ensureEnrolment(
@@ -974,14 +987,27 @@ export class CommerceService {
 
     const courseIntId = courseId ? toIntId(courseId) : 0;
 
-    const rows = await this.prisma.student_payments.findMany({
-      where: {
-        user_id: userIntId,
-        deleted_at: null,
-        ...(courseIntId ? { course_id: courseIntId } : {}),
-      },
-      orderBy: [{ due_date: 'asc' }, { id: 'asc' }],
-    });
+    // Legacy student_payments rows store '0000-00-00' in due_date / paid_date,
+    // which Prisma's MySQL driver refuses to hydrate. Read via $queryRaw with
+    // NULLIF so those literals become NULL instead of crashing.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: number;
+        installment_details: string | null;
+        amount: number | null;
+        payment_mode: string | null;
+        payment_to: string | null;
+        status: string | null;
+        due_date: Date | null;
+        paid_date: Date | null;
+      }>
+    >`
+      SELECT id, installment_details, amount, payment_mode, payment_to, status,
+             NULLIF(due_date, '0000-00-00') AS due_date,
+             NULLIF(paid_date, '0000-00-00') AS paid_date
+      FROM student_payments
+      WHERE user_id = ${userIntId} AND deleted_at IS NULL AND (${courseIntId} = 0 OR course_id = ${courseIntId})
+      ORDER BY due_date ASC, id ASC`;
 
     const currentDate = toDateOnlyString(new Date());
 

@@ -1395,12 +1395,18 @@ export class EngagementService {
         take: limit,
         select: { id: true, assignment_id: true, marks: true, created_at: true, verified_at: true },
       }),
-      this.prisma.student_payments.findMany({
-        where: { user_id: uid, deleted_at: null, paid_date: { not: null } },
-        orderBy: { paid_date: 'desc' },
-        take: limit,
-        select: { id: true, amount: true, installment_details: true, paid_date: true },
-      }),
+      // Legacy student_payments rows store '0000-00-00' in paid_date, which
+      // Prisma's MySQL driver refuses to hydrate — that crashed the WHOLE
+      // student dashboard. Read via $queryRaw with NULLIF so the bad literal
+      // becomes NULL instead of throwing (same fix used across operations).
+      this.prisma.$queryRaw<
+        Array<{ id: number; amount: number | null; installment_details: string | null; paid_date: Date | null }>
+      >`
+        SELECT id, amount, installment_details, NULLIF(paid_date, '0000-00-00') AS paid_date
+        FROM student_payments
+        WHERE user_id = ${uid} AND deleted_at IS NULL AND paid_date IS NOT NULL AND paid_date <> '0000-00-00'
+        ORDER BY paid_date DESC
+        LIMIT ${limit}`,
       this.prisma.exam_attempt.findMany({
         where: { user_id: uid, deleted_at: null, submit_status: true },
         orderBy: { end_time: 'desc' },
