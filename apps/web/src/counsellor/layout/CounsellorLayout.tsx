@@ -24,7 +24,7 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
   }, [closeMobileSidebar, onNavigate]);
 
   return (
-    <div className="student-dashboard flex h-screen overflow-hidden bg-[#F8FAFC]">
+    <div className="counsellor-theme student-dashboard flex h-screen overflow-hidden bg-[#F8FAFC]">
       <CounsellorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
 
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>

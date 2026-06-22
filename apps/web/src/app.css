@@ -48,6 +48,23 @@
   --cn-shadow-soft: 0 1px 2px rgba(11, 39, 88, 0.06), 0 4px 16px rgba(11, 39, 88, 0.08);
   --cn-shadow-card: 0 1px 3px rgba(11, 39, 88, 0.06), 0 8px 24px rgba(11, 39, 88, 0.08);
 
+  /* Lovable counsellor-prototype semantic tokens — registered globally so the
+     ported JSX's utilities (bg-primary-soft, bg-success-soft, text-info, …)
+     exist. Only the counsellor portal uses these classes; the core conflicting
+     tokens (primary, muted, border, radius, sidebar…) are scoped under
+     .counsellor-theme so admin/student/centre are untouched. */
+  --color-primary-soft: #FFF3EC;
+  --color-success: #22C55E;
+  --color-success-foreground: #FFFFFF;
+  --color-success-soft: #DCFCE7;
+  --color-warning: #F59E0B;
+  --color-warning-foreground: #FFFFFF;
+  --color-warning-soft: #FEF3C7;
+  --color-info: #1E4D9B;
+  --color-info-soft: #EEF4FF;
+  --color-destructive-foreground: #FFFFFF;
+  --color-destructive-soft: #FEE2E2;
+
   /* shadcn/ui integration */
   --color-background: #F3F6F9;
   --color-foreground: #1a1a2e;
@@ -213,6 +230,47 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* Counsellor portal adopts the EXACT Lovable (ttiicounsellor.lovable.app)
+   design system. Overriding the base vars here cascades into every Tailwind /
+   shadcn utility (bg-primary, bg-muted, border-border, rounded-*, …) inside the
+   counsellor subtree only — admin/student/centre keep their own palette. */
+.counsellor-theme {
+  --radius: 0.875rem;
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #F47C2C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EEF4FF;
+  --secondary-foreground: #0B2758;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --accent: #FFF3EC;
+  --accent-foreground: #E56612;
+  --destructive: #EF4444;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #F47C2C;
+  --chart-1: #0B2758;
+  --chart-2: #F47C2C;
+  --chart-3: #1E4D9B;
+  --chart-4: #22C55E;
+  --chart-5: #64748B;
+  --sidebar: #0B2758;
+  --sidebar-foreground: #D6E4FF;
+  --sidebar-primary: #F47C2C;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E4D9B;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: #1E4D9B;
+  --sidebar-ring: #F47C2C;
+  --shadow-soft: 0 1px 2px rgba(11, 39, 88, 0.06), 0 4px 16px rgba(11, 39, 88, 0.08);
+  --shadow-card: 0 1px 3px rgba(11, 39, 88, 0.06), 0 8px 24px rgba(11, 39, 88, 0.08);
 }
 
 @layer base {
