@@ -38,7 +38,9 @@ interface LiveRow {
   date: string;
   fromTime: string;
   joinUrl: string;
-  isToday: boolean;
+  // True only while the class is actually live now (within its start–end
+  // window today), NOT just because its date is today.
+  isLive: boolean;
 }
 
 // An in-progress course: real content completion (0 < pct < 100) computed from
@@ -109,12 +111,17 @@ function startOfToday(): number {
 }
 
 // Whole-day delta from today: 0 = today, <0 = past, >0 = future. null when the
-// value isn't a parseable date.
+// value isn't a parseable date. A date-only "YYYY-MM-DD" is read as a LOCAL
+// calendar day (not UTC midnight) so the day count is identical for every
+// viewer regardless of their timezone.
 function dayDelta(value: string): number | null {
   if (!value) {
     return null;
   }
-  const d = new Date(value);
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = m
+    ? new Date(Number(m[1] ?? '0'), Number(m[2] ?? '1') - 1, Number(m[3] ?? '1'))
+    : new Date(value);
   if (Number.isNaN(d.getTime())) {
     return null;
   }
@@ -136,7 +143,12 @@ function shortTime(value: string): string {
 }
 
 function weekdayChip(value: string): { weekday: string; day: string } {
-  const d = new Date(value);
+  // Read a date-only "YYYY-MM-DD" as a LOCAL day so the chip shows the same
+  // weekday/day-number for every viewer (avoids the UTC-midnight day shift).
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = m
+    ? new Date(Number(m[1] ?? '0'), Number(m[2] ?? '1') - 1, Number(m[3] ?? '1'))
+    : new Date(value);
   if (Number.isNaN(d.getTime())) {
     return { weekday: '', day: '' };
   }
@@ -239,15 +251,43 @@ function deriveRecommendedCourses(learning: StudentLearningSnapshot): CatalogCou
     }));
 }
 
-// Upcoming / in-progress live classes, soonest first. Mirrors
-// StudentLiveClassPage's status mapping ('upcoming' | 'today').
+// True ongoing / upcoming / past from the class's calendar date AND its
+// start/end times vs the viewer's local clock. The backend `status` is
+// DATE-ONLY, so a class scheduled today reads "today" all day — a 7:30 PM
+// session would show "Live" at 4 PM, and a class that already ended would
+// still count as upcoming. Times are IST wall-clock and students are in IST.
+function liveClassPhase(row: Record<string, unknown>): 'past' | 'upcoming' | 'ongoing' {
+  const dateStr = asString(row.date);
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return asString(row.status) === 'past' ? 'past' : 'upcoming';
+  const [, y = '', mo = '', d = ''] = m;
+  const day = new Date(Number(y), Number(mo) - 1, Number(d)).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (day > today) return 'upcoming';
+  if (day < today) return 'past';
+  const toMin = (v: string): number | null => {
+    const parts = v.split(':');
+    const h = Number(parts[0]);
+    const mi = Number(parts[1] ?? '0');
+    return Number.isFinite(h) && Number.isFinite(mi) ? h * 60 + mi : null;
+  };
+  const start = toMin(asString(row.from_time));
+  const end = toMin(asString(row.to_time));
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  if (start !== null && nowMin < start) return 'upcoming';
+  if (end !== null && nowMin >= end) return 'past';
+  if (start === null) return 'upcoming';
+  return 'ongoing';
+}
+
+// Upcoming + currently-live classes (excludes any that have already ended),
+// soonest first. "Live" is the real in-window state, not just "date is today".
 function deriveUpcomingLive(rows: Record<string, unknown>[]): LiveRow[] {
   return rows
-    .filter((r) => {
-      const status = asString(r.status);
-      return status === 'upcoming' || status === 'today';
-    })
-    .map((r): LiveRow => ({
+    .map((r) => ({ r, phase: liveClassPhase(r) }))
+    .filter(({ phase }) => phase !== 'past')
+    .map(({ r, phase }): LiveRow => ({
       id: asString(r.id),
       title: asString(r.title) || 'Live Class',
       subject: asString(r.subject_title),
@@ -255,7 +295,7 @@ function deriveUpcomingLive(rows: Record<string, unknown>[]): LiveRow[] {
       date: asString(r.date),
       fromTime: asString(r.from_time),
       joinUrl: asString(r.join_url),
-      isToday: asString(r.status) === 'today',
+      isLive: phase === 'ongoing',
     }))
     .sort((a, b) => {
       const da = new Date(`${a.date}T${a.fromTime || '00:00:00'}`).getTime();
@@ -897,7 +937,7 @@ function UpcomingLiveRow({ row, onJoin }: { row: LiveRow; onJoin: () => void }) 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <h3 className="truncate text-sm font-bold text-student-text">{row.title}</h3>
-          {row.isToday ? (
+          {row.isLive ? (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
               <span className="inline-block size-1.5 animate-pulse rounded-full bg-red-500" />
               Live

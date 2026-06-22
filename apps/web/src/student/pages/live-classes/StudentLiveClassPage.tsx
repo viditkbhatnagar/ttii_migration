@@ -27,11 +27,24 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 
 type LiveTab = 'upcoming' | 'ongoing' | 'past';
 
+// Render a date-only ("YYYY-MM-DD") value WITHOUT timezone conversion. Using
+// `new Date("2026-06-23")` parses as UTC midnight, so a viewer at/behind UTC
+// renders the previous day — that's why the same session showed Jun 23 to one
+// student and Jun 22 to another. Building a LOCAL date from the parts keeps the
+// displayed calendar day identical for every viewer.
 function formatLiveDate(value: string): string {
   if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const [, y = '', mo = '', d = ''] = m;
+    const local = new Date(Number(y), Number(mo) - 1, Number(d));
+    if (!Number.isNaN(local.getTime())) {
+      return local.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+  }
+  const fallback = new Date(value);
+  if (Number.isNaN(fallback.getTime())) return value;
+  return fallback.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function shortTime(value: string): string {
@@ -50,6 +63,35 @@ function timeToMinutes(value: string): number | null {
   const minutes = Number(parts[1] ?? '0');
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   return hours * 60 + minutes;
+}
+
+// True ongoing / upcoming / past, computed from the class's calendar date AND
+// its start/end times against the viewer's local clock. The backend `status`
+// is DATE-ONLY, so a class scheduled for today was flagged "today" (and shown
+// as Live) all day — a 7:30 PM session appeared "live" at 4 PM. Times are IST
+// wall-clock strings and our students are in IST, so the local clock is the
+// correct reference: a class is Live only while now is within [start, end).
+function liveStatus(row: Record<string, unknown>): LiveTab {
+  const dateStr = asString(row.date);
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) {
+    // No usable date — fall back to the backend's coarse status.
+    return asString(row.status) === 'past' ? 'past' : 'upcoming';
+  }
+  const [, y = '', mo = '', d = ''] = m;
+  const day = new Date(Number(y), Number(mo) - 1, Number(d)).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (day > today) return 'upcoming';
+  if (day < today) return 'past';
+  // Same calendar day → decide by time of day.
+  const start = timeToMinutes(asString(row.from_time));
+  const end = timeToMinutes(asString(row.to_time));
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  if (start !== null && nowMin < start) return 'upcoming';
+  if (end !== null && nowMin >= end) return 'past';
+  if (start === null) return 'upcoming';
+  return 'ongoing';
 }
 
 // Human-readable duration derived from the real from/to time fields.
@@ -115,9 +157,9 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
     }
     return true;
   });
-  const upcoming = visible.filter((r) => asString(r.status) === 'upcoming');
-  const ongoing = visible.filter((r) => asString(r.status) === 'today');
-  const past = visible.filter((r) => asString(r.status) === 'past');
+  const upcoming = visible.filter((r) => liveStatus(r) === 'upcoming');
+  const ongoing = visible.filter((r) => liveStatus(r) === 'ongoing');
+  const past = visible.filter((r) => liveStatus(r) === 'past');
   const current = tab === 'upcoming' ? upcoming : tab === 'ongoing' ? ongoing : past;
 
   async function watchRecording(row: Record<string, unknown>) {
