@@ -22,6 +22,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import AdminAddLeadPage from '../../../admin/pages/applications/AddLeadPage.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
@@ -128,9 +130,10 @@ function PillButton({ active, onClick, label, count }: { active: boolean; onClic
 }
 
 export default function CounsellorApplicationsPage({ api, session, onNavigate }: CounsellorPageProps) {
-  const { data, loading, error } = useAdminPageData(() => api.loadApplications(session.token), [api, session.token]);
+  const { data, loading, error, reload } = useAdminPageData(() => api.loadApplications(session.token), [api, session.token]);
   const rows = useMemo(() => toRecords(data), [data]);
 
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState<string>('all');
   const [course, setCourse] = useState<string>('all');
@@ -210,7 +213,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportCsv(filtered)}>
             <FileText className="h-4 w-4" /> Export
           </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/counsellor/leads/add')}>
+          <Button size="sm" className="gap-1.5" onClick={() => setAddLeadOpen(true)}>
             <Plus className="h-4 w-4" /> Add Lead
           </Button>
         </div>
@@ -476,6 +479,28 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
           </div>
         </div>
       </Card>
+
+      {/* Add Lead — inline modal (was a full-page route). Reuses the proven
+          admin lead form; the counsellor-theme class scopes its tokens to the
+          portal's orange palette inside the portalled dialog. */}
+      <Dialog open={addLeadOpen} onOpenChange={setAddLeadOpen}>
+        <DialogContent
+          className="counsellor-theme student-dashboard max-h-[90vh] overflow-y-auto"
+          style={{ width: 'min(720px, calc(100vw - 2rem))', maxWidth: 'min(720px, calc(100vw - 2rem))' }}
+        >
+          <DialogHeader>
+            <DialogTitle>Add Lead</DialogTitle>
+          </DialogHeader>
+          <AdminAddLeadPage
+            api={api.admin}
+            session={session}
+            onNavigate={() => {
+              setAddLeadOpen(false);
+              reload();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
