@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, KeyRound, User } from 'lucide-react';
+import { User, Shield, KeyRound, Eye, EyeOff, Save, Lock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { PageLoader } from '@/components/ui/page-loader';
 import { useCounsellorLayout } from '../../layout/CounsellorLayoutContext.js';
 import type { CounsellorProfileSnapshot } from '../../counsellor-portal-api.js';
@@ -21,6 +24,14 @@ interface ProfileFormState {
 interface PasswordFormState {
   password: string;
   confirmPassword: string;
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  const initials = `${first}${last}`.toUpperCase();
+  return initials || 'CN';
 }
 
 export default function CounsellorSettingsPage({ api, session }: CounsellorPageProps) {
@@ -41,6 +52,8 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
     confirmPassword: '',
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const hydrate = useCallback((snapshot: CounsellorProfileSnapshot) => {
     setProfileForm({
@@ -84,7 +97,7 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
         const snapshot = await api.updateProfile(session.token, profileForm, session);
         hydrate(snapshot);
         refreshCurrentUser();
-        toast.success('Profile updated.');
+        toast.success('Profile updated successfully');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Could not update profile.');
       } finally {
@@ -108,7 +121,7 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
       setPasswordSaving(true);
       try {
         await api.changePassword(session.token, passwordForm);
-        toast.success('Password updated.');
+        toast.success('Password updated successfully');
         setPasswordForm({ password: '', confirmPassword: '' });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Could not change password.');
@@ -122,85 +135,197 @@ export default function CounsellorSettingsPage({ api, session }: CounsellorPageP
   if (loading) return <PageLoader label="Loading settings..." />;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="mt-1 text-sm text-cn-muted-fg">Update your profile and password.</p>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your profile and account security.
+          </p>
+        </div>
       </div>
 
       {loadError ? (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
           {loadError}
         </div>
       ) : null}
 
-      <form onSubmit={(e) => void onSaveProfile(e)} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="rounded-lg bg-cn-orange/10 p-2 text-cn-orange">
-            <User className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Profile</h2>
-            <p className="text-xs text-cn-muted-fg">Your name and contact details.</p>
-          </div>
-        </div>
+      <Tabs defaultValue="profile" className="w-full">
+        <TabsList className="bg-muted/50 p-1">
+          <TabsTrigger value="profile" className="gap-1.5">
+            <User className="h-4 w-4" />
+            <span className="hidden sm:inline">Profile</span>
+          </TabsTrigger>
+          <TabsTrigger value="security" className="gap-1.5">
+            <Shield className="h-4 w-4" />
+            <span className="hidden sm:inline">Security</span>
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-name">Full name</Label>
-            <Input id="settings-name" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setProfileForm((p) => ({ ...p, name: next })); }} autoComplete="name" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-email">Email</Label>
-            <Input id="settings-email" type="email" value={profileForm.email} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} autoComplete="email" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-country-code">Country code</Label>
-            <Input id="settings-country-code" value={profileForm.countryCode} maxLength={10} placeholder="+91" onChange={(e) => setProfileForm((p) => ({ ...p, countryCode: e.target.value }))} autoComplete="tel-country-code" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-phone">Phone</Label>
-            <Input id="settings-phone" value={profileForm.phone} onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))} autoComplete="tel-national" />
-          </div>
-        </div>
+        {/* ─── Profile ─── */}
+        <TabsContent value="profile" className="mt-6 space-y-6">
+          <div className="space-y-6">
+            <Card className="p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+                <div className="relative group">
+                  <Avatar className="h-24 w-24 ring-4 ring-primary/15">
+                    <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-2xl font-bold">
+                      {initialsOf(profileForm.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold">{profileForm.name || 'Counsellor'}</h2>
+                  <p className="text-sm text-muted-foreground">Admission Counsellor</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {profileForm.email ? (
+                      <Badge variant="outline" className="text-xs">{profileForm.email}</Badge>
+                    ) : null}
+                    <Badge variant="secondary" className="text-xs">Active</Badge>
+                  </div>
+                </div>
+              </div>
+            </Card>
 
-        <div className="mt-6 flex justify-end">
-          <Button type="submit" className="bg-cn-orange text-white hover:bg-cn-orange/90" disabled={profileSaving}>
-            {profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Save Profile
-          </Button>
-        </div>
-      </form>
+            <form onSubmit={(e) => void onSaveProfile(e)}>
+              <Card className="p-6 space-y-6">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Personal Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="settings-name" className="text-sm font-medium">Full Name</label>
+                    <Input
+                      id="settings-name"
+                      value={profileForm.name}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))}
+                      onBlur={(e) => {
+                        const next = titleCaseEachWord(e.target.value);
+                        if (next !== e.target.value) setProfileForm((p) => ({ ...p, name: next }));
+                      }}
+                      autoComplete="name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="settings-email" className="text-sm font-medium">Email</label>
+                    <Input
+                      id="settings-email"
+                      type="email"
+                      value={profileForm.email}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="settings-country-code" className="text-sm font-medium">Country Code</label>
+                    <Input
+                      id="settings-country-code"
+                      value={profileForm.countryCode}
+                      maxLength={10}
+                      placeholder="+91"
+                      onChange={(e) => setProfileForm((p) => ({ ...p, countryCode: e.target.value }))}
+                      autoComplete="tel-country-code"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="settings-phone" className="text-sm font-medium">Phone</label>
+                    <Input
+                      id="settings-phone"
+                      value={profileForm.phone}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))}
+                      autoComplete="tel-national"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={profileSaving} className="gap-1.5">
+                    {profileSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}{' '}
+                    Save Changes
+                  </Button>
+                </div>
+              </Card>
+            </form>
+          </div>
+        </TabsContent>
 
-      <form onSubmit={(e) => void onChangePassword(e)} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="rounded-lg bg-cn-orange/10 p-2 text-cn-orange">
-            <KeyRound className="h-5 w-5" />
+        {/* ─── Security ─── */}
+        <TabsContent value="security" className="mt-6 space-y-6">
+          <div className="space-y-6">
+            <form onSubmit={(e) => void onChangePassword(e)}>
+              <Card className="p-6 space-y-5">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Change Password
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="settings-password" className="text-sm font-medium">New Password</label>
+                    <div className="relative">
+                      <Input
+                        id="settings-password"
+                        type={showNew ? 'text' : 'password'}
+                        placeholder="Enter new password"
+                        className="pr-10"
+                        value={passwordForm.password}
+                        onChange={(e) => setPasswordForm((p) => ({ ...p, password: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNew(!showNew)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="settings-confirm-password" className="text-sm font-medium">Confirm New Password</label>
+                    <div className="relative">
+                      <Input
+                        id="settings-confirm-password"
+                        type={showConfirm ? 'text' : 'password'}
+                        placeholder="Confirm new password"
+                        className="pr-10"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirm(!showConfirm)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pick a new password — at least 8 characters, and both fields must match.
+                </p>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={passwordSaving} className="gap-1.5">
+                    {passwordSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Lock className="h-4 w-4" />
+                    )}{' '}
+                    Update Password
+                  </Button>
+                </div>
+              </Card>
+            </form>
           </div>
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Change Password</h2>
-            <p className="text-xs text-cn-muted-fg">Pick a new password — at least 8 characters.</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-password">New password</Label>
-            <Input id="settings-password" type="password" value={passwordForm.password} onChange={(e) => setPasswordForm((p) => ({ ...p, password: e.target.value }))} autoComplete="new-password" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="settings-confirm-password">Confirm new password</Label>
-            <Input id="settings-confirm-password" type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm((p) => ({ ...p, confirmPassword: e.target.value }))} autoComplete="new-password" />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button type="submit" className="bg-cn-orange text-white hover:bg-cn-orange/90" disabled={passwordSaving}>
-            {passwordSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Update Password
-          </Button>
-        </div>
-      </form>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

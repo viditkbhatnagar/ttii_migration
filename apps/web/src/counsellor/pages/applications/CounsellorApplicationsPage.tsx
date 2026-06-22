@@ -1,53 +1,477 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Eye, Pencil, Plus, Search } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Plus, Search } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
-import { StageBadge } from '../../components/CounsellorWidgets.js';
 
-const CARD = 'rounded-[14px] border border-cn-border/70 bg-white p-5 shadow-[var(--cn-shadow-soft)]';
+/* ─── Stage definitions (real lowercase keys → display labels + Lovable styles) ─── */
 
-const STAGES: { key: string; label: string }[] = [
-  { key: 'lead', label: 'Lead' },
-  { key: 'payment_pending', label: 'Payment Pending' },
-  { key: 'paid', label: 'Paid' },
-  { key: 'form_pending', label: 'Form Pending' },
-  { key: 'form_submitted', label: 'Form Submitted' },
-  { key: 'approval_waiting', label: 'Approval Waiting' },
-  { key: 'enrolled', label: 'Enrolled' },
-  { key: 'rejected', label: 'Rejected' },
+interface StageDef {
+  key: string;
+  label: string;
+  style: string;
+}
+
+const STAGES: StageDef[] = [
+  { key: 'lead', label: 'Lead', style: 'bg-info-soft text-info border-transparent' },
+  { key: 'payment_pending', label: 'Payment Pending', style: 'bg-warning-soft text-warning-foreground border-transparent' },
+  { key: 'paid', label: 'Paid', style: 'bg-success-soft text-success border-transparent' },
+  { key: 'form_pending', label: 'Form Pending', style: 'bg-[#f3e8ff] text-[#7c3aed] border-transparent' },
+  { key: 'form_submitted', label: 'Form Submitted', style: 'bg-primary-soft text-accent-foreground border-transparent' },
+  { key: 'approval_waiting', label: 'Approval Waiting', style: 'bg-[#fef3c7] text-[#b45309] border-transparent' },
+  { key: 'enrolled', label: 'Enrolled', style: 'bg-success-soft text-success border-transparent' },
+  { key: 'rejected', label: 'Rejected', style: 'bg-destructive/10 text-destructive border-transparent' },
 ];
 
+const STAGE_BY_KEY = new Map(STAGES.map((s) => [s.key, s]));
 const PAGE_SIZE = 8;
-
-function initials(name: string): string {
-  return name.split(' ').filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase() || '—';
-}
 
 function appStage(a: Record<string, unknown>): string {
   const stage = asString(a.stage);
-  if (stage) return stage;
-  // Fall back to status when an older row has no stage.
+  if (stage && STAGE_BY_KEY.has(stage)) return stage;
   const status = asString(a.status).toLowerCase();
   if (status === 'rejected') return 'rejected';
   return 'lead';
 }
 
+function appCourse(a: Record<string, unknown>): string {
+  return asString(a.course_title);
+}
+
+function appOffering(a: Record<string, unknown>): string {
+  return asString(a.offering_title);
+}
+
+function appEmail(a: Record<string, unknown>): string {
+  return asString(a.user_email) || asString(a.email);
+}
+
+function appOwner(a: Record<string, unknown>): string {
+  return asString(a.pipeline_user_name);
+}
+
+function appId(a: Record<string, unknown>): string {
+  return asString(a.id) || asString(a._id);
+}
+
+function initials(name: string): string {
+  return (
+    name
+      .split(' ')
+      .filter(Boolean)
+      .map((p) => p[0] ?? '')
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || '—'
+  );
+}
+
+function StageBadge({ stage }: { stage: string }) {
+  const def = STAGE_BY_KEY.get(stage) ?? { label: stage || '—', style: 'bg-muted text-muted-foreground border-transparent' };
+  return (
+    <Badge variant="outline" className={`font-medium gap-1.5 py-0.5 ${def.style}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+      {def.label}
+    </Badge>
+  );
+}
+
+function PillButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ' +
+        (active
+          ? 'bg-primary text-primary-foreground border-primary'
+          : 'bg-card text-muted-foreground border-border hover:text-foreground hover:border-muted-foreground/40')
+      }
+    >
+      {label}
+      <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-semibold ' + (active ? 'bg-white/20' : 'bg-muted text-muted-foreground')}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+export default function CounsellorApplicationsPage({ api, session, onNavigate }: CounsellorPageProps) {
+  const { data, loading, error } = useAdminPageData(() => api.loadApplications(session.token), [api, session.token]);
+  const rows = useMemo(() => toRecords(data), [data]);
+
+  const [search, setSearch] = useState('');
+  const [stage, setStage] = useState<string>('all');
+  const [course, setCourse] = useState<string>('all');
+  const [offering, setOffering] = useState<string>('all');
+  const [range, setRange] = useState<string>('30');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const courses = useMemo(() => Array.from(new Set(rows.map(appCourse).filter(Boolean))).sort(), [rows]);
+  const offerings = useMemo(() => Array.from(new Set(rows.map(appOffering).filter(Boolean))).sort(), [rows]);
+
+  const filtered = useMemo(() => {
+    const cutoff = range === 'all' ? 0 : Date.now() - parseInt(range, 10) * 86400000;
+    const q = search.trim().toLowerCase();
+    return rows.filter((a) => {
+      if (stage !== 'all' && appStage(a) !== stage) return false;
+      if (course !== 'all' && appCourse(a) !== course) return false;
+      if (offering !== 'all' && appOffering(a) !== offering) return false;
+      if (range !== 'all') {
+        const ts = new Date(asString(a.created_at)).getTime();
+        if (Number.isFinite(ts) && ts < cutoff) return false;
+      }
+      if (q) {
+        return (
+          asString(a.name).toLowerCase().includes(q) ||
+          asString(a.application_id).toLowerCase().includes(q) ||
+          appEmail(a).toLowerCase().includes(q) ||
+          asString(a.phone).toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [rows, search, stage, course, offering, range]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const current = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const stageCount = (key: string) => rows.filter((a) => appStage(a) === key).length;
+
+  const allChecked = current.length > 0 && current.every((a) => selected.has(appId(a)));
+  const toggleAll = () => {
+    const next = new Set(selected);
+    if (allChecked) current.forEach((a) => next.delete(appId(a)));
+    else current.forEach((a) => next.add(appId(a)));
+    setSelected(next);
+  };
+  const toggleOne = (id: string, checked: boolean) => {
+    const next = new Set(selected);
+    if (checked) next.add(id);
+    else next.delete(id);
+    setSelected(next);
+  };
+
+  if (loading) return <DashboardLoader label="applications" />;
+  if (error) {
+    return (
+      <Card className="p-5 shadow-[var(--shadow-soft)] border-border/70">
+        <p role="alert" className="py-8 text-center text-sm text-destructive">
+          {error}
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <main className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">My Applications</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {filtered.length} applications across {STAGES.length} pipeline stages
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportCsv(filtered)}>
+            <FileText className="h-4 w-4" /> Export
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/counsellor/leads/add')}>
+            <Plus className="h-4 w-4" /> Add Lead
+          </Button>
+        </div>
+      </div>
+
+      {/* Stage pills */}
+      <div className="flex flex-wrap gap-2">
+        {STAGES.map((s) => (
+          <PillButton
+            key={s.key}
+            active={stage === s.key}
+            onClick={() => {
+              setStage(s.key);
+              setPage(1);
+            }}
+            label={s.label}
+            count={stageCount(s.key)}
+          />
+        ))}
+        <PillButton
+          active={stage === 'all'}
+          onClick={() => {
+            setStage('all');
+            setPage(1);
+          }}
+          label="All"
+          count={rows.length}
+        />
+      </div>
+
+      {/* Filters */}
+      <Card className="p-4 shadow-[var(--shadow-soft)] border-border/70">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto_auto]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, ID, email or phone…"
+              className="pl-9"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <select
+            value={course}
+            onChange={(e) => {
+              setCourse(e.target.value);
+              setPage(1);
+            }}
+            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+          >
+            <option value="all">All Courses</option>
+            {courses.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            value={offering}
+            onChange={(e) => {
+              setOffering(e.target.value);
+              setPage(1);
+            }}
+            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+          >
+            <option value="all">All Offerings</option>
+            {offerings.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+          <select
+            value={stage}
+            onChange={(e) => {
+              setStage(e.target.value);
+              setPage(1);
+            }}
+            className="md:w-44 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+          >
+            <option value="all">All Stages</option>
+            {STAGES.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <div className="relative md:w-40">
+            <CalendarRange className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <select
+              value={range}
+              onChange={(e) => {
+                setRange(e.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm text-foreground"
+            >
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="all">All time</option>
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      {/* Table */}
+      <Card className="shadow-[var(--shadow-soft)] border-border/70 overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-border accent-primary"
+                    checked={allChecked}
+                    onChange={toggleAll}
+                  />
+                </TableHead>
+                <TableHead className="w-10">#</TableHead>
+                <TableHead>Application ID</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Student</TableHead>
+                <TableHead>Course</TableHead>
+                <TableHead>Offering</TableHead>
+                <TableHead>Certificate Combination</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Pipeline</TableHead>
+                <TableHead>Owner</TableHead>
+                {stage === 'all' && <TableHead>Stage</TableHead>}
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={stage === 'all' ? 13 : 12} className="text-center py-12 text-muted-foreground">
+                    No applications match your filters.
+                  </TableCell>
+                </TableRow>
+              )}
+              {current.map((a, idx) => {
+                const id = appId(a);
+                const name = asString(a.name);
+                const showStage = stage === 'all';
+                return (
+                  <TableRow key={id || idx} className="hover:bg-muted/30 cursor-pointer group">
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-border accent-primary"
+                        checked={selected.has(id)}
+                        onChange={(e) => toggleOne(id, e.target.checked)}
+                      />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {String((safePage - 1) * PAGE_SIZE + idx + 1).padStart(2, '0')}
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        onClick={() => onNavigate(`/counsellor/applications/view/${id}`)}
+                        className="font-mono text-xs font-medium text-primary hover:underline"
+                      >
+                        {asString(a.application_id) || '—'}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDate(a.created_at)}</TableCell>
+                    <TableCell>
+                      <button
+                        onClick={() => onNavigate(`/counsellor/applications/view/${id}`)}
+                        className="flex items-center gap-2.5 text-left"
+                      >
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="bg-primary-soft text-accent-foreground text-xs font-semibold">
+                            {initials(name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium leading-tight">{name || '—'}</p>
+                        </div>
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm font-medium">{appCourse(a) || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{appOffering(a) || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{asString(a.combination_title) || '—'}</TableCell>
+                    <TableCell>
+                      <p className="text-xs font-medium">{asString(a.phone) || '—'}</p>
+                      <p className="text-[11px] text-muted-foreground">{appEmail(a)}</p>
+                    </TableCell>
+                    <TableCell className="text-sm">{asString(a.pipeline) || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{appOwner(a) || '—'}</TableCell>
+                    {showStage && (
+                      <TableCell>
+                        <StageBadge stage={appStage(a)} />
+                      </TableCell>
+                    )}
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title="View"
+                          onClick={() => onNavigate(`/counsellor/applications/view/${id}`)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title="Edit"
+                          onClick={() => onNavigate(`/counsellor/applications/edit/${id}`)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between p-4 border-t border-border">
+          <p className="text-xs text-muted-foreground">
+            Showing <span className="font-medium text-foreground">{current.length}</span> of{' '}
+            <span className="font-medium text-foreground">{filtered.length}</span> applications
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage === 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="gap-1"
+            >
+              <ChevronLeft className="h-4 w-4" /> Prev
+            </Button>
+            <span className="text-xs text-muted-foreground px-2">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="gap-1"
+            >
+              Next <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </main>
+  );
+}
+
 function exportCsv(rows: Record<string, unknown>[]): void {
-  const headers = ['Application ID', 'Date', 'Name', 'Course', 'Offering', 'Phone', 'Email', 'Pipeline', 'Stage'];
+  const headers = ['Application ID', 'Date', 'Name', 'Course', 'Offering', 'Combination', 'Phone', 'Email', 'Pipeline', 'Owner', 'Stage'];
   const lines = rows.map((a) =>
     [
       asString(a.application_id),
       formatDate(a.created_at),
       asString(a.name),
-      asString(a.course_title),
-      asString(a.offering_title),
+      appCourse(a),
+      appOffering(a),
+      asString(a.combination_title),
       asString(a.phone),
-      asString(a.user_email) || asString(a.email),
+      appEmail(a),
       asString(a.pipeline),
-      appStage(a),
+      appOwner(a),
+      STAGE_BY_KEY.get(appStage(a))?.label ?? appStage(a),
     ]
       .map((v) => `"${v.replace(/"/g, '""')}"`)
       .join(','),
@@ -59,231 +483,4 @@ function exportCsv(rows: Record<string, unknown>[]): void {
   link.download = 'applications.csv';
   link.click();
   URL.revokeObjectURL(url);
-}
-
-export default function CounsellorApplicationsPage({ api, session, onNavigate }: CounsellorPageProps) {
-  const { data, loading, error } = useAdminPageData(() => api.loadApplications(session.token), [api, session.token]);
-
-  const applications = useMemo(() => toRecords(data), [data]);
-  const courseOptions = useMemo(
-    () => [...new Set(applications.map((a) => asString(a.course_title)).filter(Boolean))].sort(),
-    [applications],
-  );
-
-  const [search, setSearch] = useState('');
-  const [stage, setStage] = useState('all');
-  const [course, setCourse] = useState('all');
-  const [range, setRange] = useState('all');
-  const [page, setPage] = useState(1);
-
-  const stageCount = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const a of applications) counts.set(appStage(a), (counts.get(appStage(a)) ?? 0) + 1);
-    return counts;
-  }, [applications]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const cutoff = range === 'all' ? 0 : Date.now() - Number(range) * 86400000;
-    return applications.filter((a) => {
-      if (stage !== 'all' && appStage(a) !== stage) return false;
-      if (course !== 'all' && asString(a.course_title) !== course) return false;
-      if (cutoff > 0) {
-        const t = new Date(asString(a.created_at)).getTime();
-        if (Number.isNaN(t) || t < cutoff) return false;
-      }
-      if (q) {
-        const hay = `${asString(a.name)} ${asString(a.application_id)} ${asString(a.user_email)} ${asString(a.email)} ${asString(a.phone)}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [applications, search, stage, course, range]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  if (loading) return <DashboardLoader label="applications" />;
-  if (error) {
-    return (
-      <div className={CARD}>
-        <p role="alert" className="py-8 text-center text-sm text-red-600">{error}</p>
-      </div>
-    );
-  }
-
-  const resetPage = () => setPage(1);
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Applications</h1>
-          <p className="mt-1 text-sm text-cn-muted-fg">{filtered.length} across your pipeline stages</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => exportCsv(filtered)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-cn-border bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <Download className="size-4" /> Export
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate('/counsellor/leads/add')}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-cn-orange px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-cn-orange-fg"
-          >
-            <Plus className="size-4" /> Add Lead
-          </button>
-        </div>
-      </div>
-
-      {/* Stage pills */}
-      <div className="flex flex-wrap gap-2">
-        <PillButton active={stage === 'all'} onClick={() => { setStage('all'); resetPage(); }} label="All" count={applications.length} />
-        {STAGES.map((s) => (
-          <PillButton
-            key={s.key}
-            active={stage === s.key}
-            onClick={() => { setStage(s.key); resetPage(); }}
-            label={s.label}
-            count={stageCount.get(s.key) ?? 0}
-          />
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className={CARD}>
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              className="pl-9"
-              placeholder="Search by name, ID, email or phone…"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); resetPage(); }}
-            />
-          </div>
-          <select
-            value={course}
-            onChange={(e) => { setCourse(e.target.value); resetPage(); }}
-            className="rounded-lg border border-cn-border bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cn-orange/30 md:w-52"
-          >
-            <option value="all">All Courses</option>
-            {courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select
-            value={range}
-            onChange={(e) => { setRange(e.target.value); resetPage(); }}
-            className="rounded-lg border border-cn-border bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cn-orange/30 md:w-40"
-          >
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="all">All time</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-hidden rounded-[14px] border border-cn-border/70 bg-white shadow-[var(--cn-shadow-soft)]">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-[11px] uppercase tracking-wide text-cn-muted-fg">
-                <th className="px-4 py-3 font-medium">#</th>
-                <th className="px-4 py-3 font-medium">Application ID</th>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Student</th>
-                <th className="px-4 py-3 font-medium">Course</th>
-                <th className="px-4 py-3 font-medium">Offering</th>
-                <th className="px-4 py-3 font-medium">Contact</th>
-                <th className="px-4 py-3 font-medium">Pipeline</th>
-                <th className="px-4 py-3 font-medium">Stage</th>
-                <th className="px-4 py-3 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {current.length === 0 ? (
-                <tr><td colSpan={10} className="py-12 text-center text-sm text-slate-400">No applications match your filters.</td></tr>
-              ) : (
-                current.map((a, idx) => {
-                  const id = asString(a.id);
-                  const name = asString(a.name) || '—';
-                  return (
-                    <tr key={id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-                      <td className="px-4 py-3 text-xs text-slate-400">{String((page - 1) * PAGE_SIZE + idx + 1).padStart(2, '0')}</td>
-                      <td className="px-4 py-3">
-                        <button type="button" onClick={() => onNavigate(`/counsellor/applications/view/${id}`)} className="font-mono text-xs font-medium text-cn-orange-fg hover:underline">
-                          {asString(a.application_id) || `#${id}`}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-cn-muted-fg">{formatDate(a.created_at)}</td>
-                      <td className="px-4 py-3">
-                        <button type="button" onClick={() => onNavigate(`/counsellor/applications/view/${id}`)} className="flex items-center gap-2.5 text-left">
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-cn-orange-soft text-[11px] font-semibold text-cn-orange-fg">{initials(name)}</span>
-                          <span className="font-medium text-slate-800">{name}</span>
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{asString(a.course_title) || '—'}</td>
-                      <td className="px-4 py-3 text-cn-muted-fg">{asString(a.offering_title) || '—'}</td>
-                      <td className="px-4 py-3">
-                        <p className="text-xs font-medium text-slate-700">{asString(a.phone) || '—'}</p>
-                        <p className="text-[11px] text-cn-muted-fg">{asString(a.user_email) || asString(a.email)}</p>
-                      </td>
-                      <td className="px-4 py-3 text-cn-muted-fg">{asString(a.pipeline) || '—'}</td>
-                      <td className="px-4 py-3"><StageBadge stage={appStage(a)} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button type="button" title="View" onClick={() => onNavigate(`/counsellor/applications/view/${id}`)} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-cn-orange-fg">
-                            <Eye className="size-4" />
-                          </button>
-                          <button type="button" title="Edit" onClick={() => onNavigate(`/counsellor/applications/edit/${id}`)} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-cn-orange-fg">
-                            <Pencil className="size-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3">
-          <p className="text-xs text-cn-muted-fg">
-            Showing <span className="font-medium text-slate-700">{current.length}</span> of{' '}
-            <span className="font-medium text-slate-700">{filtered.length}</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <button type="button" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="inline-flex items-center gap-1 rounded-lg border border-cn-border px-2.5 py-1.5 text-xs font-medium text-slate-600 disabled:opacity-40 enabled:hover:bg-slate-50">
-              <ChevronLeft className="size-4" /> Prev
-            </button>
-            <span className="px-1 text-xs text-cn-muted-fg">Page {page} of {totalPages}</span>
-            <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="inline-flex items-center gap-1 rounded-lg border border-cn-border px-2.5 py-1.5 text-xs font-medium text-slate-600 disabled:opacity-40 enabled:hover:bg-slate-50">
-              Next <ChevronRight className="size-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PillButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={
-        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ' +
-        (active ? 'border-cn-orange bg-cn-orange text-white' : 'border-cn-border bg-white text-cn-muted-fg hover:border-cn-orange/40 hover:text-slate-700')
-      }
-    >
-      {label}
-      <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-semibold ' + (active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600')}>{count}</span>
-    </button>
-  );
 }

@@ -1,49 +1,156 @@
-import { useMemo } from 'react';
-import { BadgeIndianRupee, CheckCircle2, Clock, Wallet } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  CreditCard,
+  Download,
+  Eye,
+  ExternalLink,
+  IndianRupee,
+  MoreHorizontal,
+  Search,
+  Wallet,
+} from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
-import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asNumber, asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
-import { asRecord, KpiCard, type KpiCardProps } from '../../components/CounsellorWidgets.js';
+import { asRecord, KpiCard } from '../../components/CounsellorWidgets.js';
 
-const STATE_STYLES: Record<string, { label: string; cls: string }> = {
-  paid: { label: 'Paid', cls: 'bg-emerald-50 text-emerald-700' },
-  pending: { label: 'Pending', cls: 'bg-amber-50 text-amber-700' },
-  no_link: { label: 'No link', cls: 'bg-slate-100 text-slate-500' },
+type PaymentState = 'paid' | 'pending' | 'no_link';
+
+const statusList: ('All' | PaymentState)[] = ['All', 'paid', 'pending', 'no_link'];
+
+const STATE_LABELS: Record<PaymentState | 'All', string> = {
+  All: 'All',
+  paid: 'Paid',
+  pending: 'Pending',
+  no_link: 'No link',
 };
 
-function rupees(n: number): string {
-  return `₹${n.toLocaleString('en-IN')}`;
+const STATE_STYLES: Record<PaymentState, string> = {
+  paid: 'bg-success-soft text-success border-transparent',
+  pending: 'bg-warning-soft text-warning-foreground border-transparent',
+  no_link: 'bg-muted text-muted-foreground border-transparent',
+};
+
+function formatINR(n: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
-const COLUMNS: DataTableColumn[] = [
-  { key: 'applicationId', label: 'Application ID', sortable: true, render: (v: unknown) => <span className="font-mono text-xs text-slate-500">{asString(v)}</span> },
-  { key: 'name', label: 'Applicant', sortable: true },
-  { key: 'course', label: 'Course', sortable: true },
-  { key: 'fee', label: 'Fee', sortable: true, render: (v: unknown) => rupees(asNumber(v)) },
-  {
-    key: 'state',
-    label: 'Status',
-    sortable: true,
-    render: (v: unknown) => {
-      const s = STATE_STYLES[asString(v)] ?? STATE_STYLES.no_link!;
-      return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${s.cls}`}>{s.label}</span>;
-    },
-  },
-  { key: 'createdAt', label: 'Date', sortable: true, render: (v: unknown) => formatDate(v) },
-];
+function formatRowDate(iso: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
 
-export default function CounsellorPaymentsPage({ api, session }: CounsellorPageProps) {
+function initials(name: string): string {
+  return name
+    .split(' ')
+    .map((n) => n[0] ?? '')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+interface PaymentRow {
+  id: string;
+  applicationId: string;
+  name: string;
+  course: string;
+  fee: number;
+  state: PaymentState;
+  paymentLink: string;
+  paidAt: string;
+  createdAt: string;
+}
+
+function toState(v: unknown): PaymentState {
+  const s = asString(v);
+  if (s === 'paid' || s === 'pending' || s === 'no_link') return s;
+  return 'no_link';
+}
+
+export default function CounsellorPaymentsPage({ api, session, onNavigate }: CounsellorPageProps) {
   const { data, loading, error } = useAdminPageData(
     () => api.loadCounsellorPayments(session.token),
     [api, session.token],
   );
 
   const summary = useMemo(() => asRecord(asRecord(data).summary), [data]);
-  const rows = useMemo(() => toRecords(asRecord(data).rows), [data]);
+
+  const rows = useMemo<PaymentRow[]>(
+    () =>
+      toRecords(asRecord(data).rows).map((r) => ({
+        id: asString(r.id),
+        applicationId: asString(r.applicationId),
+        name: asString(r.name),
+        course: asString(r.course),
+        fee: asNumber(r.fee),
+        state: toState(r.state),
+        paymentLink: asString(r.paymentLink),
+        paidAt: asString(r.paidAt),
+        createdAt: asString(r.createdAt),
+      })),
+    [data],
+  );
+
+  const courses = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.course).filter(Boolean))),
+    [rows],
+  );
+
+  const [status, setStatus] = useState<'All' | PaymentState>('All');
+  const [course, setCourse] = useState('All');
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((p) => {
+      if (status !== 'All' && p.state !== status) return false;
+      if (course !== 'All' && p.course !== course) return false;
+      if (q && !`${p.name} ${p.applicationId} ${p.course}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [rows, status, course, search]);
+
+  const collectedAmount = asNumber(summary.collectedAmount);
+  const pendingAmount = asNumber(summary.pendingAmount);
+  const paidCount = asNumber(summary.paidCount);
+  const pendingCount = asNumber(summary.pendingCount);
+  const total = asNumber(summary.total);
+  const grandTotal = collectedAmount + pendingAmount;
 
   if (loading) {
     return <DashboardLoader label="payments" />;
@@ -51,48 +158,229 @@ export default function CounsellorPaymentsPage({ api, session }: CounsellorPageP
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <AdminPageHeader title="Payments" />
-        <Card className="bg-white">
-          <CardContent className="py-12 text-center">
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
-          </CardContent>
+      <main className="flex-1 space-y-6 p-4 lg:p-8">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold tracking-tight text-cn-navy">Payment Tracking</h1>
+          <p className="text-sm text-muted-foreground">
+            Monitor collections and pending fees across your applications.
+          </p>
+        </div>
+        <Card className="p-10 text-center shadow-[var(--shadow-soft)]">
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
         </Card>
-      </div>
+      </main>
     );
   }
 
-  const cards: KpiCardProps[] = [
-    { label: 'Collected', value: rupees(asNumber(summary.collectedAmount)), icon: BadgeIndianRupee, tone: 'success', sub: `${asNumber(summary.paidCount)} paid` },
-    { label: 'Pending', value: rupees(asNumber(summary.pendingAmount)), icon: Clock, tone: 'warning', sub: `${asNumber(summary.pendingCount)} awaiting` },
-    { label: 'Paid Applications', value: asNumber(summary.paidCount).toLocaleString('en-IN'), icon: CheckCircle2, tone: 'primary', sub: 'Fees received' },
-    { label: 'Total Applications', value: asNumber(summary.total).toLocaleString('en-IN'), icon: Wallet, tone: 'info', sub: 'In your pipeline' },
-  ];
-
-  const actions = [
-    {
-      label: (row: Record<string, unknown>) => (asString(row.paymentLink) ? 'Open link' : 'No link'),
-      onClick: (row: Record<string, unknown>) => {
-        const link = asString(row.paymentLink);
-        if (link) window.open(link, '_blank', 'noopener,noreferrer');
-      },
-    },
-  ];
+  function exportCsv(): void {
+    const header = ['Application ID', 'Applicant', 'Course', 'Fee', 'Status', 'Date'];
+    const lines = filtered.map((p) =>
+      [
+        p.applicationId,
+        p.name,
+        p.course,
+        String(p.fee),
+        STATE_LABELS[p.state],
+        formatRowDate(p.createdAt),
+      ]
+        .map((c) => `"${c.replace(/"/g, '""')}"`)
+        .join(','),
+    );
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'payments.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
-    <div className="space-y-6">
-      <AdminPageHeader title="Payments" />
-      <p className="-mt-4 text-sm text-gray-500">Fee collection across your applications</p>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((c) => (
-          <KpiCard key={c.label} {...c} />
-        ))}
+    <main className="flex-1 space-y-6 p-4 lg:p-8">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-cn-navy">Payment Tracking</h1>
+        <p className="text-sm text-muted-foreground">
+          Monitor collections and pending fees across your applications.
+        </p>
       </div>
 
-      <AdminDataTable columns={COLUMNS} rows={rows} actions={actions} searchable exportable />
-    </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          label="Total Collection"
+          value={formatINR(collectedAmount)}
+          icon={Wallet}
+          tone="success"
+          progress={grandTotal > 0 ? Math.round((collectedAmount / grandTotal) * 100) : 0}
+          sub={`${paidCount.toLocaleString('en-IN')} applications paid`}
+        />
+        <KpiCard
+          label="Pending Collection"
+          value={formatINR(pendingAmount)}
+          icon={IndianRupee}
+          tone="warning"
+          progress={grandTotal > 0 ? Math.round((pendingAmount / grandTotal) * 100) : 0}
+          sub={`${pendingCount.toLocaleString('en-IN')} awaiting payment`}
+        />
+        <KpiCard
+          label="Paid Applications"
+          value={paidCount.toLocaleString('en-IN')}
+          icon={CreditCard}
+          tone="info"
+          progress={total > 0 ? Math.round((paidCount / total) * 100) : 0}
+          sub="Fees received"
+        />
+        <KpiCard
+          label="Pending Applications"
+          value={pendingCount.toLocaleString('en-IN')}
+          icon={AlertTriangle}
+          tone="primary"
+          progress={total > 0 ? Math.round((pendingCount / total) * 100) : 0}
+          sub={`${total.toLocaleString('en-IN')} in your pipeline`}
+        />
+      </div>
+
+      <Card className="p-4 shadow-[var(--shadow-soft)] lg:p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by applicant, application ID or course..."
+              className="pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:flex">
+            <select
+              aria-label="Filter by status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as 'All' | PaymentState)}
+              className="rounded-lg border border-border bg-card px-3 py-2 text-sm md:w-36"
+            >
+              {statusList.map((s) => (
+                <option key={s} value={s}>
+                  {STATE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by course"
+              value={course}
+              onChange={(e) => setCourse(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-2 text-sm md:w-44"
+            >
+              <option value="All">All Courses</option>
+              {courses.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden shadow-[var(--shadow-soft)]">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div>
+            <p className="text-sm font-semibold">All Payments</p>
+            <p className="text-xs text-muted-foreground">{filtered.length} records</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={exportCsv}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export
+          </Button>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead>Applicant</TableHead>
+              <TableHead>Application ID</TableHead>
+              <TableHead>Course</TableHead>
+              <TableHead className="text-right">Fee</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-12" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((p) => (
+              <TableRow key={p.id} className="group">
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-primary-soft text-xs font-semibold text-accent-foreground">
+                        {initials(p.name) || '—'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-tight">{p.name || '—'}</p>
+                      <p className="text-xs text-muted-foreground">{p.applicationId || '—'}</p>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {p.applicationId || '—'}
+                  </span>
+                </TableCell>
+                <TableCell className="text-sm">{p.course || '—'}</TableCell>
+                <TableCell className="text-right font-medium tabular-nums">
+                  {formatINR(p.fee)}
+                </TableCell>
+                <TableCell className="text-sm">{formatRowDate(p.createdAt)}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={cn('rounded-full', STATE_STYLES[p.state])}>
+                    {STATE_LABELS[p.state]}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-8 w-8">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          onNavigate(`/counsellor/applications/view/${encodeURIComponent(p.id)}`)
+                        }
+                      >
+                        <Eye className="mr-2 h-4 w-4" /> View application
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!p.paymentLink}
+                        onClick={() => {
+                          if (p.paymentLink) {
+                            window.open(p.paymentLink, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" /> Open payment link
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+            {filtered.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="py-10 text-center text-sm text-muted-foreground"
+                >
+                  No payments match the filters.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </main>
   );
 }
