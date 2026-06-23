@@ -4144,6 +4144,11 @@ export function registerOperationsRoutes(
         phone: toStringValue(payload.phone),
         status: toInteger(payload.status),
         image: toStringValue(payload.image),
+        gender: toStringValue(payload.gender),
+        dob: toStringValue(payload.dob),
+        languagesSpoken: toStringValue(payload.languages_spoken),
+        highestQualification: toStringValue(payload.highest_qualification),
+        doj: toStringValue(payload.doj),
       };
       const result = await operationsService.addCounsellor(requestUserId(request), input);
       reply.code(200).send(result);
@@ -4156,7 +4161,17 @@ export function registerOperationsRoutes(
       const result = await operationsService.editCounsellor(
         requestUserId(request),
         toStringValue(payload.id),
-        { name: toStringValue(payload.name), email: toStringValue(payload.email), phone: toStringValue(payload.phone), status: toInteger(payload.status) },
+        {
+          name: toStringValue(payload.name),
+          email: toStringValue(payload.email),
+          phone: toStringValue(payload.phone),
+          status: toInteger(payload.status),
+          gender: toStringValue(payload.gender),
+          dob: toStringValue(payload.dob),
+          languagesSpoken: toStringValue(payload.languages_spoken),
+          highestQualification: toStringValue(payload.highest_qualification),
+          doj: toStringValue(payload.doj),
+        },
       );
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

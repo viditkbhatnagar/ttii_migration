@@ -126,11 +126,20 @@ function targetTypeToInt(label: string): number {
   const s = (label ?? '').trim().toLowerCase();
   if (s.startsWith('enrol')) return 2; // enrolment / enrollment
   if (s.startsWith('rev')) return 3; // revenue
+  if (s.startsWith('point')) return 4; // point / points
   return 1; // applications (default)
 }
 
 function targetTypeLabel(type: number | null | undefined): string {
-  return type === 2 ? 'Enrolments' : type === 3 ? 'Revenue' : 'Applications';
+  return type === 4 ? 'Points' : type === 2 ? 'Enrolments' : type === 3 ? 'Revenue' : 'Applications';
+}
+
+// Parse a "YYYY-MM-DD" (or empty) form value into a Date, or null. Guards
+// against Invalid Date so Prisma never receives a bad value.
+function toOptionalDate(value: string | undefined): Date | null {
+  if (!value || !value.trim()) return null;
+  const d = new Date(value.trim());
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export type AdminApplicationFilters = {
@@ -626,6 +635,13 @@ export type AddAssociateInput = {
   status?: number;
   /** Profile photo URL (uploaded via /admin/upload). */
   image?: string;
+  // Optional counsellor profile detail (associates omit these). Persisted so
+  // the Edit form pre-fills — they were previously dropped on save.
+  gender?: string;
+  dob?: string;
+  languagesSpoken?: string;
+  highestQualification?: string;
+  doj?: string;
 };
 
 function normalizeSqlRow(row: SqlRow): SqlRow {
@@ -6413,7 +6429,12 @@ export class OperationsService {
     const counsellors = await this.prisma.users.findMany({
       where: { role_id: 9, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, name: true, user_email: true, phone: true, status: true, centre_id: true, image: true, profile_picture: true, created_at: true, disabled_at: true },
+      select: {
+        id: true, name: true, user_email: true, phone: true, status: true, centre_id: true,
+        image: true, profile_picture: true, created_at: true, disabled_at: true,
+        // Profile detail so the Edit form pre-fills (Naji UAT 2026-06-23).
+        gender: true, dob: true, languages_spoken: true, highest_qualification: true, date_of_joining: true,
+      },
     });
 
     const counsellorIds = counsellors.map(c => c.id);
@@ -6443,6 +6464,8 @@ export class OperationsService {
       const centreIdNum = toNullableIntId(u.centre_id);
       return {
         ...u,
+        // The Edit form reads `doj`; the column is `date_of_joining`.
+        doj: u.date_of_joining,
         centre_name: centreIdNum !== null ? centreMap.get(centreIdNum) ?? null : null,
         applications_referred: referredMap.get(u.id) ?? 0,
         applications_converted: convertedMap.get(u.id) ?? 0,
@@ -13247,7 +13270,12 @@ export class OperationsService {
         password: passwordHash,
         role_id: 9,
         status: input.status ?? 1,
-        gender: '',
+        // Persist the profile detail so the Edit form pre-fills (was dropped).
+        gender: input.gender?.trim() ?? '',
+        dob: toOptionalDate(input.dob),
+        languages_spoken: input.languagesSpoken?.trim() || null,
+        highest_qualification: input.highestQualification?.trim() || null,
+        date_of_joining: toOptionalDate(input.doj),
         dynamic_link: '',
         image: input.image?.trim() ?? '',
         profile_picture: input.image?.trim() ?? '',
@@ -13259,7 +13287,21 @@ export class OperationsService {
     return { status: 1, message };
   }
 
-  async editCounsellor(actorUserId: string, id: string, input: { name: string; email?: string; phone?: string; status?: number }): Promise<Record<string, unknown>> {
+  async editCounsellor(
+    actorUserId: string,
+    id: string,
+    input: {
+      name: string;
+      email?: string;
+      phone?: string;
+      status?: number;
+      gender?: string;
+      dob?: string;
+      languagesSpoken?: string;
+      highestQualification?: string;
+      doj?: string;
+    },
+  ): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
     const counsellorId = toIntId(id);
     if (!counsellorId) return { status: 0, message: 'Invalid counsellor id.' };
@@ -13267,6 +13309,12 @@ export class OperationsService {
     const now = new Date();
     const data: Record<string, unknown> = { name: input.name.trim(), phone: input.phone?.trim() || null, updated_at: now };
     if (input.status !== undefined) data.status = input.status;
+    // Persist the profile detail so the next Edit pre-fills (was dropped).
+    if (input.gender !== undefined) data.gender = input.gender.trim();
+    if (input.dob !== undefined) data.dob = toOptionalDate(input.dob);
+    if (input.languagesSpoken !== undefined) data.languages_spoken = input.languagesSpoken.trim() || null;
+    if (input.highestQualification !== undefined) data.highest_qualification = input.highestQualification.trim() || null;
+    if (input.doj !== undefined) data.date_of_joining = toOptionalDate(input.doj);
 
     // Email is the counsellor's login identity. Allow changing it, but guard
     // uniqueness against OTHER counsellors (role_id=9) — same scoping as

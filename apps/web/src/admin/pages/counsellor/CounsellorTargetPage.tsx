@@ -14,7 +14,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
-const TARGET_TYPES = ['Applications', 'Enrolments', 'Revenue'] as const;
+const TARGET_TYPES = ['Applications', 'Points', 'Enrolments', 'Revenue'] as const;
 
 function parsePeriod(period: unknown): { from: string; to: string } {
   const str = asString(period);
