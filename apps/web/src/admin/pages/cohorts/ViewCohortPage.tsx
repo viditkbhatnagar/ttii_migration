@@ -1642,7 +1642,6 @@ function AddLiveSessionModal({
   const [title, setTitle] = useState('');
 
   // Single-mode fields
-  const [sessionId, setSessionId] = useState('');
   const [date, setDate] = useState('');
   const [fromTime, setFromTime] = useState('');
   const [toTime, setToTime] = useState('');
@@ -1739,11 +1738,14 @@ function AddLiveSessionModal({
 
       let result: Record<string, unknown>;
       if (mode === 'single') {
-        if (!sessionId || !title || !date || !fromTime || !toTime) {
+        if (!title || !date || !fromTime || !toTime) {
           toast.error('Fill all required fields.');
           setSubmitting(false);
           return;
         }
+        // Auto-generate the session ID (matches the multiple-session flow) —
+        // admins asked not to type one for single sessions (Risha UAT 2026-06-23).
+        const sessionId = `LS-${Date.now()}`;
         result = await api.addCohortLiveSession(token, cohortId, {
           sessionId, title, date, fromTime, toTime, isRepetitive, platform,
           ...sharedExtras,
@@ -1871,10 +1873,6 @@ function AddLiveSessionModal({
                 <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Session</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="mb-1 text-xs">Session ID *</Label>
-                    <Input value={sessionId} onChange={(e) => setSessionId(e.target.value)} placeholder="LS-1181" />
-                  </div>
-                  <div>
                     <Label className="mb-1 text-xs">Date *</Label>
                     <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
                   </div>
@@ -1994,7 +1992,7 @@ function AddLiveSessionModal({
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button
               type="submit"
-              disabled={submitting || (mode === 'single' ? (!sessionId || !title || !date || !fromTime || !toTime) : entries.length === 0)}
+              disabled={submitting || (mode === 'single' ? (!title || !date || !fromTime || !toTime) : entries.length === 0)}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               {submitting ? 'Saving...' : mode === 'multiple' ? 'Save All' : 'Save'}
