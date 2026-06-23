@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye, Plus, Pencil, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { SortableList } from '../../shared/components/SortableList.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 
@@ -312,6 +317,254 @@ function CurriculumTree({
   );
 }
 
+/** Small square icon button matching the SubjectDetailPage lesson-row actions. */
+function IconButton({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+        danger
+          ? 'text-slate-500 hover:bg-red-50 hover:text-red-600'
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One lesson row for a lesson-wise course: drag handle, expandable file
+ * drill-down (reuses LessonFilesNode), plus edit/delete actions. */
+function LessonWiseRow({
+  api,
+  token,
+  lesson,
+  dragHandle,
+  onEdit,
+  onDelete,
+}: {
+  api: AdminPageProps['api'];
+  token: string;
+  lesson: Record<string, unknown>;
+  dragHandle: React.ReactNode;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const lessonId = asString(lesson.id);
+  const fileCount = asNumber(lesson.files_count);
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center gap-2 p-3">
+        {dragHandle}
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-slate-50"
+        >
+          {open ? (
+            <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-slate-500" />
+          ) : (
+            <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-slate-500" />
+          )}
+          <BookOpen aria-hidden="true" className="size-3.5 shrink-0 text-emerald-600" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+            {asString(lesson.title) || '(untitled lesson)'}
+          </span>
+          <span className="text-[11px] text-slate-400">
+            {fileCount > 0 ? `${fileCount} file${fileCount === 1 ? '' : 's'}` : 'empty'}
+          </span>
+        </button>
+        <IconButton label="Edit lesson" onClick={onEdit}><Pencil className="size-4" /></IconButton>
+        <IconButton label="Delete lesson" onClick={onDelete} danger><Trash2 className="size-4" /></IconButton>
+      </div>
+      {open && (
+        <div className="border-t border-slate-100 py-2">
+          <LessonFilesNode api={api} token={token} lessonId={lessonId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Lesson-wise curriculum: lessons attached directly to the course (no
+ * subjects). Admin can add/edit/delete/reorder lessons here. Only used when
+ * course.structure_type === 2 (Naji 2026-06-23). */
+function LessonWiseCurriculum({
+  api,
+  token,
+  courseId,
+}: {
+  api: AdminPageProps['api'];
+  token: string;
+  courseId: string;
+}) {
+  const confirm = useConfirm();
+  const { data, loading, error, reload } = useAdminPageData(
+    () => api.listLessonsByCourse(token, courseId),
+    [courseId],
+  );
+  const lessons = useMemo(() => toRecords(data), [data]);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editId, setEditId] = useState('');
+  const [title, setTitle] = useState('');
+  const [summary, setSummary] = useState('');
+  const [free, setFree] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const openAdd = () => {
+    setEditId('');
+    setTitle('');
+    setSummary('');
+    setFree(false);
+    setDialogOpen(true);
+  };
+  const openEdit = (l: Record<string, unknown>) => {
+    setEditId(asString(l.id));
+    setTitle(asString(l.title));
+    setSummary(asString(l.summary));
+    setFree(asString(l.free) === 'on');
+    setDialogOpen(true);
+  };
+
+  const save = async () => {
+    if (!title.trim()) { toast.error('Please enter a lesson title.'); return; }
+    setSaving(true);
+    try {
+      // Lesson-wise: no subject_id — attach the lesson directly to the course.
+      const input = { course_id: courseId, title: title.trim(), summary: summary.trim(), free };
+      if (editId) {
+        await api.editLesson(token, editId, input);
+        toast.success('Lesson updated');
+      } else {
+        await api.addLesson(token, input);
+        toast.success('Lesson added');
+      }
+      setDialogOpen(false);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save lesson.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeLesson = async (l: Record<string, unknown>) => {
+    const n = asNumber(l.files_count);
+    const ok = await confirm({
+      title: `Delete lesson "${asString(l.title) || 'Untitled'}"?`,
+      description: n > 0
+        ? `This lesson has ${n} content file${n === 1 ? '' : 's'}. The lesson will be removed.`
+        : 'This cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      await api.deleteLesson(token, asString(l.id));
+      toast.success('Lesson deleted');
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete lesson.');
+    }
+  };
+
+  const reorder = useCallback((nextIds: string[]) => {
+    void (async () => {
+      try {
+        await api.reorderLessons(token, nextIds);
+        toast.success('Lessons reordered');
+        reload();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not save order.');
+        reload();
+      }
+    })();
+  }, [api, token, reload]);
+
+  return (
+    <>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          Lessons → Content. Lesson-wise course — lessons attach directly to the course (no subjects).
+        </p>
+        <Button onClick={openAdd} variant="outline" size="sm" className="gap-1.5">
+          <Plus aria-hidden="true" className="size-4" /> Add Lesson
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : error ? (
+        <p className="text-sm text-red-600">{error}</p>
+      ) : lessons.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 py-8 text-center">
+          <p className="text-sm text-slate-500">Lesson-wise course — add lessons directly (no subjects)</p>
+          <Button onClick={openAdd} variant="outline" className="mt-3 gap-1.5">
+            <Plus aria-hidden="true" className="size-4" /> Add the first lesson
+          </Button>
+        </div>
+      ) : (
+        <SortableList ids={lessons.map((l) => asString(l.id))} onReorder={reorder} className="space-y-2">
+          {(id, dragHandle) => {
+            const lesson = lessons.find((l) => asString(l.id) === id);
+            if (!lesson) return null;
+            return (
+              <LessonWiseRow
+                api={api}
+                token={token}
+                lesson={lesson}
+                dragHandle={dragHandle}
+                onEdit={() => openEdit(lesson)}
+                onDelete={() => void removeLesson(lesson)}
+              />
+            );
+          }}
+        </SortableList>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) setDialogOpen(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{editId ? 'Edit Lesson' : 'Add Lesson'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Lesson Title *</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Introduction" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Summary</Label>
+              <Input value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Optional short summary" />
+            </div>
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+              <input type="checkbox" className="size-4 rounded border-slate-300" checked={free} onChange={(e) => setFree(e.target.checked)} />
+              Free preview lesson (accessible without enrolment)
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={() => void save()} disabled={saving}>
+              {saving ? 'Saving…' : editId ? 'Save Changes' : 'Add Lesson'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function ViewCoursePage({ api, session, onNavigate }: AdminPageProps) {
   const courseId = useMemo(() => {
     const match = window.location.pathname.match(/\/admin\/course\/view\/(.+)/);
@@ -341,6 +594,9 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
 
   const c = data;
   const totalHours = asNumber(c.total_learning_hours);
+  // structure_type 2 = Lesson-wise (no subjects); 1/missing = Subject-wise
+  // (existing behavior, must not change). Only branch when === 2.
+  const isLessonWise = asNumber(c.structure_type) === 2;
 
   return (
     <div className="space-y-4">
@@ -348,12 +604,14 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
         <Button variant="outline" onClick={() => onNavigate('/admin/course/index')}>
           Back to list
         </Button>
-        <Button
-          variant="outline"
-          onClick={() => onNavigate(`/admin/course/subjects/${courseId}`)}
-        >
-          Manage Subjects
-        </Button>
+        {!isLessonWise && (
+          <Button
+            variant="outline"
+            onClick={() => onNavigate(`/admin/course/subjects/${courseId}`)}
+          >
+            Manage Subjects
+          </Button>
+        )}
         <Button
           className="bg-ttii-primary hover:bg-ttii-primary/90"
           onClick={() => onNavigate(`/admin/course/edit/${courseId}`)}
@@ -381,10 +639,16 @@ export default function ViewCoursePage({ api, session, onNavigate }: AdminPagePr
       </Section>
 
       <Section title="Curriculum">
-        <p className="mb-3 text-xs text-slate-500">
-          Subjects → Lessons → Content. Click a subject or lesson to drill down.
-        </p>
-        <CurriculumTree api={api} token={session.token} courseId={courseId} />
+        {isLessonWise ? (
+          <LessonWiseCurriculum api={api} token={session.token} courseId={courseId} />
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-slate-500">
+              Subjects → Lessons → Content. Click a subject or lesson to drill down.
+            </p>
+            <CurriculumTree api={api} token={session.token} courseId={courseId} />
+          </>
+        )}
       </Section>
 
       <Section title="Description">

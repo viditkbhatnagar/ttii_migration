@@ -210,6 +210,16 @@ function isLocked(record: Record<string, unknown>): boolean {
   return v === true || v === 1 || v === '1';
 }
 
+// Lesson-wise courses (structure_type===2) have no subjects — their lessons
+// hang directly off the course (Naji 2026-06-23). A missing/other value is
+// treated as the existing subject-wise behaviour (type 1). loadLearning tags
+// such courses' lessons with a single synthetic "__direct__<courseId>" subject
+// so the snapshot shape stays valid; the UI branches on this flag to render
+// lessons directly with no subject accordion.
+function isLessonWiseCourse(course: Record<string, unknown> | null | undefined): boolean {
+  return asNumber(course?.structure_type) === 2;
+}
+
 /**
  * Normalized non-enrolled course used by the "Recommended" card + its modals.
  * Superset of RecommendedCourse (card), CourseInfo (More Info modal) and
@@ -534,6 +544,11 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
         </div>
       );
     }
+    // Lesson-wise (structure_type===2): lessons render directly under the
+    // course with no subject layer. courseSubjects then holds only the single
+    // synthetic grouping (id "__direct__<id>"), which we never surface as a
+    // subject card/node — we render its lessons straight away.
+    const lessonWise = isLessonWiseCourse(course);
     const courseSubjects = subjects.filter((s) => asString(s.course_id) === activeCourseId);
     const courseLessons = lessons.filter((l) => {
       const subjectId = asString(l.subject_id);
@@ -611,6 +626,25 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
       window.scrollTo({ top: 0 });
     };
 
+    // Lesson-wise (§3): clicking a lesson card opens the player straight into
+    // that lesson's first playable file. No subject layer to expand, so the
+    // tree is driven purely by lessons (expandedSubjectId stays null).
+    const handleOpenLesson = (lessonId: string) => {
+      setPlayerOpen(true);
+      setLeftTab('timeline');
+      setExpandedSubjectId(null);
+      const firstPlayable = lessonFiles
+        .filter((f) => asString(f.lesson_id) === lessonId)
+        .find((f) => !isLocked(f) && resolveSelectedContent(f) !== null);
+      if (firstPlayable) {
+        const resolved = resolveSelectedContent(firstPlayable);
+        setSelectedContent(resolved ?? null);
+      } else {
+        setSelectedContent(null);
+      }
+      window.scrollTo({ top: 0 });
+    };
+
     const courseDuration = asString(course.duration);
     const liveClassCount = liveClasses.length;
     // Total quizzes across the course (distinct quiz lesson_files).
@@ -630,7 +664,9 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
       return (
         <LessonPlayerView
           course={course}
+          lessonWise={lessonWise}
           courseSubjects={courseSubjects}
+          courseLessons={courseLessons}
           allLessons={lessons}
           lessonFiles={lessonFiles}
           courseCompletion={courseCompletion}
@@ -695,7 +731,11 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
                 {asString(course.title) || 'Course'}
               </h1>
               <p className="mt-2 text-sm text-white/80">
-                {courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'} &middot;{' '}
+                {lessonWise ? null : (
+                  <>
+                    {courseSubjects.length} subject{courseSubjects.length === 1 ? '' : 's'} &middot;{' '}
+                  </>
+                )}
                 {courseLessons.length} lesson{courseLessons.length === 1 ? '' : 's'} &middot; Status:{' '}
                 {courseStatusBadge.label}
               </p>
@@ -713,13 +753,17 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
             <DetailStat
               icon={Layers}
               tint="bg-student-primary/10 text-student-primary"
-              label="Subjects"
-              value={`${completedSubjects}/${courseSubjects.length}`}
+              label={lessonWise ? 'Lessons' : 'Subjects'}
+              value={
+                lessonWise
+                  ? String(courseLessons.length)
+                  : `${completedSubjects}/${courseSubjects.length}`
+              }
             />
             <DetailStat
               icon={BookOpen}
               tint="bg-sky-50 text-sky-600"
-              label="Lessons"
+              label={lessonWise ? 'Completed' : 'Lessons'}
               value={`${completedLessons}/${courseLessons.length}`}
             />
             <DetailStat
@@ -784,10 +828,12 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
           </div>
         ) : null}
 
-        {/* Subjects grid (§3) — gradient-banner cards. */}
+        {/* Subjects / Lessons grid (§3) — gradient-banner cards. Lesson-wise
+            courses (structure_type===2) have no subject layer, so we render
+            their lessons directly here instead of subject cards. */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-student-text">Subjects</h2>
+            <h2 className="text-lg font-bold text-student-text">{lessonWise ? 'Lessons' : 'Subjects'}</h2>
             {liveClassCount > 0 ? (
               <button
                 type="button"
@@ -800,7 +846,32 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
             ) : null}
           </div>
 
-          {courseSubjects.length === 0 ? (
+          {lessonWise ? (
+            courseLessons.length === 0 ? (
+              <div role="status" className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
+                <BookOpen aria-hidden="true" className="mx-auto mb-3 size-10 text-slate-300" />
+                <p className="text-sm text-student-muted">No lessons in this course yet.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {courseLessons.map((lesson, idx) => {
+                  const lessonId = asString(lesson.id);
+                  const lessonQuizzes = lessonFiles.filter((f) => {
+                    return asString(f.lesson_id) === lessonId && pickFileType(f) === 'quiz';
+                  }).length;
+                  return (
+                    <LessonCard
+                      key={lessonId}
+                      index={idx}
+                      lesson={lesson}
+                      quizCount={lessonQuizzes}
+                      onContinue={() => handleOpenLesson(lessonId)}
+                    />
+                  );
+                })}
+              </div>
+            )
+          ) : courseSubjects.length === 0 ? (
             <div role="status" className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
               <Layers aria-hidden="true" className="mx-auto mb-3 size-10 text-slate-300" />
               <p className="text-sm text-student-muted">No subjects in this course yet.</p>
@@ -1265,6 +1336,86 @@ function SubjectCard({
   );
 }
 
+// Lesson-wise (§3) card — the lesson equivalent of SubjectCard. Lesson-wise
+// courses have no subject layer, so the §3 grid lists lessons directly. Uses
+// the lesson's own completed_percentage for progress and a Quizzes / Progress
+// metric row. Mirrors SubjectCard's visual language for consistency.
+function LessonCard({
+  index,
+  lesson,
+  quizCount,
+  onContinue,
+}: {
+  index: number;
+  lesson: Record<string, unknown>;
+  quizCount: number;
+  onContinue: () => void;
+}) {
+  const title = asString(lesson.title) || `Lesson ${index + 1}`;
+  const progress = Math.min(100, Math.round(asNumber(lesson.completed_percentage)));
+  const locked = isLocked(lesson) || asBoolean(lesson.is_locked);
+  const status: CourseStatus =
+    progress >= 100 ? 'completed' : progress <= 0 ? 'not-started' : 'in-progress';
+  const badge = statusBadgeFor(status, progress);
+
+  return (
+    <article className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <div className={`relative flex h-24 items-end bg-gradient-to-br ${gradientFor(index)} p-4`}>
+        <span className={`absolute right-3 top-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${badge.className}`}>
+          {badge.label}
+        </span>
+        <div className="flex size-10 items-center justify-center rounded-xl bg-white/20 text-white backdrop-blur-sm">
+          <BookOpen aria-hidden="true" className="size-5" />
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="line-clamp-2 text-base font-bold leading-snug text-student-text">{title}</h3>
+
+        {/* Metric row */}
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <div className="rounded-xl bg-slate-50 px-2 py-2">
+            <p className="text-sm font-bold text-student-text">{quizCount}</p>
+            <p className="text-[10px] font-medium text-student-muted">Quizzes</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-2 py-2">
+            <p className="text-sm font-bold text-student-primary">{progress}%</p>
+            <p className="text-[10px] font-medium text-student-muted">Progress</p>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-student-primary to-student-accent transition-all duration-500"
+            style={{ width: `${Math.min(progress, 100)}%` }}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={locked}
+          className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-student-primary text-sm font-semibold text-white transition-colors hover:bg-student-primary/90 disabled:cursor-not-allowed disabled:bg-slate-300"
+          title={locked ? 'Locked — complete the previous lesson first' : ''}
+        >
+          {locked ? (
+            <>
+              <Lock aria-hidden="true" className="size-4" />
+              Locked
+            </>
+          ) : (
+            <>
+              <PlayCircle aria-hidden="true" className="size-4" />
+              Continue Learning
+            </>
+          )}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 // EduPulse §4 — the 3-column Lesson Player. Left = collapsible module/lesson
 // tree (the existing SubjectNode, untouched) + Live Classes tab; center =
 // the existing ContentPlayer (video / mp4 / audio / pdf / article / native
@@ -1274,7 +1425,9 @@ function SubjectCard({
 // handlers come straight through from the page via props.
 interface LessonPlayerViewProps {
   course: Record<string, unknown>;
+  lessonWise: boolean;
   courseSubjects: Record<string, unknown>[];
+  courseLessons: Record<string, unknown>[];
   allLessons: Record<string, unknown>[];
   lessonFiles: Record<string, unknown>[];
   courseCompletion: number;
@@ -1302,7 +1455,9 @@ interface LessonPlayerViewProps {
 
 function LessonPlayerView({
   course,
+  lessonWise,
   courseSubjects,
+  courseLessons,
   allLessons,
   lessonFiles,
   courseCompletion,
@@ -1328,6 +1483,10 @@ function LessonPlayerView({
   authToken,
 }: LessonPlayerViewProps) {
   const [treeFilter, setTreeFilter] = useState('');
+  // Lesson-wise courses render LessonNodes directly in the tree (no subject
+  // accordion), so the single-open lesson behaviour is tracked here instead of
+  // inside SubjectNode. null means everything collapsed.
+  const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
   // Honest tab strip below the player. Overview is real (the content
   // description, rendered by ContentPlayer). Transcript and Q&A have no
   // backing data yet (see edupulse-design-reference §7) — they render an
@@ -1353,7 +1512,7 @@ function LessonPlayerView({
             className="inline-flex items-center gap-1 font-medium text-student-primary transition-colors hover:text-student-primary/80"
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
-            Subjects
+            {lessonWise ? 'Lessons' : 'Subjects'}
           </button>
           <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-slate-300" />
           <span className="truncate font-semibold text-student-text">{courseTitle}</span>
@@ -1452,7 +1611,38 @@ function LessonPlayerView({
                 </div>
 
                 <div className="max-h-[70vh] overflow-y-auto p-2">
-                  {courseSubjects.length === 0 ? (
+                  {lessonWise ? (
+                    // Lesson-wise: lessons render directly under the course, no
+                    // subject accordion. expandedSubjectId is bypassed entirely.
+                    courseLessons.length === 0 ? (
+                      <p className="px-2 py-6 text-center text-sm text-student-muted">
+                        No lessons in this course yet.
+                      </p>
+                    ) : (
+                      courseLessons.map((lesson) => {
+                        const lessonId = asString(lesson.id);
+                        if (query && !asString(lesson.title).toLowerCase().includes(query)) {
+                          return null;
+                        }
+                        const filesForLesson = lessonFiles.filter(
+                          (f) => asString(f.lesson_id) === lessonId,
+                        );
+                        return (
+                          <LessonNode
+                            key={lessonId}
+                            lesson={lesson}
+                            files={filesForLesson}
+                            activeFileId={activeFileId}
+                            onSelectFile={onSelectFile}
+                            expanded={expandedLessonId === lessonId || query !== ''}
+                            onToggle={() =>
+                              setExpandedLessonId((cur) => (cur === lessonId ? null : lessonId))
+                            }
+                          />
+                        );
+                      })
+                    )
+                  ) : courseSubjects.length === 0 ? (
                     <p className="px-2 py-6 text-center text-sm text-student-muted">
                       No modules in this course yet.
                     </p>

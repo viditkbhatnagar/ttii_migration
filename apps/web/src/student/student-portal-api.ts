@@ -623,8 +623,28 @@ export class StudentPortalApi {
       .map((c) => asString(c.id))
       .filter((id): id is string => id !== '');
 
+    // Lesson-wise courses (structure_type===2) have NO subjects — their
+    // lessons hang directly off the course (Naji 2026-06-23). Split the
+    // enrolled set so type-1 keeps the subject→lesson fan-out exactly as
+    // before, while type-2 skips get_subjects and reads lessons directly.
+    // structure_type rides on the /course/all_course rows (buildCourseData);
+    // a missing value is treated as type 1.
+    const structureTypeById = new Map<string, number>(
+      courses.map((c) => [asString(c.id), asNumber(c.structure_type) === 2 ? 2 : 1]),
+    );
+    const isLessonWise = (courseId: string): boolean => structureTypeById.get(courseId) === 2;
+
+    // A stable sentinel id for the single synthetic "subject-less" grouping we
+    // attach to each lesson-wise course. Keeping the snapshot's subjects[] /
+    // lessons[] shape valid means all the existing per-course subject-keyed
+    // filtering in the page keeps working untouched.
+    const directSubjectId = (courseId: string): string => `__direct__${courseId}`;
+
+    const subjectWiseCourseIds = courseIds.filter((id) => !isLessonWise(id));
+    const lessonWiseCourseIds = courseIds.filter((id) => isLessonWise(id));
+
     const subjectsByCourse = await Promise.all(
-      courseIds.map(async (courseId) => {
+      subjectWiseCourseIds.map(async (courseId) => {
         const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, { course_id: courseId });
         return asArray(payload.data)
           .map((entry) => asRecord(entry))
@@ -632,12 +652,23 @@ export class StudentPortalApi {
           .map((entry): Record<string, unknown> => ({ ...entry, course_id: entry.course_id ?? courseId }));
       }),
     );
-    const subjects: Record<string, unknown>[] = subjectsByCourse.flat();
+    const realSubjects: Record<string, unknown>[] = subjectsByCourse.flat();
+
+    // Synthetic subject-less grouping per lesson-wise course, so the rest of
+    // the snapshot pipeline (which filters lessons through subjects) stays valid.
+    const syntheticSubjects: Record<string, unknown>[] = lessonWiseCourseIds.map((courseId) => ({
+      id: directSubjectId(courseId),
+      course_id: courseId,
+      title: '',
+      __direct: true,
+    }));
+    const subjects: Record<string, unknown>[] = [...realSubjects, ...syntheticSubjects];
 
     const selectedSubjectId = asString(firstRecord(subjects)?.id);
 
-    // For every subject across every course, fetch lessons in parallel.
-    const subjectIds = subjects
+    // For every REAL subject across every subject-wise course, fetch lessons in
+    // parallel. (Synthetic subjects don't have real subject ids to query.)
+    const subjectIds = realSubjects
       .map((s) => asString(s.id))
       .filter((id): id is string => id !== '');
 
@@ -649,7 +680,22 @@ export class StudentPortalApi {
           .filter((entry): entry is Record<string, unknown> => entry !== null);
       }),
     );
-    const lessons = lessonsBySubject.flat();
+
+    // Lesson-wise courses: read lessons directly off the course and re-tag each
+    // with the synthetic subject id (and its course_id) so subject-keyed
+    // filtering downstream resolves them to that course's grouping.
+    const lessonsByDirectCourse = await Promise.all(
+      lessonWiseCourseIds.map(async (courseId) => {
+        const rows = await this.getCourseLessonsDirect(authToken, courseId);
+        const syntheticId = directSubjectId(courseId);
+        return rows.map((row): Record<string, unknown> => ({
+          ...row,
+          course_id: asString(row.course_id) || courseId,
+          subject_id: syntheticId,
+        }));
+      }),
+    );
+    const lessons = [...lessonsBySubject.flat(), ...lessonsByDirectCourse.flat()];
 
     const selectedLessonId = asString(firstRecord(lessons)?.id);
 

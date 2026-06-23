@@ -39,6 +39,9 @@ interface CourseMeta {
   offerPrice: number;
   description: string;
   tags: string[];
+  // 1 = Subject-wise (modules → lessons accordion); 2 = Lesson-wise
+  // (flat lesson list, no subjects). See course.structure_type.
+  structureType: number;
 }
 
 interface ModuleRow {
@@ -70,6 +73,7 @@ function toMeta(raw: Record<string, unknown>): CourseMeta {
     offerPrice: asNumber(raw.offer_price),
     description: asString(raw.description),
     tags: Array.isArray(tagsRaw) ? tagsRaw.map((t) => asString(t)).filter((t) => t !== '') : [],
+    structureType: asNumber(raw.structure_type) === 2 ? 2 : 1,
   };
 }
 
@@ -77,6 +81,8 @@ export default function StudentCourseDetailPage({ api, session, onNavigate }: St
   const courseId = useMemo(() => new URLSearchParams(window.location.search).get('courseId') ?? '', []);
   const [meta, setMeta] = useState<CourseMeta | null>(null);
   const [modules, setModules] = useState<ModuleRow[]>([]);
+  // Lesson-wise (structure_type=2) courses: a flat lesson list, no subjects.
+  const [directLessons, setDirectLessons] = useState<Array<{ id: string; title: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -89,24 +95,36 @@ export default function StudentCourseDetailPage({ api, session, onNavigate }: St
     setLoading(true);
     void (async () => {
       try {
-        const [detail, subjects] = await Promise.all([
-          api.getCourseDetail(session.token, courseId),
-          api.getCourseSubjects(session.token, courseId),
-        ]);
+        // Fetch the course first so structure_type decides how to load the
+        // curriculum: subjects→lessons accordion (type 1) vs a flat lesson
+        // list straight off the course (type 2).
+        const detail = await api.getCourseDetail(session.token, courseId);
         if (cancelled) return;
         const courseRaw = detail ? asRecord(detail.course) : null;
         if (!courseRaw || Object.keys(courseRaw).length === 0) {
           setNotFound(true);
           return;
         }
-        setMeta(toMeta({ ...courseRaw, id: asString(courseRaw.id) || courseId }));
-        setModules(
-          subjects.map((s) => ({
-            id: asString(s.id),
-            title: asString(s.title) || 'Module',
-            lessonCount: asNumber(s.total_lessons),
-          })),
-        );
+        const nextMeta = toMeta({ ...courseRaw, id: asString(courseRaw.id) || courseId });
+        setMeta(nextMeta);
+
+        if (nextMeta.structureType === 2) {
+          const lessons = await api.getCourseLessonsDirect(session.token, courseId);
+          if (cancelled) return;
+          setDirectLessons(
+            lessons.map((l) => ({ id: asString(l.id), title: asString(l.title) || 'Lesson' })),
+          );
+        } else {
+          const subjects = await api.getCourseSubjects(session.token, courseId);
+          if (cancelled) return;
+          setModules(
+            subjects.map((s) => ({
+              id: asString(s.id),
+              title: asString(s.title) || 'Module',
+              lessonCount: asNumber(s.total_lessons),
+            })),
+          );
+        }
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -170,16 +188,21 @@ export default function StudentCourseDetailPage({ api, session, onNavigate }: St
   const isFree = meta.price <= 0;
   const priceLabel = isFree ? 'Free' : displayPrice > 0 ? formatCurrency(displayPrice) : '—';
 
+  const isLessonWise = meta.structureType === 2;
+  // For lesson-wise courses there are no subjects; fall back to the loaded
+  // flat-lesson count when the payload doesn't carry a lessons total.
+  const lessonStatCount = meta.lessonCount > 0 ? meta.lessonCount : isLessonWise ? directLessons.length : 0;
+
   const stats: Array<{ icon: LucideIcon; label: string; value: string }> = [];
   const features: string[] = [];
   if (meta.duration) { stats.push({ icon: Clock, label: 'Duration', value: meta.duration }); features.push(meta.duration); }
-  if (meta.subjectCount > 0) {
+  if (!isLessonWise && meta.subjectCount > 0) {
     stats.push({ icon: BookOpen, label: 'Subjects', value: String(meta.subjectCount) });
     features.push(`${meta.subjectCount} subject${meta.subjectCount === 1 ? '' : 's'}`);
   }
-  if (meta.lessonCount > 0) {
-    stats.push({ icon: FileText, label: 'Lessons', value: String(meta.lessonCount) });
-    features.push(`${meta.lessonCount} lesson${meta.lessonCount === 1 ? '' : 's'}`);
+  if (lessonStatCount > 0) {
+    stats.push({ icon: FileText, label: 'Lessons', value: String(lessonStatCount) });
+    features.push(`${lessonStatCount} lesson${lessonStatCount === 1 ? '' : 's'}`);
   }
 
   const openEnrol = () =>
@@ -261,8 +284,29 @@ export default function StudentCourseDetailPage({ api, session, onNavigate }: St
             </section>
           ) : null}
 
-          {/* Curriculum */}
-          {modules.length > 0 ? (
+          {/* Curriculum — lesson-wise (structure_type=2): flat lesson list */}
+          {isLessonWise && directLessons.length > 0 ? (
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-student-text">Lessons</h2>
+              <p className="mt-0.5 text-sm text-student-muted">
+                {directLessons.length} lesson{directLessons.length === 1 ? '' : 's'}
+              </p>
+              <ol className="mt-4 divide-y divide-slate-100">
+                {directLessons.map((lesson, idx) => (
+                  <li key={lesson.id} className="flex items-center gap-3 py-3.5">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-student-primary-light text-xs font-bold text-student-primary">
+                      {idx + 1}
+                    </span>
+                    <PlayCircle aria-hidden="true" className="size-4 shrink-0 text-student-primary" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-student-text">{lesson.title}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
+
+          {/* Curriculum — subject-wise (structure_type=1): modules → lessons */}
+          {!isLessonWise && modules.length > 0 ? (
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-student-text">Curriculum</h2>
               <p className="mt-0.5 text-sm text-student-muted">
