@@ -35,6 +35,9 @@ interface FormState {
   thumbnail: string;
   features: string;
   status: string;
+  // Course hierarchy (Naji 2026-06-23): '1' = Subject wise (Course→Subject→
+  // Lesson→Content), '2' = Lesson wise (Course→Lesson→Content, no subjects).
+  structure_type: string;
   // Marketing tags shown on the student Recommended cards (Naji 2026-06-08).
   tags: string[];
 }
@@ -74,6 +77,7 @@ const emptyForm: FormState = {
   thumbnail: '',
   features: '',
   status: 'draft',
+  structure_type: '1',
   tags: [],
 };
 
@@ -156,6 +160,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
       thumbnail: asString(c.thumbnail),
       features: asString(c.features),
       status: asString(c.status) || 'draft',
+      structure_type: asString(c.structure_type) === '2' ? '2' : '1',
       tags: Array.isArray(c.tags) ? (c.tags as unknown[]).map((t) => asString(t)).filter((t) => t !== '') : [],
     });
   }, [isEdit, courseData]);
@@ -227,6 +232,7 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
         features: form.features.trim(),
         label: '',
         status: form.status,
+        structure_type: Number(form.structure_type) === 2 ? 2 : 1,
         tags: form.tags,
         visibility: 'public',
       };
@@ -411,6 +417,16 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
               />
               <p className="text-xs text-gray-500">
                 Recommended 1200×628 (≈1.91:1). The image will be center-cropped to fit course cards on both web and mobile. Max file size 200KB.
+              </p>
+            </div>
+            <div className="grid gap-2 md:col-span-2 md:max-w-xs">
+              <Label>Course Structure</Label>
+              <select className={selectClass} value={form.structure_type} onChange={(e) => set('structure_type', e.target.value)}>
+                <option value="1">Subject wise (Course → Subject → Lesson → Content)</option>
+                <option value="2">Lesson wise (Course → Lesson → Content)</option>
+              </select>
+              <p className="text-xs text-gray-500">
+                Lesson wise skips the subjects layer — for short certification programs. Set this before adding content.
               </p>
             </div>
             <div className="grid gap-2 md:col-span-2 md:max-w-xs">

@@ -398,6 +398,20 @@ export function registerContentRoutes(
     }
   });
 
+  // Lesson-wise courses (structure_type=2): lessons attach directly to the
+  // course with no subject layer (Naji 2026-06-23). The student client calls
+  // this instead of get_subjects→get_lessons when course.structure_type===2.
+  app.get('/course/get_lessons_direct', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id);
+      const lessons = await contentService.getLessonsForCourse(requestUserId(request), courseId);
+      reply.code(200).send({ status: 1, message: 'success', data: lessons });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   app.get('/lesson/index', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
@@ -622,6 +636,7 @@ export function registerContentRoutes(
         requirements: toStringValue(payload.requirements),
         language: toStringValue(payload.language),
         tags: Array.isArray(payload.tags) ? payload.tags.map((t) => toStringValue(t)).filter((t) => t !== '') : [],
+        structure_type: toNumber(payload.structure_type) === 2 ? 2 : 1,
       };
       const result = await contentService.createCourse(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Course created', data: result });
@@ -656,6 +671,7 @@ export function registerContentRoutes(
         requirements: toStringValue(payload.requirements),
         language: toStringValue(payload.language),
         tags: Array.isArray(payload.tags) ? payload.tags.map((t) => toStringValue(t)).filter((t) => t !== '') : [],
+        structure_type: toNumber(payload.structure_type) === 2 ? 2 : 1,
       };
       const result = await contentService.updateCourse(requestUserId(request), courseId, input);
       reply.code(200).send({ status: 1, message: 'Course updated', data: result });
@@ -860,6 +876,18 @@ export function registerContentRoutes(
       const payload = requestPayload(request);
       const subjectId = toStringValue(payload.subject_id);
       const lessons = await contentService.listLessonsAdmin(subjectId);
+      reply.code(200).send({ status: 1, message: 'success', data: lessons });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  // Lesson-wise courses: lessons attached directly to the course (no subject).
+  app.get('/admin/course/lessons_by_course', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id);
+      const lessons = await contentService.listLessonsByCourse(courseId);
       reply.code(200).send({ status: 1, message: 'success', data: lessons });
     } catch (error: unknown) {
       sendContentError(reply, error);

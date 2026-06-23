@@ -3010,6 +3010,12 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // Lesson-wise courses: lessons attached directly to the course (no subject).
+  async listLessonsByCourse(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lessons_by_course', authToken, { course_id: courseId });
+    return toRecords(payload.data);
+  }
+
   async addLesson(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/course/lessons/add', authToken, input);
   }

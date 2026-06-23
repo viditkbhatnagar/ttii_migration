@@ -330,6 +330,9 @@ export type AdminCourseInput = {
   outcomes?: string | undefined;        // learning outcomes
   requirements?: string | undefined;    // prerequisites
   language?: string | undefined;
+  // Course hierarchy structure (Naji 2026-06-23): 1 = Subject-wise (default),
+  // 2 = Lesson-wise (no subjects). See course.structure_type.
+  structure_type?: number | undefined;
   // Marketing tags shown on the student Recommended cards (Best Seller /
   // Trending / New / Recommended / Placement Support). Stored as a JSON array
   // in the otherwise-unused `meta_keywords` column (Naji 2026-06-08).
@@ -362,8 +365,10 @@ export type AdminSubjectInput = {
 };
 
 export type AdminLessonInput = {
-  course_id?: string | undefined; // deprecated: derived from subject via course_subjects
-  subject_id: string;
+  course_id?: string | undefined; // derived from subject when subject-wise; REQUIRED when lesson-wise
+  // Optional: omitted/empty for Lesson-wise courses (lesson attaches directly
+  // to the course, subject_id NULL). Required for Subject-wise courses.
+  subject_id?: string | undefined;
   title: string;
   summary?: string | undefined;
   free?: boolean | undefined;
@@ -1098,7 +1103,9 @@ export class ContentService {
       },
     });
 
-    const subjectCount = await this.countSubjectsForCourse(courseId);
+    // Lesson-wise courses (structure_type=2) have no subjects (Naji 2026-06-23).
+    const structureType = Number(course.structure_type) === 2 ? 2 : 1;
+    const subjectCount = structureType === 2 ? 0 : await this.countSubjectsForCourse(courseId);
 
     const totalReviews = await this.totalReviewsByCourse(courseId);
     const totalRating = await this.averageRatingByCourse(courseId);
@@ -1142,6 +1149,8 @@ export class ContentService {
       is_enrolled: isEnrolled ? 1 : 0,
       lessons_count: lessonsCount,
       subject_count: subjectCount,
+      // 1 = Subject-wise, 2 = Lesson-wise (Course→Lesson→Content, no subjects).
+      structure_type: structureType,
       // Mobile-app aliases (Flutter Dart types these as int).
       lessons: lessonsCount,
       subjects: subjectCount,
@@ -1773,19 +1782,31 @@ export class ContentService {
     const cohortUnlocks = cohortIdForSubject !== null;
 
     if (cohortUnlocks) {
-      for (const lessonData of lessonsData) {
-        lessonData.lock = 0;
-        lessonData.lock_message = '';
-        const files = Array.isArray(lessonData.lesson_files)
-          ? (lessonData.lesson_files as Record<string, unknown>[])
-          : [];
-        for (const file of files) file.lock = 0;
-      }
+      this.unlockAllLessons(lessonsData);
       return lessonsData;
     }
 
-    let previousLessonCompleted = true;
+    this.applyLessonSequentialGating(lessonsData);
+    return lessonsData;
+  }
 
+  // Bulk-unlock every lesson + file (Naji's cohort release rule).
+  private unlockAllLessons(lessonsData: Record<string, unknown>[]): void {
+    for (const lessonData of lessonsData) {
+      lessonData.lock = 0;
+      lessonData.lock_message = '';
+      const files = Array.isArray(lessonData.lesson_files)
+        ? (lessonData.lesson_files as Record<string, unknown>[])
+        : [];
+      for (const file of files) file.lock = 0;
+    }
+  }
+
+  // Legacy sequential gating fallback: a lesson unlocks only once the previous
+  // one is complete; within a lesson, files unlock in order. Shared by
+  // getLessons (subject-wise) and getLessonsForCourse (lesson-wise).
+  private applyLessonSequentialGating(lessonsData: Record<string, unknown>[]): void {
+    let previousLessonCompleted = true;
     for (const lessonData of lessonsData) {
       if (toDbNumber(lessonData.is_completed) === 1) {
         previousLessonCompleted = true;
@@ -1815,7 +1836,40 @@ export class ContentService {
 
       previousLessonCompleted = toDbNumber(lessonData.completed_percentage) === 100;
     }
+  }
 
+  // Lesson-wise courses (structure_type=2): lessons attach directly to the
+  // course (subject_id NULL), so there is no subject layer. Mirrors getLessons
+  // but keyed by course_id (Naji 2026-06-23).
+  async getLessonsForCourse(userId: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const course = await this.prisma.course.findFirst({
+      where: { id: toIntId(courseId), deleted_at: null },
+      select: { id: true },
+    });
+    if (!course) {
+      return [];
+    }
+
+    const lessons = await this.prisma.lesson.findMany({
+      where: { course_id: toNullableIntId(courseId), subject_id: null, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+
+    const lessonsData: Record<string, unknown>[] = [];
+    for (let index = 0; index < lessons.length; index += 1) {
+      const lesson = lessons[index];
+      if (!lesson) {
+        continue;
+      }
+      const purchaseStatus = await this.getUserPurchaseStatus(userId, courseId);
+      lessonsData.push(
+        await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId),
+      );
+    }
+
+    // No subject → cohort bulk-unlock (which is subject-keyed) doesn't apply;
+    // use the sequential gating fallback.
+    this.applyLessonSequentialGating(lessonsData);
     return lessonsData;
   }
 
@@ -2427,6 +2481,7 @@ export class ContentService {
       tags: this.parseCourseTags(course.meta_keywords),
       is_free_course: course.is_free_course,
       visibility: course.visibility ?? 'public',
+      structure_type: course.structure_type ?? 1,
     };
   }
 
@@ -2470,6 +2525,7 @@ export class ContentService {
         label: toNullableString(input.label),
         status: input.status ?? 'active',
         visibility: visibilityInt,
+        structure_type: input.structure_type === 2 ? 2 : 1,
         created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
@@ -2507,6 +2563,9 @@ export class ContentService {
         label: toNullableString(input.label),
         status: input.status ?? 'active',
         visibility: visibilityInt,
+        // Only touch structure_type when explicitly provided, so other callers
+        // don't accidentally reset a Lesson-wise course to Subject-wise.
+        ...(input.structure_type !== undefined ? { structure_type: input.structure_type === 2 ? 2 : 1 } : {}),
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
@@ -3097,22 +3156,31 @@ export class ContentService {
   }
 
   async addLessonAdmin(actorUserId: string, input: AdminLessonInput): Promise<Record<string, unknown>> {
-    const subjectIdInt = toIntId(input.subject_id);
-    const maxOrder = await this.prisma.lesson.aggregate({
-      where: { subject_id: subjectIdInt, deleted_at: null },
-      _max: { order: true },
-    });
+    // Subject-wise: subject_id set (course derived from the subject).
+    // Lesson-wise: subject_id omitted → lesson attaches directly to course_id.
+    const subjectIdInt = input.subject_id ? toNullableIntId(input.subject_id) : null;
 
-    // Derive course_id from the subject itself if not provided (MySQL has
-    // no course_subjects junction — subject owns the course_id).
     let courseId = toNullableIntId(input.course_id);
-    if (courseId === null) {
+    if (courseId === null && subjectIdInt !== null) {
+      // Derive course_id from the subject itself (subject owns the course_id).
       const subjectRow = await this.prisma.subject.findFirst({
         where: { id: subjectIdInt, deleted_at: null },
         select: { course_id: true },
       });
       courseId = subjectRow?.course_id ?? null;
     }
+    if (courseId === null) {
+      throw new Error('A course (or subject) is required to add a lesson.');
+    }
+
+    // Next display order — within the subject (subject-wise) or within the
+    // course's subjectless lessons (lesson-wise).
+    const maxOrder = await this.prisma.lesson.aggregate({
+      where: subjectIdInt !== null
+        ? { subject_id: subjectIdInt, deleted_at: null }
+        : { course_id: courseId, subject_id: null, deleted_at: null },
+      _max: { order: true },
+    });
 
     const lesson = await this.prisma.lesson.create({
       data: {
@@ -3129,6 +3197,37 @@ export class ContentService {
     });
 
     return { id: lesson.id };
+  }
+
+  // Lesson-wise admin builder: lessons attached directly to a course
+  // (subject_id NULL). Mirror of listLessonsAdmin keyed by course_id.
+  async listLessonsByCourse(courseId: string): Promise<Record<string, unknown>[]> {
+    const lessons = await this.prisma.lesson.findMany({
+      where: { course_id: toNullableIntId(courseId), subject_id: null, deleted_at: null },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    });
+
+    const lessonIds = lessons.map((l) => l.id);
+    const fileCounts = lessonIds.length > 0
+      ? await this.prisma.lesson_files.groupBy({
+          by: ['lesson_id'],
+          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const fileCountMap = new Map(fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const));
+
+    return lessons.map((l) => ({
+      id: l.id,
+      title: l.title,
+      summary: l.summary ?? '',
+      free: l.free ?? 'off',
+      thumbnail: this.toFileUrl(l.thumbnail),
+      order: l.order ?? 0,
+      course_id: l.course_id,
+      subject_id: l.subject_id,
+      files_count: fileCountMap.get(l.id) ?? 0,
+    }));
   }
 
   async editLessonAdmin(actorUserId: string, lessonId: string, input: AdminLessonInput): Promise<void> {

@@ -452,6 +452,15 @@ export class StudentPortalApi {
       .filter((entry): entry is Record<string, unknown> => entry !== null);
   }
 
+  // Lesson-wise courses (structure_type=2): lessons hang directly off the
+  // course, no subject layer. Used instead of get_subjects→get_lessons.
+  async getCourseLessonsDirect(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons_direct', authToken, { course_id: courseId });
+    return asArray(payload.data)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+  }
+
   // Auth token rides on the URL because @fastify/multipart isn't configured
   // with attachFieldsToBody — body fields are invisible to the auth
   // middleware on multipart requests. Mirrors AdminPortalApi.uploadFile.

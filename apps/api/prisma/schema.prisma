@@ -611,6 +611,12 @@ model course {
   label                 String?   @db.VarChar(260)
   status                String    @default("active") @db.VarChar(255)
   course_type           Int       @default(1) @db.TinyInt
+  // Course hierarchy structure (Naji 2026-06-23): 1 = Subject-wise
+  // (Course→Subject→Lesson→Content, the default for every existing course),
+  // 2 = Lesson-wise (Course→Lesson→Content, no subjects — for short
+  // certification programs). Kept SEPARATE from course_type, which already
+  // encodes cohort vs self-study.
+  structure_type        Int       @default(1) @db.TinyInt
   is_online             Int       @default(1)
   short_description     String?   @db.LongText
   description           String?   @db.LongText
