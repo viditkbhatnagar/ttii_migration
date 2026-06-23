@@ -391,7 +391,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                   <SelectTrigger className="mt-1 h-9">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="counsellor-theme">
                     <SelectItem value="today">Today</SelectItem>
                     <SelectItem value="7d">Last 7 days</SelectItem>
                     <SelectItem value="30d">Last 30 days</SelectItem>
@@ -409,7 +409,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                   <SelectTrigger className="mt-1 h-9">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="counsellor-theme">
                     <SelectItem value="all">All Courses</SelectItem>
                     {courseOptions.map((title) => (
                       <SelectItem key={title} value={title}>
@@ -427,7 +427,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                   <SelectTrigger className="mt-1 h-9">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="counsellor-theme">
                     <SelectItem value="all">All Pipelines</SelectItem>
                     <SelectItem value="inbound">Inbound Web</SelectItem>
                     <SelectItem value="referral">Referral</SelectItem>
@@ -443,7 +443,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                   <SelectTrigger className="mt-1 h-9">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="counsellor-theme">
                     <SelectItem value="none">None</SelectItem>
                     <SelectItem value="course">Course</SelectItem>
                     <SelectItem value="month">Month</SelectItem>
@@ -602,7 +602,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="counsellor-theme max-w-4xl">
           <DialogHeader>
             <DialogTitle>{active.title} — Preview</DialogTitle>
             <DialogDescription>

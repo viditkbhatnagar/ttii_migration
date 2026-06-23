@@ -138,7 +138,7 @@ export function CounsellorNavbar({ session, onLogout }: CounsellorNavbarProps) {
                 ) : null}
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0">
+            <PopoverContent align="end" className="counsellor-theme w-80 p-0">
               <div className="flex items-center justify-between border-b px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold">Notifications</p>
@@ -194,7 +194,7 @@ export function CounsellorNavbar({ session, onLogout }: CounsellorNavbarProps) {
                 </span>
               </button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-0">
+            <PopoverContent align="end" className="counsellor-theme w-72 p-0">
               <div className="flex items-center gap-3 border-b px-4 py-4">
                 <Avatar className="size-10">
                   {avatarImage ? <AvatarImage src={avatarImage} alt="" /> : null}

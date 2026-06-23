@@ -1059,7 +1059,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
 
       {/* Mark as Paid dialog */}
       <Dialog open={markPaidOpen} onOpenChange={setMarkPaidOpen}>
-        <DialogContent className="w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
+        <DialogContent className="counsellor-theme w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
           <DialogHeader>
             <DialogTitle>Mark as Paid</DialogTitle>
           </DialogHeader>
@@ -1141,7 +1141,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="counsellor-theme">
           <form
             onSubmit={(e) => {
               e.preventDefault();

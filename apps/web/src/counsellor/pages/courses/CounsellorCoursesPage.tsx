@@ -174,7 +174,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Level" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="all">All Levels</SelectItem>
               {levels.map((l) => (
                 <SelectItem key={l} value={l}>

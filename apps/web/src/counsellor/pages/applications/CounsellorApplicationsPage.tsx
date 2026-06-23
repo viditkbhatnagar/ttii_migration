@@ -268,7 +268,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
             <SelectTrigger className="md:w-44">
               <SelectValue placeholder="Course" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="all">All Courses</SelectItem>
               {courses.map((c) => (
                 <SelectItem key={c} value={c}>
@@ -287,7 +287,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
             <SelectTrigger className="md:w-44">
               <SelectValue placeholder="Offering" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="all">All Offerings</SelectItem>
               {offerings.map((o) => (
                 <SelectItem key={o} value={o}>
@@ -306,7 +306,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
             <SelectTrigger className="md:w-44">
               <SelectValue placeholder="Stage" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="all">All Stages</SelectItem>
               {STAGES.map((s) => (
                 <SelectItem key={s.key} value={s.key}>
@@ -326,7 +326,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
               <CalendarRange className="h-4 w-4 mr-1.5 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="7">Last 7 days</SelectItem>
               <SelectItem value="30">Last 30 days</SelectItem>
               <SelectItem value="90">Last 90 days</SelectItem>

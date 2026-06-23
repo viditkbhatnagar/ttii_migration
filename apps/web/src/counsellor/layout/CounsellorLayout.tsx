@@ -31,7 +31,7 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
       <CounsellorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} />
 
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
-        <SheetContent side="left" className="w-64 p-0 border-0" showCloseButton={false}>
+        <SheetContent side="left" className="counsellor-theme w-64 p-0 border-0" showCloseButton={false}>
           <CounsellorSidebarMobile pathname={pathname} session={session} onNavigate={handleNavigate} />
         </SheetContent>
       </Sheet>

@@ -271,8 +271,13 @@ export function CounsellorAddLeadDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
+      {/* The shadcn Dialog renders its content through a Radix portal anchored
+          to <body>, which sits OUTSIDE the .counsellor-theme layout wrapper —
+          so without this class the dialog falls back to the admin :root palette
+          (magenta primary) instead of the counsellor Lovable orange/navy theme
+          (Naji 2026-06-24 "counsellor — again design changed"). */}
       <DialogContent
-        className="max-h-[90vh] overflow-y-auto"
+        className="counsellor-theme max-h-[90vh] overflow-y-auto"
         style={{ width: 'min(672px, calc(100vw - 2rem))', maxWidth: 'min(672px, calc(100vw - 2rem))' }}
       >
         <DialogHeader>
@@ -316,7 +321,7 @@ export function CounsellorAddLeadDialog({
                 <SelectTrigger className="w-28">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="counsellor-theme">
                   {COUNTRY_CODES.map((c) => (
                     <SelectItem key={c.code} value={c.code}>
                       {c.label}
@@ -349,7 +354,7 @@ export function CounsellorAddLeadDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select course" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="counsellor-theme">
                   {courseOptions.map((c) => (
                     <SelectItem key={c.value} value={c.value}>
                       {c.label}
@@ -370,7 +375,7 @@ export function CounsellorAddLeadDialog({
                     placeholder={courseId ? 'Select offering' : 'Pick a course first'}
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="counsellor-theme">
                   {offeringOptions.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
                       {o.label}
@@ -404,7 +409,7 @@ export function CounsellorAddLeadDialog({
                     }
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="counsellor-theme">
                   {combinationOptions.map((c) => (
                     <SelectItem key={c.value} value={c.value}>
                       {c.label}
@@ -419,7 +424,7 @@ export function CounsellorAddLeadDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select source" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="counsellor-theme">
                   {SOURCE_OPTIONS.map((s) => (
                     <SelectItem key={s.value} value={s.value}>
                       {s.label}

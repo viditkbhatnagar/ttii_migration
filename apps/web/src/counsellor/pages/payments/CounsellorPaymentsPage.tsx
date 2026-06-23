@@ -295,7 +295,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
               <SelectTrigger className="md:w-36" aria-label="Filter by status">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="counsellor-theme">
                 {statusList.map((s) => (
                   <SelectItem key={s} value={s}>
                     {STATE_LABELS[s]}
@@ -307,7 +307,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
               <SelectTrigger className="md:w-44" aria-label="Filter by course">
                 <SelectValue placeholder="Course" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="counsellor-theme">
                 <SelectItem value="All">All Courses</SelectItem>
                 {courses.map((c) => (
                   <SelectItem key={c} value={c}>
@@ -321,7 +321,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                 <CalendarDays className="mr-1 h-4 w-4 text-muted-foreground" />
                 <SelectValue placeholder="Due date" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="counsellor-theme">
                 {dueRanges.map((d) => (
                   <SelectItem key={d} value={d}>
                     {d}
@@ -390,7 +390,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="counsellor-theme">
                       <DropdownMenuItem
                         onClick={() =>
                           onNavigate(`/counsellor/applications/view/${encodeURIComponent(p.id)}`)

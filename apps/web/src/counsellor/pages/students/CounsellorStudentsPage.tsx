@@ -204,7 +204,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
             <SelectTrigger className="md:w-48">
               <SelectValue placeholder="Course" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="all">All Courses</SelectItem>
               {courses.map((c) => (
                 <SelectItem key={c} value={c}>
@@ -218,7 +218,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               <CalendarRange className="mr-1.5 h-4 w-4 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="counsellor-theme">
               <SelectItem value="30">Last 30 days</SelectItem>
               <SelectItem value="90">Last 90 days</SelectItem>
               <SelectItem value="180">Last 6 months</SelectItem>
