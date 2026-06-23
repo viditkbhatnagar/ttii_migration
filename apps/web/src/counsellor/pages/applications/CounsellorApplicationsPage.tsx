@@ -22,8 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import AdminAddLeadPage from '../../../admin/pages/applications/AddLeadPage.js';
+import { CounsellorAddLeadDialog } from '../../components/CounsellorAddLeadDialog.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
@@ -480,27 +479,17 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
         </div>
       </Card>
 
-      {/* Add Lead — inline modal (was a full-page route). Reuses the proven
-          admin lead form; the counsellor-theme class scopes its tokens to the
-          portal's orange palette inside the portalled dialog. */}
-      <Dialog open={addLeadOpen} onOpenChange={setAddLeadOpen}>
-        <DialogContent
-          className="counsellor-theme student-dashboard max-h-[90vh] overflow-y-auto"
-          style={{ width: 'min(720px, calc(100vw - 2rem))', maxWidth: 'min(720px, calc(100vw - 2rem))' }}
-        >
-          <DialogHeader>
-            <DialogTitle>Add Lead</DialogTitle>
-          </DialogHeader>
-          <AdminAddLeadPage
-            api={api.admin}
-            session={session}
-            onNavigate={() => {
-              setAddLeadOpen(false);
-              reload();
-            }}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Add Lead — bespoke 2-column counsellor dialog */}
+      <CounsellorAddLeadDialog
+        open={addLeadOpen}
+        onOpenChange={setAddLeadOpen}
+        api={api}
+        session={session}
+        onCreated={() => {
+          setAddLeadOpen(false);
+          reload();
+        }}
+      />
     </main>
   );
 }
