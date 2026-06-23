@@ -182,7 +182,17 @@ function computeCounsellorTargetAchieved(
   packagePoints: Map<string, number>,
 ): number {
   const from = target.from_date;
-  const toEnd = target.to_date ? new Date(new Date(target.to_date).setHours(23, 59, 59, 999)) : null;
+  // to_date is a date-only (@db.Date) value Prisma reads as UTC midnight; take
+  // the END of that day in UTC so the window is server-timezone independent
+  // (setHours() would shift the boundary on a non-UTC host).
+  const toEnd = target.to_date
+    ? new Date(Date.UTC(
+        target.to_date.getUTCFullYear(),
+        target.to_date.getUTCMonth(),
+        target.to_date.getUTCDate(),
+        23, 59, 59, 999,
+      ))
+    : null;
   const inWindow = (d: Date | null): boolean => d != null && from != null && toEnd != null && d >= from && d <= toEnd;
   if (target.type === 4) {
     return apps
