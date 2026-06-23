@@ -120,6 +120,19 @@ function safeParseJson(value: string): unknown {
   }
 }
 
+// Counsellor target type ⇄ int (the counsellor_target.type column is an Int).
+// The Add Target form sends a label ('Applications' | 'Enrolments' | 'Revenue').
+function targetTypeToInt(label: string): number {
+  const s = (label ?? '').trim().toLowerCase();
+  if (s.startsWith('enrol')) return 2; // enrolment / enrollment
+  if (s.startsWith('rev')) return 3; // revenue
+  return 1; // applications (default)
+}
+
+function targetTypeLabel(type: number | null | undefined): string {
+  return type === 2 ? 'Enrolments' : type === 3 ? 'Revenue' : 'Applications';
+}
+
 export type AdminApplicationFilters = {
   fromDate?: string;
   toDate?: string;
@@ -6443,17 +6456,51 @@ export class OperationsService {
       orderBy: [{ from_date: 'desc' }, { counsellor_target_id: 'desc' }],
     });
 
-    const userIds = [...new Set(targets.map(t => t.counsellor_id))];
-    const users = userIds.length > 0
-      ? await this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } })
-      : [];
-    const userMap = new Map(users.map(u => [u.id, u]));
+    const userIds = [...new Set(targets.map((t) => t.counsellor_id))];
+    const [users, apps] = await Promise.all([
+      userIds.length > 0
+        ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } })
+        : Promise.resolve([] as Array<{ id: number; name: string | null; user_email: string | null }>),
+      userIds.length > 0
+        ? this.prisma.applications.findMany({
+            where: { pipeline_user: { in: userIds }, deleted_at: null },
+            select: { pipeline_user: true, created_at: true, is_converted: true, stage: true },
+          })
+        : Promise.resolve(
+            [] as Array<{ pipeline_user: number | null; created_at: Date | null; is_converted: number | null; stage: string | null }>,
+          ),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const isEnrolled = (a: { is_converted: number | null; stage: string | null }): boolean =>
+      a.stage === 'enrolled' || a.is_converted === 1;
 
-    return targets.map(t => ({
-      ...t,
-      counsellor_name: userMap.get(t.counsellor_id)?.name ?? null,
-      counsellor_email: userMap.get(t.counsellor_id)?.user_email ?? null,
-    })) as unknown as SqlRow[];
+    return targets.map((t) => {
+      // Real "Achieved": the counsellor's applications (or enrolments, for an
+      // enrolment-type target) created inside the target window.
+      const from = t.from_date;
+      const to = t.to_date;
+      const toEnd = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
+      const inWindow = (d: Date | null): boolean =>
+        d != null && from != null && toEnd != null && d >= from && d <= toEnd;
+      const mine = apps.filter((a) => a.pipeline_user === t.counsellor_id && inWindow(a.created_at));
+      const achieved = t.type === 2 ? mine.filter(isEnrolled).length : mine.length;
+      const isoFrom = from ? from.toISOString().slice(0, 10) : '';
+      const isoTo = to ? to.toISOString().slice(0, 10) : '';
+
+      return {
+        ...t,
+        id: t.counsellor_target_id,
+        _id: t.counsellor_target_id,
+        user_id: t.counsellor_id,
+        counsellor_name: userMap.get(t.counsellor_id)?.name ?? null,
+        counsellor_email: userMap.get(t.counsellor_id)?.user_email ?? null,
+        // Frontend-aligned field names (the admin Counsellor-Target table reads these).
+        target_type: targetTypeLabel(t.type),
+        target_value: t.value,
+        period: isoFrom && isoTo ? `${isoFrom} to ${isoTo}` : '',
+        achieved_value: achieved,
+      };
+    }) as unknown as SqlRow[];
   }
 
   /**
@@ -8023,7 +8070,7 @@ export class OperationsService {
     await this.prisma.counsellor_target.create({
       data: {
         counsellor_id: toIntId(input.userId),
-        type: 1,
+        type: targetTypeToInt(input.targetType),
         from_date: new Date(input.periodFrom),
         to_date: new Date(input.periodTo),
         value: input.targetValue,
@@ -8041,7 +8088,7 @@ export class OperationsService {
       where: { counsellor_target_id: toIntId(id), deleted_at: null },
       data: {
         counsellor_id: toIntId(input.userId),
-        type: 1,
+        type: targetTypeToInt(input.targetType),
         from_date: new Date(input.periodFrom),
         to_date: new Date(input.periodTo),
         value: input.targetValue,

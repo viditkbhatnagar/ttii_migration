@@ -16,12 +16,6 @@ import { useConfirm } from '@/components/confirm-dialog';
 
 const TARGET_TYPES = ['Applications', 'Enrolments', 'Revenue'] as const;
 
-const TYPE_BADGE_MAP: Record<string, string> = {
-  applications: 'registered',
-  enrolments: 'mcq',
-  revenue: 'active',
-};
-
 function parsePeriod(period: unknown): { from: string; to: string } {
   const str = asString(period);
   const parts = str.split(' to ');
@@ -152,8 +146,7 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
         label: 'Type',
         render: (v) => {
           const typeStr = asString(v);
-          const badgeVariant = TYPE_BADGE_MAP[typeStr.toLowerCase()] ?? typeStr.toLowerCase();
-          return <AdminStatusBadge status={badgeVariant || typeStr} />;
+          return typeStr ? <AdminStatusBadge status={typeStr} /> : <span className="text-gray-400">—</span>;
         },
       },
       { key: 'target_value', label: 'Point/Count', sortable: true },
