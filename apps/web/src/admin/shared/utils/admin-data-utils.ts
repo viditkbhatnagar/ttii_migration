@@ -98,6 +98,20 @@ export function formatDate(value: unknown): string {
   }
 }
 
+// "2026-03-14T00:00:00.000Z" → "14 Mar 2026". Reads the date in UTC so a
+// midnight-UTC value doesn't shift a day in negative-offset zones. Falls back
+// to the original string when it isn't a valid date.
+export function formatSessionDate(value: unknown): string {
+  const str = asString(value);
+  if (!str) return '';
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return str;
+  const day = String(parsed.getUTCDate()).padStart(2, '0');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[parsed.getUTCMonth()] ?? '';
+  return `${day} ${month} ${parsed.getUTCFullYear()}`;
+}
+
 export function formatCurrency(value: unknown, currency = '₹'): string {
   const num = asNumber(value);
   return `${currency}${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
