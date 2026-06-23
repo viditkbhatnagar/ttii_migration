@@ -4171,6 +4171,7 @@ export function registerOperationsRoutes(
           languagesSpoken: toStringValue(payload.languages_spoken),
           highestQualification: toStringValue(payload.highest_qualification),
           doj: toStringValue(payload.doj),
+          image: toStringValue(payload.image),
         },
       );
       reply.code(200).send(result);

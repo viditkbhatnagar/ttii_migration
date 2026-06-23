@@ -13300,6 +13300,7 @@ export class OperationsService {
       languagesSpoken?: string;
       highestQualification?: string;
       doj?: string;
+      image?: string;
     },
   ): Promise<Record<string, unknown>> {
     if (!input.name.trim()) return { status: 0, message: 'Name is required.' };
@@ -13315,6 +13316,12 @@ export class OperationsService {
     if (input.languagesSpoken !== undefined) data.languages_spoken = input.languagesSpoken.trim() || null;
     if (input.highestQualification !== undefined) data.highest_qualification = input.highestQualification.trim() || null;
     if (input.doj !== undefined) data.date_of_joining = toOptionalDate(input.doj);
+    // Persist the uploaded profile photo (was dropped on edit, so a new photo
+    // never stuck). Only overwrite when a value is provided.
+    if (input.image !== undefined && input.image.trim() !== '') {
+      data.image = input.image.trim();
+      data.profile_picture = input.image.trim();
+    }
 
     // Email is the counsellor's login identity. Allow changing it, but guard
     // uniqueness against OTHER counsellors (role_id=9) — same scoping as
