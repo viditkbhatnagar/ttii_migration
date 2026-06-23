@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, asString, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
@@ -175,13 +175,13 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
       { key: 'target_value', label: 'Point/Count', sortable: true },
       {
         key: 'period',
-        label: 'From',
-        render: (v) => formatDate(parsePeriod(v).from),
-      },
-      {
-        key: 'period',
-        label: 'To',
-        render: (v) => formatDate(parsePeriod(v).to),
+        label: 'Assigned Month',
+        render: (v) => {
+          const m = parsePeriod(v).from.match(/^(\d{4})-(\d{2})/);
+          if (!m) return '—';
+          const monthLabel = MONTHS.find((x) => x.value === m[2])?.label ?? m[2];
+          return `${monthLabel} ${m[1]}`;
+        },
       },
       { key: 'achieved_value', label: 'Achieved', sortable: true },
       {
