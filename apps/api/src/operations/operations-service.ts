@@ -4319,13 +4319,20 @@ export class OperationsService {
     const links = await this.prisma.exam_courses.findMany({ where: { exam_id: id }, select: { course_id: true } });
     const courseIds = links.map((l) => l.course_id);
     if (courseIds.length === 0) return [];
-    const courses = await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } });
+    const courses = await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, structure_type: true } });
     const courseTitleMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
-    // Subjects per course via the course_subject pivot.
-    const pivot = await this.prisma.course_subject.findMany({
-      where: { deleted_at: null, course_id: { in: courseIds } },
-      select: { subject_id: true, course_id: true },
-    });
+    // Lesson-wise courses (structure_type=2) have no subjects — an exam attaches
+    // to the WHOLE course (Naji 2026-06-23). Subject-wise courses still schedule
+    // per subject via the course_subject pivot.
+    const lessonWiseCourseIds = courses.filter((c) => c.structure_type === 2).map((c) => c.id);
+    const subjectWiseCourseIds = courses.filter((c) => c.structure_type !== 2).map((c) => c.id);
+
+    const pivot = subjectWiseCourseIds.length > 0
+      ? await this.prisma.course_subject.findMany({
+          where: { deleted_at: null, course_id: { in: subjectWiseCourseIds } },
+          select: { subject_id: true, course_id: true },
+        })
+      : [];
     const subjectIds = Array.from(new Set(pivot.map((p) => p.subject_id)));
     const subjects = subjectIds.length > 0
       ? await this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } })
@@ -4337,7 +4344,7 @@ export class OperationsService {
       arr.push(p.course_id);
       courseIdsBySubject.set(p.subject_id, arr);
     }
-    return [...subjectIds].sort().map((sid) => {
+    const subjectRows = [...subjectIds].sort().map((sid) => {
       const courseIdList = courseIdsBySubject.get(sid) ?? [];
       const courseNames = courseIdList.map((cid) => courseTitleMap.get(cid) ?? '').filter(Boolean).join(', ');
       return {
@@ -4347,6 +4354,16 @@ export class OperationsService {
         available_courses: courseNames,
       };
     });
+
+    // One "whole course" schedulable unit per lesson-wise course (subject_id NULL).
+    const lessonWiseRows = lessonWiseCourseIds.map((cid) => ({
+      subject_id: null,
+      subject_title: courseTitleMap.get(cid) || `Course ${cid}`,
+      course_ids: String(cid),
+      available_courses: courseTitleMap.get(cid) ?? '',
+    }));
+
+    return [...subjectRows, ...lessonWiseRows];
   }
 
   async getExamSchedule(examId: string): Promise<Record<string, unknown>[]> {
