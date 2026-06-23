@@ -3217,6 +3217,21 @@ export class ContentService {
       : [];
     const fileCountMap = new Map(fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const));
 
+    // Content Library items (content_asset) attached to a lesson also count as
+    // content — without this the row badge shows "empty" after an admin tags
+    // library items into a lesson-wise lesson (Naji 2026-06-24).
+    const assetCounts = lessonIds.length > 0
+      ? await this.prisma.content_asset.groupBy({
+          by: ['lesson_id'],
+          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const assetCountMap = new Map<number, number>();
+    for (const a of assetCounts) {
+      if (a.lesson_id != null) assetCountMap.set(a.lesson_id, a._count?.id ?? 0);
+    }
+
     return lessons.map((l) => ({
       id: l.id,
       title: l.title,
@@ -3226,7 +3241,7 @@ export class ContentService {
       order: l.order ?? 0,
       course_id: l.course_id,
       subject_id: l.subject_id,
-      files_count: fileCountMap.get(l.id) ?? 0,
+      files_count: (fileCountMap.get(l.id) ?? 0) + (assetCountMap.get(l.id) ?? 0),
     }));
   }
 
@@ -3245,12 +3260,20 @@ export class ContentService {
   }
 
   async deleteLessonAdmin(actorUserId: string, lessonId: string): Promise<void> {
+    const lessonIdInt = toIntId(lessonId);
     await this.prisma.lesson.update({
-      where: { id: toIntId(lessonId) },
+      where: { id: lessonIdInt },
       data: {
         deleted_by: toNullableIntId(actorUserId),
         deleted_at: new Date(),
       },
+    });
+    // Release any Content Library items attached to this lesson so they return
+    // to the library and can be re-attached elsewhere — otherwise they keep a
+    // lesson_id pointing at a deleted lesson (Naji 2026-06-24).
+    await this.prisma.content_asset.updateMany({
+      where: { lesson_id: lessonIdInt, deleted_at: null },
+      data: { lesson_id: null, sort_order: null, updated_at: new Date() },
     });
   }
 
@@ -3304,24 +3327,45 @@ export class ContentService {
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
 
-    return files.map((f) => ({
-      id: f.id,
-      lesson_id: f.lesson_id,
-      title: f.title ?? '',
-      summary: f.summary ?? '',
-      duration: f.duration ?? '',
-      lesson_type: f.lesson_type ?? '',
-      video_url: f.video_url ?? '',
-      attachment: f.attachment ?? '',
-      // Full, viewable URLs so the admin can open the uploaded document / audio
-      // — the raw `attachment` / `audio_file` are bare storage paths, not URLs.
-      attachment_url: this.toFileUrl(f.attachment),
-      audio_file: f.audio_file ?? '',
-      audio_url: this.toFileUrl(f.audio_file),
-      free: f.free ?? 'off',
-      order: f.order ?? 0,
-      attachment_type: f.attachment_type ?? '',
-    }));
+    return files.map((f) => {
+      // `languages` is stored as a JSON array (e.g. '["English"]'); the edit
+      // form expects a single plain string, so surface the first entry.
+      let language = '';
+      const rawLang = typeof f.languages === 'string' ? f.languages.trim() : '';
+      if (rawLang) {
+        if (rawLang.startsWith('[')) {
+          try {
+            const arr = JSON.parse(rawLang) as unknown;
+            if (Array.isArray(arr) && arr.length > 0) language = String(arr[0] ?? '').trim();
+          } catch { language = rawLang; }
+        } else {
+          language = rawLang;
+        }
+      }
+      return {
+        id: f.id,
+        lesson_id: f.lesson_id,
+        title: f.title ?? '',
+        summary: f.summary ?? '',
+        duration: f.duration ?? '',
+        lesson_type: f.lesson_type ?? '',
+        video_url: f.video_url ?? '',
+        attachment: f.attachment ?? '',
+        // Full, viewable URLs so the admin can open the uploaded document / audio
+        // — the raw `attachment` / `audio_file` are bare storage paths, not URLs.
+        attachment_url: this.toFileUrl(f.attachment),
+        audio_file: f.audio_file ?? '',
+        audio_url: this.toFileUrl(f.audio_file),
+        // thumbnail + language were previously omitted, so the edit form
+        // populated them blank and Update silently wiped the saved values
+        // (Naji 2026-06-24). Round-trip them through the edit dialog.
+        thumbnail: f.thumbnail ?? '',
+        language,
+        free: f.free ?? 'off',
+        order: f.order ?? 0,
+        attachment_type: f.attachment_type ?? '',
+      };
+    });
   }
 
   async addLessonFileAdmin(actorUserId: string, input: AdminLessonFileInput): Promise<Record<string, unknown>> {

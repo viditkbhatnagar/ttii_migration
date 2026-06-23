@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye, Plus, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye, Plus, Pencil, Trash2, Library } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-uti
 import { SortableList } from '../../shared/components/SortableList.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { LessonContentManagerDialog } from './LessonContentManagerDialog.js';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -61,12 +62,31 @@ function LessonFilesNode({
     () => api.listLessonFiles(token, lessonId),
     [lessonId],
   );
-  const files = useMemo(() => toRecords(data), [data]);
+  // Content Library items (content_asset) linked to this lesson live in a
+  // separate table, so surface them alongside lesson_files (Naji 2026-06-24 —
+  // attached library content must be visible in the drill-down too).
+  const { data: assetData, loading: assetLoading } = useAdminPageData(
+    () => api.listLessonAssets(token, lessonId),
+    [lessonId],
+  );
+  const files = useMemo<Record<string, unknown>[]>(() => {
+    const lessonRows: Record<string, unknown>[] = toRecords(data).map((f) => ({ ...f, _source: 'lesson' }));
+    const libraryRows: Record<string, unknown>[] = toRecords(assetData).map((a) => ({
+      id: asString(a.id),
+      title: asString(a.title),
+      lesson_type: asString(a.asset_type),
+      attachment_url: asString(a.attachment),
+      video_url: asString(a.video_url),
+      audio_url: asString(a.audio_file),
+      _source: 'library',
+    }));
+    return [...lessonRows, ...libraryRows];
+  }, [data, assetData]);
   // Quiz rows have no file URL (questions live in the quiz table), so they get a
   // "Preview" button that opens the questions dialog (Ishfaq 2026-06-09).
   const [quizFileId, setQuizFileId] = useState<string | null>(null);
 
-  if (loading) {
+  if (loading || assetLoading) {
     return (
       <div className="ml-12 space-y-1">
         {[0, 1, 2].map((i) => <Skeleton key={i} className="h-5 w-3/4" />)}
@@ -81,13 +101,17 @@ function LessonFilesNode({
       <ul className="ml-12 space-y-1">
         {files.map((f) => {
           const fileUrl = asString(f.attachment_url) || asString(f.video_url) || asString(f.audio_url);
-          const isQuiz = asString(f.lesson_type).toLowerCase() === 'quiz';
+          const isLibrary = asString(f._source) === 'library';
+          // Quiz preview reads the lesson_files quiz table; library quizzes
+          // store questions elsewhere, so only lesson-file quizzes get it here.
+          const isLessonQuiz = asString(f.lesson_type).toLowerCase() === 'quiz' && !isLibrary;
           return (
-            <li key={asString(f.id)} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
+            <li key={`${asString(f._source)}-${asString(f.id)}`} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50">
               <LessonFileIcon type={asString(f.lesson_type)} />
-              <span className="flex-1 text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
+              <span className="flex-1 truncate text-sm text-slate-700">{asString(f.title) || '(untitled)'}</span>
+              {isLibrary && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Library</span>}
               <span className="text-[11px] uppercase tracking-wide text-slate-400">{asString(f.lesson_type) || 'file'}</span>
-              {isQuiz ? (
+              {isLessonQuiz ? (
                 <button
                   type="button"
                   onClick={() => setQuizFileId(asString(f.id))}
@@ -354,6 +378,7 @@ function LessonWiseRow({
   dragHandle,
   onEdit,
   onDelete,
+  onManageContent,
 }: {
   api: AdminPageProps['api'];
   token: string;
@@ -361,6 +386,7 @@ function LessonWiseRow({
   dragHandle: React.ReactNode;
   onEdit: () => void;
   onDelete: () => void;
+  onManageContent: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const lessonId = asString(lesson.id);
@@ -387,6 +413,7 @@ function LessonWiseRow({
             {fileCount > 0 ? `${fileCount} file${fileCount === 1 ? '' : 's'}` : 'empty'}
           </span>
         </button>
+        <IconButton label="Manage content" onClick={onManageContent}><Library className="size-4" /></IconButton>
         <IconButton label="Edit lesson" onClick={onEdit}><Pencil className="size-4" /></IconButton>
         <IconButton label="Delete lesson" onClick={onDelete} danger><Trash2 className="size-4" /></IconButton>
       </div>
@@ -424,6 +451,8 @@ function LessonWiseCurriculum({
   const [summary, setSummary] = useState('');
   const [free, setFree] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Lesson whose content is being managed (attach library items / add files).
+  const [manageLesson, setManageLesson] = useState<{ id: string; title: string } | null>(null);
 
   const openAdd = () => {
     setEditId('');
@@ -530,6 +559,7 @@ function LessonWiseCurriculum({
                 dragHandle={dragHandle}
                 onEdit={() => openEdit(lesson)}
                 onDelete={() => void removeLesson(lesson)}
+                onManageContent={() => setManageLesson({ id: asString(lesson.id), title: asString(lesson.title) })}
               />
             );
           }}
@@ -561,6 +591,15 @@ function LessonWiseCurriculum({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LessonContentManagerDialog
+        api={api}
+        token={token}
+        lessonId={manageLesson?.id ?? null}
+        lessonTitle={manageLesson?.title ?? ''}
+        onClose={() => setManageLesson(null)}
+        onChanged={reload}
+      />
     </>
   );
 }
