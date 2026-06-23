@@ -16,6 +16,26 @@ import { useConfirm } from '@/components/confirm-dialog';
 
 const TARGET_TYPES = ['Applications', 'Points', 'Enrolments', 'Revenue'] as const;
 
+const MONTHS: { value: string; label: string }[] = [
+  { value: '01', label: 'January' }, { value: '02', label: 'February' }, { value: '03', label: 'March' },
+  { value: '04', label: 'April' }, { value: '05', label: 'May' }, { value: '06', label: 'June' },
+  { value: '07', label: 'July' }, { value: '08', label: 'August' }, { value: '09', label: 'September' },
+  { value: '10', label: 'October' }, { value: '11', label: 'November' }, { value: '12', label: 'December' },
+];
+
+const YEAR_OPTIONS: string[] = (() => {
+  const y = new Date().getFullYear();
+  return [y - 1, y, y + 1, y + 2, y + 3].map(String);
+})();
+
+// First / last calendar day of a "YYYY" + "MM" — the target window the backend
+// stores as from_date / to_date.
+function monthRange(year: string, month: string): { from: string; to: string } {
+  if (!year || !month) return { from: '', to: '' };
+  const lastDay = new Date(Number(year), Number(month), 0).getDate();
+  return { from: `${year}-${month}-01`, to: `${year}-${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
 function parsePeriod(period: unknown): { from: string; to: string } {
   const str = asString(period);
   const parts = str.split(' to ');
@@ -37,8 +57,8 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
   const [formUserId, setFormUserId] = useState('');
   const [formType, setFormType] = useState<string>(TARGET_TYPES[0]);
   const [formValue, setFormValue] = useState('');
-  const [formFrom, setFormFrom] = useState('');
-  const [formTo, setFormTo] = useState('');
+  const [formMonth, setFormMonth] = useState('');
+  const [formYear, setFormYear] = useState('');
   const [formRemarks, setFormRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -70,8 +90,8 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
     setFormUserId('');
     setFormType(TARGET_TYPES[0]);
     setFormValue('');
-    setFormFrom('');
-    setFormTo('');
+    setFormMonth('');
+    setFormYear('');
     setFormRemarks('');
   }
 
@@ -82,13 +102,15 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
   }
 
   function openEdit(row: Record<string, unknown>) {
-    const { from, to } = parsePeriod(row.period);
+    const { from } = parsePeriod(row.period);
+    // Derive the assigned Month + Year from the stored from_date (YYYY-MM-DD).
+    const m = from.match(/^(\d{4})-(\d{2})/);
     setEditingId(asString(row.id || row._id));
     setFormUserId(asString(row.user_id));
     setFormType(asString(row.target_type) || TARGET_TYPES[0]);
     setFormValue(String(asNumber(row.target_value)));
-    setFormFrom(from);
-    setFormTo(to);
+    setFormYear(m?.[1] ?? '');
+    setFormMonth(m?.[2] ?? '');
     setFormRemarks(asString(row.remarks));
     void loadCounsellorsIfNeeded();
     setDialogOpen(true);
@@ -112,14 +134,15 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
   }
 
   async function handleSubmit() {
-    if (!formUserId || !formType || !formValue || !formFrom || !formTo) return;
+    if (!formUserId || !formType || !formValue || !formMonth || !formYear) return;
     setSubmitting(true);
+    const { from, to } = monthRange(formYear, formMonth);
     const input = {
       user_id: formUserId,
       target_type: formType,
       target_value: Number(formValue),
-      period_from: formFrom,
-      period_to: formTo,
+      period_from: from,
+      period_to: to,
       remarks: formRemarks || undefined,
     };
     try {
@@ -280,24 +303,33 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
                 placeholder="Enter target value"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="ct-from">Period From</Label>
-                <Input
-                  id="ct-from"
-                  type="date"
-                  value={formFrom}
-                  onChange={(e) => setFormFrom(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ct-to">Period To</Label>
-                <Input
-                  id="ct-to"
-                  type="date"
-                  value={formTo}
-                  onChange={(e) => setFormTo(e.target.value)}
-                />
+            <div className="grid gap-2">
+              <Label>Assigned Month</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <select
+                  id="ct-month"
+                  aria-label="Month"
+                  className={selectClass}
+                  value={formMonth}
+                  onChange={(e) => setFormMonth(e.target.value)}
+                >
+                  <option value="">Month</option>
+                  {MONTHS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+                <select
+                  id="ct-year"
+                  aria-label="Year"
+                  className={selectClass}
+                  value={formYear}
+                  onChange={(e) => setFormYear(e.target.value)}
+                >
+                  <option value="">Year</option>
+                  {YEAR_OPTIONS.map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="grid gap-2">
@@ -317,7 +349,7 @@ export default function CounsellorTargetPage({ api, session }: AdminPageProps) {
             </Button>
             <Button
               type="submit"
-              disabled={submitting || !formUserId || !formType || !formValue || !formFrom || !formTo}
+              disabled={submitting || !formUserId || !formType || !formValue || !formMonth || !formYear}
               className="bg-ttii-primary hover:bg-ttii-primary/90"
             >
               {submitting ? 'Saving...' : editingId ? 'Update' : 'Add'}
