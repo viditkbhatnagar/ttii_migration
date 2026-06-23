@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +27,15 @@ import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
 import { titleCaseOnBlur } from '@/lib/text-format';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** First+last initials for the avatar fallback when no photo is set. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.map((p) => p[0]).filter(Boolean);
+  if (letters.length === 0) return '?';
+  if (letters.length === 1) return (letters[0] ?? '').toUpperCase();
+  return `${letters[0] ?? ''}${letters[letters.length - 1] ?? ''}`.toUpperCase();
+}
 import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
 import { useConfirm } from '@/components/confirm-dialog';
 
@@ -126,6 +136,22 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
   // --- Table columns ---
   const columns: DataTableColumn[] = useMemo(
     () => [
+      {
+        key: 'image',
+        label: 'Photo',
+        render: (_v, row) => {
+          const src = asString(row.image) || asString(row.profile_picture);
+          const name = asString(row.name);
+          return (
+            <Avatar size="lg" className="size-9">
+              {src ? <AvatarImage src={src} alt={name} className="object-cover" /> : null}
+              <AvatarFallback className="bg-ttii-primary/10 text-xs font-semibold text-ttii-primary">
+                {initialsOf(name)}
+              </AvatarFallback>
+            </Avatar>
+          );
+        },
+      },
       { key: 'name', label: 'Name', sortable: true },
       { key: 'phone', label: 'Phone' },
       { key: 'user_email', label: 'Email' },

@@ -6462,8 +6462,15 @@ export class OperationsService {
 
     return counsellors.map(u => {
       const centreIdNum = toNullableIntId(u.centre_id);
+      // Resolve the stored photo to a full URL so the directory table can
+      // render it directly (legacy rows hold relative `uploads/...` paths;
+      // new uploads already hold absolute URLs — toLegacyFileUrl is a no-op
+      // for those). Mirrors how listStudents serialises the avatar.
+      const photo = toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture);
       return {
         ...u,
+        image: photo,
+        profile_picture: toLegacyFileUrl(u.profile_picture),
         // The Edit form reads `doj`; the column is `date_of_joining`.
         doj: u.date_of_joining,
         centre_name: centreIdNum !== null ? centreMap.get(centreIdNum) ?? null : null,
