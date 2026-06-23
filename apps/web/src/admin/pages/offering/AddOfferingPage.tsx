@@ -78,6 +78,7 @@ interface PackageForm {
   offered_fee: string;
   registration_fee: string;
   gst_percent: string;
+  associated_point: string;
 }
 
 const emptyPackageForm: PackageForm = {
@@ -88,6 +89,7 @@ const emptyPackageForm: PackageForm = {
   offered_fee: '',
   registration_fee: '',
   gst_percent: '',
+  associated_point: '',
 };
 
 export default function AddOfferingPage({ api, session, onNavigate }: AdminPageProps) {
@@ -159,6 +161,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       offered_fee: pkg.offered_fee == null ? '' : String(asNumber(pkg.offered_fee)),
       registration_fee: pkg.registration_fee == null ? '' : String(asNumber(pkg.registration_fee)),
       gst_percent: pkg.gst_percent == null ? '' : String(asNumber(pkg.gst_percent)),
+      associated_point: pkg.associated_point == null ? '' : String(asNumber(pkg.associated_point)),
     });
     setPackageDialog(true);
   }, []);
@@ -188,6 +191,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         offered_fee: packageForm.offered_fee ? Number(packageForm.offered_fee) : undefined,
         registration_fee: packageForm.registration_fee ? Number(packageForm.registration_fee) : undefined,
         gst_percent: packageForm.gst_percent ? Number(packageForm.gst_percent) : undefined,
+        associated_point: packageForm.associated_point ? Number(packageForm.associated_point) : undefined,
       };
       if (editingPackageId) {
         await api.updateOfferingPackage(session.token, editingPackageId, payload);
@@ -665,6 +669,18 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   placeholder="e.g. 18"
                 />
                 <p className="text-xs text-slate-400">Override the combination's default GST for this package (leave blank to inherit).</p>
+              </div>
+              <div className="space-y-1">
+                <Label>Associated Point</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={packageForm.associated_point}
+                  onChange={(e) => updatePackageField('associated_point', e.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-xs text-slate-400">Reward points credited to the counsellor&apos;s Points target each time a student is enrolled into this package.</p>
               </div>
             </div>
           </div>

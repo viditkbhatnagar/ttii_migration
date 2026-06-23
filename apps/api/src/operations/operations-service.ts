@@ -134,6 +134,67 @@ function targetTypeLabel(type: number | null | undefined): string {
   return type === 4 ? 'Points' : type === 2 ? 'Enrolments' : type === 3 ? 'Revenue' : 'Applications';
 }
 
+// Enrolment statuses that mean the seat is no longer active (e.g. the course
+// fee was refunded / the enrolment cancelled) → its package points drop off the
+// counsellor's Points target (Naji 2026-06-23: "if course fee is refunded, that
+// point will be removed").
+const INACTIVE_ENROLLMENT_STATUSES = new Set([
+  'refunded', 'refund', 'cancelled', 'canceled', 'inactive', 'dropped', 'dropout', 'withdrawn',
+]);
+
+type CounsellorTargetApp = {
+  created_at: Date | null;
+  converted_at: Date | null;
+  is_converted: number | null;
+  stage: string | null;
+  offering_id: number | null;
+  certificate_combination_id: number | null;
+  enrollment_status: string | null;
+};
+
+function isCounsellorEnrolment(a: { is_converted: number | null; stage: string | null }): boolean {
+  return a.stage === 'enrolled' || a.is_converted === 1;
+}
+
+function isActiveCounsellorEnrolment(a: CounsellorTargetApp): boolean {
+  return isCounsellorEnrolment(a)
+    && !INACTIVE_ENROLLMENT_STATUSES.has((a.enrollment_status ?? '').trim().toLowerCase());
+}
+
+// Key into the offering+combination → associated-point map.
+function packagePointKey(offeringId: number | null, combinationId: number | null): string {
+  return `${offeringId ?? ''}:${combinationId ?? ''}`;
+}
+
+/**
+ * "Achieved" for one counsellor target, computed from that counsellor's own
+ * applications (already filtered to the counsellor):
+ *   - Points (type 4): sum of the associated points of the packages the
+ *     counsellor enrolled students into, dated by ENROLMENT date (converted_at,
+ *     falling back to created_at for legacy rows), excluding refunded/cancelled
+ *     enrolments.
+ *   - Enrolments (type 2): count of enrolments in the window.
+ *   - Applications / Revenue / default: count of applications in the window.
+ */
+function computeCounsellorTargetAchieved(
+  target: { type: number | null; from_date: Date | null; to_date: Date | null },
+  apps: CounsellorTargetApp[],
+  packagePoints: Map<string, number>,
+): number {
+  const from = target.from_date;
+  const toEnd = target.to_date ? new Date(new Date(target.to_date).setHours(23, 59, 59, 999)) : null;
+  const inWindow = (d: Date | null): boolean => d != null && from != null && toEnd != null && d >= from && d <= toEnd;
+  if (target.type === 4) {
+    return apps
+      .filter((a) => isActiveCounsellorEnrolment(a) && inWindow(a.converted_at ?? a.created_at))
+      .reduce((sum, a) => sum + (packagePoints.get(packagePointKey(a.offering_id, a.certificate_combination_id)) ?? 0), 0);
+  }
+  if (target.type === 2) {
+    return apps.filter((a) => isCounsellorEnrolment(a) && inWindow(a.created_at)).length;
+  }
+  return apps.filter((a) => inWindow(a.created_at)).length;
+}
+
 // Parse a "YYYY-MM-DD" (or empty) form value into a Date, or null. Guards
 // against Invalid Date so Prisma never receives a bad value.
 function toOptionalDate(value: string | undefined): Date | null {
@@ -6480,6 +6541,18 @@ export class OperationsService {
     }) as unknown as SqlRow[];
   }
 
+  /**
+   * offering_id:combination_id → associated_point, for counsellor Points-target
+   * maths. One bounded read of the (small) package table.
+   */
+  private async loadPackagePointMap(): Promise<Map<string, number>> {
+    const pkgs = await this.prisma.offering_certificate_packages.findMany({
+      where: { deleted_at: null },
+      select: { offering_id: true, combination_id: true, associated_point: true },
+    });
+    return new Map(pkgs.map((p) => [packagePointKey(p.offering_id, p.combination_id), p.associated_point ?? 0]));
+  }
+
   async listCounsellorTargets(): Promise<SqlRow[]> {
     const targets = await this.prisma.counsellor_target.findMany({
       where: { deleted_at: null },
@@ -6487,33 +6560,32 @@ export class OperationsService {
     });
 
     const userIds = [...new Set(targets.map((t) => t.counsellor_id))];
-    const [users, apps] = await Promise.all([
+    const needsPoints = targets.some((t) => t.type === 4);
+    const [users, apps, packagePoints] = await Promise.all([
       userIds.length > 0
         ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, user_email: true } })
         : Promise.resolve([] as Array<{ id: number; name: string | null; user_email: string | null }>),
       userIds.length > 0
         ? this.prisma.applications.findMany({
             where: { pipeline_user: { in: userIds }, deleted_at: null },
-            select: { pipeline_user: true, created_at: true, is_converted: true, stage: true },
+            select: {
+              pipeline_user: true, created_at: true, converted_at: true, is_converted: true, stage: true,
+              offering_id: true, certificate_combination_id: true, enrollment_status: true,
+            },
           })
-        : Promise.resolve(
-            [] as Array<{ pipeline_user: number | null; created_at: Date | null; is_converted: number | null; stage: string | null }>,
-          ),
+        : Promise.resolve([] as Array<CounsellorTargetApp & { pipeline_user: number | null }>),
+      needsPoints ? this.loadPackagePointMap() : Promise.resolve(new Map<string, number>()),
     ]);
     const userMap = new Map(users.map((u) => [u.id, u]));
-    const isEnrolled = (a: { is_converted: number | null; stage: string | null }): boolean =>
-      a.stage === 'enrolled' || a.is_converted === 1;
 
     return targets.map((t) => {
-      // Real "Achieved": the counsellor's applications (or enrolments, for an
-      // enrolment-type target) created inside the target window.
+      // Real "Achieved" for this counsellor's target — Points targets sum the
+      // associated points of the packages they enrolled students into; other
+      // types count applications / enrolments (see computeCounsellorTargetAchieved).
       const from = t.from_date;
       const to = t.to_date;
-      const toEnd = to ? new Date(new Date(to).setHours(23, 59, 59, 999)) : null;
-      const inWindow = (d: Date | null): boolean =>
-        d != null && from != null && toEnd != null && d >= from && d <= toEnd;
-      const mine = apps.filter((a) => a.pipeline_user === t.counsellor_id && inWindow(a.created_at));
-      const achieved = t.type === 2 ? mine.filter(isEnrolled).length : mine.length;
+      const mineApps = apps.filter((a) => a.pipeline_user === t.counsellor_id);
+      const achieved = computeCounsellorTargetAchieved(t, mineApps, packagePoints);
       const isoFrom = from ? from.toISOString().slice(0, 10) : '';
       const isoTo = to ? to.toISOString().slice(0, 10) : '';
 
@@ -6555,6 +6627,11 @@ export class OperationsService {
           stage: true,
           is_converted: true,
           created_at: true,
+          // Needed for Points-target achievement (Naji 2026-06-23).
+          converted_at: true,
+          offering_id: true,
+          certificate_combination_id: true,
+          enrollment_status: true,
         },
         orderBy: { id: 'desc' },
       }),
@@ -6593,11 +6670,11 @@ export class OperationsService {
     let targetAchieved = 0;
     if (activeTarget) {
       monthlyTargetPoint = activeTarget.value;
-      const windowEnd = new Date(activeTarget.to_date);
-      windowEnd.setHours(23, 59, 59, 999);
-      targetAchieved = apps.filter(
-        (a) => a.created_at != null && a.created_at >= activeTarget.from_date && a.created_at <= windowEnd,
-      ).length;
+      // Same achievement rule as the admin Counsellor-Target table: Points
+      // targets sum package associated-points by enrolment date; other types
+      // count applications / enrolments (Naji 2026-06-23).
+      const packagePoints = activeTarget.type === 4 ? await this.loadPackagePointMap() : new Map<string, number>();
+      targetAchieved = computeCounsellorTargetAchieved(activeTarget, apps, packagePoints);
     }
     const achievementPct =
       monthlyTargetPoint > 0 ? Math.min(100, Math.round((targetAchieved / monthlyTargetPoint) * 100)) : 0;

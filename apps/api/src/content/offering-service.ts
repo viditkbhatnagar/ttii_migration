@@ -466,6 +466,7 @@ export class OfferingService {
         discount: r.discount === null ? null : Number(r.discount),
         offered_fee: r.offered_fee === null ? null : Number(r.offered_fee),
         registration_fee: r.registration_fee === null ? null : Number(r.registration_fee),
+        associated_point: r.associated_point ?? 0,
         position: r.position,
         created_at: r.created_at,
       };
@@ -483,6 +484,7 @@ export class OfferingService {
       offered_fee?: number | undefined;
       registration_fee?: number | undefined;
       gst_percent?: number | undefined;
+      associated_point?: number | undefined;
       position?: number | undefined;
     },
   ): Promise<Record<string, unknown>> {
@@ -502,6 +504,7 @@ export class OfferingService {
         offered_fee: toNullableDecimal(input.offered_fee),
         registration_fee: toNullableDecimal(input.registration_fee),
         gst_percent: toNullableDecimal(input.gst_percent),
+        associated_point: Math.max(0, Math.round(input.associated_point ?? 0)),
         position: input.position ?? 0,
         created_by: actor,
         updated_by: actor,
@@ -518,6 +521,7 @@ export class OfferingService {
       offered_fee: created.offered_fee === null ? null : Number(created.offered_fee),
       registration_fee: created.registration_fee === null ? null : Number(created.registration_fee),
       gst_percent: created.gst_percent === null ? null : Number(created.gst_percent),
+      associated_point: created.associated_point,
       position: created.position,
     };
   }
@@ -532,6 +536,7 @@ export class OfferingService {
       offered_fee?: number | undefined;
       registration_fee?: number | undefined;
       gst_percent?: number | undefined;
+      associated_point?: number | undefined;
       position?: number | undefined;
     },
   ): Promise<void> {
@@ -546,6 +551,7 @@ export class OfferingService {
         offered_fee: toNullableDecimal(input.offered_fee),
         registration_fee: toNullableDecimal(input.registration_fee),
         gst_percent: toNullableDecimal(input.gst_percent),
+        associated_point: Math.max(0, Math.round(input.associated_point ?? 0)),
         position: input.position ?? 0,
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),

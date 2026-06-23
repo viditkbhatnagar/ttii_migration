@@ -2687,6 +2687,10 @@ model offering_certificate_packages {
   offered_fee       Decimal?  @db.Decimal(10, 2)
   registration_fee  Decimal?  @db.Decimal(10, 2)
   gst_percent       Decimal?  @db.Decimal(5, 2)
+  // Counsellor reward points earned each time a student is enrolled into this
+  // package; summed into the handling counsellor's "Points" target (Naji
+  // 2026-06-23). Defaults to 0 so legacy rows contribute nothing.
+  associated_point  Int       @default(0)
   position          Int       @default(0)
   created_by      Int?
   updated_by      Int?
