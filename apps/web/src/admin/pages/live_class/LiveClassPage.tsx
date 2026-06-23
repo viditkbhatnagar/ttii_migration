@@ -1,5 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
-import { toast } from 'sonner';
+import { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -8,41 +7,14 @@ import { asString, toRecords, formatDate } from '../../shared/utils/admin-data-u
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AddLiveSessionModal, type CohortOption } from '../cohorts/AddLiveSessionModal.js';
 
 export default function LiveClassPage({ api, session }: AdminPageProps) {
   const [activeTab, setActiveTab] = useState('all');
 
-  // Add Live Session — reachable directly from the Live Sessions list (Risha
-  // UAT 2026-06-23). Picks a cohort first, then reuses the cohort dialog.
-  const [addOpen, setAddOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [cohortOptions, setCohortOptions] = useState<CohortOption[]>([]);
-
-  const { data, loading, error, reload } = useAdminPageData(
+  const { data, loading, error } = useAdminPageData(
     () => api.loadLiveClasses(session.token),
     [],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const rows = await api.loadAdminCohorts(session.token, {});
-        if (cancelled) return;
-        const options = rows
-          .map((r) => ({
-            id: asString(r._id) || asString(r.id),
-            title: asString(r.title) || asString(r.cohort_id) || 'Untitled cohort',
-          }))
-          .filter((o) => o.id);
-        setCohortOptions(options);
-      } catch {
-        if (!cancelled) toast.error('Failed to load cohorts for Add Live Session.');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [api, session.token]);
 
   const allSessions = useMemo(() => toRecords(data), [data]);
 
@@ -122,7 +94,7 @@ export default function LiveClassPage({ api, session }: AdminPageProps) {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title="Live Sessions" addLabel="+ Add Live Session" onAdd={() => setAddOpen(true)} />
+      <AdminPageHeader title="Live Sessions" />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         {[
@@ -142,22 +114,6 @@ export default function LiveClassPage({ api, session }: AdminPageProps) {
       <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
       <AdminDataTable columns={columns} rows={filteredSessions} />
-
-      {addOpen && (
-        <AddLiveSessionModal
-          open
-          onClose={() => setAddOpen(false)}
-          api={api}
-          token={session.token}
-          cohorts={cohortOptions}
-          submitting={submitting}
-          setSubmitting={setSubmitting}
-          onSuccess={() => {
-            setAddOpen(false);
-            reload();
-          }}
-        />
-      )}
     </div>
   );
 }
