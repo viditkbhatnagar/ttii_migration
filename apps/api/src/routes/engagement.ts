@@ -74,7 +74,20 @@ function groupLiveClassesByState(rows: LiveClassRow[]): {
     live: [] as LiveClassRow[],
     upcoming: [] as LiveClassRow[],
   };
-  for (const row of rows) groups[liveClassBucket(row)].push(row);
+  for (const row of rows) {
+    const bucket = liveClassBucket(row);
+    if (bucket === 'expired') {
+      // Naji 2026-06-24: the Flutter app opens the recording player when an
+      // ended class reports status === 'Expired' (capital E). Relabel ended
+      // classes so ONLY those WITH a recording report 'Expired'; ones without
+      // (has_recording false / empty recording_url, e.g. id 219) report
+      // 'Ended' so the app never opens an empty player. Web /student/live_classes
+      // is unaffected — it returns the flat array, not these buckets.
+      groups.expired.push({ ...row, status: row.has_recording === true ? 'Expired' : 'Ended' });
+    } else {
+      groups[bucket].push(row);
+    }
+  }
   return groups;
 }
 
