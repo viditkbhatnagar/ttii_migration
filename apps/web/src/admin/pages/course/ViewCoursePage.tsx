@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye, Plus, Pencil, Trash2, Library } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Video, Music, FileQuestion, BookOpen, ExternalLink, Check, Eye, Plus, Pencil, Trash2, Library, CopyPlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import { SortableList } from '../../shared/components/SortableList.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { LessonContentManagerDialog } from './LessonContentManagerDialog.js';
+import { LessonPickerDialog } from './LessonPickerDialog.js';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -453,6 +454,8 @@ function LessonWiseCurriculum({
   const [saving, setSaving] = useState(false);
   // Lesson whose content is being managed (attach library items / add files).
   const [manageLesson, setManageLesson] = useState<{ id: string; title: string } | null>(null);
+  // Attach-an-existing-lesson picker (clones a lesson into this course).
+  const [attachOpen, setAttachOpen] = useState(false);
 
   const openAdd = () => {
     setEditId('');
@@ -530,9 +533,14 @@ function LessonWiseCurriculum({
         <p className="text-xs text-slate-500">
           Lessons → Content. Lesson-wise course — lessons attach directly to the course (no subjects).
         </p>
-        <Button onClick={openAdd} variant="outline" size="sm" className="gap-1.5">
-          <Plus aria-hidden="true" className="size-4" /> Add Lesson
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setAttachOpen(true)} variant="outline" size="sm" className="gap-1.5">
+            <CopyPlus aria-hidden="true" className="size-4" /> Attach existing
+          </Button>
+          <Button onClick={openAdd} variant="outline" size="sm" className="gap-1.5">
+            <Plus aria-hidden="true" className="size-4" /> Add Lesson
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -542,9 +550,14 @@ function LessonWiseCurriculum({
       ) : lessons.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 py-8 text-center">
           <p className="text-sm text-slate-500">Lesson-wise course — add lessons directly (no subjects)</p>
-          <Button onClick={openAdd} variant="outline" className="mt-3 gap-1.5">
-            <Plus aria-hidden="true" className="size-4" /> Add the first lesson
-          </Button>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <Button onClick={openAdd} variant="outline" className="gap-1.5">
+              <Plus aria-hidden="true" className="size-4" /> Add the first lesson
+            </Button>
+            <Button onClick={() => setAttachOpen(true)} variant="outline" className="gap-1.5">
+              <CopyPlus aria-hidden="true" className="size-4" /> Attach existing
+            </Button>
+          </div>
         </div>
       ) : (
         <SortableList ids={lessons.map((l) => asString(l.id))} onReorder={reorder} className="space-y-2">
@@ -599,6 +612,15 @@ function LessonWiseCurriculum({
         lessonTitle={manageLesson?.title ?? ''}
         onClose={() => setManageLesson(null)}
         onChanged={reload}
+      />
+
+      <LessonPickerDialog
+        api={api}
+        token={token}
+        courseId={courseId}
+        open={attachOpen}
+        onClose={() => setAttachOpen(false)}
+        onAttached={reload}
       />
     </>
   );

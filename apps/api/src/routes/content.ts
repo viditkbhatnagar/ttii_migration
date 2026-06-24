@@ -997,6 +997,62 @@ export function registerContentRoutes(
     }
   });
 
+  // ── Attach / clone existing lessons + copy existing files (Ishfaq 2026-06-24)
+
+  app.get('/admin/course/lessons/attachable', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const excludeCourseId = payload.exclude_course_id ? toStringValue(payload.exclude_course_id) : undefined;
+      const lessons = await contentService.listAttachableLessonsAdmin(excludeCourseId);
+      reply.code(200).send({ status: 1, message: 'success', data: lessons });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/course/lessons/clone-into', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const sourceLessonId = toStringValue(payload.source_lesson_id);
+      const targetCourseId = toStringValue(payload.target_course_id);
+      if (!sourceLessonId || !targetCourseId) {
+        reply.code(200).send({ status: 0, message: 'source_lesson_id + target_course_id required', data: {} });
+        return;
+      }
+      const result = await contentService.cloneLessonIntoAdmin(requestUserId(request), sourceLessonId, targetCourseId);
+      reply.code(200).send({ status: 1, message: 'Lesson cloned into course', data: result });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.get('/admin/course/lesson_files/attachable', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const excludeLessonId = payload.exclude_lesson_id ? toStringValue(payload.exclude_lesson_id) : undefined;
+      const files = await contentService.listAttachableFilesAdmin(excludeLessonId);
+      reply.code(200).send({ status: 1, message: 'success', data: files });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.post('/admin/course/lesson_files/copy-into', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const sourceFileId = toStringValue(payload.source_file_id);
+      const targetLessonId = toStringValue(payload.target_lesson_id);
+      if (!sourceFileId || !targetLessonId) {
+        reply.code(200).send({ status: 0, message: 'source_file_id + target_lesson_id required', data: {} });
+        return;
+      }
+      const result = await contentService.copyLessonFileIntoAdmin(requestUserId(request), sourceFileId, targetLessonId);
+      reply.code(200).send({ status: 1, message: 'File copied into lesson', data: result });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
   // ── Admin Lesson File CRUD routes ───────────────────────────────
 
   app.get('/admin/course/lesson_files', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {

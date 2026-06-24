@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Library, Plus, Eye, Trash2, ExternalLink, Video, Music, FileQuestion, FileText, Check, Search, Link2,
+  Library, Plus, Eye, Trash2, ExternalLink, Video, Music, FileQuestion, FileText, Check, Search, Link2, CopyPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -145,7 +145,18 @@ function LibraryPickerDialog({
   );
   const assets = useMemo(() => toRecords(data), [data]);
 
-  useEffect(() => { if (!open) { setSearch(''); setTypeFilter(''); } }, [open]);
+  // Issue 3 (Ishfaq 2026-06-24) — also browse EXISTING lesson files from other
+  // lessons so content that lives only in lesson_files (e.g. another course's
+  // documents) can be COPIED in, not just Content-Library items.
+  const [mode, setMode] = useState<'library' | 'files'>('library');
+  const [copyingId, setCopyingId] = useState('');
+  const { data: filesData, loading: filesLoading, reload: reloadOtherFiles } = useAdminPageData(
+    () => (open ? api.listAttachableFiles(token, lessonId) : Promise.resolve([])),
+    [open, lessonId],
+  );
+  const otherFiles = useMemo(() => toRecords(filesData), [filesData]);
+
+  useEffect(() => { if (!open) { setSearch(''); setTypeFilter(''); setMode('library'); } }, [open]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -183,6 +194,38 @@ function LibraryPickerDialog({
     }
   };
 
+  const filteredFiles = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return otherFiles.filter((f) => {
+      if (typeFilter && asString(f.lesson_type).toLowerCase() !== typeFilter) return false;
+      if (q) {
+        const hay = `${asString(f.title)} ${asString(f.lesson_title)} ${asString(f.course_title)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [otherFiles, search, typeFilter]);
+
+  const copyFile = async (file: Record<string, unknown>) => {
+    const fileId = asString(file.id);
+    setCopyingId(fileId);
+    try {
+      await api.copyLessonFileInto(token, fileId, lessonId);
+      toast.success('Content copied into this lesson.');
+      reloadOtherFiles();
+      onAttached();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not copy content.');
+    } finally {
+      setCopyingId('');
+    }
+  };
+
+  const toggleClass = (active: boolean) =>
+    `rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+      active ? 'border-ttii-primary bg-ttii-primary/5 text-ttii-primary' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+    }`;
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent
@@ -190,71 +233,120 @@ function LibraryPickerDialog({
         style={{ width: 'min(680px, calc(100vw - 2rem))', maxWidth: 'min(680px, calc(100vw - 2rem))' }}
       >
         <DialogHeader>
-          <DialogTitle>Attach from Content Library</DialogTitle>
+          <DialogTitle>Attach existing content</DialogTitle>
           <DialogDescription>
-            Pick existing items from the Content Library to attach to this lesson.
+            Attach items from the Content Library, or copy a file that already exists on another lesson into this one.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => { setMode('library'); setTypeFilter(''); }} className={toggleClass(mode === 'library')}>
+            Content Library
+          </button>
+          <button type="button" onClick={() => { setMode('files'); setTypeFilter(''); }} className={toggleClass(mode === 'files')}>
+            From another lesson
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
             <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search content by title…"
+              placeholder={mode === 'library' ? 'Search content by title…' : 'Search by file, lesson or course…'}
               className="pl-8"
             />
           </div>
           <select className={`${selectClass} sm:w-40`} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">All types</option>
-            {ADD_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+            {ADD_TYPES.filter((t) => mode === 'library' || t !== 'quiz').map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
           </select>
         </div>
 
-        <div className="mt-3 space-y-1.5">
-          {loading ? (
-            [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)
-          ) : filtered.length === 0 ? (
-            <p className="rounded-md border border-dashed py-8 text-center text-sm text-slate-500">
-              {assets.length === 0 ? 'No content in the library yet. Add items in the Content Library first.' : 'No items match your filters.'}
-            </p>
-          ) : (
-            filtered.map((a) => {
-              const assetId = asString(a.id);
-              const assetLesson = asString(a.lesson_id);
-              const attachedHere = assetLesson === lessonId;
-              const attachedElsewhere = assetLesson !== '' && !attachedHere;
-              return (
-                <div key={assetId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <TypeIcon type={asString(a.asset_type)} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{asString(a.title) || '(untitled)'}</span>
-                  <Badge variant="secondary" className="shrink-0 capitalize">{asString(a.asset_type) || 'item'}</Badge>
-                  {attachedElsewhere && (
-                    <span className="shrink-0 text-[11px] text-amber-600">in another lesson</span>
-                  )}
-                  {attachedHere ? (
-                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600">
-                      <Check aria-hidden="true" className="size-3.5" /> Attached
-                    </span>
-                  ) : (
+        {mode === 'library' ? (
+          <div className="mt-3 space-y-1.5">
+            {loading ? (
+              [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)
+            ) : filtered.length === 0 ? (
+              <p className="rounded-md border border-dashed py-8 text-center text-sm text-slate-500">
+                {assets.length === 0 ? 'No content in the library yet. Add items in the Content Library first.' : 'No items match your filters.'}
+              </p>
+            ) : (
+              filtered.map((a) => {
+                const assetId = asString(a.id);
+                const assetLesson = asString(a.lesson_id);
+                const attachedHere = assetLesson === lessonId;
+                const attachedElsewhere = assetLesson !== '' && !attachedHere;
+                return (
+                  <div key={assetId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <TypeIcon type={asString(a.asset_type)} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{asString(a.title) || '(untitled)'}</span>
+                    <Badge variant="secondary" className="shrink-0 capitalize">{asString(a.asset_type) || 'item'}</Badge>
+                    {attachedElsewhere && (
+                      <span className="shrink-0 text-[11px] text-amber-600">in another lesson</span>
+                    )}
+                    {attachedHere ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600">
+                        <Check aria-hidden="true" className="size-3.5" /> Attached
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-1.5"
+                        disabled={attachingId === assetId}
+                        onClick={() => void attach(a)}
+                      >
+                        <Link2 aria-hidden="true" className="size-3.5" />
+                        {attachingId === assetId ? 'Attaching…' : 'Attach'}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <div className="mt-3 space-y-1.5">
+            {filesLoading ? (
+              [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)
+            ) : filteredFiles.length === 0 ? (
+              <p className="rounded-md border border-dashed py-8 text-center text-sm text-slate-500">
+                {otherFiles.length === 0 ? 'No files on other lessons to copy.' : 'No items match your filters.'}
+              </p>
+            ) : (
+              filteredFiles.map((f) => {
+                const fileId = asString(f.id);
+                const ctx = asString(f.lesson_title)
+                  ? `${asString(f.course_title)} · ${asString(f.lesson_title)}`
+                  : asString(f.course_title);
+                return (
+                  <div key={fileId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <TypeIcon type={asString(f.lesson_type)} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-slate-800">{asString(f.title) || '(untitled)'}</p>
+                      {ctx ? <p className="truncate text-[11px] text-slate-400">{ctx}</p> : null}
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 capitalize">{asString(f.lesson_type) || 'file'}</Badge>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       className="shrink-0 gap-1.5"
-                      disabled={attachingId === assetId}
-                      onClick={() => void attach(a)}
+                      disabled={copyingId === fileId}
+                      onClick={() => void copyFile(f)}
                     >
-                      <Link2 aria-hidden="true" className="size-3.5" />
-                      {attachingId === assetId ? 'Attaching…' : 'Attach'}
+                      <CopyPlus aria-hidden="true" className="size-3.5" />
+                      {copyingId === fileId ? 'Copying…' : 'Copy'}
                     </Button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

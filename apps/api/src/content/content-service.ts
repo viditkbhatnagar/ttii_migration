@@ -3199,6 +3199,339 @@ export class ContentService {
     return { id: lesson.id };
   }
 
+  /**
+   * Lessons that can be ATTACHED (cloned) into a course — both subject-wise
+   * lessons (resolved to their course via the course_subject pivot) and
+   * lesson-wise lessons (resolved directly via lesson.course_id). Distinct
+   * from listAllLessonsAdmin (subject-wise only) which powers the standalone
+   * Lessons table. Lessons already on `excludeCourseId` (lesson-wise) are
+   * omitted to keep the picker clean. Ishfaq 2026-06-24 — "cannot add
+   * existing lessons".
+   */
+  async listAttachableLessonsAdmin(excludeCourseId?: string): Promise<Record<string, unknown>[]> {
+    const excludeCourse = excludeCourseId ? toNullableIntId(excludeCourseId) : null;
+    const lessons = await this.prisma.lesson.findMany({
+      where: { deleted_at: null },
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+      take: 500,
+    });
+    if (lessons.length === 0) return [];
+
+    const lessonIds = lessons.map((l) => l.id);
+    const subjectIds = [
+      ...new Set(lessons.map((l) => l.subject_id).filter((id): id is number => id != null)),
+    ];
+    const directCourseIds = [
+      ...new Set(
+        lessons
+          .filter((l) => l.subject_id == null && l.course_id != null)
+          .map((l) => l.course_id)
+          .filter((id): id is number => id != null),
+      ),
+    ];
+
+    const [subjects, pivotRows, fileCounts, assetCounts] = await Promise.all([
+      subjectIds.length
+        ? this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true, deleted_at: true } })
+        : Promise.resolve([] as Array<{ id: number; title: string | null; deleted_at: Date | null }>),
+      subjectIds.length
+        ? this.prisma.course_subject.findMany({ where: { subject_id: { in: subjectIds }, deleted_at: null }, select: { subject_id: true, course_id: true } })
+        : Promise.resolve([] as Array<{ subject_id: number; course_id: number }>),
+      this.prisma.lesson_files.groupBy({ by: ['lesson_id'], where: { lesson_id: { in: lessonIds }, deleted_at: null }, _count: { id: true } }),
+      this.prisma.content_asset.groupBy({ by: ['lesson_id'], where: { lesson_id: { in: lessonIds }, deleted_at: null }, _count: { id: true } }),
+    ]);
+
+    const allCourseIds = [...new Set([...pivotRows.map((p) => p.course_id), ...directCourseIds])];
+    const courses = allCourseIds.length
+      ? await this.prisma.course.findMany({ where: { id: { in: allCourseIds } }, select: { id: true, title: true, deleted_at: true } })
+      : [];
+
+    const subjectMap = new Map(subjects.map((s) => [s.id, s] as const));
+    const courseMap = new Map(courses.map((c) => [c.id, c] as const));
+    const fileCountMap = new Map(fileCounts.map((f) => [f.lesson_id, f._count?.id ?? 0] as const));
+    const assetCountMap = new Map<number, number>();
+    for (const a of assetCounts) {
+      if (a.lesson_id != null) assetCountMap.set(a.lesson_id, a._count?.id ?? 0);
+    }
+    const coursesBySubject = new Map<number, Array<{ id: number; title: string }>>();
+    for (const p of pivotRows) {
+      const c = courseMap.get(p.course_id);
+      if (!c || c.deleted_at !== null) continue;
+      const list = coursesBySubject.get(p.subject_id) ?? [];
+      list.push({ id: c.id, title: c.title ?? '' });
+      coursesBySubject.set(p.subject_id, list);
+    }
+
+    const out: Record<string, unknown>[] = [];
+    for (const l of lessons) {
+      const contentCount = (fileCountMap.get(l.id) ?? 0) + (assetCountMap.get(l.id) ?? 0);
+      if (l.subject_id != null) {
+        const sub = subjectMap.get(l.subject_id);
+        if (!sub || sub.deleted_at !== null) continue;
+        const linked = coursesBySubject.get(sub.id) ?? [];
+        if (linked.length === 0) continue;
+        const primary = linked[0];
+        out.push({
+          id: l.id, title: l.title, summary: l.summary ?? '', free: l.free ?? 'off',
+          course_id: primary?.id ?? null, course_title: primary?.title ?? '',
+          subject_id: l.subject_id, subject_title: sub.title ?? '', files_count: contentCount,
+        });
+      } else if (l.course_id != null) {
+        if (excludeCourse !== null && l.course_id === excludeCourse) continue;
+        const c = courseMap.get(l.course_id);
+        if (!c || c.deleted_at !== null) continue;
+        out.push({
+          id: l.id, title: l.title, summary: l.summary ?? '', free: l.free ?? 'off',
+          course_id: l.course_id, course_title: c.title ?? '',
+          subject_id: null, subject_title: '', files_count: contentCount,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Clone a lesson (and ALL its content) into a target course as a new
+   * lesson-wise lesson. Non-destructive: the source lesson is untouched.
+   * content_asset.lesson_id is a single-ownership FK, so its rows are
+   * DEEP-COPIED (incl. quiz_question) rather than re-linked. master_lesson_id /
+   * master_lesson_file_id record provenance. Ishfaq 2026-06-24.
+   */
+  async cloneLessonIntoAdmin(actorUserId: string, sourceLessonId: string, targetCourseId: string): Promise<Record<string, unknown>> {
+    const srcId = toIntId(sourceLessonId);
+    const courseId = toNullableIntId(targetCourseId);
+    if (!srcId || courseId === null) throw new Error('Source lesson and target course are required.');
+    const source = await this.prisma.lesson.findFirst({ where: { id: srcId, deleted_at: null } });
+    if (!source) throw new Error('Source lesson not found.');
+    const targetCourse = await this.prisma.course.findFirst({ where: { id: courseId, deleted_at: null }, select: { id: true } });
+    if (!targetCourse) throw new Error('Target course not found.');
+
+    const [files, assets] = await Promise.all([
+      this.prisma.lesson_files.findMany({ where: { lesson_id: srcId, deleted_at: null }, orderBy: [{ order: 'asc' }, { id: 'asc' }] }),
+      this.prisma.content_asset.findMany({ where: { lesson_id: srcId, deleted_at: null }, orderBy: [{ sort_order: 'asc' }, { id: 'asc' }] }),
+    ]);
+    const quizAssetIds = assets.filter((a) => a.asset_type === 'quiz').map((a) => a.id);
+    const quizQuestions = quizAssetIds.length
+      ? await this.prisma.quiz_question.findMany({ where: { asset_id: { in: quizAssetIds } }, orderBy: [{ sort_order: 'asc' }, { id: 'asc' }] })
+      : [];
+    const questionsByAsset = new Map<number, typeof quizQuestions>();
+    for (const q of quizQuestions) {
+      const list = questionsByAsset.get(q.asset_id) ?? [];
+      list.push(q);
+      questionsByAsset.set(q.asset_id, list);
+    }
+
+    const maxOrder = await this.prisma.lesson.aggregate({
+      where: { course_id: courseId, subject_id: null, deleted_at: null },
+      _max: { order: true },
+    });
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+
+    const newLessonId = await this.prisma.$transaction(async (tx) => {
+      const newLesson = await tx.lesson.create({
+        data: {
+          course_id: courseId,
+          subject_id: null,
+          title: source.title,
+          summary: source.summary,
+          free: source.free ?? 'off',
+          thumbnail: source.thumbnail,
+          duration: source.duration,
+          order: (maxOrder._max?.order ?? 0) + 1,
+          master_lesson_id: source.id,
+          created_by: actor,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+
+      if (files.length > 0) {
+        // Batch insert — keeps the interactive transaction short for lessons
+        // with many files (avoids the per-row round-trip / timeout cliff).
+        await tx.lesson_files.createMany({
+          data: files.map((f) => ({
+            lesson_id: newLesson.id,
+            master_lesson_file_id: f.id,
+            topic_id: f.topic_id,
+            languages: f.languages, // already valid JSON — copy verbatim (do not re-encode)
+            parent_file_id: f.parent_file_id,
+            video_id: f.video_id ?? 0,
+            title: f.title,
+            duration: f.duration,
+            lesson_provider: f.lesson_provider ?? '',
+            video_type: f.video_type,
+            is_practice: f.is_practice,
+            video_url: f.video_url,
+            download_url: f.download_url,
+            thumbnail: f.thumbnail ?? '',
+            lesson_type: f.lesson_type,
+            attachment: f.attachment,
+            attachment_type: f.attachment_type,
+            audio_file: f.audio_file,
+            summary: f.summary,
+            order: f.order,
+            free: f.free,
+            created_by: actor,
+            created_at: now,
+            updated_at: now,
+          })),
+        });
+      }
+
+      for (const a of assets) {
+        const newAsset = await tx.content_asset.create({
+          data: {
+            title: a.title,
+            summary: a.summary,
+            asset_type: a.asset_type,
+            subject_tag: a.subject_tag,
+            lesson_tag: a.lesson_tag,
+            lesson_id: newLesson.id,
+            sort_order: a.sort_order,
+            language: a.language,
+            duration: a.duration,
+            provider: a.provider,
+            video_url: a.video_url,
+            download_url: a.download_url,
+            attachment: a.attachment,
+            audio_file: a.audio_file,
+            thumbnail: a.thumbnail,
+            tags: a.tags,
+            time_limit_seconds: a.time_limit_seconds,
+            attempts_allowed: a.attempts_allowed,
+            pass_marks: a.pass_marks,
+            shuffle_questions: a.shuffle_questions,
+            created_by: actor,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+        const qs = questionsByAsset.get(a.id) ?? [];
+        if (qs.length > 0) {
+          await tx.quiz_question.createMany({
+            data: qs.map((q) => ({
+              asset_id: newAsset.id,
+              question: q.question,
+              option_a: q.option_a,
+              option_b: q.option_b,
+              option_c: q.option_c,
+              option_d: q.option_d,
+              correct_answer: q.correct_answer,
+              sort_order: q.sort_order,
+              created_at: now,
+              updated_at: now,
+            })),
+          });
+        }
+      }
+
+      return newLesson.id;
+    }, { timeout: 15000 });
+
+    return { id: newLessonId };
+  }
+
+  /**
+   * Existing lesson_files (across all lessons) that can be COPIED into a
+   * lesson — powers the "add from another lesson" path in the per-lesson
+   * content manager so documents that live only in lesson_files (e.g. another
+   * course's uploads) are reusable. Quizzes are excluded (their questions live
+   * in the legacy quiz table, not copied here). Ishfaq 2026-06-24 — "CART M
+   * documents are not seen" in Attach-from-Library.
+   */
+  async listAttachableFilesAdmin(excludeLessonId?: string): Promise<Record<string, unknown>[]> {
+    const excludeLesson = excludeLessonId ? toIntId(excludeLessonId) : 0;
+    const files = await this.prisma.lesson_files.findMany({
+      where: {
+        deleted_at: null,
+        lesson_type: { not: 'quiz' },
+        ...(excludeLesson ? { lesson_id: { not: excludeLesson } } : {}),
+      },
+      orderBy: [{ id: 'desc' }],
+      take: 1000,
+    });
+    if (files.length === 0) return [];
+
+    const lessonIds = [...new Set(files.map((f) => f.lesson_id))];
+    const lessons = await this.prisma.lesson.findMany({
+      where: { id: { in: lessonIds } },
+      select: { id: true, title: true, course_id: true, deleted_at: true },
+    });
+    const lessonMap = new Map(lessons.map((l) => [l.id, l] as const));
+    const courseIds = [...new Set(lessons.map((l) => l.course_id).filter((id): id is number => id != null))];
+    const courses = courseIds.length
+      ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+      : [];
+    const courseMap = new Map(courses.map((c) => [c.id, c.title ?? ''] as const));
+
+    const out: Record<string, unknown>[] = [];
+    for (const f of files) {
+      const l = lessonMap.get(f.lesson_id);
+      if (!l || l.deleted_at !== null) continue;
+      out.push({
+        id: f.id,
+        title: f.title ?? '',
+        lesson_type: f.lesson_type ?? '',
+        lesson_id: f.lesson_id,
+        lesson_title: l.title ?? '',
+        course_id: l.course_id,
+        course_title: l.course_id != null ? (courseMap.get(l.course_id) ?? '') : '',
+        attachment_url: this.toFileUrl(f.attachment),
+        video_url: f.video_url ?? '',
+        audio_url: this.toFileUrl(f.audio_file),
+      });
+    }
+    return out;
+  }
+
+  /** Copy one existing lesson_files row into a target lesson (Ishfaq
+   * 2026-06-24). Non-destructive — the source file stays put. */
+  async copyLessonFileIntoAdmin(actorUserId: string, sourceFileId: string, targetLessonId: string): Promise<Record<string, unknown>> {
+    const srcId = toIntId(sourceFileId);
+    const lessonId = toIntId(targetLessonId);
+    if (!srcId || !lessonId) throw new Error('Source file and target lesson are required.');
+    const src = await this.prisma.lesson_files.findFirst({ where: { id: srcId, deleted_at: null } });
+    if (!src) throw new Error('Source file not found.');
+    const targetLesson = await this.prisma.lesson.findFirst({ where: { id: lessonId, deleted_at: null }, select: { id: true } });
+    if (!targetLesson) throw new Error('Target lesson not found.');
+    const maxOrder = await this.prisma.lesson_files.aggregate({
+      where: { lesson_id: lessonId, deleted_at: null },
+      _max: { order: true },
+    });
+    const now = new Date();
+    const actor = toNullableIntId(actorUserId);
+    const created = await this.prisma.lesson_files.create({
+      data: {
+        lesson_id: lessonId,
+        master_lesson_file_id: src.id,
+        topic_id: src.topic_id,
+        languages: src.languages,
+        parent_file_id: src.parent_file_id,
+        video_id: src.video_id ?? 0,
+        title: src.title,
+        duration: src.duration,
+        lesson_provider: src.lesson_provider ?? '',
+        video_type: src.video_type,
+        is_practice: src.is_practice,
+        video_url: src.video_url,
+        download_url: src.download_url,
+        thumbnail: src.thumbnail ?? '',
+        lesson_type: src.lesson_type,
+        attachment: src.attachment,
+        attachment_type: src.attachment_type,
+        audio_file: src.audio_file,
+        summary: src.summary,
+        order: (maxOrder._max?.order ?? 0) + 1,
+        free: src.free,
+        created_by: actor,
+        created_at: now,
+        updated_at: now,
+      },
+    });
+    return { id: created.id };
+  }
+
   // Lesson-wise admin builder: lessons attached directly to a course
   // (subject_id NULL). Mirror of listLessonsAdmin keyed by course_id.
   async listLessonsByCourse(courseId: string): Promise<Record<string, unknown>[]> {

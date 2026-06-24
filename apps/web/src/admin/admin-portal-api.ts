@@ -3032,6 +3032,33 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/course/lessons/reorder', authToken, { lesson_ids: lessonIds });
   }
 
+  // Attach / clone existing lessons + copy existing files (Ishfaq 2026-06-24).
+  async listAttachableLessons(authToken: string, excludeCourseId?: string): Promise<Record<string, unknown>[]> {
+    const params = excludeCourseId ? { exclude_course_id: excludeCourseId } : undefined;
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lessons/attachable', authToken, params);
+    return toRecords(payload.data);
+  }
+
+  async cloneLessonInto(authToken: string, sourceLessonId: string, targetCourseId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lessons/clone-into', authToken, {
+      source_lesson_id: sourceLessonId,
+      target_course_id: targetCourseId,
+    });
+  }
+
+  async listAttachableFiles(authToken: string, excludeLessonId?: string): Promise<Record<string, unknown>[]> {
+    const params = excludeLessonId ? { exclude_lesson_id: excludeLessonId } : undefined;
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/course/lesson_files/attachable', authToken, params);
+    return toRecords(payload.data);
+  }
+
+  async copyLessonFileInto(authToken: string, sourceFileId: string, targetLessonId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/copy-into', authToken, {
+      source_file_id: sourceFileId,
+      target_lesson_id: targetLessonId,
+    });
+  }
+
   // ── Subject Detail (manage lessons + their content in one place) ──────
 
   async loadSubjectContentTree(authToken: string, subjectId: string): Promise<Record<string, unknown>> {
