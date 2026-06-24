@@ -8366,8 +8366,16 @@ export class OperationsService {
     // out of range" when findMany() tries to hydrate that. Same fix
     // pattern as listPaymentStatus / getStudentDetail: read through
     // $queryRaw with NULLIF so the zero-date becomes NULL before it
-    // reaches the driver. The user_id filter stays as-is (legacy
-    // semantic).
+    // reaches the driver.
+    //
+    // Naji UAT 2026-06-24 — CRITICAL FIX: student_payments.user_id is the
+    // ENROLLED student's users.id, NOT applications.id. Filtering on the
+    // application PK (toIntId(id)) leaked an unrelated student's payment
+    // history whenever applications.id happened to equal some users.id
+    // (both are independent auto-increment series, so collisions are
+    // routine). A brand-new lead has applications.student_id = NULL and so
+    // must show NO payment history. Filter on app.student_id; return [] when
+    // the application has never been converted to an enrolled student.
     type RawStudentPayment = {
       id: number;
       user_id: number;
@@ -8380,15 +8388,18 @@ export class OperationsService {
       due_date: Date | null;
       paid_date: Date | null;
     };
-    const studentPaymentsForApp = this.prisma.$queryRaw<RawStudentPayment[]>`
-      SELECT id, user_id, course_id, installment_details, amount,
-             payment_mode, payment_to, status,
-             NULLIF(due_date, '0000-00-00') AS due_date,
-             NULLIF(paid_date, '0000-00-00') AS paid_date
-      FROM student_payments
-      WHERE user_id = ${toIntId(id)} AND deleted_at IS NULL
-      ORDER BY id DESC
-    `;
+    const studentUserIdInt = app.student_id ? toIntId(app.student_id) : 0;
+    const studentPaymentsForApp = studentUserIdInt > 0
+      ? this.prisma.$queryRaw<RawStudentPayment[]>`
+          SELECT id, user_id, course_id, installment_details, amount,
+                 payment_mode, payment_to, status,
+                 NULLIF(due_date, '0000-00-00') AS due_date,
+                 NULLIF(paid_date, '0000-00-00') AS paid_date
+          FROM student_payments
+          WHERE user_id = ${studentUserIdInt} AND deleted_at IS NULL
+          ORDER BY id DESC
+        `
+      : Promise.resolve([] as RawStudentPayment[]);
     const [course, pipelineUser, centre, payments, countryRow, nationalityRow, languageRow, educationPathway, offering, combination] = await Promise.all([
       app.course_id ? this.prisma.course.findFirst({ where: { id: app.course_id } }) : null,
       app.pipeline_user ? this.prisma.users.findFirst({ where: { id: app.pipeline_user }, select: { id: true, name: true } }) : null,
