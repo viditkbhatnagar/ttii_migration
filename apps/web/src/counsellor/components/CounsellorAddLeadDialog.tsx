@@ -22,6 +22,7 @@ import {
 import type { CounsellorPortalApi } from '../counsellor-portal-api.js';
 import { useCounsellorLayout } from '../layout/CounsellorLayoutContext.js';
 import { asString } from '../../admin/shared/utils/admin-data-utils.js';
+import { SearchableSelect } from '../../admin/shared/components/SearchableSelect.js';
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
@@ -34,12 +35,12 @@ const COUNTRY_CODES: Array<{ code: string; label: string }> = [
   { code: '61', label: '🇦🇺 +61' },
 ];
 
-/** Source options — mirrors the admin AddLeadPage <select> exactly. */
+/** Source options — mirrors the admin AddLeadPage <select>. Naji 2026-06-24:
+ * dropped "Social Media" and renamed "Referral" to "Network". */
 const SOURCE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Walk-in', label: 'Walk-in' },
-  { value: 'Referral', label: 'Referral' },
+  { value: 'Network', label: 'Network' },
   { value: 'Website', label: 'Website' },
-  { value: 'Social', label: 'Social Media' },
   { value: 'Facebook', label: 'Facebook' },
   { value: 'Instagram', label: 'Instagram' },
   { value: 'WhatsApp', label: 'WhatsApp' },
@@ -49,6 +50,16 @@ const SOURCE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Other', label: 'Other' },
 ];
 
+/** Map a stored source value to a current option so editing a legacy lead
+ * doesn't show a blank Source field (Naji 2026-06-24 dropped 'Social' and
+ * renamed 'Referral' → 'Network'). 'Reference#<id>' is left untouched — the
+ * picker effect parses it. */
+function normalizeLegacySource(value: string): string {
+  if (value === 'Referral') return 'Network';
+  if (value === 'Social') return 'Other';
+  return value;
+}
+
 /* ─── Props ──────────────────────────────────────────────────────────────── */
 
 export interface CounsellorAddLeadDialogProps {
@@ -57,6 +68,11 @@ export interface CounsellorAddLeadDialogProps {
   api: CounsellorPortalApi;
   session: AuthSession;
   onCreated: () => void;
+  /** Application/lead id to edit. When set, the dialog runs in edit mode
+   * (prefills + saves via editLead) instead of creating a new lead. */
+  editId?: string;
+  /** Called after a successful edit (edit mode). Falls back to onCreated. */
+  onEdited?: () => void;
 }
 
 /* ─── Component ──────────────────────────────────────────────────────────── */
@@ -67,8 +83,11 @@ export function CounsellorAddLeadDialog({
   api,
   session,
   onCreated,
+  editId,
+  onEdited,
 }: CounsellorAddLeadDialogProps) {
   const { currentUser } = useCounsellorLayout();
+  const isEditMode = Boolean(editId);
 
   /* ── Form state ── */
   const [name, setName] = useState('');
@@ -81,6 +100,11 @@ export function CounsellorAddLeadDialog({
   const [source, setSource] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /* ── Reference (existing student) picker — Naji 2026-06-24 ── */
+  const [referenceStudentId, setReferenceStudentId] = useState('');
+  const [referenceStudentLabel, setReferenceStudentLabel] = useState('');
+  const [studentRefOptions, setStudentRefOptions] = useState<Array<{ id: string; label: string }>>([]);
+
   /* ── Dropdown data ── */
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [offerings, setOfferings] = useState<Record<string, unknown>[]>([]);
@@ -88,8 +112,13 @@ export function CounsellorAddLeadDialog({
 
   /* Track course change to know when to clear dependents */
   const lastCourseIdRef = useRef('');
+  /* Pending offering / combination ids from the edit prefill — applied once
+   * the cascading loaders finish populating the dropdowns. Refs (not state) so
+   * consuming the pending value doesn't re-trigger an effect that wipes it. */
+  const pendingOfferingIdRef = useRef('');
+  const pendingCombinationIdRef = useRef('');
 
-  /* ── Load published courses once on mount ── */
+  /* ── Load published courses on open ── */
   useEffect(() => {
     if (!open) return;
     void api.admin
@@ -104,6 +133,74 @@ export function CounsellorAddLeadDialog({
       )
       .catch(() => setCourses([]));
   }, [open, api, session.token]);
+
+  /* ── Load this counsellor's students once on open for the Reference picker ── */
+  useEffect(() => {
+    if (!open) return;
+    void api.admin
+      .loadStudents(session.token, {})
+      .then((rows) => {
+        const opts = (Array.isArray(rows) ? rows : [])
+          .map((r) => {
+            const id = asString(r.id ?? r._id);
+            const studentName = asString(r.name) || asString(r.student_name) || 'Student';
+            const sid = asString(r.student_id);
+            return { id, label: sid ? `${studentName} · ${sid}` : studentName };
+          })
+          .filter((o) => o.id);
+        setStudentRefOptions(opts);
+      })
+      .catch(() => setStudentRefOptions([]));
+  }, [open, api, session.token]);
+
+  /* ── Edit-mode prefill ── */
+  useEffect(() => {
+    if (!open || !editId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.admin.getApplication(session.token, editId);
+        if (cancelled) return;
+        const r = (res as { application?: Record<string, unknown> }).application;
+        if (!r) { toast.error('Lead not found.'); return; }
+        setName(asString(r.name));
+        setEmail(asString(r.user_email) || asString(r.email));
+        setPhone(asString(r.phone));
+        const cc = asString(r.country_code).replace(/\+/g, '');
+        if (cc) setCountryCode(cc);
+        setSource(normalizeLegacySource(asString(r.marketing_source) || asString(r.lead_source)));
+        pendingOfferingIdRef.current = asString(r.offering_id);
+        pendingCombinationIdRef.current = asString(r.certificate_combination_id);
+        // Set courseId LAST — triggers the offering / combination loaders.
+        setCourseId(asString(r.course_id));
+      } catch {
+        if (!cancelled) toast.error('Could not load lead.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, editId, api, session.token]);
+
+  /* ── Parse a prefilled "Reference#<id>" source into the picker state ── */
+  useEffect(() => {
+    if (!source || !source.startsWith('Reference#')) return;
+    const refId = source.slice('Reference#'.length);
+    if (!refId) return;
+    setReferenceStudentId(refId);
+    setSource('Reference');
+    const match = studentRefOptions.find((o) => o.id === refId);
+    if (match) setReferenceStudentLabel(match.label);
+  }, [source, studentRefOptions]);
+
+  /* ── Recover the picker label once the student list resolves ──
+   * loadStudents may finish AFTER the prefill set referenceStudentId, leaving
+   * the picker visually blank; without this the strict combobox could clear
+   * the id on the next blur and lose the referral link (Naji 2026-06-24). */
+  useEffect(() => {
+    if (referenceStudentId && !referenceStudentLabel && studentRefOptions.length > 0) {
+      const match = studentRefOptions.find((o) => o.id === referenceStudentId);
+      if (match) setReferenceStudentLabel(match.label);
+    }
+  }, [referenceStudentId, referenceStudentLabel, studentRefOptions]);
 
   /* ── Load active offerings when course changes ── */
   useEffect(() => {
@@ -120,7 +217,21 @@ export function CounsellorAddLeadDialog({
 
     void api.admin
       .listOfferings(session.token, { course_id: courseId, status: 'active' })
-      .then((rows) => setOfferings(rows))
+      .then(async (rows) => {
+        let list = rows;
+        const pendingOff = pendingOfferingIdRef.current;
+        if (pendingOff && !list.some((r) => asString(r.id) === pendingOff)) {
+          // Saved offering isn't active — fetch all so the dropdown shows it.
+          try {
+            list = await api.admin.listOfferings(session.token, { course_id: courseId });
+          } catch { /* keep active list */ }
+        }
+        setOfferings(list);
+        if (pendingOff && list.some((r) => asString(r.id) === pendingOff)) {
+          setOfferingId(pendingOff);
+          pendingOfferingIdRef.current = '';
+        }
+      })
       .catch(() => setOfferings([]));
   }, [api, session.token, courseId]);
 
@@ -146,7 +257,17 @@ export function CounsellorAddLeadDialog({
         } catch {
           /* fallback to full active list */
         }
+        const pendingCombo = pendingCombinationIdRef.current;
+        if (pendingCombo && !list.some((r) => asString(r.id) === pendingCombo)) {
+          try {
+            list = await api.admin.listCertificateCombinations(session.token, { course_id: courseId });
+          } catch { /* keep current list */ }
+        }
         setCombinations(list);
+        if (pendingCombo && list.some((r) => asString(r.id) === pendingCombo)) {
+          setCombinationId(pendingCombo);
+          pendingCombinationIdRef.current = '';
+        }
       } catch {
         setCombinations([]);
       }
@@ -195,9 +316,13 @@ export function CounsellorAddLeadDialog({
     setOfferingId('');
     setCombinationId('');
     setSource('');
+    setReferenceStudentId('');
+    setReferenceStudentLabel('');
     setOfferings([]);
     setCombinations([]);
     lastCourseIdRef.current = '';
+    pendingOfferingIdRef.current = '';
+    pendingCombinationIdRef.current = '';
   };
 
   const handleOpenChange = (o: boolean) => {
@@ -218,6 +343,10 @@ export function CounsellorAddLeadDialog({
       return;
     }
     if (!source.trim()) { toast.error('Source is required.'); return; }
+    if (source === 'Reference' && !referenceStudentId) {
+      toast.error('Please pick the existing student making the referral.');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -238,23 +367,32 @@ export function CounsellorAddLeadDialog({
         course_id: courseId,
         offering_id: offeringId || undefined,
         combination_id: combinationId || undefined,
-        source: source.trim() || undefined,
+        // When source = Reference and a student is picked, serialise as
+        // "Reference#<student_user_id>" so getApplication recovers the link.
+        source:
+          source.trim() === 'Reference' && referenceStudentId
+            ? `Reference#${referenceStudentId}`
+            : (source.trim() || undefined),
       };
 
-      const res = await api.admin.addLead(session.token, payload);
+      const res = isEditMode && editId
+        ? await api.admin.editLead(session.token, editId, payload)
+        : await api.admin.addLead(session.token, payload);
       const status = (res as { status?: number }).status;
       const message =
-        asString((res as { message?: unknown }).message) || 'Lead created successfully.';
+        asString((res as { message?: unknown }).message) ||
+        (isEditMode ? 'Lead updated successfully.' : 'Lead created successfully.');
 
       if (status === 1) {
         toast.success(message);
         reset();
-        onCreated();
+        if (isEditMode) (onEdited ?? onCreated)();
+        else onCreated();
       } else {
-        toast.error(message || 'Failed to add lead.');
+        toast.error(message || 'Failed to save lead.');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add lead.');
+      toast.error(err instanceof Error ? err.message : 'Failed to save lead.');
     } finally {
       setSubmitting(false);
     }
@@ -267,7 +405,8 @@ export function CounsellorAddLeadDialog({
     phone.trim() !== '' &&
     courseId !== '' &&
     offeringId !== '' &&
-    source !== '';
+    source !== '' &&
+    (source !== 'Reference' || referenceStudentId !== '');
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -281,9 +420,11 @@ export function CounsellorAddLeadDialog({
         style={{ width: 'min(672px, calc(100vw - 2rem))', maxWidth: 'min(672px, calc(100vw - 2rem))' }}
       >
         <DialogHeader>
-          <DialogTitle>Add Lead</DialogTitle>
+          <DialogTitle>{isEditMode ? 'Edit Lead' : 'Add Lead'}</DialogTitle>
           <DialogDescription>
-            Create a new lead. Fields marked with * are required.
+            {isEditMode
+              ? 'Update the lead details. Fields marked with * are required.'
+              : 'Create a new lead. Fields marked with * are required.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -435,6 +576,31 @@ export function CounsellorAddLeadDialog({
             </div>
           </div>
 
+          {/* Reference (existing student) picker — only when source = Reference.
+              Stores the referred student's user_id; serialised as
+              "Reference#<id>" on save (Naji 2026-06-24). */}
+          {source === 'Reference' ? (
+            <div className="rounded-md border border-border bg-muted/40 p-3">
+              <SearchableSelect
+                label="Referred By (Existing Student) *"
+                value={referenceStudentLabel}
+                onChange={(label) => {
+                  setReferenceStudentLabel(label);
+                  const match = studentRefOptions.find((o) => o.label === label);
+                  setReferenceStudentId(match?.id ?? '');
+                }}
+                options={studentRefOptions.map((o) => o.label)}
+                placeholder="Search by name or student ID"
+                strict
+              />
+              {!referenceStudentId ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Pick the existing student making the referral, otherwise the source won't capture who referred this lead.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Row 5 — Pipeline (read-only) + Pipeline User (read-only) */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -460,7 +626,9 @@ export function CounsellorAddLeadDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              {submitting ? 'Adding…' : 'Add Lead'}
+              {submitting
+                ? (isEditMode ? 'Saving…' : 'Adding…')
+                : (isEditMode ? 'Save Changes' : 'Add Lead')}
             </Button>
           </DialogFooter>
         </form>

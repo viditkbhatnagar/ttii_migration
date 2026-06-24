@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asNumber, asString, formatDate, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import { GeneratePaymentLinkDialog } from '../../../admin/pages/applications/GeneratePaymentLinkDialog.js';
+import { CounsellorAddLeadDialog } from '../../components/CounsellorAddLeadDialog.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 
 /* ─── Pipeline stages (real lowercase keys → Lovable labels + styles) ─── */
@@ -191,6 +192,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   // ── UI state ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('overview');
   const [payDialogOpen, setPayDialogOpen] = useState(false);
+  const [editLeadOpen, setEditLeadOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -511,7 +513,13 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => onNavigate((isLeadStage ? '/counsellor/leads/edit/' : '/counsellor/applications/edit/') + applicationId)}
+              onClick={() => {
+                // Lead-stage records edit in the themed dialog (Naji 2026-06-24
+                // — the old /leads/edit page rendered the admin-magenta design);
+                // post-lead stages keep the full Edit Application page.
+                if (isLeadStage) setEditLeadOpen(true);
+                else onNavigate('/counsellor/applications/edit/' + applicationId);
+              }}
             >
               <Pencil className="h-4 w-4" /> Edit
             </Button>
@@ -1041,9 +1049,20 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
       </Tabs>
 
       {/* Generate Payment Link dialog (reused verbatim from admin) */}
+      <CounsellorAddLeadDialog
+        open={editLeadOpen}
+        onOpenChange={setEditLeadOpen}
+        api={api}
+        session={session}
+        editId={applicationId}
+        onCreated={() => { setEditLeadOpen(false); reload(); }}
+        onEdited={() => { setEditLeadOpen(false); reload(); }}
+      />
+
       <GeneratePaymentLinkDialog
         open={payDialogOpen}
         onOpenChange={setPayDialogOpen}
+        dialogClassName="counsellor-theme"
         api={admin}
         authToken={session.token}
         applicationId={applicationId}

@@ -40,6 +40,11 @@ interface Props {
   authToken: string;
   applicationId: string;
   studentName: string;
+  // Optional extra class for the portaled DialogContent. The counsellor
+  // portal passes "counsellor-theme" so this admin-owned dialog adopts the
+  // counsellor orange/navy palette instead of the admin :root magenta
+  // (Naji 2026-06-24). Defaults to '' → admin appearance unchanged.
+  dialogClassName?: string;
   // Existing application fields needed for prefill — passed from
   // ViewApplicationPage so we don't refetch.
   offeringId?: string;
@@ -121,6 +126,7 @@ export function GeneratePaymentLinkDialog({
   open, onOpenChange, api, authToken, applicationId, studentName,
   offeringId, combinationId, initialBaseFee, initialDiscount,
   initialOfferedFee, initialGstPercent, initialSavedPlan, onSent,
+  dialogClassName = '',
 }: Props) {
   const [mode, setMode] = useState<Mode>('full');
   const [pricingLoading, setPricingLoading] = useState(false);
@@ -499,7 +505,7 @@ export function GeneratePaymentLinkDialog({
           instalment table always fits without horizontal scroll, and
           drops to a near-full-screen sheet (98vw) on phones where every
           pixel counts. */}
-      <DialogContent className="w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]">
+      <DialogContent className={`${dialogClassName} w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]`}>
         <DialogHeader>
           <DialogTitle>Generate Payment Link</DialogTitle>
           <DialogDescription>
@@ -513,14 +519,14 @@ export function GeneratePaymentLinkDialog({
             <button
               type="button"
               onClick={() => { setMode('full'); setPlan(null); }}
-              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${mode === 'full' ? 'border-ttii-primary bg-ttii-primary/5 text-ttii-primary' : 'border-slate-200 text-slate-600'}`}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${mode === 'full' ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-600'}`}
             >
               Full Payment
             </button>
             <button
               type="button"
               onClick={() => setMode('installment')}
-              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${mode === 'installment' ? 'border-ttii-primary bg-ttii-primary/5 text-ttii-primary' : 'border-slate-200 text-slate-600'}`}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition ${mode === 'installment' ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-600'}`}
             >
               Installment Plan
             </button>
@@ -617,7 +623,7 @@ export function GeneratePaymentLinkDialog({
                 </div>
               </div>
 
-              <Button onClick={generatePlan} className="bg-ttii-primary hover:bg-ttii-primary/90">
+              <Button onClick={generatePlan} className="bg-primary hover:bg-primary/90 text-primary-foreground">
                 Generate Plan
               </Button>
 
@@ -789,7 +795,7 @@ export function GeneratePaymentLinkDialog({
           <Button
             onClick={() => { void sendPaymentLink(); }}
             disabled={submitting || (mode === 'installment' && (!plan || plan.length === 0 || !planMatchesTotal))}
-            className="bg-ttii-primary hover:bg-ttii-primary/90"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             {submitting ? 'Sending…' : 'Send the Payment Link'}
           </Button>

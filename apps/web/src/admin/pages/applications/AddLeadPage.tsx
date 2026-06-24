@@ -150,7 +150,12 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         setPhone(asString(r.phone));
         const cc = asString(r.country_code).replace(/\+/g, '');
         if (cc) setCountryCode(cc);
-        setSource(asString(r.marketing_source) || asString(r.lead_source));
+        // Naji 2026-06-24 — 'Social' dropped, 'Referral' renamed 'Network'.
+        // Map legacy stored values to a current option so the Source field
+        // doesn't render blank when editing an older lead. 'Reference#<id>'
+        // is left untouched (parsed by the picker effect below).
+        const rawSrc = asString(r.marketing_source) || asString(r.lead_source);
+        setSource(rawSrc === 'Referral' ? 'Network' : rawSrc === 'Social' ? 'Other' : rawSrc);
         pendingOfferingIdRef.current = asString(r.offering_id);
         pendingCombinationIdRef.current = asString(r.certificate_combination_id);
         // Set courseId LAST — triggers the offering / combination loaders.
@@ -469,9 +474,8 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
             >
               <option value="">Select source</option>
               <option value="Walk-in">Walk-in</option>
-              <option value="Referral">Referral</option>
+              <option value="Network">Network</option>
               <option value="Website">Website</option>
-              <option value="Social">Social Media</option>
               <option value="Facebook">Facebook</option>
               <option value="Instagram">Instagram</option>
               <option value="WhatsApp">WhatsApp</option>
