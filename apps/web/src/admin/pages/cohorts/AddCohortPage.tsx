@@ -58,7 +58,13 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   // would clobber a hand-edited title).
   const [hydrated, setHydrated] = useState(!isEditMode);
 
+  // Naji 2026-06-25 — a cohort can be created "For Subject" (the existing
+  // subject-first flow) or "For Course" (directly for a Lesson-wise course,
+  // no subject — one cohort for the entire course).
+  const [cohortType, setCohortType] = useState<'subject' | 'course'>('subject');
+
   const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
+  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
   const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
   const [languages, setLanguages] = useState<Record<string, unknown>[]>([]);
   const [offerings, setOfferings] = useState<Record<string, unknown>[]>([]);
@@ -68,10 +74,12 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       api.listAllSubjects(session.token),
       api.loadInstructors(session.token),
       api.loadLanguages(session.token),
-    ]).then(([s, ins, langs]) => {
+      api.loadCourses(session.token),
+    ]).then(([s, ins, langs, crs]) => {
       setSubjects(s);
       setInstructors(ins);
       setLanguages(langs);
+      setCourses(crs);
     }).catch(() => {});
   }, [api, session.token]);
 
@@ -83,6 +91,15 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     if (!selectedSubject) return [] as Record<string, unknown>[];
     return toRecords(selectedSubject.courses);
   }, [selectedSubject]);
+
+  // For Course mode: only Lesson-wise courses (structure_type === 2) — they
+  // have no subjects, so a cohort attaches to the whole course (Naji 2026-06-25).
+  const lessonWiseCourses = useMemo(
+    () => courses.filter((c) => Number(c.structure_type) === 2),
+    [courses],
+  );
+  // The course list the picker shows depends on the cohort type.
+  const courseOptions = cohortType === 'course' ? lessonWiseCourses : subjectCourses;
 
   // Subject change → clear courses & offerings. Skipped on the first
   // pass while we hydrate the existing cohort in edit mode — otherwise
@@ -135,6 +152,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
   useEffect(() => {
     if (!hydrated) return;
     if (isEditMode) return;
+    if (cohortType !== 'subject') return;
     if (!subjectId || !startDate) return;
     const subject = subjects.find((s) => asString(s.id) === subjectId);
     if (!subject) return;
@@ -144,7 +162,25 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
     if (subjectTitle && monthLabel) setTitle(`${subjectTitle} - ${monthLabel}`);
     setCohortCode(buildCohortCode(subjectShort, startDate));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectId, startDate]);
+  }, [subjectId, startDate, cohortType]);
+
+  // For Course mode: auto-generate Name + Code from the first selected
+  // Lesson-wise course + start date (Naji 2026-06-25 — no subject to key off).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (isEditMode) return;
+    if (cohortType !== 'course') return;
+    if (courseIds.size === 0 || !startDate) return;
+    const firstId = Array.from(courseIds)[0];
+    const course = courses.find((c) => asString(c.id) === firstId);
+    if (!course) return;
+    const courseTitle = asString(course.title);
+    const courseShort = asString(course.short_name) || courseTitle.replace(/[^A-Za-z]/g, '').slice(0, 2);
+    const monthLabel = formatMonthLabel(startDate);
+    if (courseTitle && monthLabel) setTitle(`${courseTitle} - ${monthLabel}`);
+    setCohortCode(buildCohortCode(courseShort, startDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseIds, startDate, cohortType]);
 
   const handleToggleCourse = useCallback((id: string) => {
     setCourseIds((prev) => {
@@ -186,6 +222,8 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
           typeof inner === 'object' && inner !== null ? (inner as Record<string, unknown>) : row;
         setTitle(asString(cohort.title));
         setCohortCode(asString(cohort.cohort_id) || asString(cohort.cohort_code));
+        // A cohort with no subject_id was created "For Course" (Lesson-wise).
+        setCohortType(asString(cohort.subject_id) ? 'subject' : 'course');
         setSubjectId(asString(cohort.subject_id));
         const cId = asString(cohort.course_id);
         if (cId) setCourseIds(new Set([cId]));
@@ -303,49 +341,87 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
 
       <Card className="mx-auto max-w-2xl">
         <CardContent className="space-y-4 p-6">
-          {/* Subject first — its short_name and linked courses drive the
-              auto-generated code and the course picker below. */}
+          {/* Cohort Type — Naji 2026-06-25. "For Subject" keeps the existing
+              subject-first flow; "For Course" skips the subject and attaches
+              the cohort directly to a Lesson-wise course. */}
           <div className="space-y-2">
-            <Label htmlFor="subject">Subject</Label>
+            <Label htmlFor="cohortType">Cohort Type</Label>
             <select
-              id="subject"
+              id="cohortType"
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
+              value={cohortType}
+              onChange={(e) => {
+                const v = e.target.value === 'course' ? 'course' : 'subject';
+                setCohortType(v);
+                setSubjectId('');
+                setCourseIds(new Set());
+                setOfferingIds(new Set());
+                setTitle('');
+                setCohortCode('');
+              }}
             >
-              <option value="">Select Subject</option>
-              {subjects.map((s) => (
-                <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
-              ))}
+              <option value="subject">For Subject</option>
+              <option value="course">For Course (Lesson-wise)</option>
             </select>
+            <p className="text-xs text-muted-foreground">
+              {cohortType === 'course'
+                ? 'Pick a Lesson-wise course directly — one cohort for the whole course (no subject).'
+                : 'Choose a subject, then the courses linked to it.'}
+            </p>
           </div>
 
+          {/* Subject — only for the subject-wise cohort type. */}
+          {cohortType === 'subject' ? (
+            <div className="space-y-2">
+              <Label htmlFor="subject">Subject</Label>
+              <select
+                id="subject"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={subjectId}
+                onChange={(e) => setSubjectId(e.target.value)}
+              >
+                <option value="">Select Subject</option>
+                {subjects.map((s) => (
+                  <option key={asString(s.id)} value={asString(s.id)}>{asString(s.title)}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           {/* Multi-course picker — replaces the single dropdown so a cohort
-              can run across more than one course. Naji 2026-05-04. */}
+              can run across more than one course. Naji 2026-05-04. For Course
+              mode lists Lesson-wise courses directly (Naji 2026-06-25). */}
           <div className="space-y-2">
             <Label>Courses</Label>
-            {!subjectId ? (
+            {cohortType === 'subject' && !subjectId ? (
               <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
                 Select a subject first.
               </p>
-            ) : subjectCourses.length === 0 ? (
+            ) : courseOptions.length === 0 ? (
               <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                No courses linked to this subject.
+                {cohortType === 'course'
+                  ? 'No Lesson-wise courses found. Create one under Courses → Course (Course Structure = Lesson wise).'
+                  : 'No courses linked to this subject.'}
               </p>
             ) : (
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-                {subjectCourses.map((c) => {
+                {courseOptions.map((c) => {
                   const id = asString(c.id);
                   const checked = courseIds.has(id);
+                  // Course mode = one cohort for the whole course, so it's a
+                  // single choice (otherwise every cohort would inherit the
+                  // first course's auto-name). Subject mode stays multi-select.
+                  const single = cohortType === 'course';
                   return (
                     <label
                       key={id}
                       className="flex cursor-pointer items-center gap-3 rounded px-2 py-1.5 hover:bg-muted"
                     >
                       <input
-                        type="checkbox"
+                        type={single ? 'radio' : 'checkbox'}
+                        name={single ? 'cohort-course' : undefined}
                         checked={checked}
-                        onChange={() => handleToggleCourse(id)}
+                        onChange={() => { if (single) setCourseIds(new Set([id])); else handleToggleCourse(id); }}
                       />
                       <span className="text-sm">{asString(c.title) || `Course #${id}`}</span>
                     </label>
@@ -354,7 +430,9 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              Pick one or more courses. A separate cohort is created per course.
+              {cohortType === 'course'
+                ? 'Pick the Lesson-wise course for this cohort.'
+                : 'Pick one or more courses. A separate cohort is created per course.'}
             </p>
           </div>
 
@@ -414,7 +492,9 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               placeholder="Auto-generated from Subject + Start Month"
             />
             <p className="text-xs text-muted-foreground">
-              Auto-fills as Subject + Start Date once both are set.
+              {cohortType === 'course'
+                ? 'Auto-fills as Course + Start Date once both are set.'
+                : 'Auto-fills as Subject + Start Date once both are set.'}
             </p>
           </div>
 
@@ -424,7 +504,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
               id="cohortCode"
               value={cohortCode}
               onChange={(e) => setCohortCode(e.target.value)}
-              placeholder="Auto-generated from Subject short name + start month"
+              placeholder={cohortType === 'course' ? 'Auto-generated from Course short name + start month' : 'Auto-generated from Subject short name + start month'}
             />
             <p className="text-xs text-muted-foreground">
               Format: <code>SHORT</code> + <code>MMM</code> + <code>YY</code> (e.g. <code>MMJAN26</code>).

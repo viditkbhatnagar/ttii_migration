@@ -1133,6 +1133,7 @@ export class ContentService {
       id: courseIdInt,
       title: toStringValue(course.title),
       code: toStringValue(course.course_code) || toStringValue(course.code),
+      short_name: toStringValue(course.short_name),
       tags: this.parseCourseTags(course.meta_keywords),
       label: toStringValue(course.label),
       status: toStringValue(course.status),
