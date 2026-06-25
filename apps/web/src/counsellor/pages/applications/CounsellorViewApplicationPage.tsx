@@ -1063,6 +1063,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
         open={payDialogOpen}
         onOpenChange={setPayDialogOpen}
         dialogClassName="counsellor-theme"
+        variant="counsellor"
         api={admin}
         authToken={session.token}
         applicationId={applicationId}

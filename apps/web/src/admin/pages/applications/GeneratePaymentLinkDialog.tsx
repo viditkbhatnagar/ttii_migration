@@ -45,6 +45,11 @@ interface Props {
   // counsellor orange/navy palette instead of the admin :root magenta
   // (Naji 2026-06-24). Defaults to '' → admin appearance unchanged.
   dialogClassName?: string;
+  // Layout variant. 'counsellor' adopts Naji's Lovable Payment-Plan design
+  // (Registration Fee always shown, manual payment on the Full tab only with a
+  // 3-col layout, footer = Mark as Paid + Send / Record Payment Plan). Default
+  // 'admin' keeps the existing admin dialog 100% unchanged (Naji 2026-06-25).
+  variant?: 'admin' | 'counsellor';
   // Existing application fields needed for prefill — passed from
   // ViewApplicationPage so we don't refetch.
   offeringId?: string;
@@ -127,7 +132,9 @@ export function GeneratePaymentLinkDialog({
   offeringId, combinationId, initialBaseFee, initialDiscount,
   initialOfferedFee, initialGstPercent, initialSavedPlan, onSent,
   dialogClassName = '',
+  variant = 'admin',
 }: Props) {
+  const isCounsellorLayout = variant === 'counsellor';
   const [mode, setMode] = useState<Mode>('full');
   const [pricingLoading, setPricingLoading] = useState(false);
 
@@ -442,8 +449,10 @@ export function GeneratePaymentLinkDialog({
   // column without sending the link or creating a Razorpay link. Once
   // saved, the Lead Snapshot card on the View page surfaces the plan
   // summary so admins / counsellors don't recreate it.
-  const savePlan = async () => {
-    if (!plan || plan.length === 0) { toast.error('Nothing to save.'); return; }
+  // Returns true only when the plan was actually persisted (status===1) so
+  // callers that close the dialog afterwards don't close on a failed save.
+  const savePlan = async (): Promise<boolean> => {
+    if (!plan || plan.length === 0) { toast.error('Nothing to save.'); return false; }
     const total = planTotals.incl;
     setSubmitting(true);
     try {
@@ -463,11 +472,13 @@ export function GeneratePaymentLinkDialog({
       if ((res as { status?: number }).status === 1) {
         toast.success(m || 'Payment plan saved.');
         onSent?.();
-      } else {
-        toast.error(m || 'Could not save plan.');
+        return true;
       }
+      toast.error(m || 'Could not save plan.');
+      return false;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save.');
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -569,7 +580,7 @@ export function GeneratePaymentLinkDialog({
                   <td className="py-2 font-bold text-slate-900">Fee Inc. GST</td>
                   <td className="py-2 text-right font-bold text-emerald-700">{fmtInr(breakdown.feeIncGst)}</td>
                 </tr>
-                {mode === 'installment' ? (
+                {mode === 'installment' || isCounsellorLayout ? (
                   <tr>
                     <td className="py-2 text-slate-500">Registration Fee</td>
                     <td className="py-2 text-right font-medium text-slate-700">{fmtInr(registrationFee)}</td>
@@ -729,10 +740,17 @@ export function GeneratePaymentLinkDialog({
           {/* Manual payment — Naji 2026-05-31. Already paid offline? Record it
               here instead of sending a link. It goes to Finance for approval
               (Fee Information → Payment Approval) before reflecting. */}
+          {/* Counsellor (Lovable) layout shows manual payment on the Full tab
+              only; admin shows it on both tabs (unchanged). */}
+          {(!isCounsellorLayout || mode === 'full') ? (
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500">Or record a manual payment</p>
-            <p className="mb-3 text-[11px] text-slate-400">Paid by cash / bank / cheque / UPI offline. Sent to Finance for approval before it reflects.</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-500">
+              {isCounsellorLayout ? 'Record a manual payment' : 'Or record a manual payment'}
+            </p>
+            {!isCounsellorLayout ? (
+              <p className="mb-3 text-[11px] text-slate-400">Paid by cash / bank / cheque / UPI offline. Sent to Finance for approval before it reflects.</p>
+            ) : null}
+            <div className={`grid grid-cols-1 gap-3 ${isCounsellorLayout ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Mode</Label>
                 <select
@@ -753,52 +771,98 @@ export function GeneratePaymentLinkDialog({
                   placeholder="Txn / cheque / UTR no."
                 />
               </div>
+              {isCounsellorLayout ? (
+                <div className="space-y-1">
+                  <Label className="text-xs">Receipt *</Label>
+                  <FileUpload
+                    value={manualReceiptUrl}
+                    onChange={setManualReceiptUrl}
+                    onUpload={async (file) => { const r = await api.uploadFile(authToken, file); return r.url; }}
+                    accept=".pdf,image/*"
+                    placeholder="Upload receipt or paste a URL"
+                  />
+                </div>
+              ) : null}
             </div>
-            <div className="mt-3 space-y-1">
-              <Label className="text-xs">Receipt *</Label>
-              <FileUpload
-                value={manualReceiptUrl}
-                onChange={setManualReceiptUrl}
-                onUpload={async (file) => { const r = await api.uploadFile(authToken, file); return r.url; }}
-                accept=".pdf,image/*"
-                placeholder="Upload receipt or paste a URL"
-              />
-            </div>
-            <div className="mt-3 flex justify-end">
-              <Button
-                variant="outline"
-                onClick={() => { void recordManualPayment(); }}
-                disabled={manualSubmitting}
-              >
-                {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
-              </Button>
-            </div>
+            {!isCounsellorLayout ? (
+              <>
+                <div className="mt-3 space-y-1">
+                  <Label className="text-xs">Receipt *</Label>
+                  <FileUpload
+                    value={manualReceiptUrl}
+                    onChange={setManualReceiptUrl}
+                    onUpload={async (file) => { const r = await api.uploadFile(authToken, file); return r.url; }}
+                    accept=".pdf,image/*"
+                    placeholder="Upload receipt or paste a URL"
+                  />
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => { void recordManualPayment(); }}
+                    disabled={manualSubmitting}
+                  >
+                    {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
+                  </Button>
+                </div>
+              </>
+            ) : null}
           </div>
+          ) : null}
         </div>
 
         {/* Footer buttons — Naji's spec: Lead | Save | Save and Cancel |
             Cancel | Send the Payment Link */}
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          {mode === 'installment' && plan ? (
-            <>
-              <Button variant="outline" onClick={() => { void savePlan(); }} disabled={submitting}>Save</Button>
+          {isCounsellorLayout ? (
+            mode === 'installment' ? (
+              // Installment tab (Lovable): single "Record Payment Plan" =
+              // persist the schedule + close.
               <Button
-                variant="outline"
-                onClick={() => { void savePlan().then(() => onOpenChange(false)); }}
-                disabled={submitting}
+                onClick={() => { void savePlan().then((ok) => { if (ok) onOpenChange(false); }); }}
+                disabled={submitting || !plan || plan.length === 0 || !planMatchesTotal}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
               >
-                Save &amp; Close
+                {submitting ? 'Saving…' : 'Record Payment Plan'}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => { void recordManualPayment(); }} disabled={manualSubmitting}>
+                  {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
+                </Button>
+                <Button
+                  onClick={() => { void sendPaymentLink(); }}
+                  disabled={submitting}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                >
+                  {submitting ? 'Sending…' : 'Send the Payment Link'}
+                </Button>
+              </>
+            )
+          ) : (
+            <>
+              {mode === 'installment' && plan ? (
+                <>
+                  <Button variant="outline" onClick={() => { void savePlan(); }} disabled={submitting}>Save</Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => { void savePlan().then(() => onOpenChange(false)); }}
+                    disabled={submitting}
+                  >
+                    Save &amp; Close
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                onClick={() => { void sendPaymentLink(); }}
+                disabled={submitting || (mode === 'installment' && (!plan || plan.length === 0 || !planMatchesTotal))}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {submitting ? 'Sending…' : 'Send the Payment Link'}
               </Button>
             </>
-          ) : null}
-          <Button
-            onClick={() => { void sendPaymentLink(); }}
-            disabled={submitting || (mode === 'installment' && (!plan || plan.length === 0 || !planMatchesTotal))}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            {submitting ? 'Sending…' : 'Send the Payment Link'}
-          </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
