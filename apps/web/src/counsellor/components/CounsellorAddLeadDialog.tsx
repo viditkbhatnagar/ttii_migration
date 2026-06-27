@@ -121,6 +121,7 @@ export function CounsellorAddLeadDialog({
    * load is the fix; the earlier in-`.then` injection silently failed whenever
    * the list call rejected (Naji 2026-06-27). Cleared when the user changes the
    * course (offering) so a stale prefill option can't linger. */
+  const [prefillCourse, setPrefillCourse] = useState<{ id: string; label: string } | null>(null);
   const [prefillOffering, setPrefillOffering] = useState<{ id: string; label: string } | null>(null);
   const [prefillCombination, setPrefillCombination] = useState<{ id: string; label: string } | null>(null);
 
@@ -182,14 +183,18 @@ export function CounsellorAddLeadDialog({
         // Set the offering / combination DIRECTLY (not contingent on the async
         // dropdown loaders) and remember them as merge-in options so the saved
         // values always show + Save stays enabled.
+        const crsId = asString(r.course_id);
         const offId = asString(r.offering_id);
         const comboId = asString(r.certificate_combination_id);
+        // Merge-in options so the saved course/offering/combination ALWAYS
+        // display, even if loadCourses / listOfferings fails or omits the row.
+        setPrefillCourse(crsId ? { id: crsId, label: asString(r.course_title) } : null);
         setPrefillOffering(offId ? { id: offId, label: asString(r.offering_title) } : null);
         setPrefillCombination(comboId ? { id: comboId, label: asString(r.combination_title) } : null);
         setOfferingId(offId);
         setCombinationId(comboId);
         // Set courseId LAST — triggers the offering / combination loaders.
-        setCourseId(asString(r.course_id));
+        setCourseId(crsId);
       } catch {
         if (!cancelled) toast.error('Could not load lead.');
       }
@@ -284,14 +289,21 @@ export function CounsellorAddLeadDialog({
   }, [api, session.token, courseId, offeringId]);
 
   /* ── Derived option lists ── */
-  const courseOptions = useMemo(
-    () =>
-      courses.map((c) => ({
-        label: asString(c.title) || `Course ${asString(c.id)}`,
-        value: asString(c.id),
-      })),
-    [courses],
-  );
+  const courseOptions = useMemo(() => {
+    const opts = courses.map((c) => ({
+      label: asString(c.title) || `Course ${asString(c.id)}`,
+      value: asString(c.id),
+    }));
+    // Guarantee the prefilled (saved) course is selectable even if loadCourses
+    // failed or didn't return it — so the field never goes blank in edit mode.
+    if (prefillCourse && !opts.some((c) => c.value === prefillCourse.id)) {
+      opts.unshift({
+        label: prefillCourse.label || `Course ${prefillCourse.id}`,
+        value: prefillCourse.id,
+      });
+    }
+    return opts;
+  }, [courses, prefillCourse]);
 
   const offeringOptions = useMemo(() => {
     const opts = offerings.map((o) => ({
@@ -341,6 +353,7 @@ export function CounsellorAddLeadDialog({
     setReferenceStudentLabel('');
     setOfferings([]);
     setCombinations([]);
+    setPrefillCourse(null);
     setPrefillOffering(null);
     setPrefillCombination(null);
     lastCourseIdRef.current = '';
@@ -511,6 +524,7 @@ export function CounsellorAddLeadDialog({
                   setCourseId(v);
                   setOfferingId('');
                   setCombinationId('');
+                  setPrefillCourse(null);
                   setPrefillOffering(null);
                   setPrefillCombination(null);
                 }}

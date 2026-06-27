@@ -1139,8 +1139,20 @@ export class ContentService {
     // passes a pre-batched range (avoids an N+1); the single-course path
     // computes it here. Falls back to the course's own `price` when the course
     // has no offering rows so cards never render an empty range.
-    const { priceMin, priceMax } =
-      priceRange ?? (await this.computeCoursePriceRange(courseId, toStringValue(course.price)));
+    let priceMin: string;
+    let priceMax: string;
+    if (priceRange) {
+      ({ priceMin, priceMax } = priceRange);
+    } else {
+      // Single-course path (getCourseDetails). Defensive: price range is
+      // non-critical, so never let it break the course payload.
+      try {
+        ({ priceMin, priceMax } = await this.computeCoursePriceRange(courseId, toStringValue(course.price)));
+      } catch {
+        priceMin = toStringValue(course.price);
+        priceMax = toStringValue(course.price);
+      }
+    }
 
     return {
       id: courseIdInt,
@@ -1431,10 +1443,17 @@ export class ContentService {
 
     // Batch the price-range lookup for ALL courses up front (2 queries total)
     // instead of 2 per course inside buildCourseData — avoids an N+1 on this
-    // unpaginated catalogue endpoint.
-    const priceRangeMap = await this.computeCoursePriceRangeMap(
-      rows.map((r) => r.id).filter((id): id is number => id !== null && id !== undefined),
-    );
+    // unpaginated catalogue endpoint. Price range is non-critical DISPLAY data:
+    // a failure here must NEVER break the course list (the course dropdown in
+    // the lead/edit forms reads this endpoint), so swallow and fall back.
+    let priceRangeMap = new Map<number, { priceMin: string; priceMax: string }>();
+    try {
+      priceRangeMap = await this.computeCoursePriceRangeMap(
+        rows.map((r) => r.id).filter((id): id is number => id !== null && id !== undefined),
+      );
+    } catch {
+      /* keep empty map — buildCourseData falls back to each course's own price */
+    }
 
     const result: Record<string, unknown>[] = [];
     for (const row of rows) {
