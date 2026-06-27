@@ -4,6 +4,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { buildLegacyUserData } from '../auth/legacy-user-data.js';
 import { extractAuthToken, requireLegacyAuth } from '../auth/middleware.js';
 import { hashPassword } from '../auth/password.js';
+import { sha256Hex } from '../auth/session-token.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import type { StorageProvider } from '../integrations/contracts.js';
@@ -134,6 +135,48 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
     return user ?? null;
   };
 
+  // Full login history for the Settings page. Each successful login creates an
+  // `auth_session` row (see AuthService.createSession), so that table IS the
+  // real per-login history — `created_at` is the login time, `ip_address` /
+  // `user_agent` are captured from the request. Newest first, capped at 50.
+  // `current` flags the session matching the caller's own token. All
+  // DateTime columns here are real (no '0000-00-00' zero-date hazard).
+  const LOGIN_HISTORY_LIMIT = 50;
+
+  const readLoginHistory = async (
+    userId: string,
+    currentTokenHash: string | null,
+  ): Promise<Record<string, unknown>[]> => {
+    const userIdInt = toIntId(userId);
+    if (userIdInt <= 0) {
+      return [];
+    }
+
+    const sessions = await prisma.auth_session.findMany({
+      where: { user_id: userIdInt },
+      orderBy: { created_at: 'desc' },
+      take: LOGIN_HISTORY_LIMIT,
+      select: {
+        created_at: true,
+        ip_address: true,
+        user_agent: true,
+        expires_at: true,
+        revoked_at: true,
+        token_hash: true,
+      },
+    });
+
+    return sessions.map((s) => ({
+      at: s.created_at ? s.created_at.toISOString() : '',
+      ip: s.ip_address ?? '',
+      device: s.user_agent ?? '',
+      user_agent: s.user_agent ?? '',
+      expires_at: s.expires_at ? s.expires_at.toISOString() : '',
+      revoked_at: s.revoked_at ? s.revoked_at.toISOString() : null,
+      current: currentTokenHash !== null && s.token_hash === currentTokenHash,
+    }));
+  };
+
   app.get('/profile/index', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const userId = requestUserId(request);
@@ -150,6 +193,10 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
       const sessionToken = extractAuthToken(request) ?? '';
       const userData = buildLegacyUserData(profile, sessionToken);
       const phone = typeof userData.user_phone === 'string' ? userData.user_phone : '';
+      // Real login history (auth_session rows), newest first, capped at 50.
+      // The current session is flagged via the caller's own token hash.
+      const currentTokenHash = sessionToken ? sha256Hex(sessionToken) : null;
+      const loginHistory = await readLoginHistory(userId, currentTokenHash);
       reply.code(200).send({
         status: 1,
         message: 'success',
@@ -159,6 +206,8 @@ export function registerProfileRoutes(app: FastifyInstance, options: RegisterPro
           user: userData,
           call_us: phone,
           whatsapp: phone,
+          login_history: loginHistory,
+          loginHistory,
         },
       });
     } catch (error: unknown) {

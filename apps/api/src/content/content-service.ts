@@ -1085,7 +1085,11 @@ export class ContentService {
     };
   }
 
-  private async buildCourseData(course: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+  private async buildCourseData(
+    course: Record<string, unknown>,
+    userId: string,
+    priceRange?: { priceMin: string; priceMax: string },
+  ): Promise<Record<string, unknown>> {
     const courseId = toStringValue(course.id);
     const description = stripHtml(toStringValue(course.description));
 
@@ -1129,6 +1133,15 @@ export class ContentService {
     const progressPct = isEnrolled
       ? (await this.calculateUserProgress(userId, courseId)).progress
       : 0;
+
+    // Course price RANGE across this course's offerings / certificate
+    // packages. Same rupee units as `price` / `offer_price`. The list path
+    // passes a pre-batched range (avoids an N+1); the single-course path
+    // computes it here. Falls back to the course's own `price` when the course
+    // has no offering rows so cards never render an empty range.
+    const { priceMin, priceMax } =
+      priceRange ?? (await this.computeCoursePriceRange(courseId, toStringValue(course.price)));
+
     return {
       id: courseIdInt,
       title: toStringValue(course.title),
@@ -1138,6 +1151,8 @@ export class ContentService {
       label: toStringValue(course.label),
       status: toStringValue(course.status),
       price: toStringValue(course.price),
+      price_min: priceMin,
+      price_max: priceMax,
       offer_price: toStringValue(course.sale_price),
       description,
       short_description: toShortDescription(description),
@@ -1159,6 +1174,122 @@ export class ContentService {
       total_reviews: totalReviews,
       total_rating: totalRating,
     };
+  }
+
+  // Lowest / highest price a course actually offers, derived from the spread
+  // of `offerings` and their `offering_certificate_packages`. Values are in
+  // the same rupee units as the legacy `course.price` field and returned as
+  // strings to match `price` / `offer_price`. When the course has no offering
+  // rows we fall back to the course's own price for both ends.
+  private async computeCoursePriceRange(
+    courseId: string,
+    fallbackPrice: string,
+  ): Promise<{ priceMin: string; priceMax: string }> {
+    const courseIdInt = toNullableIntId(courseId);
+
+    const prices: number[] = [];
+
+    if (courseIdInt !== null) {
+      const offerings = await this.prisma.offerings.findMany({
+        where: { course_id: courseIdInt, deleted_at: null },
+        select: {
+          id: true,
+          offered_fee: true,
+          base_fee: true,
+          pricing_amount: true,
+        },
+      });
+
+      for (const offering of offerings) {
+        // Prefer the offered (post-discount) fee; fall back to base/pricing.
+        const fee = offering.offered_fee ?? offering.base_fee ?? offering.pricing_amount;
+        if (fee !== null && fee !== undefined) {
+          const n = Number(fee);
+          if (Number.isFinite(n) && n > 0) prices.push(n);
+        }
+      }
+
+      const offeringIds = offerings.map((o) => o.id);
+      if (offeringIds.length > 0) {
+        const packages = await this.prisma.offering_certificate_packages.findMany({
+          where: { offering_id: { in: offeringIds }, deleted_at: null },
+          select: { offered_fee: true, base_fee: true },
+        });
+
+        for (const pkg of packages) {
+          const fee = pkg.offered_fee ?? pkg.base_fee;
+          if (fee !== null && fee !== undefined) {
+            const n = Number(fee);
+            if (Number.isFinite(n) && n > 0) prices.push(n);
+          }
+        }
+      }
+    }
+
+    if (prices.length === 0) {
+      // No offering rows — both ends collapse to the course's own price.
+      return { priceMin: fallbackPrice, priceMax: fallbackPrice };
+    }
+
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return { priceMin: String(min), priceMax: String(max) };
+  }
+
+  /**
+   * Batched price-range lookup for many courses at once — avoids the N+1 that a
+   * per-course computeCoursePriceRange would cause in listCourses (an
+   * unpaginated catalogue endpoint). Two queries total. Returns ranges ONLY for
+   * courses that have real offering prices; callers fall back to the course's
+   * own price for the rest.
+   */
+  private async computeCoursePriceRangeMap(
+    courseIds: number[],
+  ): Promise<Map<number, { priceMin: string; priceMax: string }>> {
+    const map = new Map<number, { priceMin: string; priceMax: string }>();
+    if (courseIds.length === 0) return map;
+
+    const offerings = await this.prisma.offerings.findMany({
+      where: { course_id: { in: courseIds }, deleted_at: null },
+      select: { id: true, course_id: true, offered_fee: true, base_fee: true, pricing_amount: true },
+    });
+
+    const offeringToCourse = new Map<number, number>();
+    const pricesByCourse = new Map<number, number[]>();
+    const pushPrice = (courseId: number, fee: unknown): void => {
+      if (fee === null || fee === undefined) return;
+      const n = Number(fee);
+      if (!Number.isFinite(n) || n <= 0) return;
+      const arr = pricesByCourse.get(courseId) ?? [];
+      arr.push(n);
+      pricesByCourse.set(courseId, arr);
+    };
+
+    for (const o of offerings) {
+      if (o.course_id === null || o.course_id === undefined) continue;
+      offeringToCourse.set(o.id, o.course_id);
+      pushPrice(o.course_id, o.offered_fee ?? o.base_fee ?? o.pricing_amount);
+    }
+
+    const offeringIds = offerings.map((o) => o.id);
+    if (offeringIds.length > 0) {
+      const packages = await this.prisma.offering_certificate_packages.findMany({
+        where: { offering_id: { in: offeringIds }, deleted_at: null },
+        select: { offering_id: true, offered_fee: true, base_fee: true },
+      });
+      for (const pkg of packages) {
+        if (pkg.offering_id === null || pkg.offering_id === undefined) continue;
+        const courseId = offeringToCourse.get(pkg.offering_id);
+        if (courseId === undefined) continue;
+        pushPrice(courseId, pkg.offered_fee ?? pkg.base_fee);
+      }
+    }
+
+    for (const [courseId, prices] of pricesByCourse) {
+      if (prices.length === 0) continue;
+      map.set(courseId, { priceMin: String(Math.min(...prices)), priceMax: String(Math.max(...prices)) });
+    }
+    return map;
   }
 
   async listCategories(): Promise<Record<string, unknown>[]> {
@@ -1298,9 +1429,19 @@ export class ContentService {
       orderBy: { id: 'asc' },
     });
 
+    // Batch the price-range lookup for ALL courses up front (2 queries total)
+    // instead of 2 per course inside buildCourseData — avoids an N+1 on this
+    // unpaginated catalogue endpoint.
+    const priceRangeMap = await this.computeCoursePriceRangeMap(
+      rows.map((r) => r.id).filter((id): id is number => id !== null && id !== undefined),
+    );
+
     const result: Record<string, unknown>[] = [];
     for (const row of rows) {
-      result.push(await this.buildCourseData(row as unknown as Record<string, unknown>, userId));
+      const rec = row as unknown as Record<string, unknown>;
+      const fallbackPrice = toStringValue(rec.price);
+      const range = priceRangeMap.get(row.id) ?? { priceMin: fallbackPrice, priceMax: fallbackPrice };
+      result.push(await this.buildCourseData(rec, userId, range));
     }
 
     return result;

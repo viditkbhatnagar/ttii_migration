@@ -6802,6 +6802,30 @@ export class OperationsService {
       pendingApplications: pctChange(appsThis.filter(isPending).length, appsLast.filter(isPending).length),
     };
 
+    // Rolling 30-day deltas (last 30 days vs the prior 30 days), bucketed on
+    // applications.created_at — safe, no '0000-00-00' zero-date hazard. These
+    // complement the calendar-month `deltas` above with a fixed-width window
+    // and integer-percent rounding per the headline-KPI spec.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const window30Start = new Date(now.getTime() - 30 * DAY_MS);
+    const window60Start = new Date(now.getTime() - 60 * DAY_MS);
+    const inCurrentWindow = (d: Date | null): boolean => d != null && d >= window30Start;
+    const inPriorWindow = (d: Date | null): boolean =>
+      d != null && d >= window60Start && d < window30Start;
+    const deltaPct = (current: number, prior: number): number =>
+      prior === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - prior) / prior) * 100);
+    const appsCurrentWindow = apps.filter((a) => inCurrentWindow(a.created_at));
+    const appsPriorWindow = apps.filter((a) => inPriorWindow(a.created_at));
+    const applicationsDeltaPct = deltaPct(appsCurrentWindow.length, appsPriorWindow.length);
+    const enrollmentsDeltaPct = deltaPct(
+      appsCurrentWindow.filter(isEnrolled).length,
+      appsPriorWindow.filter(isEnrolled).length,
+    );
+    const pendingDeltaPct = deltaPct(
+      appsCurrentWindow.filter(isPending).length,
+      appsPriorWindow.filter(isPending).length,
+    );
+
     // Application funnel — counts per pipeline stage (Lead → Rejected) + overall conversion.
     const FUNNEL_STAGES: { key: string; label: string }[] = [
       { key: 'lead', label: 'Lead' },
@@ -6830,6 +6854,12 @@ export class OperationsService {
         targetAchieved,
         achievementPct,
         ytd,
+        // Rolling 30-day MoM deltas (last 30 days vs prior 30 days),
+        // integer percent. No revenue KPI on this dashboard, so no
+        // revenueDeltaPct here.
+        applicationsDeltaPct,
+        enrollmentsDeltaPct,
+        pendingDeltaPct,
       },
       deltas,
       funnel,
@@ -8430,10 +8460,30 @@ export class OperationsService {
     const nationalityName = nationalityRow?.name ?? (nationalityIdInt === null ? toStringValue(app.nationality) : null);
     const languageName = languageRow?.title ?? (languageIdInt === null ? toStringValue(app.preferred_language) : null);
 
+    // Resolve a "Reference#<userId>" lead source to the referring student's
+    // name so the UI shows "Referred by <name>" instead of the raw id
+    // (Naji 2026-06-27). Non-Reference sources pass through unchanged.
+    const rawSource = toStringValue(app.marketing_source) || toStringValue(app.lead_source);
+    let marketingSourceDisplay = rawSource;
+    const refMatch = /^Reference#(\d+)$/.exec(rawSource);
+    if (refMatch) {
+      const refUserId = Number(refMatch[1] ?? 0);
+      const refUser = refUserId > 0
+        ? await this.prisma.users.findFirst({ where: { id: refUserId }, select: { name: true, student_id: true } })
+        : null;
+      const refName = (refUser?.name ?? '').trim();
+      const refSid = (refUser?.student_id ?? '').trim();
+      marketingSourceDisplay = refName
+        ? `Referred by ${refName}${refSid ? ` (${refSid})` : ''}`
+        : 'Referred by an existing student';
+    }
+
     return {
       status: 1,
       application: {
         ...app,
+        // Human-readable lead source (resolves Reference#<id> → student name).
+        marketing_source_display: marketingSourceDisplay,
         // Photo resolves through the same legacy-asset URL helper that other
         // student/centre payloads use.
         image: toLegacyFileUrl(app.image) || toLegacyFileUrl((app as Record<string, unknown>).profile_picture as string | null),
