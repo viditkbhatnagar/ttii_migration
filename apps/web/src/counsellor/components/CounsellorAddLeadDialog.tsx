@@ -195,12 +195,7 @@ export function CounsellorAddLeadDialog({
         setCombinationId(comboId);
         // Set courseId LAST — triggers the offering / combination loaders.
         setCourseId(crsId);
-        // TEMP DIAGNOSTIC (Naji 2026-06-27) — remove after capture.
-        // eslint-disable-next-line no-console
-        console.warn('[TTII-EDIT] prefill read', JSON.stringify({ course_id: r.course_id, offering_id: r.offering_id, certificate_combination_id: r.certificate_combination_id, course_title: r.course_title }), '=> crsId=' + crsId + ' offId=' + offId + ' comboId=' + comboId);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn('[TTII-EDIT] prefill ERROR', err);
+      } catch {
         if (!cancelled) toast.error('Could not load lead.');
       }
     })();
@@ -343,22 +338,6 @@ export function CounsellorAddLeadDialog({
     }
     return opts;
   }, [combinations, prefillCombination]);
-
-  // TEMP DIAGNOSTIC (Naji 2026-06-27) — remove after capture. Logs how the
-  // course/offering state evolves so we can see if/when it gets reset.
-  useEffect(() => {
-    if (!open || !editId) return;
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[TTII-EDIT] state courseId=' + JSON.stringify(courseId) +
-      ' offeringId=' + JSON.stringify(offeringId) +
-      ' courses=' + courses.length +
-      ' courseOpts=' + courseOptions.length +
-      ' offeringOpts=' + offeringOptions.length +
-      ' prefillCourse=' + JSON.stringify(prefillCourse?.id ?? null) +
-      ' prefillOffering=' + JSON.stringify(prefillOffering?.id ?? null),
-    );
-  }, [open, editId, courseId, offeringId, courses.length, courseOptions.length, offeringOptions.length, prefillCourse, prefillOffering]);
 
   /* ── Reset on close ── */
   const reset = () => {
@@ -542,6 +521,13 @@ export function CounsellorAddLeadDialog({
               <Select
                 value={courseId}
                 onValueChange={(v) => {
+                  // shadcn/Radix Select can spuriously fire onValueChange('')
+                  // when the options list changes (e.g. courses finish loading
+                  // after the edit-prefill set a merged value). Treating that as
+                  // a real "clear" wiped the prefilled course/offering and
+                  // disabled Save. A genuine user selection is never empty, so
+                  // ignore empty fires (Naji 2026-06-27).
+                  if (!v) return;
                   setCourseId(v);
                   setOfferingId('');
                   setCombinationId('');
@@ -567,6 +553,8 @@ export function CounsellorAddLeadDialog({
               <Select
                 value={offeringId}
                 onValueChange={(v) => {
+                  // Ignore Radix's spurious empty fire (see Course note above).
+                  if (!v) return;
                   setOfferingId(v);
                   // Picking a different offering invalidates the combination.
                   setCombinationId('');
@@ -599,7 +587,7 @@ export function CounsellorAddLeadDialog({
               </Label>
               <Select
                 value={combinationId}
-                onValueChange={setCombinationId}
+                onValueChange={(v) => { if (v) setCombinationId(v); }}
                 disabled={!offeringId}
               >
                 <SelectTrigger>
