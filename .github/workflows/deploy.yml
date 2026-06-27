@@ -46,6 +46,15 @@ jobs:
             echo "=== build all workspaces ==="
             npm run build
             echo
+            # Vite builds with emptyOutDir:false so the previous bundle stays
+            # fully serveable while the new one is written (no chunk-404 flicker
+            # mid-deploy). That keeps old content-hashed chunks around, so prune
+            # ones older than 7 days to stop dist/ growing unbounded. Recent
+            # bundles are kept for any in-flight client; index.html (no-store)
+            # is overwritten by every build so it never goes stale.
+            echo "=== prune stale web assets (>7d) ==="
+            find apps/web/dist/assets -type f -mtime +7 -delete 2>/dev/null || true
+            echo
             echo "=== restart API with fresh env ==="
             pm2 restart ttii-api --update-env
             pm2 save
