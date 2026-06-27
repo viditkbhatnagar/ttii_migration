@@ -112,17 +112,17 @@ export function CounsellorAddLeadDialog({
 
   /* Track course change to know when to clear dependents */
   const lastCourseIdRef = useRef('');
-  /* Pending offering / combination ids from the edit prefill — applied once
-   * the cascading loaders finish populating the dropdowns. Refs (not state) so
-   * consuming the pending value doesn't re-trigger an effect that wipes it.
-   * The *Label refs hold the title getApplication already resolved, so we can
-   * inject a synthetic dropdown option when the list query doesn't surface the
-   * saved row (status filter, or the offering's course_id differs from the
-   * lead's) — otherwise the field silently went blank (Naji 2026-06-27). */
-  const pendingOfferingIdRef = useRef('');
-  const pendingOfferingLabelRef = useRef('');
-  const pendingCombinationIdRef = useRef('');
-  const pendingCombinationLabelRef = useRef('');
+  /* Edit prefill: the saved offering / combination as {id,label}. We set
+   * offeringId/combinationId DIRECTLY from these and MERGE them into the
+   * option lists (see useMemo below) — so the saved value always displays and
+   * Save stays enabled even if the listOfferings/listCombinations query errors,
+   * is slow, or never returns the saved row (archived offering, or its
+   * course_id differs from the lead's). Decoupling display from the async list
+   * load is the fix; the earlier in-`.then` injection silently failed whenever
+   * the list call rejected (Naji 2026-06-27). Cleared when the user changes the
+   * course (offering) so a stale prefill option can't linger. */
+  const [prefillOffering, setPrefillOffering] = useState<{ id: string; label: string } | null>(null);
+  const [prefillCombination, setPrefillCombination] = useState<{ id: string; label: string } | null>(null);
 
   /* ── Load published courses on open ── */
   useEffect(() => {
@@ -179,10 +179,15 @@ export function CounsellorAddLeadDialog({
         const cc = asString(r.country_code).replace(/\+/g, '');
         if (cc) setCountryCode(cc);
         setSource(normalizeLegacySource(asString(r.marketing_source) || asString(r.lead_source)));
-        pendingOfferingIdRef.current = asString(r.offering_id);
-        pendingOfferingLabelRef.current = asString(r.offering_title);
-        pendingCombinationIdRef.current = asString(r.certificate_combination_id);
-        pendingCombinationLabelRef.current = asString(r.combination_title);
+        // Set the offering / combination DIRECTLY (not contingent on the async
+        // dropdown loaders) and remember them as merge-in options so the saved
+        // values always show + Save stays enabled.
+        const offId = asString(r.offering_id);
+        const comboId = asString(r.certificate_combination_id);
+        setPrefillOffering(offId ? { id: offId, label: asString(r.offering_title) } : null);
+        setPrefillCombination(comboId ? { id: comboId, label: asString(r.combination_title) } : null);
+        setOfferingId(offId);
+        setCombinationId(comboId);
         // Set courseId LAST — triggers the offering / combination loaders.
         setCourseId(asString(r.course_id));
       } catch {
@@ -214,102 +219,68 @@ export function CounsellorAddLeadDialog({
     }
   }, [referenceStudentId, referenceStudentLabel, studentRefOptions]);
 
-  /* ── Load active offerings when course changes ── */
+  /* ── Load active offerings when course changes (browse list only) ──
+   * The SELECTED offering displays via the merged prefill option (see the
+   * offeringOptions memo), so this loader is purely for letting the user pick a
+   * different offering and never gates whether the saved value shows. */
   useEffect(() => {
     if (!courseId) {
       setOfferings([]);
-      setOfferingId('');
       lastCourseIdRef.current = '';
       return;
     }
     const courseChanged =
       lastCourseIdRef.current !== '' && lastCourseIdRef.current !== courseId;
     lastCourseIdRef.current = courseId;
-    if (courseChanged) setOfferingId('');
+    if (courseChanged) {
+      // User switched to a different course — drop the prefilled offering /
+      // combination so a stale value can't carry over.
+      setOfferingId('');
+      setCombinationId('');
+      setPrefillOffering(null);
+      setPrefillCombination(null);
+    }
 
+    let cancelled = false;
     void api.admin
       .listOfferings(session.token, { course_id: courseId, status: 'active' })
-      .then(async (rows) => {
-        let list = rows;
-        const pendingOff = pendingOfferingIdRef.current;
-        if (pendingOff && !list.some((r) => asString(r.id) === pendingOff)) {
-          // Saved offering isn't active — fetch all so the dropdown shows it.
-          try {
-            list = await api.admin.listOfferings(session.token, { course_id: courseId });
-          } catch { /* keep active list */ }
-        }
-        if (pendingOff) {
-          // Always restore the saved offering. If neither query surfaced it
-          // (e.g. the offering's course_id differs from the lead's course_id,
-          // or it was archived), inject a synthetic row from the title that
-          // getApplication already returned so the field shows the saved value
-          // instead of silently going blank (Naji 2026-06-27).
-          if (!list.some((r) => asString(r.id) === pendingOff)) {
-            list = [
-              { id: pendingOff, title: pendingOfferingLabelRef.current || `Offering ${pendingOff}` },
-              ...list,
-            ];
-          }
-          setOfferings(list);
-          setOfferingId(pendingOff);
-          pendingOfferingIdRef.current = '';
-          pendingOfferingLabelRef.current = '';
-        } else {
-          setOfferings(list);
-        }
-      })
-      .catch(() => setOfferings([]));
+      .then((rows) => { if (!cancelled) setOfferings(rows); })
+      .catch(() => { if (!cancelled) setOfferings([]); });
+    return () => { cancelled = true; };
   }, [api, session.token, courseId]);
 
-  /* ── Load priced combinations when course + offering are both set ── */
+  /* ── Load priced combinations when course + offering are both set ──
+   * Browse list only; the SELECTED combination shows via the merged prefill
+   * option (see combinationOptions memo), independent of this loader. */
   useEffect(() => {
     if (!courseId || !offeringId) {
       setCombinations([]);
-      setCombinationId('');
       return;
     }
+    let cancelled = false;
     void (async () => {
       try {
         const allActive = await api.admin.listCertificateCombinations(session.token, {
           course_id: courseId,
           status: 'active',
         });
+        if (cancelled) return;
         let list = allActive;
         try {
           const packages = await api.admin.listOfferingPackages(session.token, offeringId);
+          if (cancelled) return;
           const pricedIds = new Set(packages.map((p) => asString(p.combination_id)));
           const priced = allActive.filter((c) => pricedIds.has(asString(c.id)));
           if (priced.length > 0) list = priced;
         } catch {
           /* fallback to full active list */
         }
-        const pendingCombo = pendingCombinationIdRef.current;
-        if (pendingCombo && !list.some((r) => asString(r.id) === pendingCombo)) {
-          try {
-            list = await api.admin.listCertificateCombinations(session.token, { course_id: courseId });
-          } catch { /* keep current list */ }
-        }
-        if (pendingCombo) {
-          // Always restore the saved combination — inject a synthetic row from
-          // the title getApplication returned if neither query surfaced it, so
-          // the field never goes blank in edit mode (Naji 2026-06-27).
-          if (!list.some((r) => asString(r.id) === pendingCombo)) {
-            list = [
-              { id: pendingCombo, combination_code: pendingCombinationLabelRef.current || `Combination ${pendingCombo}` },
-              ...list,
-            ];
-          }
-          setCombinations(list);
-          setCombinationId(pendingCombo);
-          pendingCombinationIdRef.current = '';
-          pendingCombinationLabelRef.current = '';
-        } else {
-          setCombinations(list);
-        }
+        if (!cancelled) setCombinations(list);
       } catch {
-        setCombinations([]);
+        if (!cancelled) setCombinations([]);
       }
     })();
+    return () => { cancelled = true; };
   }, [api, session.token, courseId, offeringId]);
 
   /* ── Derived option lists ── */
@@ -322,27 +293,39 @@ export function CounsellorAddLeadDialog({
     [courses],
   );
 
-  const offeringOptions = useMemo(
-    () =>
-      offerings.map((o) => ({
-        label: asString(o.title) || `Offering ${asString(o.id)}`,
-        value: asString(o.id),
-      })),
-    [offerings],
-  );
+  const offeringOptions = useMemo(() => {
+    const opts = offerings.map((o) => ({
+      label: asString(o.title) || `Offering ${asString(o.id)}`,
+      value: asString(o.id),
+    }));
+    // Guarantee the prefilled (saved) offering is selectable even if the
+    // browse-list query didn't return it — so the field never goes blank.
+    if (prefillOffering && !opts.some((o) => o.value === prefillOffering.id)) {
+      opts.unshift({
+        label: prefillOffering.label || `Offering ${prefillOffering.id}`,
+        value: prefillOffering.id,
+      });
+    }
+    return opts;
+  }, [offerings, prefillOffering]);
 
-  const combinationOptions = useMemo(
-    () =>
-      combinations.map((c) => ({
-        label:
-          asString(c.combination_code) ||
-          asString(c.label) ||
-          asString(c.title) ||
-          `Combination ${asString(c.id)}`,
-        value: asString(c.id),
-      })),
-    [combinations],
-  );
+  const combinationOptions = useMemo(() => {
+    const opts = combinations.map((c) => ({
+      label:
+        asString(c.combination_code) ||
+        asString(c.label) ||
+        asString(c.title) ||
+        `Combination ${asString(c.id)}`,
+      value: asString(c.id),
+    }));
+    if (prefillCombination && !opts.some((c) => c.value === prefillCombination.id)) {
+      opts.unshift({
+        label: prefillCombination.label || `Combination ${prefillCombination.id}`,
+        value: prefillCombination.id,
+      });
+    }
+    return opts;
+  }, [combinations, prefillCombination]);
 
   /* ── Reset on close ── */
   const reset = () => {
@@ -358,11 +341,9 @@ export function CounsellorAddLeadDialog({
     setReferenceStudentLabel('');
     setOfferings([]);
     setCombinations([]);
+    setPrefillOffering(null);
+    setPrefillCombination(null);
     lastCourseIdRef.current = '';
-    pendingOfferingIdRef.current = '';
-    pendingOfferingLabelRef.current = '';
-    pendingCombinationIdRef.current = '';
-    pendingCombinationLabelRef.current = '';
   };
 
   const handleOpenChange = (o: boolean) => {
@@ -530,6 +511,8 @@ export function CounsellorAddLeadDialog({
                   setCourseId(v);
                   setOfferingId('');
                   setCombinationId('');
+                  setPrefillOffering(null);
+                  setPrefillCombination(null);
                 }}
               >
                 <SelectTrigger>
@@ -548,7 +531,12 @@ export function CounsellorAddLeadDialog({
               <Label>Offering *</Label>
               <Select
                 value={offeringId}
-                onValueChange={setOfferingId}
+                onValueChange={(v) => {
+                  setOfferingId(v);
+                  // Picking a different offering invalidates the combination.
+                  setCombinationId('');
+                  setPrefillCombination(null);
+                }}
                 disabled={!courseId}
               >
                 <SelectTrigger>
