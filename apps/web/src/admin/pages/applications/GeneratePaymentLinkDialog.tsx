@@ -5,9 +5,9 @@
 // modes: Full Payment (one-shot) and Installment Plan (registration
 // split + remaining instalments with editable rows).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Upload } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -160,6 +160,9 @@ export function GeneratePaymentLinkDialog({
   const [manualReference, setManualReference] = useState('');
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  // Counsellor variant: upload-only receipt control (no paste-a-URL field).
+  const [receiptUploading, setReceiptUploading] = useState(false);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
 
   // Did the (offering, combination) package lookup match a row? Used to
   // surface a clear "no pricing set" notice so admins know to enter
@@ -516,7 +519,7 @@ export function GeneratePaymentLinkDialog({
           instalment table always fits without horizontal scroll, and
           drops to a near-full-screen sheet (98vw) on phones where every
           pixel counts. */}
-      <DialogContent className={`${dialogClassName} w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]`}>
+      <DialogContent className={`${dialogClassName} ${isCounsellorLayout ? 'max-w-3xl overflow-hidden p-4 sm:p-6' : 'w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]'}`}>
         <DialogHeader>
           <DialogTitle>Generate Payment Link</DialogTitle>
           <DialogDescription>
@@ -774,12 +777,38 @@ export function GeneratePaymentLinkDialog({
               {isCounsellorLayout ? (
                 <div className="space-y-1">
                   <Label className="text-xs">Receipt *</Label>
-                  <FileUpload
-                    value={manualReceiptUrl}
-                    onChange={setManualReceiptUrl}
-                    onUpload={async (file) => { const r = await api.uploadFile(authToken, file); return r.url; }}
+                  {/* Upload-only — no paste-a-URL field (Naji 2026-06-26). */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-center gap-2"
+                    disabled={receiptUploading}
+                    onClick={() => receiptInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4" />
+                    {receiptUploading
+                      ? 'Uploading…'
+                      : manualReceiptUrl
+                        ? (manualReceiptUrl.split('/').pop() || 'Receipt uploaded')
+                        : 'Upload'}
+                  </Button>
+                  <input
+                    ref={receiptInputRef}
+                    type="file"
                     accept=".pdf,image/*"
-                    placeholder="Upload receipt or paste a URL"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setReceiptUploading(true);
+                      void api.uploadFile(authToken, file)
+                        .then((r) => setManualReceiptUrl(r.url))
+                        .catch((err) => toast.error(err instanceof Error ? err.message : 'Upload failed'))
+                        .finally(() => {
+                          setReceiptUploading(false);
+                          if (receiptInputRef.current) receiptInputRef.current.value = '';
+                        });
+                    }}
                   />
                 </div>
               ) : null}
@@ -828,8 +857,8 @@ export function GeneratePaymentLinkDialog({
               </Button>
             ) : (
               <>
-                <Button variant="outline" onClick={() => { void recordManualPayment(); }} disabled={manualSubmitting}>
-                  {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
+                <Button variant="outline" onClick={() => { void recordManualPayment(); }} disabled={manualSubmitting || receiptUploading}>
+                  {receiptUploading ? 'Uploading…' : manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
                 </Button>
                 <Button
                   onClick={() => { void sendPaymentLink(); }}

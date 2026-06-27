@@ -125,9 +125,13 @@ export function CounsellorAddLeadDialog({
       .loadCourses(session.token)
       .then((rows) =>
         setCourses(
+          // Show live courses — exclude only draft/archived. Most courses
+          // store status='active' (the DB default), so a 'published'-only
+          // filter hid the lead's own course in Edit mode → Course/Offering/
+          // Combination rendered blank (Naji 2026-06-26).
           rows.filter((r) => {
-            const status = r.status;
-            return typeof status === 'string' && status.toLowerCase() === 'published';
+            const status = typeof r.status === 'string' ? r.status.toLowerCase() : '';
+            return status !== 'draft' && status !== 'archived';
           }),
         ),
       )

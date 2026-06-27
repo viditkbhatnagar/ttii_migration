@@ -196,6 +196,10 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Themed confirm modals (replace native window.confirm) + plan send-link.
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [sendingPayLink, setSendingPayLink] = useState(false);
   const [verifyBusyKey, setVerifyBusyKey] = useState<string | null>(null);
 
   // Mark-as-Paid dialog state.
@@ -230,14 +234,22 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   }, [admin, session.token, applicationId, activeTab]);
 
   // ── Actions (all wired to the same admin API calls) ───────────────────
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     if (!applicationId) return;
-    if (!window.confirm('Delete this application? This action cannot be undone.')) return;
+    setDeleteDialogOpen(true);
+  }, [applicationId]);
+
+  const handleDeleteConfirmed = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
     try {
       await admin.deleteApplication(session.token, applicationId);
+      setDeleteDialogOpen(false);
       onNavigate('/counsellor/applications');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete application');
+    } finally {
+      setSubmitting(false);
     }
   }, [admin, session.token, applicationId, onNavigate]);
 
@@ -260,12 +272,17 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     }
   }, [admin, session.token, applicationId, rejectReason, reload]);
 
-  const handleApprove = useCallback(async () => {
+  const handleApprove = useCallback(() => {
     if (!applicationId) return;
-    if (!window.confirm('Approve this application?')) return;
+    setApproveDialogOpen(true);
+  }, [applicationId]);
+
+  const handleApproveConfirmed = useCallback(async () => {
+    if (!applicationId) return;
     setSubmitting(true);
     try {
       await admin.updateApplicationStatus(session.token, applicationId, 'approved');
+      setApproveDialogOpen(false);
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update status');
@@ -414,6 +431,41 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     return null;
   })();
   const paymentLinkUrl = asString(app.payment_link_url);
+
+  // Send-payment-link from the first installment row (Naji 2026-06-26). Only
+  // meaningful for an installment plan before the lead has paid; generates a
+  // Razorpay link for the first installment. Plain fn (defined after the early
+  // returns) — not a hook.
+  const canSendPayLink = savedPlan?.mode === 'installment' && (stage === 'lead' || stage === 'payment_pending');
+  const handleSendPayLink = async () => {
+    if (!applicationId || !savedPlan) return;
+    setSendingPayLink(true);
+    try {
+      const installments = (savedPlan.installments ?? []).map((r) => ({
+        label: asString(r.label),
+        amount_minor: Number(r.amountMinor ?? r.amount_minor ?? 0),
+        due_date: asString(r.dueDate ?? r.due_date),
+      }));
+      const res = await admin.generatePaymentLink(session.token, {
+        id: applicationId,
+        mode: 'installment',
+        total_amount_minor: Number(savedPlan.total_amount_minor ?? 0),
+        registration_fee_minor: Number(savedPlan.registration_fee_minor ?? installments[0]?.amount_minor ?? 0),
+        installments,
+        expires_in_days: 7,
+      });
+      if ((res as { status?: number }).status === 1) {
+        toast.success('Payment link sent.');
+        reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Could not send payment link.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send payment link.');
+    } finally {
+      setSendingPayLink(false);
+    }
+  };
   const paymentStatus = asString(app.payment_status);
   const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
   const manual = savedPlan?.manual_payment;
@@ -677,6 +729,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                         <th className="py-2 pr-3 text-right">GST %</th>
                         <th className="py-2 pr-3 text-right">Inc. GST</th>
                         <th className="py-2 pr-3">Due Date</th>
+                        <th className="py-2 pr-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -695,6 +748,19 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                               ₹{inc.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                             </td>
                             <td className="py-3 pr-3 text-muted-foreground">{formatDate(due) || '—'}</td>
+                            <td className="py-3 pr-3 text-right">
+                              {i === 0 && canSendPayLink ? (
+                                <Button
+                                  size="sm"
+                                  className="h-7 gap-1.5"
+                                  disabled={sendingPayLink}
+                                  onClick={() => void handleSendPayLink()}
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                  {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Payment Link')}
+                                </Button>
+                              ) : null}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1201,6 +1267,46 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation — themed (replaces the native window.confirm). */}
+      <Dialog open={deleteDialogOpen} onOpenChange={(o) => { if (!o) setDeleteDialogOpen(false); }}>
+        <DialogContent className="counsellor-theme w-[min(440px,calc(100vw-2rem))] max-w-[min(440px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Delete application?</DialogTitle>
+          </DialogHeader>
+          <p className="py-2 text-sm text-muted-foreground">
+            This permanently deletes this application. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => { void handleDeleteConfirmed(); }} disabled={submitting}>
+              {submitting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve confirmation — themed. */}
+      <Dialog open={approveDialogOpen} onOpenChange={(o) => { if (!o) setApproveDialogOpen(false); }}>
+        <DialogContent className="counsellor-theme w-[min(440px,calc(100vw-2rem))] max-w-[min(440px,calc(100vw-2rem))]">
+          <DialogHeader>
+            <DialogTitle>Approve application?</DialogTitle>
+          </DialogHeader>
+          <p className="py-2 text-sm text-muted-foreground">
+            Move this application to the approved stage?
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setApproveDialogOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => { void handleApproveConfirmed(); }} disabled={submitting}>
+              {submitting ? 'Approving…' : 'Approve'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
