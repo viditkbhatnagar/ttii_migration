@@ -59,6 +59,10 @@ interface CourseMeta {
   lessonCount: number;
   price: number;
   offerPrice: number;
+  // Price RANGE across this course's offerings / certificate packages.
+  // Backend computeCoursePriceRange falls back to `price` so these are set.
+  priceMin: number;
+  priceMax: number;
   description: string;
   shortDescription: string;
   tags: string[];
@@ -116,6 +120,8 @@ function toMeta(raw: Record<string, unknown>, fallbackId: string): CourseMeta {
     lessonCount: asNumber(raw.lessons_count) || asNumber(raw.lessons),
     price: asNumber(raw.price),
     offerPrice: asNumber(raw.offer_price) || asNumber(raw.sale_price),
+    priceMin: asNumber(raw.price_min),
+    priceMax: asNumber(raw.price_max),
     description: asString(raw.description),
     shortDescription: asString(raw.short_description),
     tags: Array.isArray(tagsRaw) ? tagsRaw.map((t) => asString(t)).filter((t) => t !== '') : [],
@@ -313,7 +319,18 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
   const hasOffer = meta.offerPrice > 0 && meta.offerPrice < meta.price;
   const displayPrice = hasOffer ? meta.offerPrice : meta.price;
   const isFree = meta.price <= 0;
-  const feeLabel = isFree ? 'Free' : displayPrice > 0 ? fmtInr(displayPrice) : '—';
+  // Header fee: prefer the real price RANGE (across offerings / certificate
+  // packages) when max > min; otherwise the single effective price as before.
+  const rangeMin = Math.min(meta.priceMin, meta.priceMax);
+  const rangeMax = Math.max(meta.priceMin, meta.priceMax);
+  const hasRange = rangeMax > rangeMin && rangeMin > 0;
+  const feeLabel = isFree
+    ? 'Free'
+    : hasRange
+      ? `${fmtInr(rangeMin)} - ${fmtInr(rangeMax)}`
+      : displayPrice > 0
+        ? fmtInr(displayPrice)
+        : '—';
 
   const isLessonWise = meta.structureType === 2;
   const lessonStatCount = meta.lessonCount > 0 ? meta.lessonCount : isLessonWise ? directLessons.length : 0;
@@ -327,7 +344,8 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
     stats.push({ icon: BookOpen, label: 'Subjects', value: String(meta.subjectCount) });
   stats.push({ icon: Calendar, label: 'Active Offerings', value: String(offerings.length) });
   stats.push({ icon: Award, label: 'Combinations', value: String(combinations.length) });
-  if (feeLabel !== '—') stats.push({ icon: GraduationCap, label: 'Fee', value: feeLabel });
+  if (feeLabel !== '—')
+    stats.push({ icon: GraduationCap, label: hasRange ? 'Fee Range' : 'Fee', value: feeLabel });
 
   return (
     <main className="space-y-6">

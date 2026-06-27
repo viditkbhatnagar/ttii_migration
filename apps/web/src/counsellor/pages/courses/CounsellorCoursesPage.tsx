@@ -44,7 +44,8 @@ interface CourseCard {
   level: string;
   tagline: string;
   hours: number;
-  price: number;
+  priceMin: number;
+  priceMax: number;
   applications: number;
   enrollments: number;
   conversionPct: number;
@@ -55,6 +56,13 @@ const levelStyles = 'bg-primary-soft text-accent-foreground border-primary/30';
 function formatPrice(n: number): string {
   if (n <= 0) return 'Free';
   return `₹${n.toLocaleString('en-IN')}`;
+}
+
+// A course can carry a price RANGE across its offerings / certificate packages.
+// Show a range when max > min, the single price when equal, and Free at 0.
+function formatPriceRange(min: number, max: number): string {
+  if (max > min && min > 0) return `${formatPrice(min)} - ${formatPrice(max)}`;
+  return formatPrice(min > 0 ? min : max);
 }
 
 export default function CounsellorCoursesPage({ api, session, onNavigate }: CounsellorPageProps) {
@@ -87,6 +95,16 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
       const id = asNumber(c.id);
       const sale = asNumber(c.offer_price) || asNumber(c.sale_price);
       const price = asNumber(c.price);
+      // Effective single price: prefer a genuine sale over list price.
+      const effectivePrice = sale > 0 && sale < price ? sale : price;
+      // Price RANGE across the course's offerings / certificate packages.
+      // The backend (computeCoursePriceRange) already falls back to the
+      // course price, so price_min/price_max are populated. Fall back to the
+      // single effective price for older payloads that omit the range fields.
+      const rangeMin = asNumber(c.price_min);
+      const rangeMax = asNumber(c.price_max);
+      const priceMin = rangeMin > 0 ? rangeMin : effectivePrice;
+      const priceMax = rangeMax > 0 ? rangeMax : effectivePrice;
       const perf = perfByCourse.get(id) ?? {
         applications: 0,
         enrollments: 0,
@@ -99,7 +117,8 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
         level: asString(c.level) || asString(c.label),
         tagline: asString(c.short_description) || asString(c.description),
         hours: asNumber(c.total_learning_hours) || asNumber(c.lessons_count),
-        price: sale > 0 && sale < price ? sale : price,
+        priceMin: Math.min(priceMin, priceMax),
+        priceMax: Math.max(priceMin, priceMax),
         applications: perf.applications,
         enrollments: perf.enrollments,
         conversionPct: perf.conversionPct,
@@ -244,7 +263,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                   <div className="mt-4 pt-4 border-t border-border flex items-end justify-between">
                     <div>
                       <p className="text-[11px] text-muted-foreground">Fee</p>
-                      <p className="text-lg font-bold">{formatPrice(c.price)}</p>
+                      <p className="text-lg font-bold">{formatPriceRange(c.priceMin, c.priceMax)}</p>
                     </div>
                     <Button size="sm" onClick={() => onNavigate(`/counsellor/courses/view/${asString(c.id)}`)}>
                       View Details
@@ -315,8 +334,8 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                           {c.conversionPct}%
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {formatPrice(c.price)}
+                      <TableCell className="text-right font-semibold whitespace-nowrap">
+                        {formatPriceRange(c.priceMin, c.priceMax)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button

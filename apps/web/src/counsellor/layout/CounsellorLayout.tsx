@@ -1,10 +1,11 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
 import type { CounsellorPortalApi } from '../counsellor-portal-api.js';
 import { CounsellorLayoutProvider, useCounsellorLayout } from './CounsellorLayoutContext.js';
 import { CounsellorSidebar, CounsellorSidebarMobile } from './CounsellorSidebar.js';
 import { CounsellorNavbar } from './CounsellorNavbar.js';
 import { CounsellorRouter } from '../routing/CounsellorRouter.js';
+import { resolveCounsellorRoute } from '../routing/counsellor-routes.js';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 interface CounsellorLayoutInnerProps {
@@ -22,6 +23,14 @@ function CounsellorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
     closeMobileSidebar();
     onNavigate(href);
   }, [closeMobileSidebar, onNavigate]);
+
+  // Reflect the active counsellor page in the browser tab title. Scoped to this
+  // layout so the student/admin/centre portals are unaffected.
+  useEffect(() => {
+    const route = resolveCounsellorRoute(pathname);
+    const pageTitle = route?.title ?? 'Counsellor';
+    document.title = `${pageTitle} | TTII Counsellor`;
+  }, [pathname]);
 
   return (
     <div

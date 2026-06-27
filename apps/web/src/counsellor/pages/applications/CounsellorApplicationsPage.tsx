@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarRange, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Plus, Search } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, Eye, FileText, Plus, Search } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,11 +80,6 @@ function appOwner(a: Record<string, unknown>): string {
 
 function appId(a: Record<string, unknown>): string {
   return asString(a.id) || asString(a._id);
-}
-
-/** Real location line under the applicant name — district preferred, else state. */
-function appLocation(a: Record<string, unknown>): string {
-  return asString(a.district).trim() || asString(a.state).trim();
 }
 
 function initials(name: string): string {
@@ -400,7 +395,6 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
                         </Avatar>
                         <div>
                           <p className="text-sm font-medium leading-tight">{name || '—'}</p>
-                          <p className="text-[11px] text-muted-foreground">{appLocation(a) || '—'}</p>
                         </div>
                       </button>
                     </TableCell>
@@ -428,15 +422,6 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
                           onClick={() => onNavigate(`/counsellor/applications/view/${id}`)}
                         >
                           <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="Edit"
-                          onClick={() => onNavigate(`/counsellor/applications/edit/${id}`)}
-                        >
-                          <Pencil className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>

@@ -519,7 +519,14 @@ export function GeneratePaymentLinkDialog({
           instalment table always fits without horizontal scroll, and
           drops to a near-full-screen sheet (98vw) on phones where every
           pixel counts. */}
-      <DialogContent className={`${dialogClassName} ${isCounsellorLayout ? 'max-w-3xl overflow-hidden p-4 sm:p-6' : 'w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]'}`}>
+      {/* Counsellor variant matches the Lovable modal (max-w-3xl = 768px). A
+          bare `max-w-3xl` className LOSES to shadcn DialogContent's base
+          `sm:max-w-lg` (512px), so force the width with an inline style — the
+          reliable technique. Admin keeps its explicit sm:-variant wide width. */}
+      <DialogContent
+        className={`${dialogClassName} ${isCounsellorLayout ? 'overflow-hidden p-4 sm:p-6' : 'w-[min(1280px,96vw)] max-w-[min(1280px,96vw)] overflow-hidden p-4 sm:p-6 sm:w-[min(1280px,96vw)] sm:max-w-[min(1280px,96vw)] max-sm:w-[98vw] max-sm:max-w-[98vw]'}`}
+        style={isCounsellorLayout ? { width: 'min(768px, calc(100vw - 2rem))', maxWidth: 'min(768px, calc(100vw - 2rem))' } : undefined}
+      >
         <DialogHeader>
           <DialogTitle>Generate Payment Link</DialogTitle>
           <DialogDescription>

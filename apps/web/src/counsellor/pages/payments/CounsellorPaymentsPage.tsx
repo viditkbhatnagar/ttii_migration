@@ -4,8 +4,8 @@ import {
   CalendarDays,
   CreditCard,
   Download,
-  Eye,
   ExternalLink,
+  Eye,
   IndianRupee,
   MoreHorizontal,
   Search,
@@ -55,6 +55,7 @@ const STATE_LABELS: Record<PaymentState | 'All', string> = {
   no_link: 'No link',
 };
 
+// Mirrors the Lovable reference paymentStatusStyles (success / warning / muted).
 const STATE_STYLES: Record<PaymentState, string> = {
   paid: 'bg-success-soft text-success border-transparent',
   pending: 'bg-warning-soft text-warning-foreground border-transparent',
@@ -95,6 +96,19 @@ function formatRowDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** True when the ISO date falls on the local calendar day. */
+function isToday(iso: string): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
 }
 
 function initials(name: string): string {
@@ -188,6 +202,13 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
   const total = asNumber(summary.total);
   const grandTotal = collectedAmount + pendingAmount;
 
+  // Today's collection is fully backable from the real paid date (paidAt).
+  const todaysCollection = useMemo(
+    () =>
+      rows.reduce((sum, p) => (p.state === 'paid' && isToday(p.paidAt) ? sum + p.fee : sum), 0),
+    [rows],
+  );
+
   if (loading) {
     return <DashboardLoader label="payments" />;
   }
@@ -219,7 +240,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
         p.course,
         String(p.fee),
         STATE_LABELS[p.state],
-        formatRowDate(p.createdAt),
+        formatRowDate(p.paidAt || p.createdAt),
       ]
         .map((c) => `"${c.replace(/"/g, '""')}"`)
         .join(','),
@@ -262,12 +283,12 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
           sub={`${pendingCount.toLocaleString('en-IN')} awaiting payment`}
         />
         <KpiCard
-          label="Paid Applications"
-          value={paidCount.toLocaleString('en-IN')}
+          label="Today's Collection"
+          value={formatINR(todaysCollection)}
           icon={CreditCard}
           tone="info"
-          progress={total > 0 ? Math.round((paidCount / total) * 100) : 0}
-          sub="Fees received"
+          progress={collectedAmount > 0 ? Math.round((todaysCollection / collectedAmount) * 100) : 0}
+          sub="Posted today"
         />
         <KpiCard
           label="Pending Applications"
@@ -377,7 +398,9 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                 <TableCell className="text-right font-medium tabular-nums">
                   {formatINR(p.fee)}
                 </TableCell>
-                <TableCell className="text-sm">{formatRowDate(p.createdAt)}</TableCell>
+                <TableCell className="text-sm">
+                  {formatRowDate(p.paidAt || p.createdAt)}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline" className={cn('rounded-full', STATE_STYLES[p.state])}>
                     {STATE_LABELS[p.state]}

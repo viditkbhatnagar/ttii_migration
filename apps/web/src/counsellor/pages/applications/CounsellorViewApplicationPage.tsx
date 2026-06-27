@@ -32,6 +32,7 @@ import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.j
 import { asNumber, asString, formatDate, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import { GeneratePaymentLinkDialog } from '../../../admin/pages/applications/GeneratePaymentLinkDialog.js';
 import { CounsellorAddLeadDialog } from '../../components/CounsellorAddLeadDialog.js';
+import { CounsellorRecordPaymentModal } from '../../components/CounsellorRecordPaymentModal.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 
 /* ─── Pipeline stages (real lowercase keys → Lovable labels + styles) ─── */
@@ -192,6 +193,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   // ── UI state ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('overview');
   const [payDialogOpen, setPayDialogOpen] = useState(false);
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const [editLeadOpen, setEditLeadOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -346,6 +348,36 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     [admin, session.token],
   );
 
+  // Dedicated "Record Payment" modal — logs an offline payment against this
+  // application via the same mark-paid endpoint the inline dialog uses. Throws
+  // on failure so the modal can surface its own error toast.
+  const handleRecordPayment = useCallback(
+    async (input: { mode: string; reference: string; receiptUrl: string; note: string }) => {
+      if (!applicationId) return;
+      const res = await admin.markApplicationPaid(session.token, applicationId, {
+        mode: input.mode,
+        reference: input.reference,
+        receipt_url: input.receiptUrl,
+        note: input.note,
+      });
+      if ((res as { status?: number }).status === 1) {
+        toast.success(asString((res as { message?: unknown }).message) || 'Payment recorded — pending finance approval.');
+        reload();
+      } else {
+        throw new Error(asString((res as { message?: unknown }).message) || 'Could not record payment.');
+      }
+    },
+    [admin, session.token, applicationId, reload],
+  );
+
+  const handleRecordReceiptUpload = useCallback(
+    async (file: File): Promise<string> => {
+      const res = await admin.uploadFile(session.token, file);
+      return res.url;
+    },
+    [admin, session.token],
+  );
+
   const handleSendFormLink = useCallback(async () => {
     if (!applicationId) return;
     setSubmitting(true);
@@ -469,6 +501,22 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   const paymentStatus = asString(app.payment_status);
   const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
   const manual = savedPlan?.manual_payment;
+
+  // Expected amount for the Record Payment modal (display-only). Prefer the
+  // saved plan total (inc-GST), else the application's final course fee. Left
+  // at 0 — and gracefully hidden in the modal — when neither is available.
+  const recordPaymentAmount = (() => {
+    const planTotalMinor = Number(savedPlan?.total_amount_minor ?? 0);
+    if (planTotalMinor > 0) return planTotalMinor / 100;
+    const finalFee = Number(asString(app.final_course_fee).replace(/[^0-9.]/g, ''));
+    return Number.isFinite(finalFee) && finalFee > 0 ? finalFee : 0;
+  })();
+  const recordPaymentContext = [asString(app.course_title), asString(app.offering_title)].filter(Boolean).join(' · ');
+  // Only show the Record Payment trigger before enrolment (offline capture is
+  // for leads / pending payments). Exclude 'paid' — Finance has already
+  // approved a payment at that stage, and re-recording would overwrite the
+  // manual_payment entry and reset payment_status to pending_approval.
+  const canRecordPayment = ['lead', 'payment_pending', 'form_pending'].includes(stage);
 
   const currentStageIdx = STAGES.findIndex((s) => s.key === stage);
 
@@ -630,7 +678,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
             <Field label="Name" value={name} />
             <Field label="Email ID" value={email} />
             <Field label="Phone" value={phone} />
-            <Field label="Source" value={asString(app.marketing_source) || asString(app.lead_source)} />
+            <Field label="Source" value={asString(app.marketing_source_display) || asString(app.marketing_source) || asString(app.lead_source)} />
           </Section>
           <Section title="Course Information" icon={FileText}>
             <Field label="Course" value={asString(app.course_title)} />
@@ -686,6 +734,15 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                   {(stage === 'lead' || stage === 'payment_pending' || stage === 'paid' || stage === 'form_pending') ? (
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPayDialogOpen(true)}>
                       <Pencil className="h-4 w-4" /> Edit
+                    </Button>
+                  ) : null}
+                  {canRecordPayment ? (
+                    <Button
+                      size="sm"
+                      className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                      onClick={() => setRecordPaymentOpen(true)}
+                    >
+                      <Wallet className="h-4 w-4" /> Record Payment
                     </Button>
                   ) : null}
                 </div>
@@ -800,6 +857,17 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                 No payment plan created yet.
                 {stage === 'lead' ? ' Use the Generate Payment Plan button above to create one.' : ''}
               </p>
+              {canRecordPayment ? (
+                <p className="mt-4">
+                  <Button
+                    size="sm"
+                    className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+                    onClick={() => setRecordPaymentOpen(true)}
+                  >
+                    <Wallet className="h-4 w-4" /> Record Payment
+                  </Button>
+                </p>
+              ) : null}
             </Card>
           )}
 
@@ -1141,6 +1209,17 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
         initialGstPercent={Number(app.application_gst_percent ?? 18)}
         initialSavedPlan={savedPlan}
         onSent={() => reload()}
+      />
+
+      {/* Dedicated Record Payment modal (offline payment capture) */}
+      <CounsellorRecordPaymentModal
+        open={recordPaymentOpen}
+        onOpenChange={setRecordPaymentOpen}
+        studentName={name || email || 'this lead'}
+        amount={recordPaymentAmount}
+        description={recordPaymentContext}
+        onUploadReceipt={handleRecordReceiptUpload}
+        onRecord={handleRecordPayment}
       />
 
       {/* Mark as Paid dialog */}

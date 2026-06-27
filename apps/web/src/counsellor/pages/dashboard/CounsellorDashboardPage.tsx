@@ -61,6 +61,23 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+// Presence-aware delta read: returns the percent ONLY when the backend supplied
+// a real numeric value (finite number or numeric string). A missing/null field
+// yields `undefined` so the KPI card renders no comparison badge — never a
+// fabricated 0%. A genuine 0 from the backend is preserved.
+function asDeltaPct(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
 /* ─── Target progress ring (SVG, indigo→violet gradient) ────── */
 
 function TargetProgress({ target, achieved }: { target: number; achieved: number }) {
@@ -208,7 +225,7 @@ interface CourseRow {
 function CoursePerformance({ data }: { data: CourseRow[] }) {
   const total = data.reduce((a, b) => a + b.admissions, 0);
   return (
-    <Card className="p-6 shadow-[var(--shadow-soft)] border-border/70">
+    <Card className="h-full p-6 shadow-[var(--shadow-soft)] border-border/70">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Course Performance</h3>
@@ -309,7 +326,7 @@ function relativeTime(iso: string): string {
 
 function RecentActivity({ activities }: { activities: ActivityRow[] }) {
   return (
-    <Card className="p-6 shadow-[var(--shadow-soft)] border-border/70">
+    <Card className="h-full p-6 shadow-[var(--shadow-soft)] border-border/70">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold">Recent Activity</h3>
@@ -502,7 +519,6 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
     }));
 
     const pipeline = asRecord(root.pipelineSnapshot);
-    const deltas = asRecord(root.deltas);
     const activities: ActivityRow[] = toRecords(root.recentActivity).map((row) => ({
       id: asString(row.id),
       type: asString(row.type),
@@ -512,9 +528,12 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
     }));
 
     return {
-      deltaApplications: asNumber(deltas.totalApplications),
-      deltaEnrollments: asNumber(deltas.totalEnrollments),
-      deltaPending: asNumber(deltas.pendingApplications),
+      // Rolling 30-day comparison deltas (last 30 days vs prior 30 days),
+      // integer percent, supplied per-KPI under `kpis`. Presence-aware: a card
+      // only shows a comparison badge when a real delta exists.
+      deltaApplications: asDeltaPct(kpis.applicationsDeltaPct),
+      deltaEnrollments: asDeltaPct(kpis.enrollmentsDeltaPct),
+      deltaPending: asDeltaPct(kpis.pendingDeltaPct),
       monthlyTargetPoint: asNumber(kpis.monthlyTargetPoint),
       targetAchieved: asNumber(kpis.targetAchieved),
       achievementPct: asNumber(kpis.achievementPct),
@@ -606,7 +625,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           value={view.totalApplications.toLocaleString()}
           icon={ClipboardList}
           tone="info"
-          delta={view.deltaApplications}
+          {...(view.deltaApplications !== undefined ? { delta: view.deltaApplications } : {})}
           progress={conversionPct}
           sub={`${view.totalEnrollments.toLocaleString()} enrolled`}
         />
@@ -615,7 +634,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           value={view.totalEnrollments.toLocaleString()}
           icon={GraduationCap}
           tone="success"
-          delta={view.deltaEnrollments}
+          {...(view.deltaEnrollments !== undefined ? { delta: view.deltaEnrollments } : {})}
           progress={conversionPct}
           sub={`${conversionPct}% conversion`}
         />
@@ -624,7 +643,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
           value={view.pendingApplications.toLocaleString()}
           icon={Timer}
           tone="warning"
-          delta={view.deltaPending}
+          {...(view.deltaPending !== undefined ? { delta: view.deltaPending } : {})}
           progress={pendingPct}
           sub={`of ${view.totalApplications.toLocaleString()} total`}
         />
@@ -645,9 +664,9 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
         </div>
       </div>
 
-      {/* Course + Recent activity */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      {/* Course + Recent activity — equal-height row (Naji 2026-06-27) */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3 items-stretch">
+        <div className="lg:col-span-2 h-full">
           <CoursePerformance data={view.courseData} />
         </div>
         <RecentActivity activities={view.activities} />

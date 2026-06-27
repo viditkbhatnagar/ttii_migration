@@ -1,9 +1,19 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, CalendarPlus, CalendarRange, Download, Eye, Search, Users } from 'lucide-react';
+import {
+  CheckCircle2,
+  Download,
+  Eye,
+  PauseCircle,
+  Search,
+  UserCheck,
+  Users,
+  UserX,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Select,
   SelectContent,
@@ -19,35 +29,37 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, toRecords, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 import { KpiCard } from '../../components/CounsellorWidgets.js';
-
-const RANGE_DAYS: Record<string, number> = { '30': 30, '90': 90, '180': 180 };
-const MS_PER_DAY = 86_400_000;
 
 function rowId(row: Record<string, unknown>): string {
   return asString(row._id) || asString(row.id);
 }
 
 function rowEmail(row: Record<string, unknown>): string {
-  return asString(row.email) || asString(row.user_email);
+  return asString(row.user_email) || asString(row.email);
 }
 
-// Prototype date style: "12 Sep 2026" (guards invalid/empty dates).
-function formatEnrolled(value: unknown): string {
-  const str = asString(value);
-  if (!str) return '—';
-  const date = new Date(str);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+function rowCourse(row: Record<string, unknown>): string {
+  return asString(row.course_title) || asString(row.course_name);
 }
+
+// Real `status_label` from listStudents: Active | Inactive | Graduated | Dropped.
+function rowStatus(row: Record<string, unknown>): string {
+  return asString(row.status_label) || 'Unknown';
+}
+
+// Map the real status_label onto the prototype's pill palette (semantic tokens).
+const STATUS_STYLES: Record<string, string> = {
+  Active: 'border-transparent bg-info-soft text-info',
+  Graduated: 'border-transparent bg-success-soft text-success',
+  Inactive: 'border-transparent bg-warning-soft text-warning',
+  Dropped: 'border-transparent bg-destructive-soft text-destructive',
+};
 
 function initials(name: string): string {
   return (
@@ -70,55 +82,51 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
 
   const [search, setSearch] = useState('');
   const [course, setCourse] = useState('all');
-  const [range, setRange] = useState('all');
+  const [status, setStatus] = useState('all');
 
   const courses = useMemo(
-    () => Array.from(new Set(rows.map((r) => asString(r.course_name)).filter(Boolean))).sort(),
+    () => Array.from(new Set(rows.map(rowCourse).filter(Boolean))).sort(),
     [rows],
   );
 
   const filtered = useMemo(() => {
-    const cutoff = range === 'all' ? 0 : Date.now() - (RANGE_DAYS[range] ?? 0) * MS_PER_DAY;
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (course !== 'all' && asString(r.course_name) !== course) return false;
-      if (cutoff > 0) {
-        const enrolled = new Date(asString(r.created_at)).getTime();
-        if (Number.isFinite(enrolled) && enrolled < cutoff) return false;
-      }
+      if (course !== 'all' && rowCourse(r) !== course) return false;
+      if (status !== 'all' && rowStatus(r) !== status) return false;
       if (q) {
-        return `${asString(r.name)} ${asString(r.enrollment_id)} ${rowEmail(r)} ${asString(
-          r.phone,
-        )} ${asString(r.course_name)}`
+        return `${asString(r.name)} ${asString(r.student_id)} ${asString(
+          r.enrollment_id,
+        )} ${rowEmail(r)} ${asString(r.phone)} ${rowCourse(r)}`
           .toLowerCase()
           .includes(q);
       }
       return true;
     });
-  }, [rows, search, course, range]);
+  }, [rows, search, course, status]);
 
+  // KPI counts derived entirely from the real status_label field.
   const total = rows.length;
-  const distinctCourses = courses.length;
-  const newThisMonth = useMemo(() => {
-    const cutoff = Date.now() - 30 * MS_PER_DAY;
-    return rows.filter((r) => {
-      const t = new Date(asString(r.created_at)).getTime();
-      return Number.isFinite(t) && t >= cutoff;
-    }).length;
-  }, [rows]);
+  const active = useMemo(() => rows.filter((r) => rowStatus(r) === 'Active').length, [rows]);
+  const completed = useMemo(() => rows.filter((r) => rowStatus(r) === 'Graduated').length, [rows]);
+  const onHold = useMemo(() => rows.filter((r) => rowStatus(r) === 'Inactive').length, [rows]);
+  const dropped = useMemo(() => rows.filter((r) => rowStatus(r) === 'Dropped').length, [rows]);
+  const pct = (n: number) => (total ? (n / total) * 100 : 0);
 
-  const open = (row: Record<string, unknown>) => onNavigate(`/counsellor/students/view/${rowId(row)}`);
+  const open = (row: Record<string, unknown>) =>
+    onNavigate(`/counsellor/students/view/${rowId(row)}`);
 
   function exportCsv(): void {
-    const headers = ['Name', 'Enrolment ID', 'Email', 'Phone', 'Course', 'Enrolled On'];
+    const headers = ['Student ID', 'Enrolment ID', 'Name', 'Email', 'Phone', 'Course', 'Status'];
     const lines = filtered.map((r) =>
       [
-        asString(r.name),
+        asString(r.student_id),
         asString(r.enrollment_id),
+        asString(r.name),
         rowEmail(r),
         asString(r.phone),
-        asString(r.course_name),
-        formatDate(r.created_at),
+        rowCourse(r),
+        rowStatus(r),
       ]
         .map((v) => `"${v.replace(/"/g, '""')}"`)
         .join(','),
@@ -137,7 +145,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
   if (loading) return <DashboardLoader label="enrolments" />;
   if (error) {
     return (
-      <Card className="p-5 shadow-[var(--shadow-soft)] border-border/70">
+      <Card className="border-border/70 p-5 shadow-[var(--shadow-soft)]">
         <p role="alert" className="py-8 text-center text-sm text-destructive">
           {error}
         </p>
@@ -160,8 +168,8 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
         </Button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* KPIs — mirrors the prototype's five-card row, counts from real status */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           label="Total Students"
           value={String(total)}
@@ -171,20 +179,36 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
           sub="All-time converted"
         />
         <KpiCard
-          label="Active Courses"
-          value={String(distinctCourses)}
-          icon={BookOpen}
+          label="Active Students"
+          value={String(active)}
+          icon={UserCheck}
           tone="info"
-          progress={total ? Math.min(100, (distinctCourses / total) * 100) : 0}
-          sub="Distinct programmes"
+          progress={pct(active)}
+          sub={`${Math.round(pct(active))}% currently learning`}
         />
         <KpiCard
-          label="New This Month"
-          value={String(newThisMonth)}
-          icon={CalendarPlus}
+          label="Completed Students"
+          value={String(completed)}
+          icon={CheckCircle2}
           tone="success"
-          progress={total ? (newThisMonth / total) * 100 : 0}
-          sub="Enrolled in last 30 days"
+          progress={pct(completed)}
+          sub="Graduated cohorts"
+        />
+        <KpiCard
+          label="On Hold Students"
+          value={String(onHold)}
+          icon={PauseCircle}
+          tone="warning"
+          progress={pct(onHold)}
+          sub="Temporarily paused"
+        />
+        <KpiCard
+          label="Dropout Students"
+          value={String(dropped)}
+          icon={UserX}
+          tone="destructive"
+          progress={pct(dropped)}
+          sub="Discontinued"
         />
       </div>
 
@@ -213,16 +237,16 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               ))}
             </SelectContent>
           </Select>
-          <Select value={range} onValueChange={setRange}>
-            <SelectTrigger className="md:w-44">
-              <CalendarRange className="mr-1.5 h-4 w-4 text-muted-foreground" />
-              <SelectValue />
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="md:w-40">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent className="counsellor-theme">
-              <SelectItem value="30">Last 30 days</SelectItem>
-              <SelectItem value="90">Last 90 days</SelectItem>
-              <SelectItem value="180">Last 6 months</SelectItem>
-              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="Active">Active</SelectItem>
+              <SelectItem value="Graduated">Completed</SelectItem>
+              <SelectItem value="Inactive">On Hold</SelectItem>
+              <SelectItem value="Dropped">Dropped</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -237,16 +261,17 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                 <TableHead className="w-16">Sl No</TableHead>
                 <TableHead>Student ID</TableHead>
                 <TableHead>Student</TableHead>
-                <TableHead>Phone</TableHead>
                 <TableHead>Course</TableHead>
-                <TableHead>Enrolled</TableHead>
+                <TableHead>Batch</TableHead>
+                <TableHead>Centre</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                     No students match your filters.
                   </TableCell>
                 </TableRow>
@@ -254,6 +279,9 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               {filtered.map((r, index) => {
                 const name = asString(r.name) || '—';
                 const id = rowId(r);
+                const photo = asString(r.image) || asString(r.profile_picture);
+                const studentId = asString(r.student_id) || asString(r.enrollment_id) || '—';
+                const st = rowStatus(r);
                 return (
                   <TableRow key={id || index} className="hover:bg-muted/30">
                     <TableCell className="text-sm text-muted-foreground">{index + 1}</TableCell>
@@ -263,7 +291,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                         onClick={() => open(r)}
                         className="font-mono text-xs font-medium text-primary hover:underline"
                       >
-                        {asString(r.enrollment_id) || '—'}
+                        {studentId}
                       </button>
                     </TableCell>
                     <TableCell>
@@ -273,6 +301,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                         className="flex items-center gap-2.5 text-left"
                       >
                         <Avatar className="h-8 w-8">
+                          {photo ? <AvatarImage src={photo} alt={name} /> : null}
                           <AvatarFallback className="bg-primary-soft text-xs font-semibold text-accent-foreground">
                             {initials(name)}
                           </AvatarFallback>
@@ -283,14 +312,22 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                         </div>
                       </button>
                     </TableCell>
+                    <TableCell className="text-sm font-medium">{rowCourse(r) || '—'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {asString(r.phone) || '—'}
+                      {asString(r.batch_title) || '—'}
                     </TableCell>
-                    <TableCell className="text-sm font-medium">
-                      {asString(r.course_name) || '—'}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {asString(r.centre_name) || '—'}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {formatEnrolled(r.created_at)}
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          STATUS_STYLES[st] ?? 'border-border text-muted-foreground',
+                        )}
+                      >
+                        {st === 'Graduated' ? 'Completed' : st === 'Inactive' ? 'On Hold' : st}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
