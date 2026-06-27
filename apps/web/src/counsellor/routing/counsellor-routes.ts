@@ -27,6 +27,7 @@ const CounsellorReferralsPage = lazy(() => import('../pages/referrals/Counsellor
 const CounsellorSettingsPage = lazy(() => import('../pages/settings/CounsellorSettingsPage.js'));
 const CounsellorPerformancePage = lazy(() => import('../pages/performance/CounsellorPerformancePage.js'));
 const CounsellorCoursesPage = lazy(() => import('../pages/courses/CounsellorCoursesPage.js'));
+const CounsellorCourseDetailPage = lazy(() => import('../pages/courses/CounsellorCourseDetailPage.js'));
 const CounsellorReportsPage = lazy(() => import('../pages/reports/CounsellorReportsPage.js'));
 const CounsellorPaymentsPage = lazy(() => import('../pages/payments/CounsellorPaymentsPage.js'));
 const CounsellorTrainingPage = lazy(() => import('../pages/training/CounsellorTrainingPage.js'));
@@ -51,6 +52,7 @@ export const COUNSELLOR_ROUTES: CounsellorRouteConfig[] = [
   { path: '/counsellor/targets', pageComponent: CounsellorTargetsPage, title: 'My Targets' },
   { path: '/counsellor/performance', pageComponent: CounsellorPerformancePage, title: 'Performance' },
   { path: '/counsellor/courses', pageComponent: CounsellorCoursesPage, title: 'Courses' },
+  { path: '/counsellor/courses/view/:id', pageComponent: CounsellorCourseDetailPage, title: 'Course Detail' },
   { path: '/counsellor/payments', pageComponent: CounsellorPaymentsPage, title: 'Payments' },
   { path: '/counsellor/training', pageComponent: CounsellorTrainingPage, title: 'Training' },
   { path: '/counsellor/reports', pageComponent: CounsellorReportsPage, title: 'Reports' },

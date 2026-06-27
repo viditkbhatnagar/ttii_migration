@@ -246,7 +246,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                       <p className="text-[11px] text-muted-foreground">Fee</p>
                       <p className="text-lg font-bold">{formatPrice(c.price)}</p>
                     </div>
-                    <Button size="sm" onClick={() => onNavigate('/counsellor/courses')}>
+                    <Button size="sm" onClick={() => onNavigate(`/counsellor/courses/view/${asString(c.id)}`)}>
                       View Details
                     </Button>
                   </div>
@@ -322,7 +322,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => onNavigate('/counsellor/courses')}
+                          onClick={() => onNavigate(`/counsellor/courses/view/${asString(c.id)}`)}
                         >
                           View
                         </Button>

@@ -206,6 +206,26 @@ export class CounsellorPortalApi {
     return toRecords(payload.data);
   }
 
+  // Course detail (counsellor Courses → individual view). Same /course/*
+  // endpoints the student detail page uses (requireAuth — counsellor token is
+  // valid). Naji 2026-06-26.
+  async getCourseDetail(authToken: string, courseId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/course/get_course_details', authToken, { course_id: courseId });
+    return (payload.data as Record<string, unknown> | null) ?? null;
+  }
+  async getCourseSubjects(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_subjects', authToken, { course_id: courseId });
+    return toRecords(payload.data);
+  }
+  async getCourseLessons(authToken: string, subjectId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons', authToken, { subject_id: subjectId });
+    return toRecords(payload.data);
+  }
+  async getCourseLessonsDirect(authToken: string, courseId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/course/get_lessons_direct', authToken, { course_id: courseId });
+    return toRecords(payload.data);
+  }
+
   /**
    * Rich counsellor dashboard payload (KPIs, admissions trend, course
    * performance, pipeline snapshot) from the dedicated backend endpoint.

@@ -86,6 +86,15 @@ export function firstValueByKey(rows: Record<string, unknown>[], key: string): s
 export function formatDate(value: unknown): string {
   const str = asString(value);
   if (!str) return '';
+  // Date-only strings (YYYY-MM-DD) must be read as LOCAL date parts. Passing
+  // them to `new Date()` parses as UTC midnight, which shifts back a day in
+  // IST (UTC+5:30) — e.g. 2026-09-01 would render as 31/08/2026. Recurring
+  // gotcha: never feed a bare date string to the Date constructor.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    return `${d}/${m}/${y}`;
+  }
   try {
     const date = new Date(str);
     if (Number.isNaN(date.getTime())) return str;
