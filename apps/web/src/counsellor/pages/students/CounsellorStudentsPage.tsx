@@ -224,7 +224,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Select value={course} onValueChange={setCourse}>
+          <Select value={course} onValueChange={(v) => { if (v) setCourse(v); }}>
             <SelectTrigger className="md:w-48">
               <SelectValue placeholder="Course" />
             </SelectTrigger>

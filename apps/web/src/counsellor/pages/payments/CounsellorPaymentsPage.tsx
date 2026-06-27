@@ -324,7 +324,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
                 ))}
               </SelectContent>
             </Select>
-            <Select value={course} onValueChange={setCourse}>
+            <Select value={course} onValueChange={(v) => { if (v) setCourse(v); }}>
               <SelectTrigger className="md:w-44" aria-label="Filter by course">
                 <SelectValue placeholder="Course" />
               </SelectTrigger>

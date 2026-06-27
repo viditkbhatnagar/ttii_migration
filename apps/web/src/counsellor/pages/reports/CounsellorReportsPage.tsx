@@ -405,7 +405,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
                 <label className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
                   <Filter className="h-3 w-3" /> Course
                 </label>
-                <Select value={course} onValueChange={setCourse}>
+                <Select value={course} onValueChange={(v) => { if (v) setCourse(v); }}>
                   <SelectTrigger className="mt-1 h-9">
                     <SelectValue />
                   </SelectTrigger>

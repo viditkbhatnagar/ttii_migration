@@ -189,7 +189,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
               className="pl-9"
             />
           </div>
-          <Select value={level} onValueChange={setLevel}>
+          <Select value={level} onValueChange={(v) => { if (v) setLevel(v); }}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Level" />
             </SelectTrigger>

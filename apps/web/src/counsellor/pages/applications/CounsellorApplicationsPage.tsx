@@ -256,6 +256,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
           <Select
             value={course}
             onValueChange={(v) => {
+              if (!v) return;
               setCourse(v);
               setPage(1);
             }}
@@ -275,6 +276,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
           <Select
             value={offering}
             onValueChange={(v) => {
+              if (!v) return;
               setOffering(v);
               setPage(1);
             }}
