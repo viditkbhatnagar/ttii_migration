@@ -114,9 +114,15 @@ export function CounsellorAddLeadDialog({
   const lastCourseIdRef = useRef('');
   /* Pending offering / combination ids from the edit prefill — applied once
    * the cascading loaders finish populating the dropdowns. Refs (not state) so
-   * consuming the pending value doesn't re-trigger an effect that wipes it. */
+   * consuming the pending value doesn't re-trigger an effect that wipes it.
+   * The *Label refs hold the title getApplication already resolved, so we can
+   * inject a synthetic dropdown option when the list query doesn't surface the
+   * saved row (status filter, or the offering's course_id differs from the
+   * lead's) — otherwise the field silently went blank (Naji 2026-06-27). */
   const pendingOfferingIdRef = useRef('');
+  const pendingOfferingLabelRef = useRef('');
   const pendingCombinationIdRef = useRef('');
+  const pendingCombinationLabelRef = useRef('');
 
   /* ── Load published courses on open ── */
   useEffect(() => {
@@ -174,7 +180,9 @@ export function CounsellorAddLeadDialog({
         if (cc) setCountryCode(cc);
         setSource(normalizeLegacySource(asString(r.marketing_source) || asString(r.lead_source)));
         pendingOfferingIdRef.current = asString(r.offering_id);
+        pendingOfferingLabelRef.current = asString(r.offering_title);
         pendingCombinationIdRef.current = asString(r.certificate_combination_id);
+        pendingCombinationLabelRef.current = asString(r.combination_title);
         // Set courseId LAST — triggers the offering / combination loaders.
         setCourseId(asString(r.course_id));
       } catch {
@@ -230,10 +238,24 @@ export function CounsellorAddLeadDialog({
             list = await api.admin.listOfferings(session.token, { course_id: courseId });
           } catch { /* keep active list */ }
         }
-        setOfferings(list);
-        if (pendingOff && list.some((r) => asString(r.id) === pendingOff)) {
+        if (pendingOff) {
+          // Always restore the saved offering. If neither query surfaced it
+          // (e.g. the offering's course_id differs from the lead's course_id,
+          // or it was archived), inject a synthetic row from the title that
+          // getApplication already returned so the field shows the saved value
+          // instead of silently going blank (Naji 2026-06-27).
+          if (!list.some((r) => asString(r.id) === pendingOff)) {
+            list = [
+              { id: pendingOff, title: pendingOfferingLabelRef.current || `Offering ${pendingOff}` },
+              ...list,
+            ];
+          }
+          setOfferings(list);
           setOfferingId(pendingOff);
           pendingOfferingIdRef.current = '';
+          pendingOfferingLabelRef.current = '';
+        } else {
+          setOfferings(list);
         }
       })
       .catch(() => setOfferings([]));
@@ -267,10 +289,22 @@ export function CounsellorAddLeadDialog({
             list = await api.admin.listCertificateCombinations(session.token, { course_id: courseId });
           } catch { /* keep current list */ }
         }
-        setCombinations(list);
-        if (pendingCombo && list.some((r) => asString(r.id) === pendingCombo)) {
+        if (pendingCombo) {
+          // Always restore the saved combination — inject a synthetic row from
+          // the title getApplication returned if neither query surfaced it, so
+          // the field never goes blank in edit mode (Naji 2026-06-27).
+          if (!list.some((r) => asString(r.id) === pendingCombo)) {
+            list = [
+              { id: pendingCombo, combination_code: pendingCombinationLabelRef.current || `Combination ${pendingCombo}` },
+              ...list,
+            ];
+          }
+          setCombinations(list);
           setCombinationId(pendingCombo);
           pendingCombinationIdRef.current = '';
+          pendingCombinationLabelRef.current = '';
+        } else {
+          setCombinations(list);
         }
       } catch {
         setCombinations([]);
@@ -326,7 +360,9 @@ export function CounsellorAddLeadDialog({
     setCombinations([]);
     lastCourseIdRef.current = '';
     pendingOfferingIdRef.current = '';
+    pendingOfferingLabelRef.current = '';
     pendingCombinationIdRef.current = '';
+    pendingCombinationLabelRef.current = '';
   };
 
   const handleOpenChange = (o: boolean) => {
