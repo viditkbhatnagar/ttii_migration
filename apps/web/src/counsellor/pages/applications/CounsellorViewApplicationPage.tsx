@@ -293,14 +293,6 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     }
   }, [admin, session.token, applicationId, reload]);
 
-  const handleMarkPaid = useCallback(() => {
-    if (!applicationId) return;
-    setMarkPaidMode('cash');
-    setMarkPaidReference('');
-    setMarkPaidReceiptUrl('');
-    setMarkPaidOpen(true);
-  }, [applicationId]);
-
   const handleSubmitMarkPaid = useCallback(async () => {
     if (!applicationId) return;
     if (!markPaidReference.trim()) {
@@ -502,10 +494,19 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
   const manual = savedPlan?.manual_payment;
 
-  // Expected amount for the Record Payment modal (display-only). Prefer the
-  // saved plan total (inc-GST), else the application's final course fee. Left
-  // at 0 — and gracefully hidden in the modal — when neither is available.
+  // Expected amount for the Record Payment modal (display-only). Record Payment
+  // is triggered on the FIRST instalment row (the amount due now), so show that
+  // row's inc-GST amount — not the full plan total (Naji 2026-06-29). Falls back
+  // to the plan total / final course fee for a full-payment plan or when no
+  // instalment rows exist; 0 (and hidden in the modal) when nothing is known.
   const recordPaymentAmount = (() => {
+    const rows = Array.isArray(savedPlan?.installments) ? savedPlan.installments : [];
+    const first = rows[0];
+    if (first) {
+      const a = Number(first.amountMinor ?? first.amount_minor ?? 0) / 100;
+      const g = Number(first.gstPercent ?? first.gst_percent ?? 0);
+      if (a > 0) return a + (a * g) / 100;
+    }
     const planTotalMinor = Number(savedPlan?.total_amount_minor ?? 0);
     if (planTotalMinor > 0) return planTotalMinor / 100;
     const finalFee = Number(asString(app.final_course_fee).replace(/[^0-9.]/g, ''));
@@ -536,13 +537,8 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
       </Button>,
     );
   }
-  if (stage === 'payment_pending') {
-    headerActions.push(
-      <Button key="paid" size="sm" className="gap-1.5 bg-success text-success-foreground hover:bg-success/90" disabled={submitting} onClick={() => void handleMarkPaid()}>
-        <CheckCircle2 className="h-4 w-4" /> Mark Paid
-      </Button>,
-    );
-  }
+  // Mark Paid removed from the header (Naji 2026-06-29) — recording an offline
+  // payment is done via the Record Payment button on the payment plan row.
   if (stage === 'paid' || stage === 'form_pending') {
     headerActions.push(
       <Button key="form" size="sm" className="gap-1.5" disabled={submitting} onClick={() => void handleSendFormLink()}>

@@ -31,10 +31,15 @@ export function SessionExpiredDialog() {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
 
-  // Full reload to the login landing — clears all stale in-memory state and
-  // re-runs the auth bootstrap on a clean slate.
+  // "Stay Signed In" simply DISMISSES the dialog and keeps the user where they
+  // are on their current session — it must NOT navigate to '/', which reloads
+  // to the login landing and effectively logs them out (Naji 2026-06-29: "Stay
+  // Signed In was also logging out"). Many of these 401s are transient / a
+  // single endpoint hiccup, so the session is usually still valid; if it truly
+  // is dead, the next data call simply re-raises this dialog. Only "Log Out"
+  // ends the session.
   const staySignedIn = (): void => {
-    window.location.assign('/');
+    setOpen(false);
   };
 
   const handleLogout = async (): Promise<void> => {
