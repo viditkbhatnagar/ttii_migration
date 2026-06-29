@@ -32,7 +32,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
+import { asNumber, asString, formatDate, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 import { KpiCard } from '../../components/CounsellorWidgets.js';
 
@@ -53,12 +53,33 @@ function rowStatus(row: Record<string, unknown>): string {
   return asString(row.status_label) || 'Unknown';
 }
 
-// Map the real status_label onto the prototype's pill palette (semantic tokens).
+// Map the real status_label onto the prototype's "Progress" pill palette
+// (semantic tokens). The reference column pairs this badge with a progress
+// percentage + bar; our loader does not return a progress %, so we render the
+// status badge and a dash for the missing percentage (see summary gaps).
 const STATUS_STYLES: Record<string, string> = {
   Active: 'border-transparent bg-info-soft text-info',
   Graduated: 'border-transparent bg-success-soft text-success',
   Inactive: 'border-transparent bg-warning-soft text-warning',
   Dropped: 'border-transparent bg-destructive-soft text-destructive',
+};
+
+// Reference labels the four states Active / Completed / On Hold / Dropped.
+// Our real status_label uses Active / Graduated / Inactive / Dropped.
+function statusDisplayLabel(status: string): string {
+  if (status === 'Graduated') return 'Completed';
+  if (status === 'Inactive') return 'On Hold';
+  return status;
+}
+
+// fee_status from loadStudents: Paid | Partial | Pending | Overdue.
+// Semantic soft tokens mirror the reference's feeStatusStyles palette:
+// Paid=success, Partial/Pending=warning, Overdue=destructive.
+const FEE_STATUS_STYLES: Record<string, string> = {
+  Paid: 'border-transparent bg-success-soft text-success',
+  Partial: 'border-transparent bg-warning-soft text-warning',
+  Pending: 'border-transparent bg-warning-soft text-warning',
+  Overdue: 'border-transparent bg-destructive-soft text-destructive',
 };
 
 function initials(name: string): string {
@@ -82,6 +103,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
 
   const [search, setSearch] = useState('');
   const [course, setCourse] = useState('all');
+  const [offering, setOffering] = useState('all');
   const [status, setStatus] = useState('all');
 
   const courses = useMemo(
@@ -89,10 +111,17 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
     [rows],
   );
 
+  // The reference's "Offering" filter. Our real analog is the enrolment batch.
+  const offerings = useMemo(
+    () => Array.from(new Set(rows.map((r) => asString(r.batch_title)).filter(Boolean))).sort(),
+    [rows],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (course !== 'all' && rowCourse(r) !== course) return false;
+      if (offering !== 'all' && asString(r.batch_title) !== offering) return false;
       if (status !== 'all' && rowStatus(r) !== status) return false;
       if (q) {
         return `${asString(r.name)} ${asString(r.student_id)} ${asString(
@@ -103,7 +132,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
       }
       return true;
     });
-  }, [rows, search, course, status]);
+  }, [rows, search, course, offering, status]);
 
   // KPI counts derived entirely from the real status_label field.
   const total = rows.length;
@@ -214,7 +243,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
 
       {/* Filters */}
       <Card className="border-border/70 p-4 shadow-[var(--shadow-soft)]">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -233,6 +262,19 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
               {courses.map((c) => (
                 <SelectItem key={c} value={c}>
                   {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={offering} onValueChange={(v) => { if (v) setOffering(v); }}>
+            <SelectTrigger className="md:w-44">
+              <SelectValue placeholder="Offering" />
+            </SelectTrigger>
+            <SelectContent className="counsellor-theme">
+              <SelectItem value="all">All Offerings</SelectItem>
+              {offerings.map((o) => (
+                <SelectItem key={o} value={o}>
+                  {o}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -262,16 +304,17 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                 <TableHead>Student ID</TableHead>
                 <TableHead>Student</TableHead>
                 <TableHead>Course</TableHead>
-                <TableHead>Batch</TableHead>
-                <TableHead>Centre</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Offering</TableHead>
+                <TableHead>Enrolled</TableHead>
+                <TableHead>Fee Status</TableHead>
+                <TableHead className="min-w-44">Progress</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
                     No students match your filters.
                   </TableCell>
                 </TableRow>
@@ -282,6 +325,20 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                 const photo = asString(r.image) || asString(r.profile_picture);
                 const studentId = asString(r.student_id) || asString(r.enrollment_id) || '—';
                 const st = rowStatus(r);
+                // Reference "Offering" column. Our loader has no offering field;
+                // the closest real datum is the enrolment batch, so we surface
+                // batch_title here and dash when absent. Named offeringTitle so
+                // it does not shadow the `offering` filter state.
+                const offeringTitle = asString(r.batch_title);
+                // Enrolled date — formatDate guards bare YYYY-MM-DD (no new Date()).
+                const enrolledDate = formatDate(r.enrolled_date);
+                const feeStatus = asString(r.fee_status);
+                // Progress percentage is optional (0-100). Render the bar only
+                // when the loader actually returns it; otherwise keep status only.
+                const hasProgress = r.progress_pct !== null && r.progress_pct !== undefined;
+                const progressPct = hasProgress
+                  ? Math.max(0, Math.min(100, Math.round(asNumber(r.progress_pct))))
+                  : null;
                 return (
                   <TableRow key={id || index} className="hover:bg-muted/30">
                     <TableCell className="text-sm text-muted-foreground">{index + 1}</TableCell>
@@ -314,20 +371,62 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
                     </TableCell>
                     <TableCell className="text-sm font-medium">{rowCourse(r) || '—'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {asString(r.batch_title) || '—'}
+                      {offeringTitle || '—'}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {asString(r.centre_name) || '—'}
+                    {/* Enrolled date — real enrolled_date via formatDate. */}
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {enrolledDate || '—'}
                     </TableCell>
+                    {/* Fee Status — real fee_status: Paid/Partial/Pending/Overdue. */}
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          STATUS_STYLES[st] ?? 'border-border text-muted-foreground',
-                        )}
-                      >
-                        {st === 'Graduated' ? 'Completed' : st === 'Inactive' ? 'On Hold' : st}
-                      </Badge>
+                      {feeStatus ? (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'py-0',
+                            FEE_STATUS_STYLES[feeStatus] ?? 'border-border text-muted-foreground',
+                          )}
+                        >
+                          {feeStatus}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    {/* Progress — status badge is always real; the percent + bar
+                        render only when progress_pct is present (no fake percent). */}
+                    <TableCell>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'py-0',
+                              STATUS_STYLES[st] ?? 'border-border text-muted-foreground',
+                            )}
+                          >
+                            {statusDisplayLabel(st)}
+                          </Badge>
+                          {progressPct !== null ? (
+                            <span className="font-semibold tabular-nums">{progressPct}%</span>
+                          ) : null}
+                        </div>
+                        {progressPct !== null ? (
+                          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={cn(
+                                'h-full rounded-full',
+                                st === 'Graduated'
+                                  ? 'bg-success'
+                                  : st === 'Inactive'
+                                    ? 'bg-warning'
+                                    : 'bg-primary',
+                              )}
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

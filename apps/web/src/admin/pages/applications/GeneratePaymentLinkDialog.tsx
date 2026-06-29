@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Trash2, Upload } from 'lucide-react';
+import { Plus, Trash2, Upload } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,17 @@ interface PlanRow {
   amount: number; // INR — instalment amount EXCLUDING GST
   gstPercent: number; // GST applied to this row
   dueDate: string; // yyyy-mm-dd
+}
+
+// Naji 2026-06-29 — extra ad-hoc discounts entered in the dialog. Each line
+// has a description + INR amount; the line amounts sum into an ADDITIONAL
+// discount subtracted from the base fee (on top of the offering's package
+// discount). No backend change is needed — the reduced amounts are what gets
+// sent.
+interface DiscountRow {
+  id: string;
+  description: string;
+  amount: number; // INR — discount amount (never negative)
 }
 
 interface Props {
@@ -142,6 +153,12 @@ export function GeneratePaymentLinkDialog({
   const [baseFee, setBaseFee] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [gstPercent, setGstPercent] = useState(18);
+
+  // Naji 2026-06-29 — ad-hoc "Add Discount" lines, applied on top of the
+  // package discount. IDs come from an incrementing ref (never Date.now/random
+  // in render). Starts empty so the admin breakdown is unchanged by default.
+  const [additionalDiscounts, setAdditionalDiscounts] = useState<DiscountRow[]>([]);
+  const discountIdRef = useRef(0);
   const [registrationFee, setRegistrationFee] = useState(0);
   const [registrationSplitCount, setRegistrationSplitCount] = useState(1);
   const [registrationDueNow, setRegistrationDueNow] = useState(0);
@@ -183,6 +200,8 @@ export function GeneratePaymentLinkDialog({
       setBaseFee(initialBaseFee ?? 0);
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
+      setAdditionalDiscounts([]);
+      discountIdRef.current = 0;
       setPackageFound(null);
       // Restore saved plan if one was passed in (Edit / Resend flow).
       if (initialSavedPlan && Array.isArray(initialSavedPlan.installments) && initialSavedPlan.installments.length > 0) {
@@ -266,15 +285,36 @@ export function GeneratePaymentLinkDialog({
     return () => { cancelled = true; };
   }, [open, api, authToken, offeringId, combinationId, initialBaseFee, initialDiscount, initialOfferedFee, initialGstPercent]);
 
+  // Sum of the ad-hoc discount lines (clamped at 0 per line, total clamped
+  // by Math.max below). Subtracted from the base fee on top of the package
+  // discount so Final Fee / Fee Inc GST update automatically.
+  const additionalDiscountTotal = useMemo(
+    () => additionalDiscounts.reduce((sum, d) => sum + (Number.isFinite(d.amount) && d.amount > 0 ? d.amount : 0), 0),
+    [additionalDiscounts],
+  );
+
+  // Naji 2026-06-29 — the discount lines sent to the backend for the audit
+  // trail (persisted into payment_plan). Only non-empty, positive-amount rows;
+  // the local `id` is dropped. Empty when there are none so the admin/full
+  // path body is unchanged. The backend does NOT re-apply these — the request
+  // amounts are already reduced by additionalDiscountTotal.
+  const additionalDiscountsPayload = useMemo(
+    () =>
+      additionalDiscounts
+        .filter((d) => d.description.trim() !== '' && Number.isFinite(d.amount) && d.amount > 0)
+        .map((d) => ({ description: d.description.trim(), amount: d.amount })),
+    [additionalDiscounts],
+  );
+
   const breakdown: PriceBreakdown = useMemo(() => {
-    const finalFee = Math.max(0, baseFee - discount);
+    const finalFee = Math.max(0, baseFee - discount - additionalDiscountTotal);
     const gstAmount = finalFee * (gstPercent / 100);
     return {
       baseFee, discount, finalFee, gstPercent,
       gstAmount,
       feeIncGst: finalFee + gstAmount,
     };
-  }, [baseFee, discount, gstPercent]);
+  }, [baseFee, discount, additionalDiscountTotal, gstPercent]);
 
   // Generate the payment plan rows per Naji's row-structure spec.
   //
@@ -373,6 +413,20 @@ export function GeneratePaymentLinkDialog({
     setPlan((cur) => cur ? cur.filter((_, i) => i !== idx) : cur);
   };
 
+  // Additional-discount row helpers. IDs derive from an incrementing ref so
+  // no Date.now()/Math.random() is called during render.
+  const addDiscountRow = () => {
+    discountIdRef.current += 1;
+    const id = `disc-${discountIdRef.current}`;
+    setAdditionalDiscounts((cur) => [...cur, { id, description: '', amount: 0 }]);
+  };
+  const updateDiscountRow = (id: string, patch: Partial<Omit<DiscountRow, 'id'>>) => {
+    setAdditionalDiscounts((cur) => cur.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  };
+  const removeDiscountRow = (id: string) => {
+    setAdditionalDiscounts((cur) => cur.filter((d) => d.id !== id));
+  };
+
   const planTotals = useMemo(() => {
     const rows = plan ?? [];
     let excl = 0; let gst = 0; let incl = 0;
@@ -405,6 +459,7 @@ export function GeneratePaymentLinkDialog({
           id: applicationId,
           mode: 'full',
           total_amount_minor: Math.round(total * 100),
+          ...(additionalDiscountsPayload.length > 0 ? { additional_discounts: additionalDiscountsPayload } : {}),
           expires_in_days: linkExpiryDays,
         });
         const m = (res as { message?: string }).message ?? '';
@@ -435,6 +490,7 @@ export function GeneratePaymentLinkDialog({
           gst_percent: r.gstPercent,
           due_date: r.dueDate,
         })),
+        ...(additionalDiscountsPayload.length > 0 ? { additional_discounts: additionalDiscountsPayload } : {}),
         expires_in_days: linkExpiryDays,
       });
       const m = (res as { message?: string }).message ?? '';
@@ -470,6 +526,7 @@ export function GeneratePaymentLinkDialog({
           gst_percent: r.gstPercent,
           due_date: r.dueDate,
         })),
+        ...(additionalDiscountsPayload.length > 0 ? { additional_discounts: additionalDiscountsPayload } : {}),
       });
       const m = (res as { message?: string }).message ?? '';
       if ((res as { status?: number }).status === 1) {
@@ -578,6 +635,12 @@ export function GeneratePaymentLinkDialog({
                   <td className="py-2 text-slate-500">Discount</td>
                   <td className="py-2 text-right font-medium text-slate-700">{fmtInr(breakdown.discount)}</td>
                 </tr>
+                {additionalDiscountTotal > 0 ? (
+                  <tr className="border-b border-slate-100">
+                    <td className="py-2 text-slate-500">Additional Discount</td>
+                    <td className="py-2 text-right font-medium text-slate-700">&minus;{fmtInr(additionalDiscountTotal)}</td>
+                  </tr>
+                ) : null}
                 <tr className="border-b border-slate-100">
                   <td className="py-2 font-semibold text-slate-700">Final Fee</td>
                   <td className="py-2 text-right font-semibold">{fmtInr(breakdown.finalFee)}</td>
@@ -598,6 +661,59 @@ export function GeneratePaymentLinkDialog({
                 ) : null}
               </tbody>
             </table>
+          </div>
+
+          {/* Additional discounts — Naji 2026-06-29. Each line subtracts from
+              the fee; the breakdown + plan / full amount update automatically.
+              Visible in both Full Payment and Installment modes. */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Additional Discount</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addDiscountRow}
+                className="h-8 gap-1 px-2 text-xs"
+              >
+                <Plus className="size-3.5" />
+                Add Discount
+              </Button>
+            </div>
+            {additionalDiscounts.length === 0 ? (
+              <p className="text-[11px] text-slate-400">
+                Add a one-off discount (e.g. scholarship, early-bird). The Final Fee, GST and instalments update automatically.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {additionalDiscounts.map((d) => (
+                  <div key={d.id} className="flex items-center gap-2">
+                    <Input
+                      value={d.description}
+                      onChange={(e) => updateDiscountRow(d.id, { description: e.target.value })}
+                      placeholder="Description (e.g. Scholarship)"
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      value={d.amount || ''}
+                      onChange={(e) => updateDiscountRow(d.id, { amount: Math.max(0, Number(e.target.value) || 0) })}
+                      placeholder="Amount (INR)"
+                      className="w-32"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeDiscountRow(d.id)}
+                      className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                      title="Remove discount"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Installment plan controls + generated plan */}

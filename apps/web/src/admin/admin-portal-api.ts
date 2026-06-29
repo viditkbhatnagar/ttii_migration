@@ -2695,6 +2695,10 @@ export class AdminPortalApi {
       total_amount_minor: number;
       registration_fee_minor?: number;
       installments?: Array<{ label: string; amount_minor: number; due_date: string }>;
+      // Ad-hoc discount lines entered in the dialog, persisted into the
+      // payment_plan JSON for the audit trail. Amounts are NOT re-applied by
+      // the backend — the request amounts are already net of these discounts.
+      additional_discounts?: Array<{ description: string; amount: number }>;
       expires_in_days?: number;
     },
   ): Promise<Record<string, unknown>> {
@@ -2709,6 +2713,8 @@ export class AdminPortalApi {
       total_amount_minor: number;
       registration_fee_minor?: number;
       installments?: Array<{ label: string; amount_minor: number; due_date: string }>;
+      // See generatePaymentLink — same audit-trail discount lines.
+      additional_discounts?: Array<{ description: string; amount: number }>;
     },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/payment-plan/save', authToken, input);

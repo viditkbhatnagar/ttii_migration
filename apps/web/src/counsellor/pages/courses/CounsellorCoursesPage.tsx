@@ -3,8 +3,9 @@ import {
   Award,
   BookOpen,
   Clock,
-  Filter,
   GraduationCap,
+  Laptop,
+  Layers,
   Search,
   TrendingUp,
   Users,
@@ -33,7 +34,12 @@ import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { cn } from '@/lib/utils';
 import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { asNumber, asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
+import {
+  asArray,
+  asNumber,
+  asString,
+  toRecords,
+} from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
 import { asRecord } from '../../components/CounsellorWidgets.js';
 
@@ -43,15 +49,32 @@ interface CourseCard {
   code: string;
   level: string;
   tagline: string;
+  duration: string;
   hours: number;
+  subjects: number;
   priceMin: number;
   priceMax: number;
   applications: number;
   enrollments: number;
   conversionPct: number;
+  // Course-card counts from loadCourses (computeCourseCounts). activeOfferings
+  // = active, non-deleted offerings; combinations = active certificate
+  // combinations; modes = distinct delivery modes across active offerings.
+  activeOfferings: number;
+  combinations: number;
+  modes: string[];
 }
 
 const levelStyles = 'bg-primary-soft text-accent-foreground border-primary/30';
+
+// learning_mode values are raw offering delivery_mode slugs (e.g. "cohort",
+// "self_paced"). Humanise them for badge display without dropping unknowns.
+function formatMode(mode: string): string {
+  return mode
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
 
 function formatPrice(n: number): string {
   if (n <= 0) return 'Free';
@@ -110,18 +133,31 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
         enrollments: 0,
         conversionPct: 0,
       };
+      // Distinct, de-duped, humanised delivery modes (drop blanks).
+      const modes = [
+        ...new Set(
+          asArray(c.learning_mode)
+            .map((m) => formatMode(asString(m)))
+            .filter((m) => m.length > 0),
+        ),
+      ];
       return {
         id,
         title: asString(c.title) || asString(c.short_name) || 'Untitled course',
         code: asString(c.course_code) || asString(c.code),
         level: asString(c.level) || asString(c.label),
         tagline: asString(c.short_description) || asString(c.description),
-        hours: asNumber(c.total_learning_hours) || asNumber(c.lessons_count),
+        duration: asString(c.duration),
+        hours: asNumber(c.total_learning_hours),
+        subjects: asNumber(c.subject_count) || asNumber(c.subjects),
         priceMin: Math.min(priceMin, priceMax),
         priceMax: Math.max(priceMin, priceMax),
         applications: perf.applications,
         enrollments: perf.enrollments,
         conversionPct: perf.conversionPct,
+        activeOfferings: asNumber(c.active_offering_count),
+        combinations: asNumber(c.combination_count),
+        modes,
       };
     });
   }, [data]);
@@ -202,9 +238,6 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Filter className="h-4 w-4" /> More
-          </Button>
         </div>
       </Card>
 
@@ -223,12 +256,20 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
               >
                 <div className="h-24 bg-[image:var(--gradient-primary)] relative">
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
-                  <div className="absolute top-3 left-3 flex gap-2">
+                  <div className="absolute top-3 left-3 right-3 flex flex-wrap gap-2">
                     {c.level ? (
                       <Badge className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30">
                         {c.level}
                       </Badge>
                     ) : null}
+                    {c.modes.map((m) => (
+                      <Badge
+                        key={m}
+                        className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+                      >
+                        {m}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
                 <div className="p-5">
@@ -236,28 +277,42 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                     {c.code || '—'}
                   </p>
                   <h3 className="mt-1 font-semibold text-base leading-tight">{c.title}</h3>
-                  {c.tagline ? (
-                    <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">
-                      {c.tagline}
-                    </p>
-                  ) : null}
+                  <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 min-h-[2rem]">
+                    {c.tagline || 'No description available.'}
+                  </p>
 
                   <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
-                    {c.hours > 0 ? (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Clock className="h-3.5 w-3.5" /> {c.hours}h learning
-                      </div>
-                    ) : null}
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <Users className="h-3.5 w-3.5" /> {c.applications} application
-                      {c.applications === 1 ? '' : 's'}
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      {c.duration || (c.hours > 0 ? `${c.hours}h learning` : '—')}
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <GraduationCap className="h-3.5 w-3.5" /> {c.enrollments} enrolled
+                      <Laptop className="h-3.5 w-3.5 shrink-0" />
+                      {c.activeOfferings} Active Offering{c.activeOfferings === 1 ? '' : 's'}
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <TrendingUp className="h-3.5 w-3.5" /> {c.conversionPct}% conversion
+                      <Layers className="h-3.5 w-3.5 shrink-0" />
+                      {c.subjects > 0
+                        ? `${c.subjects} subject${c.subjects === 1 ? '' : 's'}`
+                        : '—'}
                     </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Award className="h-3.5 w-3.5 shrink-0" />
+                      {c.combinations} Combination{c.combinations === 1 ? '' : 's'}
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Users className="h-3.5 w-3.5 shrink-0" />
+                      {c.applications} application{c.applications === 1 ? '' : 's'}
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <GraduationCap className="h-3.5 w-3.5 shrink-0" />
+                      {c.enrollments} enrolled
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                    <TrendingUp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {c.conversionPct}% conversion
                   </div>
 
                   <div className="mt-4 pt-4 border-t border-border flex items-end justify-between">
@@ -288,8 +343,12 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                 <TableHeader>
                   <TableRow className="bg-muted/40">
                     <TableHead>Course</TableHead>
+                    <TableHead>Duration</TableHead>
                     <TableHead>Level</TableHead>
-                    <TableHead className="text-right">Learning Hours</TableHead>
+                    <TableHead>Mode</TableHead>
+                    <TableHead className="text-right">Active Offering</TableHead>
+                    <TableHead className="text-right">Combinations</TableHead>
+                    <TableHead className="text-right">Subjects</TableHead>
                     <TableHead className="text-right">Applications</TableHead>
                     <TableHead className="text-right">Enrolled</TableHead>
                     <TableHead className="text-right">Conversion</TableHead>
@@ -314,6 +373,9 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                           </div>
                         </div>
                       </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {c.duration || '—'}
+                      </TableCell>
                       <TableCell>
                         {c.level ? (
                           <Badge variant="outline" className={cn('border', levelStyles)}>
@@ -323,8 +385,27 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
                           <span className="text-sm text-muted-foreground">—</span>
                         )}
                       </TableCell>
+                      <TableCell>
+                        {c.modes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {c.modes.map((m) => (
+                              <Badge
+                                key={m}
+                                variant="outline"
+                                className={cn('border', levelStyles)}
+                              >
+                                {m}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{c.activeOfferings}</TableCell>
+                      <TableCell className="text-right text-sm">{c.combinations}</TableCell>
                       <TableCell className="text-right text-sm">
-                        {c.hours > 0 ? `${c.hours}h` : '—'}
+                        {c.subjects > 0 ? c.subjects : '—'}
                       </TableCell>
                       <TableCell className="text-right text-sm">{c.applications}</TableCell>
                       <TableCell className="text-right text-sm">{c.enrollments}</TableCell>
