@@ -120,6 +120,88 @@ function safeParseJson(value: string): unknown {
   }
 }
 
+// enrol.enrollment_date is a free-text String (legacy: 'YYYY-MM-DD',
+// 'DD-MM-YYYY', ISO datetime, or junk); enrol.created_at is a DateTime.
+// Return an ISO date (YYYY-MM-DD) for the My Enrollments table, '' when
+// neither is usable. Parse date-only strings into LOCAL parts — never feed a
+// bare 'YYYY-MM-DD' to `new Date(str)` (parsed as UTC midnight → IST day-shift).
+function isoDateFromEnrolment(enrollmentDate: string | null | undefined, createdAt: Date | null | undefined): string {
+  const raw = (enrollmentDate ?? '').trim();
+  if (raw) {
+    // YYYY-MM-DD (optionally with a time component we ignore for the day).
+    const ymd = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (ymd && ymd[1] && ymd[2] && ymd[3]) {
+      const [, y, m, d] = ymd;
+      if (y !== '0000' && m !== '00' && d !== '00') {
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    }
+    // DD-MM-YYYY or DD/MM/YYYY (legacy PHP).
+    const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (dmy && dmy[1] && dmy[2] && dmy[3]) {
+      const [, d, m, y] = dmy;
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+  if (createdAt instanceof Date && !Number.isNaN(createdAt.getTime())) {
+    const y = createdAt.getFullYear();
+    const m = String(createdAt.getMonth() + 1).padStart(2, '0');
+    const d = String(createdAt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return '';
+}
+
+// Derive a per-student fee_status label from student_payments rows.
+// Rule (per student, across all their instalment rows):
+//   - no rows at all                          → 'Pending'
+//   - every row is paid                       → 'Paid'
+//   - at least one paid but not all           → 'Partial'
+//   - none paid AND some past due_date        → 'Overdue'
+//   - none paid AND nothing past due          → 'Pending'
+// A row counts as paid when status='Paid' OR it carries a non-null paid_date
+// (legacy zero-dates already NULLIF'd to NULL by the caller).
+function deriveFeeStatusByUser(
+  rows: Array<{ user_id: number; status: string | null; due_date: Date | null; paid_date: Date | null }>,
+): Map<number, string> {
+  type Acc = { total: number; paid: number; overdueUnpaid: number };
+  const acc = new Map<number, Acc>();
+  const now = new Date();
+  for (const r of rows) {
+    if (r.user_id === null || r.user_id === undefined) continue;
+    const a = acc.get(r.user_id) ?? { total: 0, paid: 0, overdueUnpaid: 0 };
+    a.total += 1;
+    const isPaid = (r.status ?? '').toLowerCase() === 'paid' || r.paid_date !== null;
+    if (isPaid) {
+      a.paid += 1;
+    } else {
+      // The MariaDB driver may hand back $queryRaw DATE columns as strings (not
+      // Date) — `instanceof Date` alone would silently never flag Overdue. Coerce
+      // (same defensive pattern used elsewhere for due_date). Day-level precision
+      // is fine for a past/future check.
+      const rawDue = r.due_date as unknown;
+      const due = rawDue instanceof Date ? rawDue : (rawDue ? new Date(rawDue as string) : null);
+      if (due && !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()) {
+        a.overdueUnpaid += 1;
+      }
+    }
+    acc.set(r.user_id, a);
+  }
+  const out = new Map<number, string>();
+  for (const [userId, a] of acc) {
+    let label: string;
+    if (a.total === 0 || a.paid === 0) {
+      label = a.overdueUnpaid > 0 ? 'Overdue' : 'Pending';
+    } else if (a.paid >= a.total) {
+      label = 'Paid';
+    } else {
+      label = 'Partial';
+    }
+    out.set(userId, label);
+  }
+  return out;
+}
+
 // Counsellor target type ⇄ int (the counsellor_target.type column is an Int).
 // The Add Target form sends a label ('Applications' | 'Enrolments' | 'Revenue').
 function targetTypeToInt(label: string): number {
@@ -1534,7 +1616,10 @@ export class OperationsService {
     const userIds = users.map(u => u.id);
     const enrolments = userIds.length > 0 ? await this.prisma.enrol.findMany({
       where: { user_id: { in: userIds }, deleted_at: null },
-      select: { user_id: true, course_id: true, enrollment_status: true, enrollment_id: true, batch_id: true },
+      select: { user_id: true, course_id: true, enrollment_status: true, enrollment_id: true, batch_id: true, enrollment_date: true, created_at: true },
+      // Earliest-first so the per-user "enrolled_date" (first-row-wins below)
+      // is the chronologically earliest enrolment, not arbitrary DB order.
+      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
     }) : [];
 
     // If batch filter, restrict to users who have enrolment in that batch
@@ -1564,6 +1649,99 @@ export class OperationsService {
     const batches = batchIds.length > 0 ? await this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [];
     const batchMap = new Map(batches.map(b => [b.id, b]));
 
+    // Counsellor My Enrollments table (Naji 2026-06-29) — three additive,
+    // fully batched per-student fields: enrolled_date, fee_status, progress_pct.
+    // No N+1: each is a single IN(...) query mapped by user_id / course_id.
+
+    // (a) enrolled_date — earliest enrolment per user. enrol.enrollment_date
+    //     is a free-text String (legacy) and enrol.created_at is a DateTime.
+    //     Prefer the String date when it parses; else fall back to created_at.
+    //     Return an ISO date (YYYY-MM-DD) string, '' when unknown. Never feed
+    //     a bare date string to `new Date(str)` (UTC day-shift) — parse parts.
+    const enrolledDateByUser = new Map<number, string>();
+    for (const e of enrolments) {
+      if (e.user_id === null || e.user_id === undefined) continue;
+      if (enrolledDateByUser.has(e.user_id)) continue;
+      const iso = isoDateFromEnrolment(e.enrollment_date, e.created_at);
+      if (iso) enrolledDateByUser.set(e.user_id, iso);
+    }
+
+    // (b) fee_status — Paid / Partial / Pending / Overdue per student, derived
+    //     from student_payments (user_id = users.id). Legacy rows store
+    //     '0000-00-00' in due_date/paid_date which CRASHES Prisma findMany —
+    //     read via $queryRaw with NULLIF so the sentinel becomes NULL. One
+    //     batched query for all listed users.
+    type FeeRow = { user_id: number; status: string | null; due_date: Date | null; paid_date: Date | null };
+    const feePayments = userIds.length > 0
+      ? await this.prisma.$queryRaw<FeeRow[]>`
+          SELECT user_id, status,
+                 NULLIF(due_date, '0000-00-00') AS due_date,
+                 NULLIF(paid_date, '0000-00-00') AS paid_date
+          FROM student_payments
+          WHERE deleted_at IS NULL AND user_id IN (${Prisma.join(userIds)})`
+      : [];
+    const feeStatusByUser = deriveFeeStatusByUser(feePayments);
+
+    // (c) progress_pct — completed lesson_files (video_progress_status.status=1)
+    //     / total lesson_files for the student's enrolled course. Best-effort
+    //     and fully batched (groupBy + IN), mirroring engagement-service. When
+    //     a course has zero lesson_files (no content) the denominator is 0 and
+    //     we return null for that student rather than a fabricated number.
+    const progressCourseIds = [...new Set(
+      enrolments.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined),
+    )];
+    const completedByUserCourse = userIds.length > 0 && progressCourseIds.length > 0
+      ? await this.prisma.video_progress_status.groupBy({
+          by: ['user_id', 'course_id'],
+          where: { user_id: { in: userIds }, course_id: { in: progressCourseIds }, status: 1, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const completedMap = new Map<string, number>();
+    for (const c of completedByUserCourse) {
+      if (c.user_id === null || c.course_id === null) continue;
+      completedMap.set(`${c.user_id}|${c.course_id}`, c._count?.id ?? 0);
+    }
+    // Denominator: total lesson_files per course (via lesson → lesson_files).
+    const progressLessons = progressCourseIds.length > 0
+      ? await this.prisma.lesson.findMany({
+          where: { course_id: { in: progressCourseIds }, deleted_at: null },
+          select: { id: true, course_id: true },
+        })
+      : [];
+    const lessonIdsByCourse = new Map<number, number[]>();
+    for (const l of progressLessons) {
+      if (l.course_id === null || l.course_id === undefined) continue;
+      const arr = lessonIdsByCourse.get(l.course_id) ?? [];
+      arr.push(l.id);
+      lessonIdsByCourse.set(l.course_id, arr);
+    }
+    const progressLessonIds = progressLessons.map(l => l.id);
+    const filesPerLessonRows = progressLessonIds.length > 0
+      ? await this.prisma.lesson_files.groupBy({
+          by: ['lesson_id'],
+          where: { lesson_id: { in: progressLessonIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const filesPerLesson = new Map<number, number>();
+    for (const f of filesPerLessonRows) {
+      filesPerLesson.set(f.lesson_id, f._count?.id ?? 0);
+    }
+    const totalFilesByCourse = new Map<number, number>();
+    for (const [cid, lessonIds] of lessonIdsByCourse) {
+      let total = 0;
+      for (const lid of lessonIds) total += filesPerLesson.get(lid) ?? 0;
+      totalFilesByCourse.set(cid, total);
+    }
+    const progressFor = (userId: number, courseId: number | null | undefined): number | null => {
+      if (courseId === null || courseId === undefined) return null;
+      const total = totalFilesByCourse.get(courseId) ?? 0;
+      if (total === 0) return null; // no content to measure against — don't fabricate
+      const done = completedMap.get(`${userId}|${courseId}`) ?? 0;
+      return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+    };
+
     const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
 
     return users
@@ -1585,6 +1763,9 @@ export class OperationsService {
           course_title: enrol?.course_id ? courseMap.get(enrol.course_id)?.title ?? null : null,
           centre_name: centres.find(c => u.added_under_centre !== null && u.added_under_centre !== undefined && c.id === u.added_under_centre)?.centre_name ?? null,
           status_label: u.status !== null && u.status !== undefined ? (statusLabels[u.status] ?? 'Unknown') : 'Unknown',
+          enrolled_date: enrolledDateByUser.get(u.id) ?? '',
+          fee_status: feeStatusByUser.get(u.id) ?? 'Pending',
+          progress_pct: progressFor(u.id, enrol?.course_id ?? u.course_id),
         };
       }) as unknown as SqlRow[];
   }
@@ -9537,6 +9718,7 @@ export class OperationsService {
       registrationFee?: number; // installment only: amount due now (minor)
       totalAmount: number; // total course fee (minor)
       installments?: Array<{ label: string; amountMinor: number; dueDate: string; gstPercent?: number }>; // schedule for the plan PDF
+      additionalDiscounts?: Array<{ description: string; amount: number }>; // audit trail of manual discount lines
       expiresInDays?: number; // payment-link expiry, default 7
     },
   ): Promise<Record<string, unknown>> {
@@ -9598,6 +9780,10 @@ export class OperationsService {
       total_amount_minor: input.totalAmount,
       registration_fee_minor: input.registrationFee ?? null,
       installments: input.installments ?? [],
+      // Audit trail of any manual discount lines applied before sending the
+      // link. Amounts are already baked into the totals above by the
+      // frontend; this just records WHY the amount was reduced for Finance.
+      additional_discounts: input.additionalDiscounts ?? [],
     });
 
     const now = new Date();
@@ -9713,6 +9899,7 @@ export class OperationsService {
       totalAmountMinor: number;
       registrationFeeMinor?: number | null;
       installments?: Array<{ label: string; amountMinor: number; dueDate: string; gstPercent?: number }>;
+      additionalDiscounts?: Array<{ description: string; amount: number }>;
     },
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
@@ -9728,6 +9915,9 @@ export class OperationsService {
       total_amount_minor: plan.totalAmountMinor,
       registration_fee_minor: plan.registrationFeeMinor ?? null,
       installments: plan.installments ?? [],
+      // Audit trail of manual discount lines (see generatePaymentLink). Totals
+      // already reflect the reduction; this records the WHY for Finance.
+      additional_discounts: plan.additionalDiscounts ?? [],
       saved_at: new Date().toISOString(),
     });
     await this.prisma.applications.update({

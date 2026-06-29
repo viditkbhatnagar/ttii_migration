@@ -1089,6 +1089,7 @@ export class ContentService {
     course: Record<string, unknown>,
     userId: string,
     priceRange?: { priceMin: string; priceMax: string },
+    counts?: { activeOfferingCount: number; combinationCount: number; learningModes: string[] },
   ): Promise<Record<string, unknown>> {
     const courseId = toStringValue(course.id);
     const description = stripHtml(toStringValue(course.description));
@@ -1154,6 +1155,25 @@ export class ContentService {
       }
     }
 
+    // Course-card counts: active offerings + active certificate combinations,
+    // plus the distinct delivery modes (learning mode). The list path passes
+    // pre-batched counts (avoids an N+1); the single-course path computes them
+    // here. Non-critical DISPLAY data — never let it break the course payload.
+    let activeOfferingCount: number;
+    let combinationCount: number;
+    let learningModes: string[];
+    if (counts) {
+      ({ activeOfferingCount, combinationCount, learningModes } = counts);
+    } else {
+      try {
+        ({ activeOfferingCount, combinationCount, learningModes } = await this.computeCourseCounts(courseId));
+      } catch {
+        activeOfferingCount = 0;
+        combinationCount = 0;
+        learningModes = [];
+      }
+    }
+
     return {
       id: courseIdInt,
       title: toStringValue(course.title),
@@ -1185,6 +1205,14 @@ export class ContentService {
       progress: Math.round(progressPct),
       total_reviews: totalReviews,
       total_rating: totalRating,
+      // Course-card counts (additive). active_offering_count = non-deleted
+      // offerings with status 'active'; combination_count = non-deleted
+      // certificate_combinations with status 'active'. learning_mode is the
+      // distinct set of real offerings.delivery_mode values across the active
+      // offerings (e.g. "cohort", "self_paced"); empty when no active offerings.
+      active_offering_count: activeOfferingCount,
+      combination_count: combinationCount,
+      learning_mode: learningModes,
     };
   }
 
@@ -1302,6 +1330,86 @@ export class ContentService {
       map.set(courseId, { priceMin: String(Math.min(...prices)), priceMax: String(Math.max(...prices)) });
     }
     return map;
+  }
+
+  /**
+   * Batched card-count lookup for many courses at once — mirrors
+   * computeCoursePriceRangeMap so listCourses never issues a per-course count
+   * query (N+1). Two grouped queries total. For each course returns:
+   *   - activeOfferingCount: non-deleted `offerings` with status = 'active'
+   *   - combinationCount:    non-deleted `certificate_combinations` with status = 'active'
+   *   - learningModes:       distinct `offerings.delivery_mode` (real column) across
+   *                          this course's active offerings, surfaced as learning mode
+   * Courses absent from the maps simply have 0 / [] (the caller defaults them).
+   */
+  private async computeCourseCountsMap(
+    courseIds: number[],
+  ): Promise<Map<number, { activeOfferingCount: number; combinationCount: number; learningModes: string[] }>> {
+    const map = new Map<number, { activeOfferingCount: number; combinationCount: number; learningModes: string[] }>();
+    if (courseIds.length === 0) return map;
+
+    const ensure = (
+      courseId: number,
+    ): { activeOfferingCount: number; combinationCount: number; learningModes: string[] } => {
+      const existing = map.get(courseId);
+      if (existing) return existing;
+      const created = { activeOfferingCount: 0, combinationCount: 0, learningModes: [] as string[] };
+      map.set(courseId, created);
+      return created;
+    };
+
+    // Active offerings per course (+ their distinct delivery_mode for learning mode).
+    const activeOfferings = await this.prisma.offerings.findMany({
+      where: { course_id: { in: courseIds }, status: 'active', deleted_at: null },
+      select: { course_id: true, delivery_mode: true },
+    });
+    for (const offering of activeOfferings) {
+      const entry = ensure(offering.course_id);
+      entry.activeOfferingCount += 1;
+      const mode = toStringValue(offering.delivery_mode);
+      if (mode !== '' && !entry.learningModes.includes(mode)) entry.learningModes.push(mode);
+    }
+
+    // Active (non-deleted) certificate combinations per course. course_id is Int?.
+    const combinations = await this.prisma.certificate_combinations.findMany({
+      where: { course_id: { in: courseIds }, status: 'active', deleted_at: null },
+      select: { course_id: true },
+    });
+    for (const combo of combinations) {
+      if (combo.course_id === null || combo.course_id === undefined) continue;
+      ensure(combo.course_id).combinationCount += 1;
+    }
+
+    return map;
+  }
+
+  // Per-course version of computeCourseCountsMap for the single-course path
+  // (getCourseDetails). Card counts are non-critical DISPLAY data, so the caller
+  // wraps this and falls back to zeros if it throws.
+  private async computeCourseCounts(
+    courseId: string,
+  ): Promise<{ activeOfferingCount: number; combinationCount: number; learningModes: string[] }> {
+    const courseIdInt = toNullableIntId(courseId);
+    if (courseIdInt === null) {
+      return { activeOfferingCount: 0, combinationCount: 0, learningModes: [] };
+    }
+
+    const activeOfferings = await this.prisma.offerings.findMany({
+      where: { course_id: courseIdInt, status: 'active', deleted_at: null },
+      select: { delivery_mode: true },
+    });
+
+    const learningModes: string[] = [];
+    for (const offering of activeOfferings) {
+      const mode = toStringValue(offering.delivery_mode);
+      if (mode !== '' && !learningModes.includes(mode)) learningModes.push(mode);
+    }
+
+    const combinationCount = await this.prisma.certificate_combinations.count({
+      where: { course_id: courseIdInt, status: 'active', deleted_at: null },
+    });
+
+    return { activeOfferingCount: activeOfferings.length, combinationCount, learningModes };
   }
 
   async listCategories(): Promise<Record<string, unknown>[]> {
@@ -1446,13 +1554,29 @@ export class ContentService {
     // unpaginated catalogue endpoint. Price range is non-critical DISPLAY data:
     // a failure here must NEVER break the course list (the course dropdown in
     // the lead/edit forms reads this endpoint), so swallow and fall back.
+    const courseIdsForBatch = rows
+      .map((r) => r.id)
+      .filter((id): id is number => id !== null && id !== undefined);
+
     let priceRangeMap = new Map<number, { priceMin: string; priceMax: string }>();
     try {
-      priceRangeMap = await this.computeCoursePriceRangeMap(
-        rows.map((r) => r.id).filter((id): id is number => id !== null && id !== undefined),
-      );
+      priceRangeMap = await this.computeCoursePriceRangeMap(courseIdsForBatch);
     } catch {
       /* keep empty map — buildCourseData falls back to each course's own price */
+    }
+
+    // Batch the card counts (active offerings + certificate combinations) for ALL
+    // courses up front (2 grouped queries total) — same N+1 avoidance as the price
+    // range. Counts are non-critical DISPLAY data: a failure must NEVER break the
+    // course list, so swallow and fall back to zeros per course.
+    let countsMap = new Map<
+      number,
+      { activeOfferingCount: number; combinationCount: number; learningModes: string[] }
+    >();
+    try {
+      countsMap = await this.computeCourseCountsMap(courseIdsForBatch);
+    } catch {
+      /* keep empty map — buildCourseData falls back to zero counts per course */
     }
 
     const result: Record<string, unknown>[] = [];
@@ -1460,7 +1584,12 @@ export class ContentService {
       const rec = row as unknown as Record<string, unknown>;
       const fallbackPrice = toStringValue(rec.price);
       const range = priceRangeMap.get(row.id) ?? { priceMin: fallbackPrice, priceMax: fallbackPrice };
-      result.push(await this.buildCourseData(rec, userId, range));
+      const counts = countsMap.get(row.id) ?? {
+        activeOfferingCount: 0,
+        combinationCount: 0,
+        learningModes: [],
+      };
+      result.push(await this.buildCourseData(rec, userId, range, counts));
     }
 
     return result;

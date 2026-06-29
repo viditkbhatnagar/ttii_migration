@@ -79,6 +79,24 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+// Parse the optional additional_discounts[] audit lines sent by the Generate
+// Payment Link flow ({ description, amount }). Drops rows missing a
+// description; defaults to []. Persisted verbatim for Finance (amounts are
+// already baked into the totals by the frontend).
+function parseAdditionalDiscounts(value: unknown): Array<{ description: string; amount: number }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null;
+      const r = entry as Record<string, unknown>;
+      const description = toStringValue(r.description).trim();
+      const amount = toNumber(r.amount);
+      if (!description) return null;
+      return { description, amount };
+    })
+    .filter((v): v is { description: string; amount: number } => v !== null);
+}
+
 function toStringValue(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
@@ -3408,6 +3426,7 @@ export function registerOperationsRoutes(
         registrationFee: toInteger(payload.registration_fee_minor),
         totalAmount: toInteger(payload.total_amount_minor),
         installments,
+        additionalDiscounts: parseAdditionalDiscounts(payload.additional_discounts),
         expiresInDays: toInteger(payload.expires_in_days) || 7,
       });
       reply.code(200).send(result);
@@ -3438,6 +3457,7 @@ export function registerOperationsRoutes(
         totalAmountMinor: toInteger(payload.total_amount_minor),
         registrationFeeMinor: toInteger(payload.registration_fee_minor) || null,
         installments,
+        additionalDiscounts: parseAdditionalDiscounts(payload.additional_discounts),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
