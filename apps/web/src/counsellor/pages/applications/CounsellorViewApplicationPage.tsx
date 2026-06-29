@@ -731,20 +731,10 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                           : paymentStatus.replace(/_/g, ' ')}
                     </span>
                   ) : null}
-                  {(stage === 'lead' || stage === 'payment_pending' || stage === 'paid' || stage === 'form_pending') ? (
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPayDialogOpen(true)}>
-                      <Pencil className="h-4 w-4" /> Edit
-                    </Button>
-                  ) : null}
-                  {canRecordPayment ? (
-                    <Button
-                      size="sm"
-                      className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
-                      onClick={() => setRecordPaymentOpen(true)}
-                    >
-                      <Wallet className="h-4 w-4" /> Record Payment
-                    </Button>
-                  ) : null}
+                  {/* Edit removed — the header's "Edit / Resend Plan" action
+                      opens the same payment dialog (redundant here, Naji
+                      2026-06-28). Record Payment moved down next to Send
+                      Payment Link on the first instalment row. */}
                 </div>
               </div>
               {(() => {
@@ -806,16 +796,30 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                             </td>
                             <td className="py-3 pr-3 text-muted-foreground">{formatDate(due) || '—'}</td>
                             <td className="py-3 pr-3 text-right">
-                              {i === 0 && canSendPayLink ? (
-                                <Button
-                                  size="sm"
-                                  className="h-7 gap-1.5"
-                                  disabled={sendingPayLink}
-                                  onClick={() => void handleSendPayLink()}
-                                >
-                                  <Send className="h-3.5 w-3.5" />
-                                  {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Payment Link')}
-                                </Button>
+                              {i === 0 ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  {canRecordPayment ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 gap-1.5 border-success/40 text-success hover:bg-success-soft hover:text-success"
+                                      onClick={() => setRecordPaymentOpen(true)}
+                                    >
+                                      <Wallet className="h-3.5 w-3.5" /> Record Payment
+                                    </Button>
+                                  ) : null}
+                                  {canSendPayLink ? (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 gap-1.5"
+                                      disabled={sendingPayLink}
+                                      onClick={() => void handleSendPayLink()}
+                                    >
+                                      <Send className="h-3.5 w-3.5" />
+                                      {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Payment Link')}
+                                    </Button>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </td>
                           </tr>

@@ -158,7 +158,14 @@ export function CounsellorRecordPaymentModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="counsellor-theme w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] gap-0 overflow-hidden p-0">
+      {/* Width via inline style — a `max-w-[...]` className LOSES to shadcn
+          DialogContent's base `sm:max-w-lg`, leaving the modal uncapped so the
+          long student/course line blew the layout out past the viewport. Inline
+          style wins, capping it at 560px so the header text truncates. */}
+      <DialogContent
+        className="counsellor-theme gap-0 overflow-hidden p-0"
+        style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
+      >
         <DialogHeader className="space-y-3 px-6 pb-4 pt-6">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-accent-foreground">
