@@ -797,9 +797,9 @@ function AssignmentDetail({
   const scoreValue = `${gradeScore}/${totalMarks}`;
 
   return (
-    <div className="flex max-h-[85vh] flex-col">
+    <div className="flex max-h-[85dvh] flex-col">
       {/* Header */}
-      <div className="flex items-start gap-4 border-b border-slate-200 p-5 sm:p-6">
+      <div className="flex shrink-0 items-start gap-4 border-b border-slate-200 p-5 sm:p-6">
         <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-student-primary-light text-student-primary">
           <FileText aria-hidden="true" className="size-6" />
         </div>
@@ -1003,8 +1003,11 @@ function AssignmentDetail({
         </aside>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4">
+      {/* Footer — shrink-0 so the action buttons (Submit Assignment) are always
+          visible; only the body scrolls. The container uses dvh (not vh) so the
+          modal fits the real mobile viewport and the footer isn't pushed behind
+          the browser address bar in portrait (Risha 2026-06-29). */}
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 p-4">
         <Button variant="outline" onClick={onClose} disabled={busy !== null}>
           Close
         </Button>
