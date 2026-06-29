@@ -163,7 +163,7 @@ export function CounsellorRecordPaymentModal({
           long student/course line blew the layout out past the viewport. Inline
           style wins, capping it at 560px so the header text truncates. */}
       <DialogContent
-        className="counsellor-theme gap-0 overflow-hidden p-0"
+        className="counsellor-theme gap-0 overflow-hidden p-0 [&>*]:min-w-0"
         style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
       >
         <DialogHeader className="space-y-3 px-6 pb-4 pt-6">
