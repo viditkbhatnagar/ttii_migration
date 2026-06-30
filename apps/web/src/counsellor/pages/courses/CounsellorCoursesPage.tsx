@@ -188,7 +188,7 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
   }, [courses, search, level]);
 
   if (loading) {
-    return <DashboardLoader label="courses" />;
+    return <DashboardLoader label="courses" tone="theme" />;
   }
 
   if (error) {

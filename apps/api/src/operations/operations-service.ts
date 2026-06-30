@@ -8658,6 +8658,20 @@ export class OperationsService {
         ? `Referred by ${refName}${refSid ? ` (${refSid})` : ''}`
         : 'Referred by an existing student';
     }
+    // Resolve a "Network#{json}" source (referrer name/email captured on the
+    // Add-Lead form, Naji 2026-06-30) to a readable label instead of raw JSON.
+    const netMatch = /^Network#(.+)$/s.exec(rawSource);
+    if (netMatch) {
+      try {
+        const parsed = JSON.parse(netMatch[1] ?? '{}') as { name?: unknown; email?: unknown };
+        const detail = [toStringValue(parsed.name).trim(), toStringValue(parsed.email).trim()]
+          .filter((s) => s !== '')
+          .join(' · ');
+        marketingSourceDisplay = detail ? `Network — ${detail}` : 'Network';
+      } catch {
+        marketingSourceDisplay = 'Network';
+      }
+    }
 
     return {
       status: 1,
@@ -11321,6 +11335,10 @@ export class OperationsService {
       if (marketing.startsWith('Reference#')) {
         leadSource = 'Reference';
         referenceStudentId = marketing.slice('Reference#'.length);
+      } else if (marketing.startsWith('Network#')) {
+        // Network referrer name/email is packed as Network#{json}; surface the
+        // bare 'Network' label so the View/Edit Student pages don't show raw JSON.
+        leadSource = 'Network';
       } else {
         leadSource = marketing;
       }

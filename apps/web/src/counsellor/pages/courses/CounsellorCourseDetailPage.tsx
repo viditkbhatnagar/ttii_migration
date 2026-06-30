@@ -42,6 +42,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { asNumber, asString, formatDate, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
@@ -131,6 +138,37 @@ function toMeta(raw: Record<string, unknown>, fallbackId: string): CourseMeta {
   };
 }
 
+const fmtInr = (n: number): string => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+// Per-offering certificate-package pricing (mirrors offering-service pricing):
+// course fee = offered_fee, else base_fee - discount (floored at 0); GST added
+// on top unless the package is free / the combination has no applicable GST.
+interface PackagePricing {
+  courseFee: number;
+  gstPct: number | null;
+  hasGst: boolean;
+  feeIncGst: number;
+}
+
+function packagePricing(pkg: Record<string, unknown>): PackagePricing {
+  const offered = pkg.offered_fee;
+  const courseFee =
+    offered !== null && offered !== undefined && offered !== ''
+      ? asNumber(offered)
+      : Math.max(0, asNumber(pkg.base_fee) - asNumber(pkg.discount));
+  const gstApplicable = pkg.gst_applicable === true || pkg.gst_applicable === 1;
+  const gstRaw = pkg.gst_percent;
+  const parsedGst = gstRaw === null || gstRaw === undefined || gstRaw === '' ? null : asNumber(gstRaw);
+  const isFree = asString(pkg.fee_category) === 'free';
+  // Mirror offering-service pricing: a GST-applicable combination with a null
+  // gst_percent defaults to 18% (not no-GST), so Fee Incl. GST here matches the
+  // admin pricing table for the same package.
+  const effGst = parsedGst ?? (gstApplicable && !isFree ? 18 : 0);
+  const hasGst = !isFree && gstApplicable && effGst > 0;
+  const feeIncGst = hasGst ? Math.round((courseFee + (courseFee * effGst) / 100) * 100) / 100 : courseFee;
+  return { courseFee, gstPct: hasGst ? effGst : null, hasGst, feeIncGst };
+}
+
 /* ─── Small presentational helpers ─── */
 
 function ChecklistCard({
@@ -180,6 +218,13 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
+  // Certificate-combination PRICING is per-offering (offering_certificate_packages),
+  // so the Certifications tab prices combinations against a chosen offering
+  // (defaults to the first active offering). Naji 2026-06-30.
+  const [selectedOfferingId, setSelectedOfferingId] = useState('');
+  const [packages, setPackages] = useState<Record<string, unknown>[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+
   // Curriculum accordion state (subject-wise courses) — same shape as Student.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lessonsBySubject, setLessonsBySubject] = useState<Map<string, LessonState>>(new Map());
@@ -198,10 +243,15 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
         // the other three lists are independent so fetch them in parallel.
         const [detail, offeringRows, combinationRows, partnerRows] = await Promise.all([
           api.getCourseDetail(session.token, courseId),
-          // Active offerings only — matches the courses-list "Active Offering"
-          // count (computeCourseCounts filters status 'active') and the intent
-          // that counsellors enrol students into live offerings.
-          admin.listOfferings(session.token, { course_id: courseId, status: 'active' }),
+          // Active offerings only AND enrollment window still open (Naji
+          // 2026-06-30) — status='active' + enrollment_end >= today. Matches the
+          // courses-list "Active Offering" count (computeCourseCounts uses the
+          // same window) so the table, header stat and card all agree.
+          admin.listOfferings(session.token, {
+            course_id: courseId,
+            status: 'active',
+            enrollment_open: '1',
+          }),
           admin.listCertificateCombinations(session.token, { course_id: courseId, status: 'active' }),
           admin.listCertificationPartners(session.token),
         ]);
@@ -214,7 +264,11 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
         }
         const nextMeta = toMeta(courseRaw, courseId);
         setMeta(nextMeta);
-        setOfferings(toRecords(offeringRows));
+        const offeringList = toRecords(offeringRows);
+        setOfferings(offeringList);
+        // Default the Certifications pricing to the first active offering.
+        const firstOfferingId = asString(offeringList[0]?.id);
+        if (firstOfferingId) setSelectedOfferingId(firstOfferingId);
         setCombinations(toRecords(combinationRows));
         setPartners(toRecords(partnerRows));
 
@@ -243,6 +297,30 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
       cancelled = true;
     };
   }, [api, admin, session.token, courseId]);
+
+  // Load the selected offering's certificate-package pricing (Certifications tab).
+  useEffect(() => {
+    if (!selectedOfferingId) {
+      setPackages([]);
+      return;
+    }
+    let cancelled = false;
+    setPackagesLoading(true);
+    void admin
+      .listOfferingPackages(session.token, selectedOfferingId)
+      .then((rows) => {
+        if (!cancelled) setPackages(toRecords(rows));
+      })
+      .catch(() => {
+        if (!cancelled) setPackages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPackagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [admin, session.token, selectedOfferingId]);
 
   // Lazy-load lessons the first time a module is opened (same as Student page).
   const toggleModule = (subjectId: string) => {
@@ -289,7 +367,7 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
   };
 
   if (loading) {
-    return <DashboardLoader label="course" />;
+    return <DashboardLoader label="course" tone="theme" />;
   }
 
   if (notFound || !meta) {
@@ -483,10 +561,11 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
               <Award className="h-4 w-4 text-warning" /> Certification Partners
             </h2>
             {partners.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {partners.map((p, idx) => {
                   const name = asString(p.name) || 'Partner';
                   const country = asString(p.country);
+                  const description = asString(p.description);
                   return (
                     <div
                       key={asString(p.id) || idx}
@@ -501,6 +580,9 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
                           {country ? <p className="text-[11px] text-muted-foreground">{country}</p> : null}
                         </div>
                       </div>
+                      {description ? (
+                        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{description}</p>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -511,16 +593,72 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
           </Card>
 
           <Card className="p-6 shadow-[var(--shadow-soft)] border-border/70">
-            <h2 className="mb-4 flex items-center gap-2 text-base font-semibold">
-              <Award className="h-4 w-4 text-primary" /> Certificate Combinations
-            </h2>
-            {combinations.length > 0 ? (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-base font-semibold">
+                <Award className="h-4 w-4 text-primary" /> Certificate Combinations
+              </h2>
+              {offerings.length > 1 ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Pricing for</span>
+                  <Select value={selectedOfferingId} onValueChange={(v) => { if (v) setSelectedOfferingId(v); }}>
+                    <SelectTrigger className="h-9 w-[260px]">
+                      <SelectValue placeholder="Select offering" />
+                    </SelectTrigger>
+                    <SelectContent className="counsellor-theme">
+                      {offerings.map((o) => (
+                        <SelectItem key={asString(o.id)} value={asString(o.id)}>
+                          {asString(o.title) || asString(o.offering_code) || 'Offering'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+            </div>
+
+            {offerings.length > 0 ? (
+              packagesLoading ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">Loading pricing…</p>
+              ) : packages.length > 0 ? (
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Combination Name</TableHead>
+                        <TableHead className="text-right">Course Fee</TableHead>
+                        <TableHead className="text-right">GST</TableHead>
+                        <TableHead className="text-right">Fee Incl. GST</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {packages.map((pkg, idx) => {
+                        const pr = packagePricing(pkg);
+                        return (
+                          <TableRow key={asString(pkg.id) || idx}>
+                            <TableCell className="font-medium">{asString(pkg.combination_code) || '—'}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmtInr(pr.courseFee)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{pr.hasGst ? `${pr.gstPct}%` : '—'}</TableCell>
+                            <TableCell className="text-right font-semibold tabular-nums">{fmtInr(pr.feeIncGst)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No certificate pricing set for this offering.
+                </p>
+              )
+            ) : combinations.length > 0 ? (
+              // No active offering to price against — list the course's
+              // combinations with their GST only.
               <div className="overflow-hidden rounded-lg border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Combination</TableHead>
-                      <TableHead className="text-right">GST %</TableHead>
+                      <TableHead>Combination Name</TableHead>
+                      <TableHead className="text-right">GST</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

@@ -679,7 +679,14 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                     label="Phone"
                     value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
                   />
-                  <InfoRow label="Source" value={asString(app.marketing_source) || asString(app.lead_source)} />
+                  <InfoRow
+                    label="Source"
+                    value={
+                      asString(app.marketing_source_display) ||
+                      asString(app.marketing_source) ||
+                      asString(app.lead_source)
+                    }
+                  />
                 </div>
                 <div>
                   <InfoRow label="Course" value={asString(app.course_title)} />

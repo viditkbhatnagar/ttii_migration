@@ -23,6 +23,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { cn } from '@/lib/utils';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -129,7 +132,7 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
 
   const studentId = useMemo(() => window.location.pathname.split('/').filter(Boolean).pop() ?? '', []);
 
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => adminApi.getStudentDetail(session.token, studentId),
     [studentId],
   );
@@ -206,6 +209,169 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
     }
   };
 
+  // Add Enrolment dialog — Naji issues F + G (2026-06-30). Ports the
+  // admin ViewStudentPage "Add Enrolment" flow into the counsellor portal
+  // so the action surfaces (and works) from the top action bar. Reaches the
+  // admin API via `api.admin`. The backend blocks only when the student is
+  // already enrolled in the SAME course; a different course is allowed.
+  const [addEnrolOpen, setAddEnrolOpen] = useState(false);
+  const [addEnrolForm, setAddEnrolForm] = useState({
+    course_id: '',
+    offering_id: '',
+    combination_id: '',
+    mode_of_study: 'Online',
+    preferred_language: '',
+    pipeline: '',
+    pipeline_user: '',
+    lead_source: '',
+    registration_fee: '',
+    discount: '',
+    gst_percent: '18',
+    final_course_fee: '',
+    payment_mode: 'link' as 'link' | 'manual' | 'draft',
+  });
+  const [addEnrolCourses, setAddEnrolCourses] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolOfferings, setAddEnrolOfferings] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolCombinations, setAddEnrolCombinations] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolLanguages, setAddEnrolLanguages] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolPipelineUsers, setAddEnrolPipelineUsers] = useState<{ label: string; value: string }[]>([]);
+  const [addEnrolSubmitting, setAddEnrolSubmitting] = useState(false);
+
+  // Load courses + languages when the dialog opens.
+  useEffect(() => {
+    if (!addEnrolOpen) return;
+    void adminApi.loadCourses(session.token).then((rows) => {
+      setAddEnrolCourses(
+        rows.map((r) => ({
+          label: asString(r.title) || asString(r.course_title) || `Course ${asString(r.id)}`,
+          value: asString(r.id),
+        })),
+      );
+    });
+    void adminApi.loadLanguages(session.token).then((rows) => {
+      setAddEnrolLanguages(
+        rows.map((r) => ({
+          label: asString(r.title) || asString(r.name) || `Language ${asString(r.id)}`,
+          value: asString(r.id),
+        })),
+      );
+    });
+  }, [addEnrolOpen, adminApi, session.token]);
+
+  // Cascade offerings + combinations whenever the chosen course changes.
+  useEffect(() => {
+    if (!addEnrolOpen || !addEnrolForm.course_id) {
+      setAddEnrolOfferings([]);
+      setAddEnrolCombinations([]);
+      return;
+    }
+    void Promise.all([
+      adminApi.listOfferings(session.token, { course_id: addEnrolForm.course_id }),
+      adminApi.loadCertificateCombinations(session.token, { course_id: addEnrolForm.course_id }),
+    ]).then(([offerings, combinations]) => {
+      setAddEnrolOfferings(
+        offerings.map((o) => ({
+          label: asString(o.title) || asString(o.offering_code) || `Offering ${asString(o.id)}`,
+          value: asString(o.id),
+        })),
+      );
+      setAddEnrolCombinations(
+        combinations.map((c) => ({
+          label: asString(c.combination_code) || asString(c.title) || `Combination ${asString(c.id)}`,
+          value: asString(c.id),
+        })),
+      );
+    });
+  }, [addEnrolOpen, addEnrolForm.course_id, adminApi, session.token]);
+
+  // Pipeline → Pipeline User cascade.
+  useEffect(() => {
+    if (!addEnrolOpen) return;
+    const p = addEnrolForm.pipeline;
+    if (!p) {
+      setAddEnrolPipelineUsers([]);
+      return;
+    }
+    if (p === 'Centre') {
+      void adminApi.loadCentres(session.token).then((rows) => {
+        setAddEnrolPipelineUsers(
+          rows.map((r) => ({
+            label: asString(r.name) || asString(r.title) || `Centre ${asString(r.id)}`,
+            value: asString(r.id),
+          })),
+        );
+      });
+      return;
+    }
+    const roleIds = p === 'Admin' ? [1, 8] : p === 'Counsellor' ? [9] : p === 'Associate' ? [10] : [];
+    if (roleIds.length === 0) {
+      setAddEnrolPipelineUsers([]);
+      return;
+    }
+    void Promise.all(roleIds.map((rid) => adminApi.loadPipelineUsers(session.token, rid))).then((results) => {
+      const merged = results.flat();
+      const seen = new Set<string>();
+      const opts: { label: string; value: string }[] = [];
+      for (const r of merged) {
+        const id = asString(r.id);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        opts.push({ label: asString(r.name) || asString(r.user_email) || `User ${id}`, value: id });
+      }
+      setAddEnrolPipelineUsers(opts);
+    });
+  }, [addEnrolOpen, addEnrolForm.pipeline, adminApi, session.token]);
+
+  const closeAddEnrol = (): void => {
+    setAddEnrolOpen(false);
+    setAddEnrolForm({
+      course_id: '',
+      offering_id: '',
+      combination_id: '',
+      mode_of_study: 'Online',
+      preferred_language: '',
+      pipeline: '',
+      pipeline_user: '',
+      lead_source: '',
+      registration_fee: '',
+      discount: '',
+      gst_percent: '18',
+      final_course_fee: '',
+      payment_mode: 'link',
+    });
+  };
+
+  const submitAddEnrol = async (): Promise<void> => {
+    if (!addEnrolForm.course_id) {
+      toast.error('Course is required.');
+      return;
+    }
+    if (!addEnrolForm.final_course_fee) {
+      toast.error('Final Course Fee is required.');
+      return;
+    }
+    setAddEnrolSubmitting(true);
+    try {
+      const res = await adminApi.addAdditionalEnrolment(session.token, studentId, addEnrolForm);
+      if ((res as { status?: number }).status === 1) {
+        const resData = (res as { data?: { pending_admin_approval?: boolean; payment_link_url?: string | null } }).data ?? {};
+        const msg = resData.pending_admin_approval
+          ? 'Enrolment request submitted for admin approval.'
+          : 'Additional enrolment created.';
+        toast.success(msg + (resData.payment_link_url ? ' Payment link sent.' : ''));
+        closeAddEnrol();
+        reload();
+      } else {
+        // Backend is authoritative on same-course duplicates — surface its message.
+        toast.error(asString((res as { message?: unknown }).message) || 'Failed to create enrolment.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create enrolment.');
+    } finally {
+      setAddEnrolSubmitting(false);
+    }
+  };
+
   // Derived finance figures — all real.
   const totalFee = useMemo(() => studentFees.reduce((sum, f) => sum + asNumber(f.total_fee), 0), [studentFees]);
   const paidFee = useMemo(() => payments.reduce((sum, p) => sum + asNumber(p.amount_paid), 0), [payments]);
@@ -220,7 +386,7 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
   }, [enrolments]);
 
   if (loading) {
-    return <DashboardLoader label="student" />;
+    return <DashboardLoader label="student" tone="theme" />;
   }
 
   if (error || !student) {
@@ -310,6 +476,9 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
               onClick={() => void handleApplicationFormLink()}
             >
               <Download className="h-4 w-4" /> {formLinkBusy ? 'Generating…' : 'Application Form Link'}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setAddEnrolOpen(true)}>
+              <Plus className="h-4 w-4" /> Manage Enrolments
             </Button>
           </div>
         </div>
@@ -618,19 +787,177 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
         </TabsContent>
       </Tabs>
 
-      {/* Real action — Add Enrolment (role-9 permitted). Routes to the
-          counsellor edit/enrolment flow on the existing admin page, kept
-          here so the action surfaces on the redesigned student detail. */}
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => onNavigate(`/counsellor/students/view/${studentId}?tab=enrollments`)}
+      {/* Add Enrolment dialog — Naji issues F + G (2026-06-30). Native
+          <select> elements (no Radix theme-escape concern); DialogContent
+          carries `counsellor-theme` so the portaled modal keeps the navy/
+          orange palette instead of admin magenta. */}
+      <Dialog open={addEnrolOpen} onOpenChange={(open) => { if (!open) closeAddEnrol(); }}>
+        {/* Width via inline style — a max-w-[…] className loses to the base
+            sm:max-w-lg (renders 512px); set width/maxWidth inline instead. */}
+        <DialogContent
+          className="counsellor-theme overflow-hidden"
+          style={{ width: 'min(620px, calc(100vw - 2rem))', maxWidth: 'min(620px, calc(100vw - 2rem))' }}
         >
-          <Plus className="h-4 w-4" /> Manage Enrolments
-        </Button>
-      </div>
+          <form
+            className="w-full min-w-0"
+            onSubmit={(e) => { e.preventDefault(); void submitAddEnrol(); }}
+          >
+            <DialogHeader>
+              <DialogTitle>Add Enrolment</DialogTitle>
+            </DialogHeader>
+            <div className="w-full min-w-0 max-h-[70vh] space-y-4 overflow-y-auto py-2">
+              <p className="text-xs text-muted-foreground">
+                Add another course enrolment for this student. Personal information stays as-is — only the course, fee and payment method are needed.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label className="mb-1 text-sm">Course *</Label>
+                  <select
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={addEnrolForm.course_id}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, course_id: e.target.value, offering_id: '', combination_id: '' }))}
+                  >
+                    <option value="">- Select -</option>
+                    {addEnrolCourses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Course Offering</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.offering_id}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, offering_id: e.target.value }))}
+                      disabled={!addEnrolForm.course_id}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolOfferings.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Certificate Combination</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.combination_id}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, combination_id: e.target.value }))}
+                      disabled={!addEnrolForm.course_id}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolCombinations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Mode of Study</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.mode_of_study}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, mode_of_study: e.target.value }))}
+                    >
+                      <option value="Online">Online</option>
+                      <option value="Offline">Offline</option>
+                      <option value="Hybrid">Hybrid</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Preferred Language</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.preferred_language}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, preferred_language: e.target.value }))}
+                    >
+                      <option value="">- Select -</option>
+                      {addEnrolLanguages.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1 text-sm">Pipeline</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.pipeline}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, pipeline: e.target.value, pipeline_user: '' }))}
+                    >
+                      <option value="">- Select -</option>
+                      <option value="Admin">Admin</option>
+                      <option value="Counsellor">Counsellor</option>
+                      <option value="Associate">Associate</option>
+                      <option value="Centre">Centre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 text-sm">Pipeline User</Label>
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={addEnrolForm.pipeline_user}
+                      onChange={(e) => setAddEnrolForm((f) => ({ ...f, pipeline_user: e.target.value }))}
+                      disabled={!addEnrolForm.pipeline}
+                    >
+                      <option value="">{addEnrolForm.pipeline ? '- Select -' : 'Pick pipeline first'}</option>
+                      {addEnrolPipelineUsers.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Lead Source</Label>
+                  <select
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={addEnrolForm.lead_source}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, lead_source: e.target.value }))}
+                  >
+                    <option value="">- Select -</option>
+                    {/* 'Reference'/'Network' omitted — this quick add-enrolment
+                        dialog has no referrer picker, so those would lose their
+                        linkage. Set them from the full Add-Lead form instead. */}
+                    {['Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rounded-md border border-border p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fee breakdown</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="mb-1 text-xs">Registration Fee</Label>
+                      <Input value={addEnrolForm.registration_fee} onChange={(e) => setAddEnrolForm((f) => ({ ...f, registration_fee: e.target.value }))} placeholder="e.g. 2000" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">Discount</Label>
+                      <Input value={addEnrolForm.discount} onChange={(e) => setAddEnrolForm((f) => ({ ...f, discount: e.target.value }))} placeholder="e.g. 10" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">GST %</Label>
+                      <Input value={addEnrolForm.gst_percent} onChange={(e) => setAddEnrolForm((f) => ({ ...f, gst_percent: e.target.value }))} placeholder="e.g. 18" type="number" />
+                    </div>
+                    <div>
+                      <Label className="mb-1 text-xs">Final Course Fee *</Label>
+                      <Input value={addEnrolForm.final_course_fee} onChange={(e) => setAddEnrolForm((f) => ({ ...f, final_course_fee: e.target.value }))} placeholder="e.g. 25000" type="number" />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 text-sm">Payment</Label>
+                  <select
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={addEnrolForm.payment_mode}
+                    onChange={(e) => setAddEnrolForm((f) => ({ ...f, payment_mode: e.target.value as 'link' | 'manual' | 'draft' }))}
+                  >
+                    <option value="link">Generate Payment Link (Razorpay)</option>
+                    <option value="manual">Mark Paid Manually</option>
+                    <option value="draft">Save without payment</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeAddEnrol} disabled={addEnrolSubmitting}>Cancel</Button>
+              <Button type="submit" disabled={addEnrolSubmitting}>{addEnrolSubmitting ? 'Saving...' : 'Add Enrolment'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

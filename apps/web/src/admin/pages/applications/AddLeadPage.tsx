@@ -29,6 +29,12 @@ const ROLE_PIPELINE_LABEL: Record<number, string> = {
   10: 'Associate',
 };
 
+/** Basic email shape check — only used to block submit when the optional
+ * Network referrer email is non-empty AND malformed (Naji issue H). */
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 /**
  * Add Lead — Step 1 of Naji's 8-step Lead → Enrolment workflow.
  *
@@ -77,6 +83,11 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
   const [referenceStudentId, setReferenceStudentId] = useState('');
   const [referenceStudentLabel, setReferenceStudentLabel] = useState('');
   const [studentRefOptions, setStudentRefOptions] = useState<Array<{ id: string; label: string }>>([]);
+  // Naji issue H — when source = Network, optionally capture a free-text
+  // referrer name + email. No DB column exists, so on save they're packed
+  // into marketing_source as "Network#<json>" (mirrors "Reference#<id>").
+  const [networkReferrerName, setNetworkReferrerName] = useState('');
+  const [networkReferrerEmail, setNetworkReferrerEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [editLoading, setEditLoading] = useState(isEditMode);
   const [duplicate, setDuplicate] = useState<{ message: string; existingUserId?: string } | null>(null);
@@ -204,6 +215,23 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     if (match) setReferenceStudentLabel(match.label);
   }, [source, studentRefOptions]);
 
+  // Edit mode prefill: parse "Network#<json>" into the referrer fields.
+  // Mirrors the Reference parse above; guard the JSON.parse so a malformed
+  // value just falls back to the plain 'Network' option (Naji issue H).
+  useEffect(() => {
+    if (!source || !source.startsWith('Network#')) return;
+    const suffix = source.slice('Network#'.length);
+    setSource('Network');
+    if (!suffix) return;
+    try {
+      const parsed = JSON.parse(suffix) as { name?: unknown; email?: unknown };
+      if (typeof parsed.name === 'string') setNetworkReferrerName(parsed.name);
+      if (typeof parsed.email === 'string') setNetworkReferrerEmail(parsed.email);
+    } catch {
+      /* malformed suffix — keep the plain Network option, no referrer prefill */
+    }
+  }, [source]);
+
   useEffect(() => {
     if (!courseId) {
       setOfferings([]);
@@ -315,9 +343,30 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
     if (!offeringId) { toast.error('Offering is required.'); return; }
     if (combinationOptions.length > 0 && !combinationId) { toast.error('Certificate Combination is required.'); return; }
     if (!source.trim()) { toast.error('Source is required.'); return; }
+    // Referrer email is optional, but if provided it must be a valid address.
+    if (source === 'Network' && networkReferrerEmail.trim() && !isValidEmail(networkReferrerEmail.trim())) {
+      toast.error('Please enter a valid referrer email, or leave it blank.');
+      return;
+    }
     setSubmitting(true);
     setDuplicate(null);
     try {
+      // Serialise the outgoing source. Reference packs the picked student id;
+      // Network packs the optional referrer {name,email} as JSON (only when at
+      // least one is filled — otherwise plain 'Network').
+      const trimmedSource = source.trim();
+      const refName = networkReferrerName.trim();
+      const refEmail = networkReferrerEmail.trim();
+      let outgoingSource: string | undefined;
+      if (trimmedSource === 'Reference' && referenceStudentId) {
+        // Naji UAT 2026-05-16 — getApplication's existing split logic recovers
+        // the linkage from "Reference#<student_user_id>".
+        outgoingSource = `Reference#${referenceStudentId}`;
+      } else if (trimmedSource === 'Network' && (refName || refEmail)) {
+        outgoingSource = `Network#${JSON.stringify({ name: refName, email: refEmail })}`;
+      } else {
+        outgoingSource = trimmedSource || undefined;
+      }
       const payload = {
         name: name.trim(),
         email: email.trim(),
@@ -326,12 +375,7 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
         course_id: courseId,
         offering_id: offeringId || undefined,
         combination_id: combinationId || undefined,
-        // Naji UAT 2026-05-16 — when source = Reference and a student
-        // is picked, serialise as "Reference#<student_user_id>" so
-        // getApplication's existing split logic recovers the linkage.
-        source: source.trim() === 'Reference' && referenceStudentId
-          ? `Reference#${referenceStudentId}`
-          : (source.trim() || undefined),
+        source: outgoingSource,
       };
       const res = isEditMode
         ? await api.editLead(session.token, editId, payload)
@@ -506,6 +550,39 @@ export default function AddLeadPage({ api, session, onNavigate }: AdminPageProps
                     Pick the existing student who is making the referral, otherwise the source won't capture who referred this lead.
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+            {/* Naji issue H — when source = Network, optionally capture a
+                referrer name + email. Both fields are optional; packed into
+                marketing_source as "Network#<json>" on save. */}
+            {source === 'Network' ? (
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/40 p-3">
+                <p className="mb-2 text-sm font-medium text-slate-700">
+                  Referrer details <span className="font-normal text-slate-500">(optional)</span>
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="referrer-name">Referrer Name</Label>
+                    <Input
+                      id="referrer-name"
+                      value={networkReferrerName}
+                      onChange={(e) => setNetworkReferrerName(e.target.value)}
+                      placeholder="Who referred this lead?"
+                      maxLength={120}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referrer-email">Referrer Email</Label>
+                    <Input
+                      id="referrer-email"
+                      type="email"
+                      value={networkReferrerEmail}
+                      onChange={(e) => setNetworkReferrerEmail(e.target.value)}
+                      placeholder="referrer@example.com"
+                      maxLength={255}
+                    />
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>

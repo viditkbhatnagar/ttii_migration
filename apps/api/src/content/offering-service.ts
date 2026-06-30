@@ -33,7 +33,13 @@ export type OfferingListFilters = {
   centreId?: string;
   programId?: string;
   status?: string;
+  enrollmentOpen?: boolean;
 };
+
+function startOfTodayUtc(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate(), 0, 0, 0, 0));
+}
 
 function toIntId(id: string | number | null | undefined): number {
   if (typeof id === 'number') return id;
@@ -203,6 +209,9 @@ export class OfferingService {
     const where: Record<string, unknown> = { deleted_at: null };
     if (filters?.courseId) where.course_id = toIntId(filters.courseId);
     if (filters?.status) where.status = filters.status;
+    if (filters?.enrollmentOpen) {
+      where.OR = [{ enrollment_end: null }, { enrollment_end: { gte: startOfTodayUtc() } }];
+    }
     const rows = await this.prisma.offerings.findMany({
       where,
       orderBy: { id: 'desc' },

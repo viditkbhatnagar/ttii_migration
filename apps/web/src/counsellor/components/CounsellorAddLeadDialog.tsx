@@ -52,12 +52,18 @@ const SOURCE_OPTIONS: Array<{ value: string; label: string }> = [
 
 /** Map a stored source value to a current option so editing a legacy lead
  * doesn't show a blank Source field (Naji 2026-06-24 dropped 'Social' and
- * renamed 'Referral' → 'Network'). 'Reference#<id>' is left untouched — the
- * picker effect parses it. */
+ * renamed 'Referral' → 'Network'). 'Reference#<id>' and 'Network#<json>' are
+ * left untouched — the picker / network-referrer effects parse them. */
 function normalizeLegacySource(value: string): string {
   if (value === 'Referral') return 'Network';
   if (value === 'Social') return 'Other';
   return value;
+}
+
+/** Basic email shape check — only used to block submit when the optional
+ * Network referrer email is non-empty AND malformed. */
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 /* ─── Props ──────────────────────────────────────────────────────────────── */
@@ -104,6 +110,13 @@ export function CounsellorAddLeadDialog({
   const [referenceStudentId, setReferenceStudentId] = useState('');
   const [referenceStudentLabel, setReferenceStudentLabel] = useState('');
   const [studentRefOptions, setStudentRefOptions] = useState<Array<{ id: string; label: string }>>([]);
+
+  /* ── Network referrer (optional) — Naji issue H. When source = Network we
+   * also capture a free-text referrer name + email. No DB column exists, so on
+   * save these are packed into marketing_source as
+   * "Network#<json>" mirroring the "Reference#<id>" precedent. ── */
+  const [networkReferrerName, setNetworkReferrerName] = useState('');
+  const [networkReferrerEmail, setNetworkReferrerEmail] = useState('');
 
   /* ── Dropdown data ── */
   const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
@@ -212,6 +225,24 @@ export function CounsellorAddLeadDialog({
     const match = studentRefOptions.find((o) => o.id === refId);
     if (match) setReferenceStudentLabel(match.label);
   }, [source, studentRefOptions]);
+
+  /* ── Parse a prefilled "Network#<json>" source into the referrer fields ──
+   * Mirrors the Reference parse above. The suffix is JSON {name,email}; guard
+   * the parse so a malformed value just falls back to the plain 'Network'
+   * option (Naji issue H). ── */
+  useEffect(() => {
+    if (!source || !source.startsWith('Network#')) return;
+    const suffix = source.slice('Network#'.length);
+    setSource('Network');
+    if (!suffix) return;
+    try {
+      const parsed = JSON.parse(suffix) as { name?: unknown; email?: unknown };
+      if (typeof parsed.name === 'string') setNetworkReferrerName(parsed.name);
+      if (typeof parsed.email === 'string') setNetworkReferrerEmail(parsed.email);
+    } catch {
+      /* malformed suffix — keep the plain Network option, no referrer prefill */
+    }
+  }, [source]);
 
   /* ── Recover the picker label once the student list resolves ──
    * loadStudents may finish AFTER the prefill set referenceStudentId, leaving
@@ -351,6 +382,8 @@ export function CounsellorAddLeadDialog({
     setSource('');
     setReferenceStudentId('');
     setReferenceStudentLabel('');
+    setNetworkReferrerName('');
+    setNetworkReferrerEmail('');
     setOfferings([]);
     setCombinations([]);
     setPrefillCourse(null);
@@ -381,9 +414,29 @@ export function CounsellorAddLeadDialog({
       toast.error('Please pick the existing student making the referral.');
       return;
     }
+    // Referrer email is optional, but if provided it must be a valid address.
+    if (source === 'Network' && networkReferrerEmail.trim() && !isValidEmail(networkReferrerEmail.trim())) {
+      toast.error('Please enter a valid referrer email, or leave it blank.');
+      return;
+    }
 
     setSubmitting(true);
     try {
+      // Serialise the outgoing source string. Reference packs the picked
+      // student id; Network packs the optional referrer {name,email} as JSON
+      // (only when at least one is filled — otherwise plain 'Network').
+      const trimmedSource = source.trim();
+      const refName = networkReferrerName.trim();
+      const refEmail = networkReferrerEmail.trim();
+      let outgoingSource: string | undefined;
+      if (trimmedSource === 'Reference' && referenceStudentId) {
+        outgoingSource = `Reference#${referenceStudentId}`;
+      } else if (trimmedSource === 'Network' && (refName || refEmail)) {
+        outgoingSource = `Network#${JSON.stringify({ name: refName, email: refEmail })}`;
+      } else {
+        outgoingSource = trimmedSource || undefined;
+      }
+
       const payload: {
         name: string;
         email: string;
@@ -401,12 +454,7 @@ export function CounsellorAddLeadDialog({
         course_id: courseId,
         offering_id: offeringId || undefined,
         combination_id: combinationId || undefined,
-        // When source = Reference and a student is picked, serialise as
-        // "Reference#<student_user_id>" so getApplication recovers the link.
-        source:
-          source.trim() === 'Reference' && referenceStudentId
-            ? `Reference#${referenceStudentId}`
-            : (source.trim() || undefined),
+        source: outgoingSource,
       };
 
       const res = isEditMode && editId
@@ -649,6 +697,40 @@ export function CounsellorAddLeadDialog({
                   Pick the existing student making the referral, otherwise the source won't capture who referred this lead.
                 </p>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* Network referrer (optional) — only when source = Network. Both
+              fields are optional; packed into marketing_source as
+              "Network#<json>" on save (Naji issue H). */}
+          {source === 'Network' ? (
+            <div className="rounded-md border border-border bg-muted/40 p-3">
+              <p className="mb-2 text-sm font-medium text-foreground">
+                Referrer details <span className="font-normal text-muted-foreground">(optional)</span>
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cald-referrer-name">Referrer Name</Label>
+                  <Input
+                    id="cald-referrer-name"
+                    value={networkReferrerName}
+                    onChange={(e) => setNetworkReferrerName(e.target.value)}
+                    placeholder="Who referred this lead?"
+                    maxLength={120}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cald-referrer-email">Referrer Email</Label>
+                  <Input
+                    id="cald-referrer-email"
+                    type="email"
+                    value={networkReferrerEmail}
+                    onChange={(e) => setNetworkReferrerEmail(e.target.value)}
+                    placeholder="referrer@example.com"
+                    maxLength={255}
+                  />
+                </div>
+              </div>
             </div>
           ) : null}
 

@@ -552,7 +552,7 @@ export default function CounsellorDashboardPage({ api, session }: CounsellorPage
   }, [data]);
 
   if (loading) {
-    return <DashboardLoader />;
+    return <DashboardLoader tone="theme" />;
   }
 
   if (error) {

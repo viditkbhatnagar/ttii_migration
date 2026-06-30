@@ -39,6 +39,14 @@ function idString(id: string | number | null | undefined): string {
   return String(id);
 }
 
+// Start of today at UTC midnight, derived from LOCAL Y-M-D (server runs IST).
+// enrollment_end is @db.Date (stored at UTC midnight), so a `gte` comparison
+// against this keeps offerings whose enrollment window ends today.
+function startOfTodayUtc(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate(), 0, 0, 0, 0));
+}
+
 function timeColumnToString(value: Date | string | null | undefined): string {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -1368,8 +1376,16 @@ export class ContentService {
     };
 
     // Active offerings per course (+ their distinct delivery_mode for learning mode).
+    // "Active" means status='active' AND enrollment window still open (enrollment_end
+    // null = open, or >= start of today).
+    const today = startOfTodayUtc();
     const activeOfferings = await this.prisma.offerings.findMany({
-      where: { course_id: { in: courseIds }, status: 'active', deleted_at: null },
+      where: {
+        course_id: { in: courseIds },
+        status: 'active',
+        deleted_at: null,
+        OR: [{ enrollment_end: null }, { enrollment_end: { gte: today } }],
+      },
       select: { course_id: true, delivery_mode: true },
     });
     for (const offering of activeOfferings) {
@@ -1403,8 +1419,16 @@ export class ContentService {
       return { activeOfferingCount: 0, combinationCount: 0, learningModes: [] };
     }
 
+    // "Active" means status='active' AND enrollment window still open (enrollment_end
+    // null = open, or >= start of today).
+    const today = startOfTodayUtc();
     const activeOfferings = await this.prisma.offerings.findMany({
-      where: { course_id: courseIdInt, status: 'active', deleted_at: null },
+      where: {
+        course_id: courseIdInt,
+        status: 'active',
+        deleted_at: null,
+        OR: [{ enrollment_end: null }, { enrollment_end: { gte: today } }],
+      },
       select: { delivery_mode: true },
     });
 

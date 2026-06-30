@@ -6,8 +6,10 @@
 interface DashboardLoaderProps {
   /** What's loading — fills the "Loading {label}..." line. */
   label?: string;
-  /** Tone — primary uses the TTII purple; muted is greyscale for in-page sections. */
-  tone?: 'primary' | 'muted';
+  /** Tone — primary uses the TTII purple; muted is greyscale for in-page
+   * sections; theme follows the surrounding portal's --primary CSS var (e.g.
+   * orange inside .counsellor-theme) so the loader matches that portal's UI. */
+  tone?: 'primary' | 'muted' | 'theme';
   /** Visual size; default is full-page. */
   size?: 'page' | 'inline';
 }
@@ -21,8 +23,16 @@ export function DashboardLoader({
   const colourClass =
     tone === 'primary'
       ? ['bg-[#8F2774]', 'bg-[#a13d8a]/85', 'bg-[#a13d8a]/70', 'bg-[#a13d8a]/55', 'bg-[#a13d8a]/40']
-      : ['bg-slate-400', 'bg-slate-400/85', 'bg-slate-400/70', 'bg-slate-400/55', 'bg-slate-400/40'];
-  const textClass = tone === 'primary' ? 'text-slate-600' : 'text-slate-500';
+      : tone === 'theme'
+        ? [
+            'bg-[var(--primary)]',
+            'bg-[var(--primary)]/85',
+            'bg-[var(--primary)]/70',
+            'bg-[var(--primary)]/55',
+            'bg-[var(--primary)]/40',
+          ]
+        : ['bg-slate-400', 'bg-slate-400/85', 'bg-slate-400/70', 'bg-slate-400/55', 'bg-slate-400/40'];
+  const textClass = tone === 'muted' ? 'text-slate-500' : 'text-slate-600';
   const wrapperClass =
     size === 'page'
       ? 'flex min-h-[60vh] flex-col items-center justify-center gap-5'

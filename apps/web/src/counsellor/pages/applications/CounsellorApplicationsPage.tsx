@@ -182,7 +182,7 @@ export default function CounsellorApplicationsPage({ api, session, onNavigate }:
     setSelected(next);
   };
 
-  if (loading) return <DashboardLoader label="applications" />;
+  if (loading) return <DashboardLoader label="applications" tone="theme" />;
   if (error) {
     return (
       <Card className="p-5 shadow-[var(--shadow-soft)] border-border/70">

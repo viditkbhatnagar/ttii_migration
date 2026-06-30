@@ -137,7 +137,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
   const featured = videos[0];
 
   if (loading) {
-    return <DashboardLoader label="training" />;
+    return <DashboardLoader label="training" tone="theme" />;
   }
 
   if (error) {

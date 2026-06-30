@@ -416,7 +416,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   }, [applicationId, session.token]);
 
   if (loading) {
-    return <DashboardLoader label="application" />;
+    return <DashboardLoader label="application" tone="theme" />;
   }
 
   if (error || !app) {

@@ -29,7 +29,7 @@ const WORK_EXPERIENCE = [
 ];
 
 const LEAD_SOURCES = [
-  'Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference',
+  'Facebook', 'WhatsApp', 'Email', 'Website', 'Walk-in', 'Call-in', 'Reference', 'Network',
 ];
 
 const MODE_OF_STUDY = ['Online', 'Offline', 'Hybrid'];
@@ -272,7 +272,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
           language: asString(a.language_name) || asString(a.preferred_language),
           pipeline: asString(a.pipeline),
           pipelineUser: asString(a.pipeline_user),
-          leadSource: asString(a.marketing_source).startsWith('Reference#') ? 'Reference' : asString(a.marketing_source),
+          leadSource: asString(a.marketing_source).startsWith('Reference#')
+            ? 'Reference'
+            : asString(a.marketing_source).startsWith('Network#')
+              ? 'Network'
+              : asString(a.marketing_source),
           referenceStudentId: asString(a.marketing_source).startsWith('Reference#') ? asString(a.marketing_source).slice('Reference#'.length) : '',
           discount: a.application_discount != null ? asString(a.application_discount) || asNumber(a.application_discount).toString() : '',
           discountType: (asString(bio.discount_type) || 'percent') as 'percent' | 'flat',

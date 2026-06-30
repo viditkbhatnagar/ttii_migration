@@ -210,7 +210,7 @@ export default function CounsellorPaymentsPage({ api, session, onNavigate }: Cou
   );
 
   if (loading) {
-    return <DashboardLoader label="payments" />;
+    return <DashboardLoader label="payments" tone="theme" />;
   }
 
   if (error) {

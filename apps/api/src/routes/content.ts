@@ -1284,11 +1284,13 @@ export function registerContentRoutes(
       const centreId = toStringValue(payload.centre_id) || undefined;
       const programId = toStringValue(payload.program_id) || undefined;
       const statusFilter = toStringValue(payload.status) || undefined;
+      const enrollmentOpen = toStringValue(payload.enrollment_open) === '1';
       const offerings = await offeringService.listOfferings({
         ...(courseId ? { courseId } : {}),
         ...(centreId ? { centreId } : {}),
         ...(programId ? { programId } : {}),
         ...(statusFilter ? { status: statusFilter } : {}),
+        ...(enrollmentOpen ? { enrollmentOpen: true } : {}),
       });
       reply.code(200).send({ status: 1, message: 'success', data: offerings });
     } catch (error: unknown) {

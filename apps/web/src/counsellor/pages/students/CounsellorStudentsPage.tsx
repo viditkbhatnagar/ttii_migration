@@ -171,7 +171,7 @@ export default function CounsellorStudentsPage({ api, session, onNavigate }: Cou
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <DashboardLoader label="enrolments" />;
+  if (loading) return <DashboardLoader label="enrolments" tone="theme" />;
   if (error) {
     return (
       <Card className="border-border/70 p-5 shadow-[var(--shadow-soft)]">

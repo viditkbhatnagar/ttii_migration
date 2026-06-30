@@ -24,6 +24,9 @@ interface PriceBreakdown {
   gstPercent: number;
   gstAmount: number;
   feeIncGst: number;
+  // GST-EXCLUSIVE amount the instalment plan splits. Equals finalFee when GST is
+  // added separately; finalFee/(1+gst%) when GST is already included in finalFee.
+  planBase: number;
 }
 
 interface PlanRow {
@@ -153,6 +156,10 @@ export function GeneratePaymentLinkDialog({
   const [baseFee, setBaseFee] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [gstPercent, setGstPercent] = useState(18);
+  // GST treatment for the fee (Naji 2026-06-30): 'separate' = GST added on top of
+  // the quoted fee (legacy behaviour); 'include' = the quoted fee already
+  // contains GST (back it out). Only surfaced when the combination HAS GST.
+  const [gstTreatment, setGstTreatment] = useState<'separate' | 'include'>('separate');
 
   // Naji 2026-06-29 — ad-hoc "Add Discount" lines, applied on top of the
   // package discount. IDs come from an incrementing ref (never Date.now/random
@@ -200,6 +207,7 @@ export function GeneratePaymentLinkDialog({
       setBaseFee(initialBaseFee ?? 0);
       setDiscount(initialDiscount ?? 0);
       setGstPercent(initialGstPercent ?? 18);
+      setGstTreatment('separate');
       setAdditionalDiscounts([]);
       discountIdRef.current = 0;
       setPackageFound(null);
@@ -308,13 +316,27 @@ export function GeneratePaymentLinkDialog({
 
   const breakdown: PriceBreakdown = useMemo(() => {
     const finalFee = Math.max(0, baseFee - discount - additionalDiscountTotal);
+    const round2 = (n: number): number => Math.round(n * 100) / 100;
+    if (gstTreatment === 'include' && gstPercent > 0) {
+      // The quoted finalFee ALREADY contains GST — back it out so the plan
+      // splits the GST-exclusive base while the all-in figure stays finalFee.
+      const planBase = round2(finalFee / (1 + gstPercent / 100));
+      return {
+        baseFee, discount, finalFee, gstPercent,
+        planBase,
+        gstAmount: round2(finalFee - planBase),
+        feeIncGst: finalFee,
+      };
+    }
+    // Separate (default / legacy): GST is added on top of finalFee.
     const gstAmount = finalFee * (gstPercent / 100);
     return {
       baseFee, discount, finalFee, gstPercent,
+      planBase: finalFee,
       gstAmount,
       feeIncGst: finalFee + gstAmount,
     };
-  }, [baseFee, discount, additionalDiscountTotal, gstPercent]);
+  }, [baseFee, discount, additionalDiscountTotal, gstPercent, gstTreatment]);
 
   // Generate the payment plan rows per Naji's row-structure spec.
   //
@@ -338,7 +360,10 @@ export function GeneratePaymentLinkDialog({
   //   Course × 5: (25,000 − 5,000) / 5 = 4,000 base + 18% = 4,720 inc-GST each
   //   Plan total: 25,000 base + 4,500 GST = 29,500 inc-GST ✓
   const generatePlan = () => {
-    const courseFeeExcl = breakdown.finalFee;
+    // Split the GST-EXCLUSIVE base (= finalFee when GST is separate;
+    // finalFee/(1+gst%) when GST is included). Rows then re-add GST so the
+    // plan inc-GST total reconciles to breakdown.feeIncGst in both treatments.
+    const courseFeeExcl = breakdown.planBase;
     const rows: PlanRow[] = [];
     const gst = breakdown.gstPercent;
 
@@ -643,7 +668,9 @@ export function GeneratePaymentLinkDialog({
                 ) : null}
                 <tr className="border-b border-slate-100">
                   <td className="py-2 font-semibold text-slate-700">Final Fee</td>
-                  <td className="py-2 text-right font-semibold">{fmtInr(breakdown.finalFee)}</td>
+                  {/* GST-exclusive base — equals Final Fee under 'separate', and
+                      the backed-out base under 'include' so base + GST = Inc GST. */}
+                  <td className="py-2 text-right font-semibold">{fmtInr(breakdown.planBase)}</td>
                 </tr>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">GST ({breakdown.gstPercent}%)</td>
@@ -758,6 +785,21 @@ export function GeneratePaymentLinkDialog({
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   />
                 </div>
+                {/* GST treatment (Naji 2026-06-30) — only when this combination
+                    actually has GST; hidden entirely when GST is 0. */}
+                {breakdown.gstPercent > 0 ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs">GST</Label>
+                    <select
+                      value={gstTreatment}
+                      onChange={(e) => setGstTreatment(e.target.value === 'include' ? 'include' : 'separate')}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="separate">Separate (added on top)</option>
+                      <option value="include">Include (already in fee)</option>
+                    </select>
+                  </div>
+                ) : null}
               </div>
 
               <Button onClick={generatePlan} className="bg-primary hover:bg-primary/90 text-primary-foreground">
@@ -996,11 +1038,20 @@ export function GeneratePaymentLinkDialog({
             <>
               {mode === 'installment' && plan ? (
                 <>
-                  <Button variant="outline" onClick={() => { void savePlan(); }} disabled={submitting}>Save</Button>
+                  {/* Gate on planMatchesTotal too (Naji 2026-06-30) — the GST
+                      Include/Separate toggle can leave a stale plan whose rows no
+                      longer reconcile; don't let Save persist a mismatched plan. */}
+                  <Button
+                    variant="outline"
+                    onClick={() => { void savePlan(); }}
+                    disabled={submitting || !planMatchesTotal}
+                  >
+                    Save
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => { void savePlan().then(() => onOpenChange(false)); }}
-                    disabled={submitting}
+                    disabled={submitting || !planMatchesTotal}
                   >
                     Save &amp; Close
                   </Button>

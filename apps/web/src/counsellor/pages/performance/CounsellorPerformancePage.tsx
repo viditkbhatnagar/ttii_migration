@@ -224,7 +224,7 @@ export default function CounsellorPerformancePage({ api, session }: CounsellorPa
   );
 
   if (loading) {
-    return <DashboardLoader label="performance" />;
+    return <DashboardLoader label="performance" tone="theme" />;
   }
 
   if (error) {

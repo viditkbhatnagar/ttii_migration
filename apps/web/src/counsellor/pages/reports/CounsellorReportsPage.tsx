@@ -238,7 +238,7 @@ export default function CounsellorReportsPage({ api, session }: CounsellorPagePr
   );
 
   if (loading) {
-    return <DashboardLoader label="reports" />;
+    return <DashboardLoader label="reports" tone="theme" />;
   }
 
   if (error || !active) {
