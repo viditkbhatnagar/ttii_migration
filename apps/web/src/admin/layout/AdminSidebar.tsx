@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   Library,
   Megaphone,
+  PlayCircle,
   Settings,
   Shield,
   UserCheck,
@@ -46,6 +47,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   CalendarDays,
   Megaphone,
   ClipboardCheck,
+  PlayCircle,
   Settings,
   Award,
 };

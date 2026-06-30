@@ -23,6 +23,7 @@ const CentreCohortsPage = lazy(() => import('../pages/cohorts/CentreCohortsPage.
 const CentreViewCohortPage = lazy(() => import('../pages/cohorts/CentreViewCohortPage.js'));
 const CentreLiveClassPage = lazy(() => import('../pages/live/CentreLiveClassPage.js'));
 const CentreResourcesPage = lazy(() => import('../pages/resources/CentreResourcesPage.js'));
+const CentreTrainingPage = lazy(() => import('../pages/training/CentreTrainingPage.js'));
 const CentreWalletPage = lazy(() => import('../pages/wallet/CentreWalletPage.js'));
 const CentreSupportPage = lazy(() => import('../pages/support/CentreSupportPage.js'));
 
@@ -35,6 +36,7 @@ export const CENTRE_ROUTES: CentreRouteConfig[] = [
   { path: '/centre/cohorts/view/:id', pageComponent: CentreViewCohortPage, title: 'View Cohort' },
   { path: '/centre/live', pageComponent: CentreLiveClassPage, title: 'Live Classes' },
   { path: '/centre/resources', pageComponent: CentreResourcesPage, title: 'Resources' },
+  { path: '/centre/training', pageComponent: CentreTrainingPage, title: 'Training' },
   { path: '/centre/wallet', pageComponent: CentreWalletPage, title: 'Wallet' },
   { path: '/centre/support', pageComponent: CentreSupportPage, title: 'Support' },
 ];

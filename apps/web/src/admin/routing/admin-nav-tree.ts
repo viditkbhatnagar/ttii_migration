@@ -39,10 +39,14 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'centre-payments', label: 'Centre Payments', href: '/admin/centres/centre_payments' },
       { id: 'wallet-status', label: 'Wallet Status', href: '/admin/wallet/index' },
       { id: 'chat-support', label: 'Chat Support', href: '/admin/chat_support' },
-      { id: 'resources', label: 'Resources', href: '/admin/resources/index' },
-      { id: 'training-videos', label: 'Training Videos', href: '/admin/training_videos' },
     ],
   },
+  // Naji 2026-06-30 — Resources + Training Videos pulled out of the Centres
+  // group into their own top-level sidebar modules. Training videos uploaded
+  // here sync to the counsellor, centre and associate portals (shared
+  // training_videos table).
+  { id: 'resources', label: 'Resources', href: '/admin/resources/index', icon: 'FolderOpen' },
+  { id: 'training-videos', label: 'Training Videos', href: '/admin/training_videos', icon: 'PlayCircle' },
   {
     id: 'courses',
     label: 'Courses',

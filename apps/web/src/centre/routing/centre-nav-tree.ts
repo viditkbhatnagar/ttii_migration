@@ -13,6 +13,7 @@ export const CENTRE_NAV_TREE: readonly CentreNavItem[] = [
   { id: 'cohorts', label: 'Cohorts', href: '/centre/cohorts', icon: 'Users' },
   { id: 'live', label: 'Live Classes', href: '/centre/live', icon: 'Video' },
   { id: 'resources', label: 'Resources', href: '/centre/resources', icon: 'FolderOpen' },
+  { id: 'training', label: 'Training', href: '/centre/training', icon: 'PlayCircle' },
   { id: 'wallet', label: 'Wallet', href: '/centre/wallet', icon: 'Wallet' },
   { id: 'support', label: 'Support', href: '/centre/support', icon: 'HeadphonesIcon' },
 ];
@@ -22,6 +23,8 @@ const ASSOCIATE_ALLOWED_IDS = new Set<string>([
   'dashboard',
   'applications',
   'students',
+  // Naji 2026-06-30 — training videos sync to associates too.
+  'training',
 ]);
 
 export function getCentreNavForRole(roleId: number): readonly CentreNavItem[] {

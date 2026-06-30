@@ -857,17 +857,9 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                 No payment plan created yet.
                 {stage === 'lead' ? ' Use the Generate Payment Plan button above to create one.' : ''}
               </p>
-              {canRecordPayment ? (
-                <p className="mt-4">
-                  <Button
-                    size="sm"
-                    className="gap-1.5 bg-success text-success-foreground hover:bg-success/90"
-                    onClick={() => setRecordPaymentOpen(true)}
-                  >
-                    <Wallet className="h-4 w-4" /> Record Payment
-                  </Button>
-                </p>
-              ) : null}
+              {/* Record Payment intentionally omitted here (Naji 2026-06-30):
+                  offline payment capture must go against a payment plan, so the
+                  trigger only appears on the plan row once a plan exists. */}
             </Card>
           )}
 
