@@ -1370,6 +1370,11 @@ export class EngagementService {
         instructor_name: cohort?.instructor_id ? instructorMap.get(cohort.instructor_id) ?? '' : '',
         has_recording: hasRecording,
         recording_url: toStringValue(lc.recording_url || lc.video_url),
+        // Flutter app expects video_files to ALWAYS be a list — a null crashes
+        // its List parse ("Null is not a subtype of List"). We model recordings
+        // via recording_url/has_recording, so this legacy field is an empty
+        // array (Ansaba 2026-06-30: /live_class/index must return [] not null).
+        video_files: [] as unknown[],
         status,
       };
     });
