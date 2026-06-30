@@ -1,20 +1,9 @@
 import { useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
-import {
-  Search,
-  Play,
-  Filter,
-  Sparkles,
-  TrendingUp,
-  Clock,
-  Award,
-  Flame,
-} from 'lucide-react';
+import { Search, Play, Filter, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
@@ -43,13 +32,6 @@ const GRADS = [
   'from-teal-500 via-emerald-600 to-green-600',
 ] as const;
 
-const RANK_GRADS = [
-  'from-amber-400 to-orange-500',
-  'from-slate-300 to-slate-500',
-  'from-orange-400 to-rose-500',
-  'from-sky-400 to-indigo-500',
-] as const;
-
 const CATEGORY_EMOJI: Record<string, string> = {
   admission: '🎓',
   product: '📦',
@@ -63,12 +45,27 @@ function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
-function gradientFor(index: number): string {
-  return GRADS[index % GRADS.length] ?? GRADS[0];
+// Training video descriptions are authored in a rich-text editor and stored as
+// HTML (e.g. "<p>test</p><p><i>abcfeg</i></p>"). Render as plain text here so
+// raw tags never leak into the card UI. (Scoped to this read-only view — the
+// admin edit form still needs the original HTML, so the API is left untouched.)
+function stripHtmlToText(html: string): string {
+  return html
+    // Only real tags (open/close starting with a letter) — leaves stray
+    // "<" / ">" in prose (e.g. "score < 5 > grade") intact.
+    .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function rankGradientFor(index: number): string {
-  return RANK_GRADS[index % RANK_GRADS.length] ?? RANK_GRADS[0];
+function gradientFor(index: number): string {
+  return GRADS[index % GRADS.length] ?? GRADS[0];
 }
 
 function emojiFor(category: string): string {
@@ -110,7 +107,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
         return {
           id: asString(v.id) || `v-${i}`,
           title,
-          description: asString(v.description),
+          description: stripHtmlToText(asString(v.description)),
           category: asString(v.category) || 'General',
           videoType: asString(v.video_type),
           videoUrl: asString(v.video_url),
@@ -138,7 +135,6 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
   }, [videos, search, active]);
 
   const featured = videos[0];
-  const trending = useMemo(() => videos.slice(0, 4), [videos]);
 
   if (loading) {
     return <DashboardLoader label="training" />;
@@ -175,35 +171,6 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
             className="pl-9 h-10 rounded-full"
           />
         </div>
-      </div>
-
-      {/* Learning progress strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <ProgressStat
-          icon={<Play className="h-4 w-4" />}
-          label="Videos Completed"
-          value={String(videos.length)}
-          accent="from-indigo-500 to-violet-500"
-        />
-        <ProgressStat
-          icon={<TrendingUp className="h-4 w-4" />}
-          label="Learning Progress"
-          value="—"
-          accent="from-emerald-500 to-teal-500"
-          progress={0}
-        />
-        <ProgressStat
-          icon={<Clock className="h-4 w-4" />}
-          label="Watch Time"
-          value="—"
-          accent="from-amber-500 to-orange-500"
-        />
-        <ProgressStat
-          icon={<Award className="h-4 w-4" />}
-          label="Certificates Earned"
-          value="—"
-          accent="from-pink-500 to-rose-500"
-        />
       </div>
 
       {/* Featured hero */}
@@ -304,71 +271,7 @@ export default function CounsellorTrainingPage({ api, session }: CounsellorPageP
           ))}
         </div>
       )}
-
-      {/* Trending */}
-      {trending.length > 0 && (
-        <div className="pt-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Flame className="h-4 w-4 text-orange-500" />
-            <h3 className="text-sm font-semibold">Trending This Week</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {trending.map((v, i) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => openVideo(v.videoUrl)}
-                className="text-left"
-                aria-label={`Watch ${v.title}`}
-              >
-                <Card className="p-4 flex gap-3 hover:shadow-[var(--shadow-card)] transition border-border/70">
-                  <div
-                    className={cx(
-                      'h-16 w-16 shrink-0 rounded-lg bg-gradient-to-br flex items-center justify-center text-white font-bold text-xl',
-                      rankGradientFor(i),
-                    )}
-                  >
-                    #{i + 1}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold leading-tight line-clamp-2">{v.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{v.category}</p>
-                  </div>
-                </Card>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </main>
-  );
-}
-
-function ProgressStat({
-  icon,
-  label,
-  value,
-  accent,
-  progress,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  accent: string;
-  progress?: number;
-}) {
-  return (
-    <Card className="p-4 border-border/70 shadow-[var(--shadow-soft)] overflow-hidden relative">
-      <div className={cx('absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br opacity-20 blur-2xl', accent)} />
-      <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
-        <span className={cx('h-7 w-7 rounded-md bg-gradient-to-br text-white flex items-center justify-center', accent)}>
-          {icon}
-        </span>
-        {label}
-      </div>
-      <p className="mt-3 text-2xl font-bold">{value}</p>
-      {typeof progress === 'number' && <Progress value={progress} className="mt-2 h-1.5" />}
-    </Card>
   );
 }
 

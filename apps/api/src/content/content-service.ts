@@ -1181,7 +1181,16 @@ export class ContentService {
       short_name: toStringValue(course.short_name),
       tags: this.parseCourseTags(course.meta_keywords),
       label: toStringValue(course.label),
+      level: toStringValue(course.level),
       status: toStringValue(course.status),
+      // Eligibility / prerequisites text (counsellor + student course detail).
+      // The course table has no dedicated "eligibility" column, so the existing
+      // `requirements` field (admin course form → Requirements) is the real
+      // backing data. Stripped of any rich-text markup for safe inline display.
+      requirements: stripHtml(toStringValue(course.requirements)),
+      // Delivery mode flag (1 = Online, 0 = Offline). Schema default is 1, so a
+      // missing/null value defaults to Online to match the DB default.
+      is_online: Number(course.is_online ?? 1) === 0 ? 0 : 1,
       price: toStringValue(course.price),
       price_min: priceMin,
       price_max: priceMax,

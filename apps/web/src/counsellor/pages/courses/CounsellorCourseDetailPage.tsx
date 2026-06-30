@@ -20,8 +20,8 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  FileText,
   GraduationCap,
+  Laptop,
   Layers,
   Loader2,
   PlayCircle,
@@ -54,15 +54,15 @@ interface CourseMeta {
   code: string;
   shortName: string;
   label: string;
+  level: string;
+  // Eligibility text — backed by the course `requirements` field (the course
+  // table has no dedicated eligibility column). Empty when not filled in admin.
+  eligibility: string;
+  // Delivery mode: true = Online, false = Offline (course.is_online).
+  isOnline: boolean;
   duration: string;
   subjectCount: number;
   lessonCount: number;
-  price: number;
-  offerPrice: number;
-  // Price RANGE across this course's offerings / certificate packages.
-  // Backend computeCoursePriceRange falls back to `price` so these are set.
-  priceMin: number;
-  priceMax: number;
   description: string;
   shortDescription: string;
   tags: string[];
@@ -115,13 +115,13 @@ function toMeta(raw: Record<string, unknown>, fallbackId: string): CourseMeta {
     code: asString(raw.code) || asString(raw.course_code),
     shortName: asString(raw.short_name),
     label: asString(raw.label),
+    level: asString(raw.level),
+    eligibility: asString(raw.requirements),
+    // Default to Online when the flag is absent (matches the DB default of 1).
+    isOnline: raw.is_online === undefined ? true : asNumber(raw.is_online) !== 0,
     duration: asString(raw.duration),
     subjectCount: asNumber(raw.subject_count) || asNumber(raw.subjects),
     lessonCount: asNumber(raw.lessons_count) || asNumber(raw.lessons),
-    price: asNumber(raw.price),
-    offerPrice: asNumber(raw.offer_price) || asNumber(raw.sale_price),
-    priceMin: asNumber(raw.price_min),
-    priceMax: asNumber(raw.price_max),
     description: asString(raw.description),
     shortDescription: asString(raw.short_description),
     tags: Array.isArray(tagsRaw) ? tagsRaw.map((t) => asString(t)).filter((t) => t !== '') : [],
@@ -131,23 +131,7 @@ function toMeta(raw: Record<string, unknown>, fallbackId: string): CourseMeta {
   };
 }
 
-const fmtInr = (n: number): string => `₹${n.toLocaleString('en-IN')}`;
-
 /* ─── Small presentational helpers ─── */
-
-function StatPill({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 shadow-[var(--shadow-soft)]">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-accent-foreground">
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-        <p className="truncate text-sm font-bold text-foreground">{value}</p>
-      </div>
-    </div>
-  );
-}
 
 function ChecklistCard({
   icon: Icon,
@@ -214,7 +198,10 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
         // the other three lists are independent so fetch them in parallel.
         const [detail, offeringRows, combinationRows, partnerRows] = await Promise.all([
           api.getCourseDetail(session.token, courseId),
-          admin.listOfferings(session.token, { course_id: courseId }),
+          // Active offerings only — matches the courses-list "Active Offering"
+          // count (computeCourseCounts filters status 'active') and the intent
+          // that counsellors enrol students into live offerings.
+          admin.listOfferings(session.token, { course_id: courseId, status: 'active' }),
           admin.listCertificateCombinations(session.token, { course_id: courseId, status: 'active' }),
           admin.listCertificationPartners(session.token),
         ]);
@@ -316,36 +303,45 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
     );
   }
 
-  const hasOffer = meta.offerPrice > 0 && meta.offerPrice < meta.price;
-  const displayPrice = hasOffer ? meta.offerPrice : meta.price;
-  const isFree = meta.price <= 0;
-  // Header fee: prefer the real price RANGE (across offerings / certificate
-  // packages) when max > min; otherwise the single effective price as before.
-  const rangeMin = Math.min(meta.priceMin, meta.priceMax);
-  const rangeMax = Math.max(meta.priceMin, meta.priceMax);
-  const hasRange = rangeMax > rangeMin && rangeMin > 0;
-  const feeLabel = isFree
-    ? 'Free'
-    : hasRange
-      ? `${fmtInr(rangeMin)} - ${fmtInr(rangeMax)}`
-      : displayPrice > 0
-        ? fmtInr(displayPrice)
-        : '—';
-
   const isLessonWise = meta.structureType === 2;
   const lessonStatCount = meta.lessonCount > 0 ? meta.lessonCount : isLessonWise ? directLessons.length : 0;
   const tagline = meta.shortDescription || meta.description;
+  // Category badge — the course label (e.g. "Certification"), falling back to
+  // the academic level when no label is set.
+  const category = meta.label || meta.level;
 
-  // Stat pills — REAL DATA ONLY (Mode + Eligibility omitted: no backing data).
-  const stats: Array<{ icon: LucideIcon; label: string; value: string }> = [];
-  if (meta.duration) stats.push({ icon: Clock, label: 'Duration', value: meta.duration });
-  if (lessonStatCount > 0) stats.push({ icon: FileText, label: 'Lessons', value: String(lessonStatCount) });
-  if (!isLessonWise && meta.subjectCount > 0)
-    stats.push({ icon: BookOpen, label: 'Subjects', value: String(meta.subjectCount) });
-  stats.push({ icon: Calendar, label: 'Active Offerings', value: String(offerings.length) });
-  stats.push({ icon: Award, label: 'Combinations', value: String(combinations.length) });
-  if (feeLabel !== '—')
-    stats.push({ icon: GraduationCap, label: hasRange ? 'Fee Range' : 'Fee', value: feeLabel });
+  // Eligibility (course.requirements) is authored as a multi-line "one point per
+  // line" textarea. Collapse it to a single inline line for the stat row — strip
+  // leading bullet glyphs and join with " · " — and surface the full text on
+  // hover so nothing is lost when the line truncates.
+  const eligibilityLine = meta.eligibility
+    .split(/\r?\n/)
+    .map((s) => s.replace(/^[•\-*\s]+/, '').trim())
+    .filter(Boolean)
+    .join(' · ');
+  const offeringCount = offerings.length;
+
+  // Header stats — exactly FOUR (Naji 2026-06-30), REAL DATA ONLY:
+  // Duration, Active Offering, Eligibility (course.requirements), Combinations.
+  const stats: Array<{ key: string; icon: LucideIcon; value: string; title?: string }> = [
+    { key: 'duration', icon: Clock, value: meta.duration || '—' },
+    {
+      key: 'offerings',
+      icon: Laptop,
+      value: `${offeringCount} Active Offering${offeringCount === 1 ? '' : 's'}`,
+    },
+    {
+      key: 'eligibility',
+      icon: GraduationCap,
+      value: eligibilityLine || '—',
+      ...(eligibilityLine ? { title: eligibilityLine } : {}),
+    },
+    {
+      key: 'combinations',
+      icon: Award,
+      value: `${combinations.length} Combination${combinations.length === 1 ? '' : 's'}`,
+    },
+  ];
 
   return (
     <main className="space-y-6">
@@ -364,7 +360,11 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
 
       {/* Hero */}
       <Card className="overflow-hidden border-border/70 shadow-[var(--shadow-soft)]">
-        <div className="relative px-6 py-8 text-primary-foreground" style={{ background: 'var(--gradient-primary)' }}>
+        {/* Navy band — category + delivery-mode badges only */}
+        <div
+          className="relative h-32 px-6 py-5 text-primary-foreground sm:h-36"
+          style={{ background: 'var(--gradient-primary)' }}
+        >
           <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/25" />
           <div className="absolute right-4 top-4 z-10">
             <Button
@@ -377,30 +377,37 @@ export default function CounsellorCourseDetailPage({ api, session, onNavigate }:
               <Share2 className="h-4 w-4" /> Share
             </Button>
           </div>
-          <div className="relative">
-            <div className="flex flex-wrap items-center gap-2">
-              {meta.label ? (
-                <Badge className="border-white/30 bg-white/20 text-white backdrop-blur">{meta.label}</Badge>
-              ) : null}
-              {meta.code ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold backdrop-blur">
-                  <GraduationCap className="h-3.5 w-3.5" /> {meta.code}
-                </span>
-              ) : null}
-            </div>
-            <h1 className="mt-3 max-w-3xl text-2xl font-bold leading-tight sm:text-3xl">{meta.title}</h1>
-            {tagline ? <p className="mt-1.5 max-w-2xl text-sm text-white/85 line-clamp-2">{tagline}</p> : null}
+          <div className="relative flex flex-wrap items-center gap-2">
+            {category ? (
+              <Badge className="border-white/30 bg-white/20 text-white backdrop-blur hover:bg-white/25">
+                {category}
+              </Badge>
+            ) : null}
+            <Badge className="border-transparent bg-white font-semibold text-primary hover:bg-white">
+              {meta.isOnline ? 'Online' : 'Offline'}
+            </Badge>
           </div>
         </div>
 
-        {/* Stat pills */}
-        {stats.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 border-t border-border p-5 sm:grid-cols-3 lg:grid-cols-6">
+        {/* White body — code, title, tagline + four stats */}
+        <div className="px-6 py-5">
+          {meta.code ? (
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{meta.code}</p>
+          ) : null}
+          <h1 className="mt-1 text-2xl font-bold leading-tight text-foreground sm:text-3xl">{meta.title}</h1>
+          {tagline ? <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{tagline}</p> : null}
+
+          <div className="mt-5 grid grid-cols-1 gap-x-10 gap-y-4 border-t border-border pt-5 sm:grid-cols-2">
             {stats.map((s) => (
-              <StatPill key={s.label} icon={s.icon} label={s.label} value={s.value} />
+              <div key={s.key} className="flex items-center gap-3 text-[15px] text-muted-foreground">
+                <s.icon className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate font-medium text-foreground/90" title={s.title}>
+                  {s.value}
+                </span>
+              </div>
             ))}
           </div>
-        ) : null}
+        </div>
       </Card>
 
       {/* Tabs */}

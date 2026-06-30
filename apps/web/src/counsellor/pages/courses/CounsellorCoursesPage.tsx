@@ -114,7 +114,15 @@ export default function CounsellorCoursesPage({ api, session, onNavigate }: Coun
         conversionPct: asNumber(p.conversionPct),
       });
     }
-    return toRecords(data?.courses).map((c) => {
+    // Showcase only published courses — hide drafts (Naji 2026-06-30). Course
+    // status vocabulary is 'draft' | 'active' | 'archived'; we exclude only
+    // 'draft' (a denylist, not a published-only allowlist) so legacy courses
+    // with a non-standard/empty status still appear. Scoped to this page — the
+    // student catalogue and lead/application course pickers are untouched.
+    const publishedCourses = toRecords(data?.courses).filter(
+      (c) => asString(c.status).trim().toLowerCase() !== 'draft',
+    );
+    return publishedCourses.map((c) => {
       const id = asNumber(c.id);
       const sale = asNumber(c.offer_price) || asNumber(c.sale_price);
       const price = asNumber(c.price);
