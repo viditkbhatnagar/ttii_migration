@@ -14,6 +14,7 @@ export const COUNSELLOR_NAV_TREE: readonly CounsellorNavItem[] = [
   { id: 'courses', label: 'Courses', href: '/counsellor/courses', icon: 'BookOpen', section: 'general' },
   { id: 'payments', label: 'Payments', href: '/counsellor/payments', icon: 'CreditCard', section: 'general' },
   { id: 'training', label: 'Training', href: '/counsellor/training', icon: 'PlayCircle', section: 'general' },
+  { id: 'resources', label: 'Resources', href: '/counsellor/resources', icon: 'FolderOpen', section: 'general' },
   { id: 'reports', label: 'Reports', href: '/counsellor/reports', icon: 'FileBarChart2', section: 'general' },
   { id: 'settings', label: 'Settings', href: '/counsellor/settings', icon: 'Settings', section: 'tools' },
 ];
