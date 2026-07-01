@@ -315,26 +315,20 @@ export function GeneratePaymentLinkDialog({
   );
 
   const breakdown: PriceBreakdown = useMemo(() => {
+    // The fee composition is IDENTICAL in both treatments: finalFee is the
+    // pre-GST course fee and feeIncGst = finalFee + GST is the all-in total.
+    // Only the INSTALMENT PLAN presentation differs (Naji 2026-06-30):
+    //   Separate → split finalFee (base), show a GST column, add GST per row.
+    //   Include  → split feeIncGst (the all-in total), no GST column (GST is
+    //              already folded into each instalment amount).
     const finalFee = Math.max(0, baseFee - discount - additionalDiscountTotal);
-    const round2 = (n: number): number => Math.round(n * 100) / 100;
-    if (gstTreatment === 'include' && gstPercent > 0) {
-      // The quoted finalFee ALREADY contains GST — back it out so the plan
-      // splits the GST-exclusive base while the all-in figure stays finalFee.
-      const planBase = round2(finalFee / (1 + gstPercent / 100));
-      return {
-        baseFee, discount, finalFee, gstPercent,
-        planBase,
-        gstAmount: round2(finalFee - planBase),
-        feeIncGst: finalFee,
-      };
-    }
-    // Separate (default / legacy): GST is added on top of finalFee.
     const gstAmount = finalFee * (gstPercent / 100);
+    const feeIncGst = finalFee + gstAmount;
     return {
       baseFee, discount, finalFee, gstPercent,
-      planBase: finalFee,
       gstAmount,
-      feeIncGst: finalFee + gstAmount,
+      feeIncGst,
+      planBase: gstTreatment === 'include' ? feeIncGst : finalFee,
     };
   }, [baseFee, discount, additionalDiscountTotal, gstPercent, gstTreatment]);
 
@@ -360,12 +354,12 @@ export function GeneratePaymentLinkDialog({
   //   Course × 5: (25,000 − 5,000) / 5 = 4,000 base + 18% = 4,720 inc-GST each
   //   Plan total: 25,000 base + 4,500 GST = 29,500 inc-GST ✓
   const generatePlan = () => {
-    // Split the GST-EXCLUSIVE base (= finalFee when GST is separate;
-    // finalFee/(1+gst%) when GST is included). Rows then re-add GST so the
-    // plan inc-GST total reconciles to breakdown.feeIncGst in both treatments.
+    // Split planBase: the pre-GST base under 'separate' (rows re-add GST), or
+    // the all-in total under 'include' (rows carry 0% so the amount the student
+    // pays already includes GST). Plan inc-GST reconciles to feeIncGst in both.
     const courseFeeExcl = breakdown.planBase;
     const rows: PlanRow[] = [];
-    const gst = breakdown.gstPercent;
+    const gst = gstTreatment === 'include' ? 0 : breakdown.gstPercent;
 
     // Cap reg fee to the course final fee — admins occasionally type
     // a reg that's higher than the final fee; we clamp so the course
@@ -473,6 +467,9 @@ export function GeneratePaymentLinkDialog({
     return planTotals.incl - breakdown.feeIncGst;
   }, [mode, plan, planTotals.incl, breakdown.feeIncGst]);
   const planMatchesTotal = Math.abs(planMismatch) <= 1;
+  // Under 'include', each instalment amount already contains GST, so the plan
+  // table drops the GST % / Inc. GST columns (Naji 2026-06-30).
+  const hidePlanGstCols = gstTreatment === 'include';
 
   const sendPaymentLink = async () => {
     if (mode === 'full') {
@@ -668,9 +665,7 @@ export function GeneratePaymentLinkDialog({
                 ) : null}
                 <tr className="border-b border-slate-100">
                   <td className="py-2 font-semibold text-slate-700">Final Fee</td>
-                  {/* GST-exclusive base — equals Final Fee under 'separate', and
-                      the backed-out base under 'include' so base + GST = Inc GST. */}
-                  <td className="py-2 text-right font-semibold">{fmtInr(breakdown.planBase)}</td>
+                  <td className="py-2 text-right font-semibold">{fmtInr(breakdown.finalFee)}</td>
                 </tr>
                 <tr className="border-b border-slate-100">
                   <td className="py-2 text-slate-500">GST ({breakdown.gstPercent}%)</td>
@@ -819,8 +814,12 @@ export function GeneratePaymentLinkDialog({
                         <tr className="border-b border-slate-100">
                           <th className="px-1.5 py-2 text-left font-medium">Description</th>
                           <th className="px-1.5 py-2 text-right font-medium">Instalment (₹)</th>
-                          <th className="px-1.5 py-2 text-right font-medium">GST %</th>
-                          <th className="px-1.5 py-2 text-right font-medium">Inc. GST</th>
+                          {!hidePlanGstCols ? (
+                            <>
+                              <th className="px-1.5 py-2 text-right font-medium">GST %</th>
+                              <th className="px-1.5 py-2 text-right font-medium">Inc. GST</th>
+                            </>
+                          ) : null}
                           <th className="px-1.5 py-2 text-left font-medium">Due Date</th>
                           <th className="px-1.5 py-2 font-medium" />
                         </tr>
@@ -846,13 +845,18 @@ export function GeneratePaymentLinkDialog({
                                 />
                               </td>
                               {/* GST % is read-only — Naji 2026-05-31: it's
-                                  fixed by the offering, not per-row editable. */}
-                              <td className="px-1.5 py-1.5 text-right text-slate-600 whitespace-nowrap">
-                                {r.gstPercent}%
-                              </td>
-                              <td className="px-1.5 py-1.5 text-right font-medium text-slate-900 whitespace-nowrap">
-                                {fmtInr(incGst)}
-                              </td>
+                                  fixed by the offering, not per-row editable.
+                                  Hidden under 'include' (GST is inside the amount). */}
+                              {!hidePlanGstCols ? (
+                                <>
+                                  <td className="px-1.5 py-1.5 text-right text-slate-600 whitespace-nowrap">
+                                    {r.gstPercent}%
+                                  </td>
+                                  <td className="px-1.5 py-1.5 text-right font-medium text-slate-900 whitespace-nowrap">
+                                    {fmtInr(incGst)}
+                                  </td>
+                                </>
+                              ) : null}
                               <td className="px-1.5 py-1.5">
                                 <DmyDateInput
                                   value={r.dueDate}
@@ -875,9 +879,21 @@ export function GeneratePaymentLinkDialog({
                         })}
                         <tr className="bg-slate-50">
                           <td className="px-2 py-2 font-semibold text-slate-700">Plan total</td>
-                          <td className="px-2 py-2 text-right font-medium text-slate-700">{fmtInr(planTotals.excl)}</td>
-                          <td className="px-2 py-2 text-right text-xs text-slate-500">{fmtInr(planTotals.gst)}</td>
-                          <td className="px-2 py-2 text-right font-bold text-emerald-700">{fmtInr(planTotals.incl)}</td>
+                          <td
+                            className={
+                              hidePlanGstCols
+                                ? 'px-2 py-2 text-right font-bold text-emerald-700'
+                                : 'px-2 py-2 text-right font-medium text-slate-700'
+                            }
+                          >
+                            {fmtInr(planTotals.excl)}
+                          </td>
+                          {!hidePlanGstCols ? (
+                            <>
+                              <td className="px-2 py-2 text-right text-xs text-slate-500">{fmtInr(planTotals.gst)}</td>
+                              <td className="px-2 py-2 text-right font-bold text-emerald-700">{fmtInr(planTotals.incl)}</td>
+                            </>
+                          ) : null}
                           <td colSpan={2} />
                         </tr>
                       </tbody>
