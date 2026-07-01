@@ -1,45 +1,87 @@
-// Counsellor Resources (Naji 2026-07-01) — folder/file browser mirroring the
-// admin Resources page, reading the SAME /admin/resources/* endpoints via
-// api.admin (role 9 is in ADMIN_PORTAL_ROLES). Counsellor-themed: every portaled
-// shadcn Content (Dialog/Dropdown) carries `counsellor-theme` so it keeps the
-// navy/orange palette instead of admin magenta.
+// Counsellor Resources (Naji 2026-07-01) — matches the Lovable design: a grid of
+// colourful folder cards that drill into a file table with Preview / Download.
+// Read-only browse/download (admin manages the files). Reads the real nested
+// /admin/resources/* data via api.admin (role 9 is in ADMIN_PORTAL_ROLES).
 
-import { useState, useMemo, useCallback } from 'react';
-import { Folder, MoreHorizontal, Trash2, Pencil, ChevronRight, Plus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useMemo, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  ArrowLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  FileArchive,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideo,
+  FolderOpen,
+  Presentation,
+  Search,
+} from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
-import { toRecords, asString, formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../../admin/shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../../admin/shared/components/AdminDataTable.js';
+import { asNumber, asString, formatDate, toRecords } from '../../../admin/shared/utils/admin-data-utils.js';
 import type { CounsellorPageProps } from '../../routing/counsellor-routes.js';
+
+const FOLDER_GRADS = [
+  'from-indigo-500 to-violet-500',
+  'from-sky-500 to-cyan-500',
+  'from-amber-500 to-orange-500',
+  'from-emerald-500 to-teal-500',
+  'from-fuchsia-500 to-pink-500',
+  'from-blue-600 to-indigo-600',
+] as const;
+
+function gradientFor(index: number): string {
+  return FOLDER_GRADS[index % FOLDER_GRADS.length] ?? FOLDER_GRADS[0];
+}
+
+// Map a file's type/extension to a Lucide icon (mirrors the Lovable folder page).
+function fileIcon(typeRaw: string, name: string): LucideIcon {
+  const t = (typeRaw || name.split('.').pop() || '').toLowerCase();
+  if (t.includes('pdf')) return FileText;
+  if (t.includes('xls') || t.includes('sheet') || t.includes('csv')) return FileSpreadsheet;
+  if (t.includes('ppt') || t.includes('present')) return Presentation;
+  if (t.includes('zip') || t.includes('rar') || t.includes('archive')) return FileArchive;
+  if (t.includes('png') || t.includes('jpg') || t.includes('jpeg') || t.includes('img') || t.includes('image') || t.includes('gif'))
+    return FileImage;
+  if (t.includes('mp4') || t.includes('mov') || t.includes('video')) return FileVideo;
+  return FileText;
+}
+
+function fileSize(value: unknown): string {
+  const n = asNumber(value);
+  if (!Number.isFinite(n) || n <= 0) return asString(value) || '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function folderName(f: Record<string, unknown>): string {
+  return asString(f.name) || asString(f.folder_name) || 'Folder';
+}
 
 export default function CounsellorResourcesPage({ api, session }: CounsellorPageProps) {
   const admin = api.admin;
-  const [folderStack, setFolderStack] = useState<{ id: string; name: string }[]>([]);
-  const [showAddFolder, setShowAddFolder] = useState(false);
-  const [showAddFile, setShowAddFile] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [newFileName, setNewFileName] = useState('');
-  const [newFileType, setNewFileType] = useState('');
-  const [newFilePath, setNewFilePath] = useState('');
-  const [renameTarget, setRenameTarget] = useState<{ id: string; type: 'file' | 'folder'; name: string } | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [stack, setStack] = useState<{ id: string; name: string }[]>([]);
+  const [search, setSearch] = useState('');
 
-  const currentFolderId = folderStack.length > 0 ? (folderStack[folderStack.length - 1]?.id ?? '') : '';
+  const currentFolderId = stack.length > 0 ? (stack[stack.length - 1]?.id ?? '') : '';
 
-  const { data, loading, error, reload } = useAdminPageData(
+  const { data, loading, error } = useAdminPageData(
     () => admin.loadResources(session.token, currentFolderId),
     [currentFolderId],
   );
@@ -47,256 +89,200 @@ export default function CounsellorResourcesPage({ api, session }: CounsellorPage
   const folders = useMemo(() => (data ? toRecords(data.folders) : []), [data]);
   const files = useMemo(() => (data ? toRecords(data.files) : []), [data]);
 
-  const handleFolderClick = useCallback((folder: Record<string, unknown>) => {
-    setFolderStack((prev) => [...prev, { id: asString(folder.id), name: asString(folder.name) }]);
-  }, []);
+  const q = search.trim().toLowerCase();
+  const shownFolders = useMemo(
+    () => (q ? folders.filter((f) => folderName(f).toLowerCase().includes(q)) : folders),
+    [folders, q],
+  );
+  const shownFiles = useMemo(
+    () => (q ? files.filter((f) => asString(f.name).toLowerCase().includes(q)) : files),
+    [files, q],
+  );
 
-  const handleBreadcrumbClick = useCallback((index: number) => {
-    if (index < 0) setFolderStack([]);
-    else setFolderStack((prev) => prev.slice(0, index + 1));
-  }, []);
-
-  const handleAddFolder = useCallback(async () => {
-    if (!newFolderName.trim()) return;
-    setSaving(true);
-    try {
-      await admin.addResourceFolder(session.token, currentFolderId, newFolderName.trim());
-      setShowAddFolder(false);
-      setNewFolderName('');
-      reload();
-    } catch { /* ignore */ } finally { setSaving(false); }
-  }, [admin, session.token, currentFolderId, newFolderName, reload]);
-
-  const handleAddFile = useCallback(async () => {
-    if (!newFileName.trim()) return;
-    setSaving(true);
-    try {
-      await admin.addResourceFile(session.token, {
-        folderId: currentFolderId,
-        name: newFileName.trim(),
-        type: newFileType.trim(),
-        size: 0,
-        path: newFilePath.trim(),
-      });
-      setShowAddFile(false);
-      setNewFileName('');
-      setNewFileType('');
-      setNewFilePath('');
-      reload();
-    } catch { /* ignore */ } finally { setSaving(false); }
-  }, [admin, session.token, currentFolderId, newFileName, newFileType, newFilePath, reload]);
-
-  const handleDelete = useCallback(async (id: string, type: 'file' | 'folder') => {
-    setSaving(true);
-    try {
-      await admin.deleteResource(session.token, id, type);
-      reload();
-    } catch { /* ignore */ } finally { setSaving(false); }
-  }, [admin, session.token, reload]);
-
-  const handleRename = useCallback(async () => {
-    if (!renameTarget || !renameValue.trim()) return;
-    setSaving(true);
-    try {
-      await admin.renameResource(session.token, renameTarget.id, renameTarget.type, renameValue.trim());
-      setRenameTarget(null);
-      setRenameValue('');
-      reload();
-    } catch { /* ignore */ } finally { setSaving(false); }
-  }, [admin, session.token, renameTarget, renameValue, reload]);
-
-  const fileColumns: DataTableColumn[] = useMemo(() => [
-    { key: 'name', label: 'File Name', sortable: true },
-    { key: 'type', label: 'Type' },
-    { key: 'size', label: 'Size' },
-    { key: 'created_at', label: 'Upload Date', render: (v: unknown) => formatDate(v) },
-    {
-      key: '_actions',
-      label: 'Actions',
-      render: (_v: unknown, row: Record<string, unknown>) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="Open row actions">
-              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="counsellor-theme">
-            {asString(row.path) && (
-              <DropdownMenuItem asChild>
-                <a href={asString(row.path)} target="_blank" rel="noopener noreferrer">Download</a>
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => { setRenameTarget({ id: asString(row.id), type: 'file', name: asString(row.name) }); setRenameValue(asString(row.name)); }}>
-              <Pencil className="mr-2 h-4 w-4" /> Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600" onClick={() => { void handleDelete(asString(row.id), 'file'); }}>
-              <Trash2 className="mr-2 h-4 w-4" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-    },
-  ], [handleDelete]);
+  const openFolder = (f: Record<string, unknown>): void => {
+    setStack((prev) => [...prev, { id: asString(f.id), name: folderName(f) }]);
+    setSearch('');
+  };
+  const goTo = (index: number): void => {
+    setStack((prev) => (index < 0 ? [] : prev.slice(0, index + 1)));
+    setSearch('');
+  };
 
   if (loading) {
     return <DashboardLoader label="resources" tone="theme" />;
   }
-
   if (error) {
     return (
-      <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+      <Card className="p-12 text-center shadow-[var(--shadow-soft)] border-border/70">
+        <p role="alert" className="text-sm text-red-600">
           {error}
-        </CardContent>
+        </p>
       </Card>
     );
   }
 
   return (
-    <main className="space-y-4">
-      <div className="flex items-center justify-between">
-        <AdminPageHeader title="Resources" />
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAddFolder(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Add Folder
-          </Button>
-          <Button size="sm" onClick={() => setShowAddFile(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Upload File
-          </Button>
+    <main className="space-y-6">
+      {/* Header + search */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Resources</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {folders.length} folder{folders.length === 1 ? '' : 's'} · {files.length} file
+            {files.length === 1 ? '' : 's'} available to download.
+          </p>
+        </div>
+        <div className="relative w-full sm:w-[380px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search folders and files"
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </div>
 
-      {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1 text-sm">
-        <button type="button" className="font-medium text-primary hover:underline" onClick={() => handleBreadcrumbClick(-1)}>
-          Home
-        </button>
-        {folderStack.map((folder, idx) => (
-          <span key={folder.id} className="flex items-center gap-1">
-            <ChevronRight className="h-3 w-3 text-muted-foreground" />
-            <button
-              type="button"
-              className={idx === folderStack.length - 1 ? 'font-medium text-foreground' : 'text-primary hover:underline'}
-              onClick={() => handleBreadcrumbClick(idx)}
-            >
-              {folder.name}
-            </button>
-          </span>
-        ))}
-      </nav>
-
-      {folders.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {folders.map((folder, idx) => (
-            <Card key={idx} className="group relative cursor-pointer transition-shadow hover:shadow-md">
-              <CardContent className="flex items-center gap-3 py-4" onClick={() => handleFolderClick(folder)}>
-                <Folder className="size-8 text-primary" />
-                <span className="truncate text-sm font-medium text-foreground">
-                  {asString(folder.name) || `Folder ${idx + 1}`}
-                </span>
-              </CardContent>
-              <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="Open folder actions">
-                      <MoreHorizontal className="h-3 w-3" aria-hidden="true" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="counsellor-theme">
-                    <DropdownMenuItem onClick={() => { setRenameTarget({ id: asString(folder.id), type: 'folder', name: asString(folder.name) }); setRenameValue(asString(folder.name)); }}>
-                      <Pencil className="mr-2 h-4 w-4" /> Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="text-red-600" onClick={() => { void handleDelete(asString(folder.id), 'folder'); }}>
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </Card>
+      {/* Breadcrumb (only inside a folder) */}
+      {stack.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1 text-sm">
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => goTo(-1)}>
+            <ArrowLeft className="h-3.5 w-3.5" /> All Folders
+          </Button>
+          {stack.map((s, idx) => (
+            <span key={s.id} className="flex items-center gap-1">
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => goTo(idx)}
+                className={
+                  idx === stack.length - 1
+                    ? 'font-medium text-foreground'
+                    : 'text-primary hover:underline'
+                }
+              >
+                {s.name}
+              </button>
+            </span>
           ))}
         </div>
-      )}
+      ) : null}
 
-      {files.length > 0 && <AdminDataTable columns={fileColumns} rows={files} />}
+      {/* Folder grid — Lovable cards */}
+      {shownFolders.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {shownFolders.map((f, idx) => {
+            const name = folderName(f);
+            const count = asNumber(f.file_count) || asNumber(f.files_count) || asNumber(f.total_files);
+            return (
+              <button key={asString(f.id) || idx} type="button" onClick={() => openFolder(f)} className="text-left">
+                <Card className="h-full p-5 transition-all hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-sm ${gradientFor(idx)}`}
+                    >
+                      <FolderOpen className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-semibold">{name}</h3>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {count > 0 ? (
+                          <Badge variant="secondary" className="gap-1">
+                            <FileText className="h-3 w-3" /> {count} file{count === 1 ? '' : 's'}
+                          </Badge>
+                        ) : null}
+                        <Badge variant="outline" className="gap-1">
+                          <FolderOpen className="h-3 w-3" /> Open
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
-      {folders.length === 0 && files.length === 0 && (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No resources found.
-          </CardContent>
+      {/* File table — Lovable folder-detail style */}
+      {shownFiles.length > 0 ? (
+        <Card className="overflow-hidden p-0 shadow-[var(--shadow-soft)] border-border/70">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40">
+                <TableHead>File Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Size</TableHead>
+                <TableHead>Last Updated</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shownFiles.map((file, idx) => {
+                const name = asString(file.name) || 'File';
+                const type = asString(file.type);
+                const path = asString(file.path) || asString(file.file);
+                const Icon = fileIcon(type, name);
+                return (
+                  <TableRow key={asString(file.id) || idx} className="hover:bg-muted/30">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted">
+                          <Icon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <span className="min-w-0 truncate font-medium">{name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {type ? (
+                        <Badge variant="outline" className="uppercase">
+                          {type}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{fileSize(file.size)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(file.created_at) || '—'}</TableCell>
+                    <TableCell className="text-right">
+                      {path ? (
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" asChild>
+                            <a href={path} target="_blank" rel="noopener noreferrer">
+                              <Eye className="mr-1 h-4 w-4" /> Preview
+                            </a>
+                          </Button>
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={path} target="_blank" rel="noopener noreferrer" download>
+                              <Download className="mr-1 h-4 w-4" /> Download
+                            </a>
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Card>
-      )}
+      ) : null}
 
-      {/* Add Folder Dialog */}
-      <Dialog open={showAddFolder} onOpenChange={setShowAddFolder}>
-        <DialogContent className="counsellor-theme">
-          <form onSubmit={(e) => { e.preventDefault(); void handleAddFolder(); }}>
-            <DialogHeader><DialogTitle>Add Folder</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div className="space-y-1">
-                <Label>Folder Name</Label>
-                <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Enter folder name" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddFolder(false)} disabled={saving}>Cancel</Button>
-              <Button type="submit" disabled={saving || !newFolderName.trim()}>
-                {saving ? 'Creating...' : 'Create Folder'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Upload File Dialog */}
-      <Dialog open={showAddFile} onOpenChange={setShowAddFile}>
-        <DialogContent className="counsellor-theme">
-          <form onSubmit={(e) => { e.preventDefault(); void handleAddFile(); }}>
-            <DialogHeader><DialogTitle>Upload File</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div className="space-y-1">
-                <Label>File Name</Label>
-                <Input value={newFileName} onChange={(e) => setNewFileName(e.target.value)} placeholder="Enter file name" />
-              </div>
-              <div className="space-y-1">
-                <Label>File Type</Label>
-                <Input value={newFileType} onChange={(e) => setNewFileType(e.target.value)} placeholder="e.g. pdf, doc, image" />
-              </div>
-              <div className="space-y-1">
-                <Label>File URL / Path</Label>
-                <Input value={newFilePath} onChange={(e) => setNewFilePath(e.target.value)} placeholder="https://..." />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddFile(false)} disabled={saving}>Cancel</Button>
-              <Button type="submit" disabled={saving || !newFileName.trim()}>
-                {saving ? 'Uploading...' : 'Upload File'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename Dialog */}
-      <Dialog open={renameTarget !== null} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
-        <DialogContent className="counsellor-theme">
-          <form onSubmit={(e) => { e.preventDefault(); void handleRename(); }}>
-            <DialogHeader><DialogTitle>Rename {renameTarget?.type === 'folder' ? 'Folder' : 'File'}</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div className="space-y-1">
-                <Label>New Name</Label>
-                <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} placeholder="Enter new name" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={saving}>Cancel</Button>
-              <Button type="submit" disabled={saving || !renameValue.trim()}>
-                {saving ? 'Renaming...' : 'Rename'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* Empty state */}
+      {shownFolders.length === 0 && shownFiles.length === 0 ? (
+        <Card className="p-10 text-center shadow-[var(--shadow-soft)] border-border/70">
+          <FolderOpen className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">
+            {q
+              ? 'No folders or files match your search.'
+              : stack.length > 0
+                ? 'This folder is empty.'
+                : 'No resources available yet.'}
+          </p>
+        </Card>
+      ) : null}
     </main>
   );
 }
