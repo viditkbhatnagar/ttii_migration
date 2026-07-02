@@ -631,7 +631,9 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       </section>
 
       {/* 2 · Stat cards — 5 in a single row (EduPulse layout) */}
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      {/* [&>*]:min-w-0 lets grid items shrink below their content's intrinsic
+          width so nothing forces horizontal overflow on mobile (Naji 2026-07-01). */}
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5 [&>*]:min-w-0">
         {stats.map((s) => (
           <StatCard key={s.label} {...s} />
         ))}
@@ -639,7 +641,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
 
       {/* 3 · Continue Learning (left) + Upcoming Live (right) — Naji's order */}
       {inProgressCourses.length > 0 || upcomingLive.length > 0 ? (
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3 [&>*]:min-w-0">
           {inProgressCourses.length > 0 ? (
             <div className={upcomingLive.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}>
               <SectionCard
@@ -648,7 +650,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                 actionLabel="View all"
                 onAction={() => onNavigate('/student/courses')}
               >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 [&>*]:min-w-0">
                   {inProgressCourses.slice(0, 3).map((course) => (
                     <ContinueLearningCard
                       key={course.id}
@@ -692,7 +694,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
           — EduPulse 2-column layout (Naji 2026-06-06: match the demo's left/right
           arrangement instead of three stacked full-width cards). */}
       {badges.length > 0 || activity.length > 0 || priorities.length > 0 ? (
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3 [&>*]:min-w-0">
           {badges.length > 0 || activity.length > 0 ? (
             <div className={`space-y-6 ${priorities.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
               {badges.length > 0 ? (
@@ -705,7 +707,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
                   pillIcon={Trophy}
                   fill={false}
                 >
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 [&>*]:min-w-0">
                     {badges.map((badge) => (
                       <BadgeTile key={badge.label} badge={badge} />
                     ))}
@@ -740,7 +742,7 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
           actionLabel="Browse all"
           onAction={() => onNavigate('/student/courses')}
         >
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 [&>*]:min-w-0">
             {recommended.slice(0, 4).map((course) => (
               <RecommendedCourseCard
                 key={course.id}
