@@ -13,6 +13,7 @@
  * method icons on the right, single Pay CTA, single helper line.
  */
 import { type ReactElement } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import styles from './CreditCardForm.module.css';
 
 export type CardConfirmState = {
@@ -43,6 +44,9 @@ interface CreditCardFormProps {
   /** Course / item description shown below the amount. */
   itemDescription?: string;
   onSubmit?: (state: CardConfirmState) => void;
+  /** Optional back/cancel handler — renders a visible "Back" button so mobile
+   * users can leave the payment screen without the phone back button. */
+  onBack?: () => void;
   className?: string;
 }
 
@@ -55,6 +59,7 @@ export function CreditCardForm({
   merchantLabel = "Teachers' Training Institute of India",
   itemDescription,
   onSubmit,
+  onBack,
   className = '',
 }: CreditCardFormProps): ReactElement {
   const cardStyle = {
@@ -153,6 +158,19 @@ export function CreditCardForm({
           >
             {submitting ? 'Opening secure checkout…' : submitLabel}
           </button>
+
+          {/* Visible Back so mobile users can leave without the phone back
+              button (which navigates away from the app). Naji 2026-07-01. */}
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              disabled={submitting}
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            >
+              <ArrowLeft aria-hidden="true" className="size-4" /> Back
+            </button>
+          ) : null}
 
           <p className={styles.helper}>
             <span className={styles.helperLock}>Secure</span> — Payment details are

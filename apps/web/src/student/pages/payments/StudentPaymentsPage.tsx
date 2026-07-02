@@ -560,6 +560,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
             submitLabel={`Pay ${payDialogAmount > 0 ? formatCurrency(payDialogAmount) : ''} with Razorpay`}
             submitting={payingCourseId !== null}
             onSubmit={handleCardFormSubmit}
+            onBack={() => setPayDialogCourseId(null)}
           />
         </DialogContent>
       </Dialog>

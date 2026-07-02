@@ -14,7 +14,7 @@ interface AdminTabBarProps {
 
 export function AdminTabBar({ tabs, activeTab, onChange }: AdminTabBarProps) {
   return (
-    <div role="tablist" className="mb-4 flex gap-1 border-b border-gray-200">
+    <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-200">
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
@@ -25,7 +25,7 @@ export function AdminTabBar({ tabs, activeTab, onChange }: AdminTabBarProps) {
             aria-selected={isActive}
             aria-label={tab.count != null ? `${tab.label} (${tab.count})` : undefined}
             className={cn(
-              'relative px-4 py-2 text-sm font-medium transition-colors',
+              'relative shrink-0 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors sm:px-4',
               isActive
                 ? 'text-ttii-primary'
                 : 'text-gray-500 hover:text-gray-700',

@@ -233,13 +233,15 @@ function StatCardButton({
       type="button"
       onClick={onSelect}
       aria-pressed={active}
-      className={`flex items-center gap-3 rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all hover:shadow-md ${
+      className={`flex flex-col items-start gap-2 rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-3 ${
         active ? `border-transparent ring-2 ${card.tone.ring}` : 'border-slate-200'
       }`}
     >
       <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${card.tone.tile}`}>
         <Icon aria-hidden="true" className="size-5" />
       </span>
+      {/* Stacks under the icon on mobile so the label ("Submitted"/"Graded")
+          has the full card width and isn't truncated (Naji 2026-07-01). */}
       <span className="min-w-0">
         <span className="block text-xl font-bold leading-none text-student-text">{card.count}</span>
         <span className="mt-1 block truncate text-xs font-medium text-student-muted">{card.label}</span>
@@ -855,7 +857,7 @@ function AssignmentDetail({
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Assignment Information
             </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 [&>*]:min-w-0">
               {stats.map((s) => (
                 <div key={s.label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{s.label}</p>
@@ -1007,7 +1009,7 @@ function AssignmentDetail({
           visible; only the body scrolls. The container uses dvh (not vh) so the
           modal fits the real mobile viewport and the footer isn't pushed behind
           the browser address bar in portrait (Risha 2026-06-29). */}
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 p-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 p-4">
         <Button variant="outline" onClick={onClose} disabled={busy !== null}>
           Close
         </Button>
