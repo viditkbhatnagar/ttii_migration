@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
 import type { StudentPortalApi } from '../student-portal-api.js';
 import { StudentLayoutProvider } from './StudentLayoutContext.js';
@@ -18,6 +18,13 @@ interface StudentLayoutInnerProps {
 
 function StudentLayoutInner({ pathname, session, api, onNavigate, onLogout }: StudentLayoutInnerProps) {
   const { mobileSidebarOpen, closeMobileSidebar } = useStudentLayout();
+
+  // The scroll container is <main id="main-content">, not window — so reset ITS
+  // scroll to the top on every route change. Otherwise pages open at the
+  // previous page's scroll offset (often the bottom). Ishfaq 2026-07-01.
+  useEffect(() => {
+    document.getElementById('main-content')?.scrollTo({ top: 0 });
+  }, [pathname]);
 
   const handleNavigate = useCallback((href: string) => {
     closeMobileSidebar();

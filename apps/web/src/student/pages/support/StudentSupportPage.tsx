@@ -53,11 +53,15 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [selectedType, setSelectedType] = useState<string>('General');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Scroll the THREAD container to the latest message — not scrollIntoView,
+  // which bubbles up and scrolls the whole page (#main-content) to the bottom
+  // so the page opened at the footer. Ishfaq 2026-07-01.
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
   useEffect(() => {
@@ -167,13 +171,14 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
 
           {/* Message thread */}
           <div
+            ref={messagesContainerRef}
             role="log"
             aria-label="Support conversation"
             aria-live="polite"
-            className="max-h-[500px] min-h-[350px] space-y-3 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
+            className="flex max-h-[500px] min-h-[350px] flex-col overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
           >
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
                 <div aria-hidden="true" className="flex size-16 items-center justify-center rounded-full bg-student-primary/10">
                   <Headphones className="size-8 text-student-primary" />
                 </div>
@@ -185,7 +190,10 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                 </div>
               </div>
             ) : (
-              messages.map((msg) => {
+              // mt-auto keeps a few messages anchored to the bottom (chat-style)
+              // instead of floating at the top with empty space below.
+              <div className="mt-auto space-y-3">
+                {messages.map((msg) => {
                 const id = asString(msg.id);
                 const text = asString(msg.message);
                 const senderId = asNumber(msg.sender_id) || asString(msg.sender_id);
@@ -218,9 +226,9 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
                     </div>
                   </div>
                 );
-              })
+                })}
+              </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Compose area */}

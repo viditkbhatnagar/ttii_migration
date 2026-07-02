@@ -432,7 +432,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
         setSelectedContent(resolved);
       }
     }
-    window.scrollTo({ top: 0 });
+    document.getElementById('main-content')?.scrollTo({ top: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -478,7 +478,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     setSelectedContent(null);
     setExpandedSubjectId(null);
     setLeftTab('timeline');
-    window.scrollTo({ top: 0 });
+    document.getElementById('main-content')?.scrollTo({ top: 0 });
   };
 
   const handleBackToList = () => {
@@ -505,14 +505,14 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
     } else {
       setSelectedContent(null);
     }
-    window.scrollTo({ top: 0 });
+    document.getElementById('main-content')?.scrollTo({ top: 0 });
   };
 
   // Back from the lesson player to the subjects grid (§3).
   const handleBackToSubjects = () => {
     setPlayerOpen(false);
     setSelectedContent(null);
-    window.scrollTo({ top: 0 });
+    document.getElementById('main-content')?.scrollTo({ top: 0 });
   };
 
   if (loading) return <PageLoader label="Loading courses..." />;
@@ -623,7 +623,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
       setSelectedContent(null);
       setExpandedSubjectId(firstSubjectId || null);
       setLeftTab('live');
-      window.scrollTo({ top: 0 });
+      document.getElementById('main-content')?.scrollTo({ top: 0 });
     };
 
     // Lesson-wise (§3): clicking a lesson card opens the player straight into
@@ -642,7 +642,7 @@ export default function StudentLearningPage({ api, session, onNavigate }: Studen
       } else {
         setSelectedContent(null);
       }
-      window.scrollTo({ top: 0 });
+      document.getElementById('main-content')?.scrollTo({ top: 0 });
     };
 
     const courseDuration = asString(course.duration);
