@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Calendar, CalendarDays, Clock, LayoutList, Loader2, Pencil, Play, Users, Video, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
@@ -75,6 +77,24 @@ function platformLabel(row: InstructorLiveClassRow): string {
 }
 
 type ViewMode = 'list' | 'calendar';
+
+interface ScheduleFormState {
+  cohortId: string;
+  title: string;
+  date: string;
+  fromTime: string;
+  toTime: string;
+  joinUrl: string;
+}
+
+const EMPTY_SCHEDULE_FORM: ScheduleFormState = {
+  cohortId: '',
+  title: '',
+  date: '',
+  fromTime: '',
+  toTime: '',
+  joinUrl: '',
+};
 
 function ToggleButton({
   active,
@@ -233,12 +253,60 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
 
   // Load ALL classes once so we can compute the three tab counts in
   // parens (Upcoming / Ongoing / Past) — mirrors the Lovable mockup.
-  const { data, loading, error } = useAdminPageData(
+  const { data, loading, error, reload } = useAdminPageData(
     () => api.loadLiveClasses(session.token, 'all'),
     [api, session.token],
   );
 
+  // Cohorts for the "Schedule Class" picker — an instructor can only
+  // schedule sessions for cohorts assigned to them.
+  const { data: cohortsData } = useAdminPageData(
+    () => api.loadCohorts(session.token),
+    [api, session.token],
+  );
+  const cohorts = useMemo(() => cohortsData ?? [], [cohortsData]);
+
   const allRows = useMemo(() => data ?? [], [data]);
+
+  // ── Schedule a live session (manual meeting link) ──────────────────
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(EMPTY_SCHEDULE_FORM);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  const submitSchedule = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      setScheduleError(null);
+      const cohortId = Number(scheduleForm.cohortId);
+      if (!cohortId) {
+        setScheduleError('Please select a cohort.');
+        return;
+      }
+      setScheduleSubmitting(true);
+      try {
+        await api.scheduleLiveClass(session.token, {
+          cohortId,
+          title: scheduleForm.title.trim(),
+          date: scheduleForm.date,
+          fromTime: scheduleForm.fromTime,
+          toTime: scheduleForm.toTime,
+          joinUrl: scheduleForm.joinUrl.trim(),
+        });
+        setScheduleOpen(false);
+        setScheduleForm(EMPTY_SCHEDULE_FORM);
+        // Surface the new session immediately — it's dated in the future.
+        setFilter('upcoming');
+        setOngoingPreview(false);
+        reload();
+      } catch (err) {
+        setScheduleError(err instanceof Error ? err.message : 'Could not schedule the session.');
+      } finally {
+        setScheduleSubmitting(false);
+      }
+    },
+    [api, session.token, scheduleForm, reload],
+  );
 
   // Tab bucketing. "Ongoing" = scheduled today; "Upcoming" = future
   // (after today); "Past" = strictly before today.
@@ -345,7 +413,10 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
         <Button
           variant="ghost"
           className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 hover:text-white"
-          onClick={() => onNavigate('/instructor/cohorts')}
+          onClick={() => {
+            setScheduleError(null);
+            setScheduleOpen(true);
+          }}
         >
           + Schedule Class
         </Button>
@@ -481,6 +552,141 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
               ) : null}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule a live session — manual meeting link (no Teams auto-create).
+          Instructors paste their own Zoom/Meet/Teams URL; the session shows up
+          for learners on the selected cohort. (Risha/Naji 2026-07-03) */}
+      <Dialog
+        open={scheduleOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setScheduleOpen(false);
+            setScheduleError(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="max-h-[90dvh] overflow-y-auto"
+          style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
+        >
+          <DialogHeader>
+            <DialogTitle>Schedule Live Session</DialogTitle>
+            <DialogDescription>
+              Set up a session for one of your cohorts. Paste your own meeting link
+              (Zoom, Google Meet, or Teams) — learners on the cohort will see it.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-4" onSubmit={(e) => void submitSchedule(e)}>
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-cohort">Cohort</Label>
+              <select
+                id="sched-cohort"
+                required
+                value={scheduleForm.cohortId}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, cohortId: e.target.value }))}
+                className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">Select a cohort…</option>
+                {cohorts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                    {c.cohortCode ? ` (${c.cohortCode})` : ''}
+                  </option>
+                ))}
+              </select>
+              {cohorts.length === 0 ? (
+                <p className="text-xs text-slate-400">No cohorts are assigned to you yet.</p>
+              ) : null}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-title">Session title</Label>
+              <Input
+                id="sched-title"
+                required
+                placeholder="e.g. Unit 3 — Live Doubt Clearing"
+                value={scheduleForm.title}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-date">Date</Label>
+              <Input
+                id="sched-date"
+                type="date"
+                required
+                value={scheduleForm.date}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, date: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-from">Start time</Label>
+                <Input
+                  id="sched-from"
+                  type="time"
+                  required
+                  value={scheduleForm.fromTime}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, fromTime: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-to">End time</Label>
+                <Input
+                  id="sched-to"
+                  type="time"
+                  required
+                  value={scheduleForm.toTime}
+                  onChange={(e) => setScheduleForm((f) => ({ ...f, toTime: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-url">Meeting link</Label>
+              <Input
+                id="sched-url"
+                type="url"
+                required
+                placeholder="https://…"
+                value={scheduleForm.joinUrl}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, joinUrl: e.target.value }))}
+              />
+            </div>
+
+            {scheduleError ? (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                {scheduleError}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setScheduleOpen(false);
+                  setScheduleError(null);
+                }}
+                disabled={scheduleSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={scheduleSubmitting || cohorts.length === 0}
+                className="gap-1 bg-violet-600 text-white hover:bg-violet-700"
+              >
+                {scheduleSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
+                Schedule Session
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

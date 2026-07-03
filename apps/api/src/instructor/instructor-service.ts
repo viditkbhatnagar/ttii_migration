@@ -154,6 +154,19 @@ export interface GradeSubmissionInput {
   remarks: string;
 }
 
+export interface ScheduleLiveClassInput {
+  cohortId: number;
+  title: string;
+  date: string; // YYYY-MM-DD
+  fromTime: string; // HH:MM
+  toTime: string; // HH:MM
+  joinUrl: string;
+}
+
+export type ScheduleLiveClassResult =
+  | { ok: true; row: InstructorLiveClassListItem }
+  | { ok: false; code: 'not_found' | 'invalid'; message: string };
+
 const UPCOMING_LIMIT = 8;
 const PAST_LIMIT = 8;
 
@@ -170,6 +183,18 @@ function timeOf(value: Date | null | undefined): string | null {
 function isoString(value: Date | null | undefined): string | null {
   if (!value) return null;
   return value.toISOString();
+}
+
+// Parse "HH:MM" / "HH:MM:SS" into the 1970-epoch Date that Prisma needs for a
+// @db.Time column (mirrors operations-service.addLiveClasses' parseTime).
+function parseTimeToDate(t: string): Date {
+  const cleaned = /^\d{1,2}:\d{2}(:\d{2})?$/.test(t) ? (t.length === 5 ? `${t}:00` : t) : '00:00:00';
+  return new Date(`1970-01-01T${cleaned}Z`);
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':');
+  return Number(h ?? 0) * 60 + Number(m ?? 0);
 }
 
 // Render a short "Today 4 PM" / "Tue 9 AM" label for the dashboard's
@@ -634,6 +659,106 @@ export class InstructorService {
       recordingFetchedAt: isoString(row.recording_fetched_at),
       attendanceFetchedAt: isoString(row.attendance_fetched_at),
     }));
+  }
+
+  /**
+   * Schedules a single live session for one of this instructor's own cohorts.
+   * Manual-link only (Risha/Naji 2026-07-03): the instructor supplies the
+   * meeting URL — no Teams auto-create, so no host mailbox / license is
+   * needed. The row is created exactly like the admin/centre path
+   * (operations-service.addLiveClasses) with platform 'manual', so it shows
+   * up for students on the cohort through the existing engagement reads.
+   * Ownership is enforced by matching cohorts.instructor_id.
+   */
+  async scheduleLiveClass(
+    instructorId: number,
+    input: ScheduleLiveClassInput,
+  ): Promise<ScheduleLiveClassResult> {
+    const title = input.title.trim();
+    const date = input.date.trim();
+    const fromTime = input.fromTime.trim();
+    const toTime = input.toTime.trim();
+    const joinUrl = input.joinUrl.trim();
+
+    if (!title) return { ok: false, code: 'invalid', message: 'Session title is required.' };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return { ok: false, code: 'invalid', message: 'A valid date is required.' };
+    }
+    if (!/^\d{1,2}:\d{2}$/.test(fromTime) || !/^\d{1,2}:\d{2}$/.test(toTime)) {
+      return { ok: false, code: 'invalid', message: 'Valid start and end times are required.' };
+    }
+    if (timeToMinutes(toTime) <= timeToMinutes(fromTime)) {
+      return { ok: false, code: 'invalid', message: 'End time must be after the start time.' };
+    }
+    if (!joinUrl) return { ok: false, code: 'invalid', message: 'A meeting link is required.' };
+    if (!/^https?:\/\//i.test(joinUrl)) {
+      return { ok: false, code: 'invalid', message: 'Meeting link must start with http:// or https://.' };
+    }
+    if (!input.cohortId) {
+      return { ok: false, code: 'not_found', message: 'Cohort not found or not yours.' };
+    }
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: input.cohortId, instructor_id: instructorId, deleted_at: null },
+      select: { id: true, title: true, course_id: true },
+    });
+    if (!cohort) {
+      return { ok: false, code: 'not_found', message: 'Cohort not found or not yours.' };
+    }
+
+    const now = new Date();
+    const created = await this.prisma.live_class.create({
+      data: {
+        cohort_id: cohort.id,
+        title,
+        instructor_id: String(instructorId),
+        course_id: String(cohort.course_id ?? ''),
+        date: new Date(date),
+        fromTime: parseTimeToDate(fromTime),
+        toTime: parseTimeToDate(toTime),
+        status: 'scheduled',
+        platform: 'manual',
+        join_url: joinUrl,
+        is_repetitive: 0,
+        created_by: instructorId,
+        updated_by: instructorId,
+        created_at: now,
+        updated_at: now,
+      },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        fromTime: true,
+        toTime: true,
+        status: true,
+        cohort_id: true,
+        join_url: true,
+        recording_url: true,
+        recording_storage_key: true,
+        recording_fetched_at: true,
+        attendance_fetched_at: true,
+      },
+    });
+
+    return {
+      ok: true,
+      row: {
+        id: created.id,
+        title: created.title ?? '',
+        date: isoDate(created.date),
+        fromTime: timeOf(created.fromTime),
+        toTime: timeOf(created.toTime),
+        status: created.status ?? '',
+        cohortId: created.cohort_id ?? null,
+        cohortTitle: cohort.title ?? null,
+        joinUrl: created.join_url ?? null,
+        recordingUrl: created.recording_url ?? null,
+        recordingStorageKey: created.recording_storage_key ?? null,
+        recordingFetchedAt: isoString(created.recording_fetched_at),
+        attendanceFetchedAt: isoString(created.attendance_fetched_at),
+      },
+    };
   }
 
   /**

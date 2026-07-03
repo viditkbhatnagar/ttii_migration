@@ -107,6 +107,15 @@ export interface InstructorLiveClassRow extends InstructorDashboardLiveClass {
   attendanceFetchedAt: string | null;
 }
 
+export interface ScheduleLiveClassInput {
+  cohortId: number;
+  title: string;
+  date: string; // YYYY-MM-DD
+  fromTime: string; // HH:MM
+  toTime: string; // HH:MM
+  joinUrl: string;
+}
+
 export interface InstructorAttendanceRow {
   id: number;
   email: string | null;
@@ -361,6 +370,35 @@ export class InstructorPortalApi {
         attendanceFetchedAt: asNullableString(row.attendanceFetchedAt),
       };
     });
+  }
+
+  /**
+   * Schedules a single manual-link live session for one of the instructor's
+   * cohorts. Throws an ApiError (with the server's message) on validation or
+   * ownership failure so the form can surface it. Returns the created row.
+   */
+  async scheduleLiveClass(
+    authToken: string,
+    input: ScheduleLiveClassInput,
+  ): Promise<InstructorLiveClassRow> {
+    const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+      '/instructor/live-classes',
+      authToken,
+      {
+        cohortId: input.cohortId,
+        title: input.title,
+        date: input.date,
+        fromTime: input.fromTime,
+        toTime: input.toTime,
+        joinUrl: input.joinUrl,
+      },
+    );
+    const row = asRecord(payload.data) ?? {};
+    return {
+      ...asLiveClassRow(row),
+      recordingFetchedAt: asNullableString(row.recordingFetchedAt),
+      attendanceFetchedAt: asNullableString(row.attendanceFetchedAt),
+    };
   }
 
   async loadLiveClassAttendance(

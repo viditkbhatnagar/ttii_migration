@@ -43,6 +43,12 @@ function toIntId(value: unknown): number {
   return 0;
 }
 
+function toStr(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
+}
+
 function toFilter(value: unknown): LiveClassFilter {
   if (value === 'upcoming' || value === 'past' || value === 'all') return value;
   return 'all';
@@ -78,6 +84,34 @@ export function registerInstructorRoutes(
       const filter = toFilter(query.filter);
       const data = await instructorService.listLiveClasses(userId, filter);
       reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  // Manual-link scheduling for the instructor's own cohorts. No Teams
+  // auto-create — the instructor supplies the meeting URL. See
+  // InstructorService.scheduleLiveClass. (Risha/Naji 2026-07-03)
+  app.post('/instructor/live-classes', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const body = (request.body as Record<string, unknown>) ?? {};
+      const result = await instructorService.scheduleLiveClass(userId, {
+        cohortId: toIntId(body.cohortId ?? body.cohort_id),
+        title: toStr(body.title),
+        date: toStr(body.date),
+        fromTime: toStr(body.fromTime ?? body.from_time),
+        toTime: toStr(body.toTime ?? body.to_time),
+        joinUrl: toStr(body.joinUrl ?? body.join_url),
+      });
+      if (!result.ok) {
+        reply
+          .code(result.code === 'not_found' ? 404 : 400)
+          .send({ status: 0, message: result.message, data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'Live session scheduled successfully.', data: result.row });
     } catch (error: unknown) {
       sendInstructorError(reply, error);
     }
