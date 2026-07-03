@@ -175,7 +175,7 @@ export default function StudentSupportPage({ api, session }: StudentPageProps) {
             role="log"
             aria-label="Support conversation"
             aria-live="polite"
-            className="flex max-h-[500px] min-h-[350px] flex-col overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
+            className="flex max-h-[500px] flex-col overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
           >
             {messages.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">

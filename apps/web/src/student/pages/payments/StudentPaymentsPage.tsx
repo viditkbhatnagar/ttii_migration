@@ -543,8 +543,11 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         open={payDialogCourseId !== null}
         onOpenChange={(open) => { if (!open) setPayDialogCourseId(null); }}
       >
+        {/* max-h + overflow so the tall payment content scrolls on mobile
+            instead of the top (amount/title) being clipped off-screen with no
+            way to reach it. dvh = real mobile viewport. Ishfaq 2026-07-01. */}
         <DialogContent
-          className="p-6 sm:max-w-[960px]"
+          className="max-h-[90dvh] overflow-y-auto p-6 sm:max-w-[960px]"
           style={{ width: 'min(960px, calc(100vw - 2rem))', maxWidth: 'min(960px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>

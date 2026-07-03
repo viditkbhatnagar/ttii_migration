@@ -268,7 +268,13 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
       )}
 
       <Dialog open={activeCohort !== null} onOpenChange={(open) => !open && closeDetail()}>
-        <DialogContent className="max-w-3xl">
+        {/* Inline width (not just max-w-*) so it doesn't collapse to the shadcn
+            sm:max-w-lg default on mobile; wide enough for the Email column.
+            Risha 2026-07-01: email was clipped in the learner roster. */}
+        <DialogContent
+          className="max-h-[90dvh] overflow-y-auto"
+          style={{ width: 'min(900px, calc(100vw - 2rem))', maxWidth: 'min(900px, calc(100vw - 2rem))' }}
+        >
           <DialogHeader>
             <DialogTitle>{activeCohort?.title || 'Cohort'}</DialogTitle>
             <DialogDescription>
