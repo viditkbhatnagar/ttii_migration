@@ -296,7 +296,7 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
       {/* Recording player */}
       <Dialog open={recording !== null} onOpenChange={(open) => { if (!open) setRecording(null); }}>
         <DialogContent
-          className="p-4 sm:max-w-[820px] sm:p-6"
+          className="max-h-[90dvh] overflow-y-auto p-4 sm:max-w-[820px] sm:p-6"
           style={{ width: 'min(820px, calc(100vw - 2rem))', maxWidth: 'min(820px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
@@ -470,9 +470,14 @@ function RecordingPlayer({ url }: { url: string }) {
 
   return (
     <div className="min-w-0 space-y-3">
+      {/* Cap the player HEIGHT so a portrait/near-square recording can't grow
+          the modal off-screen (title + controls were falling off both edges on
+          mobile — Ishfaq/Naji 2026-07-03). maxWidth = 70dvh * ratio keeps the
+          aspect ratio while the height stays <= 70dvh; mx-auto centers the
+          narrower box. Landscape 16:9 clips are unaffected. */}
       <div
-        className={`w-full min-w-0 overflow-hidden rounded-xl bg-black ${aspectRatio ? '' : 'aspect-video'}`}
-        style={aspectRatio ? { aspectRatio: String(aspectRatio) } : undefined}
+        className={`mx-auto max-h-[70dvh] w-full min-w-0 overflow-hidden rounded-xl bg-black ${aspectRatio ? '' : 'aspect-video'}`}
+        style={aspectRatio ? { aspectRatio: String(aspectRatio), maxWidth: `calc(70dvh * ${aspectRatio})` } : undefined}
       >
         {isEmbed ? (
           <iframe

@@ -651,7 +651,10 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
 
       {/* Assignment detail / view page — matches the EduPulse view (Naji 2026-06-05). */}
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-6xl!">
+        {/* [&>*]:min-w-0 — DialogContent is display:grid; without it the grid
+            item floors at its child's min-content width and the modal overflows
+            the viewport on mobile (title/cards/footer clipped). Naji 2026-07-03. */}
+        <DialogContent className="gap-0 overflow-hidden p-0 [&>*]:min-w-0 sm:max-w-6xl!">
           <DialogHeader className="sr-only">
             <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
@@ -814,7 +817,7 @@ function AssignmentDetail({
             {subject && course ? <span aria-hidden="true">·</span> : null}
             {course ? <span>{course}</span> : null}
           </div>
-          <h2 className="mt-1.5 text-xl font-bold text-student-text">{title}</h2>
+          <h2 className="mt-1.5 break-words text-xl font-bold text-student-text">{title}</h2>
           <span
             className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
               isReviewed
@@ -832,7 +835,7 @@ function AssignmentDetail({
       {/* Body — only the LEFT column scrolls; the Quick Info pane stays static
           (Naji 2026-06-06: right info should not scroll). */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex-1 space-y-6 overflow-y-auto p-5 sm:p-6">
+        <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-5 sm:p-6">
           {/* Grade — shown prominently for reviewed assignments. */}
           {isReviewed ? (
             <section className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-4">
