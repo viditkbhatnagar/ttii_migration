@@ -44,6 +44,8 @@ type RecordFn = (input: {
   note: string;
   /** Actual amount received, in rupees. */
   amount: number;
+  /** Date the payment was received (YYYY-MM-DD). */
+  paidDate: string;
 }) => Promise<void>;
 
 interface CounsellorRecordPaymentModalProps {
@@ -156,6 +158,7 @@ export function CounsellorRecordPaymentModal({
       reference: reference.trim(),
       receiptUrl,
       note: noteParts.join(' — '),
+      paidDate,
     })
       .then(() => {
         // Page owns the success toast + reload; just close here.

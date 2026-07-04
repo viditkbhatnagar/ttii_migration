@@ -182,6 +182,7 @@ export function GeneratePaymentLinkDialog({
   // doesn't send a Razorpay link; it logs the payment for Finance approval.
   const [manualMode, setManualMode] = useState('Cash');
   const [manualAmount, setManualAmount] = useState('');
+  const [manualPaidDate, setManualPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [manualReference, setManualReference] = useState('');
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
@@ -582,6 +583,7 @@ export function GeneratePaymentLinkDialog({
       const res = await api.markApplicationPaid(authToken, applicationId, {
         mode: manualMode,
         amount: manualAmountNum,
+        paidDate: manualPaidDate,
         reference: manualReference.trim(),
         receipt_url: manualReceiptUrl.trim(),
       });
@@ -939,16 +941,27 @@ export function GeneratePaymentLinkDialog({
             {!isCounsellorLayout ? (
               <p className="mb-3 text-[11px] text-slate-400">Paid by cash / bank / cheque / UPI offline. Sent to Finance for approval before it reflects.</p>
             ) : null}
-            <div className="mb-3 space-y-1">
-              <Label className="text-xs">Amount Received (₹) *</Label>
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                value={manualAmount}
-                onChange={(e) => setManualAmount(e.target.value)}
-                placeholder="Actual amount received"
-              />
+            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Amount Received (₹) *</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  placeholder="Actual amount received"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Date of Payment *</Label>
+                <Input
+                  type="date"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={manualPaidDate}
+                  onChange={(e) => setManualPaidDate(e.target.value)}
+                />
+              </div>
             </div>
             <div className={`grid grid-cols-1 gap-3 ${isCounsellorLayout ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div className="space-y-1">

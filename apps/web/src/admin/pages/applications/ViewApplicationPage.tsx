@@ -111,6 +111,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidMode, setMarkPaidMode] = useState('cash');
   const [markPaidAmount, setMarkPaidAmount] = useState('');
+  const [markPaidDate, setMarkPaidDate] = useState('');
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidReceiptUrl, setMarkPaidReceiptUrl] = useState('');
   const [markPaidUploading, setMarkPaidUploading] = useState(false);
@@ -242,6 +243,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     if (!applicationId) return;
     setMarkPaidMode('cash');
     setMarkPaidAmount('');
+    setMarkPaidDate(new Date().toISOString().slice(0, 10));
     setMarkPaidReference('');
     setMarkPaidReceiptUrl('');
     setMarkPaidOpen(true);
@@ -258,6 +260,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       const res = await api.markApplicationPaid(session.token, applicationId, {
         mode: markPaidMode,
         amount: amountNum,
+        paidDate: markPaidDate,
         reference: markPaidReference.trim(),
         receipt_url: markPaidReceiptUrl,
       });
@@ -272,7 +275,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed.');
     } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, markPaidMode, markPaidAmount, markPaidReference, markPaidReceiptUrl, reload]);
+  }, [api, session.token, applicationId, markPaidMode, markPaidAmount, markPaidDate, markPaidReference, markPaidReceiptUrl, reload]);
 
   const handleReceiptUpload = useCallback(async (file: File) => {
     setMarkPaidUploading(true);
@@ -1200,6 +1203,17 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                 value={markPaidAmount}
                 onChange={(e) => setMarkPaidAmount(e.target.value)}
                 placeholder="Actual amount received"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mp-date">Date of Payment *</Label>
+              <input
+                id="mp-date"
+                type="date"
+                value={markPaidDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setMarkPaidDate(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
             </div>

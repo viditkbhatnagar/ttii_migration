@@ -2723,7 +2723,7 @@ export class AdminPortalApi {
   async markApplicationPaid(
     authToken: string,
     id: string,
-    input?: { mode?: string; reference?: string; receipt_url?: string; note?: string; amount?: number },
+    input?: { mode?: string; reference?: string; receipt_url?: string; note?: string; amount?: number; paidDate?: string },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, {
       id,
@@ -2734,6 +2734,8 @@ export class AdminPortalApi {
       // Actual amount received (rupees). Omitted when not supplied so the
       // server keeps its total fallback for older flows.
       ...(input?.amount != null && input.amount > 0 ? { amount: input.amount } : {}),
+      // Date the payment was received (YYYY-MM-DD).
+      ...(input?.paidDate ? { paid_date: input.paidDate } : {}),
     });
   }
 

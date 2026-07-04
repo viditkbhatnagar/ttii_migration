@@ -344,11 +344,12 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   // application via the same mark-paid endpoint the inline dialog uses. Throws
   // on failure so the modal can surface its own error toast.
   const handleRecordPayment = useCallback(
-    async (input: { mode: string; reference: string; receiptUrl: string; note: string; amount: number }) => {
+    async (input: { mode: string; reference: string; receiptUrl: string; note: string; amount: number; paidDate: string }) => {
       if (!applicationId) return;
       const res = await admin.markApplicationPaid(session.token, applicationId, {
         mode: input.mode,
         amount: input.amount,
+        paidDate: input.paidDate,
         reference: input.reference,
         receipt_url: input.receiptUrl,
         note: input.note,

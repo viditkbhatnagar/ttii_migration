@@ -3475,6 +3475,7 @@ export function registerOperationsRoutes(
           receiptUrl: toStringValue(payload.receipt_url) || undefined,
           note: toStringValue(payload.note) || undefined,
           amount: toNumber(payload.amount) || undefined,
+          paidDate: toStringValue(payload.paid_date) || undefined,
         },
       );
       reply.code(200).send(result);

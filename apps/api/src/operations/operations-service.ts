@@ -9964,6 +9964,8 @@ export class OperationsService {
       // Naji 2026-07-03 — the actual amount received for this manual payment
       // (rupees). Finance's Payment Approval shows this instead of the plan total.
       amount?: number | undefined;
+      // Naji 2026-07-04 — the date the payment was actually received (YYYY-MM-DD).
+      paidDate?: string | undefined;
     } = {},
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
@@ -9990,6 +9992,9 @@ export class OperationsService {
       // Store the actual amount received in minor units (paise) to match the
       // rest of the plan JSON. Null when the recorder didn't supply one.
       amount_minor: input.amount != null && input.amount > 0 ? Math.round(input.amount * 100) : null,
+      // The date the payment was actually received (YYYY-MM-DD). Null when not
+      // supplied; Payment Approval falls back to the recorded date.
+      paid_date: input.paidDate && /^\d{4}-\d{2}-\d{2}$/.test(input.paidDate) ? input.paidDate : null,
       marked_at: now.toISOString(),
       marked_by: actor,
     };
@@ -10064,6 +10069,15 @@ export class OperationsService {
       // otherwise the first instalment / registration (what was actually
       // settled) → otherwise the plan total so nothing goes blank.
       const receivedMinor = Number(manual.amount_minor ?? 0);
+      // Date of payment: the captured paid_date → the "Paid on YYYY-MM-DD" the
+      // counsellor Record-Payment modal folds into the note → the recorded date.
+      // Never blank when a record exists. Naji 2026-07-04.
+      const paidOnNote = /Paid on (\d{4}-\d{2}-\d{2})/.exec(toStringValue(manual.note));
+      const paidDate =
+        toStringValue(manual.paid_date)
+        || (paidOnNote?.[1] ?? '')
+        || toStringValue(manual.marked_at).slice(0, 10)
+        || (a.updated_at ? new Date(a.updated_at).toISOString().slice(0, 10) : '');
       return {
         id: String(a.id),
         application_id: a.application_id ?? '',
@@ -10081,6 +10095,7 @@ export class OperationsService {
         reference: toStringValue(manual.reference),
         receipt_url: toStringValue(manual.receipt_url) ? toLegacyFileUrl(toStringValue(manual.receipt_url)) : '',
         note: toStringValue(manual.note),
+        paid_date: paidDate,
         marked_at: toStringValue(manual.marked_at),
         updated_at: a.updated_at,
       };
