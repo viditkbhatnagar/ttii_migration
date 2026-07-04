@@ -592,8 +592,31 @@ export class StudentPortalApi {
 
   async loadLearning(
     authToken: string,
-    options?: { includeFiles?: boolean },
+    options?: { includeFiles?: boolean; coursesOnly?: boolean },
   ): Promise<StudentLearningSnapshot> {
+    // coursesOnly: the caller only needs courses[] (and their progress) — skip
+    // the catalog, streak, and the entire subject → lesson → lesson-file
+    // fan-out (the heaviest part of this loader). Used by the Certificates
+    // page, which renders only course progress. Perf 2026-07-04.
+    if (options?.coursesOnly) {
+      const coursesPayload = await this.get<LegacyEnvelope<unknown[]>>('/course/all_course', authToken);
+      const coursesOnly = asArray(coursesPayload.data)
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => entry !== null);
+      return {
+        courses: coursesOnly,
+        catalogCourses: [],
+        subjects: [],
+        lessons: [],
+        lessonFiles: [],
+        selectedCourseId: asString(firstRecord(coursesOnly)?.id),
+        selectedSubjectId: '',
+        selectedLessonId: '',
+        streakTotal: 0,
+        streakCurrent: 0,
+      };
+    }
+
     // Streak only depends on a date window, not on courses/lessons — fire it
     // up front so it resolves in parallel instead of tacking an extra
     // round-trip onto the end of the subjects/lessons fan-out.

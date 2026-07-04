@@ -187,7 +187,9 @@ function InProgressRow({ course }: { course: CourseSummary }) {
 
 export default function StudentCertificatesPage({ api, session, onNavigate }: StudentPageProps) {
   const { data, loading, error, reload } = useAdminPageData(
-    () => api.loadLearning(session.token),
+    // This page only reads course progress — skip loadLearning's heavy
+    // subject/lesson/lesson-file fan-out. Perf 2026-07-04.
+    () => api.loadLearning(session.token, { coursesOnly: true }),
     [api, session.token],
     `student:certificates:${session.userId}`,
   );

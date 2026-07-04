@@ -1131,29 +1131,55 @@ export class EngagementService {
     if (cohort) {
       const cohortId = cohort.id;
 
-      const liveClasses = await this.prisma.live_class.findMany({
-        where: {
-          cohort_id: toNullableIntId(cohortId),
-          date: {
-            gte: dateStart,
-            lte: dateEnd,
+      // Live classes + assignments both depend only on cohortId and are
+      // independent — fetch them in one concurrent wave, not serially.
+      // Perf 2026-07-04.
+      const [liveClasses, assignments] = await Promise.all([
+        this.prisma.live_class.findMany({
+          where: {
+            cohort_id: toNullableIntId(cohortId),
+            date: {
+              gte: dateStart,
+              lte: dateEnd,
+            },
+            deleted_at: null,
           },
-          deleted_at: null,
-        },
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          session_id: true,
-          title: true,
-          fromTime: true,
-          toTime: true,
-          date: true,
-          repeat_dates: true,
-          zoom_id: true,
-          password: true,
-          video_url: true,
-        },
-      });
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            session_id: true,
+            title: true,
+            fromTime: true,
+            toTime: true,
+            date: true,
+            repeat_dates: true,
+            zoom_id: true,
+            password: true,
+            video_url: true,
+          },
+        }),
+        this.prisma.assignment.findMany({
+          where: {
+            cohort_id: toNullableIntId(cohortId),
+            due_date: {
+              gte: dateStart,
+              lte: dateEnd,
+            },
+            deleted_at: null,
+          },
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            added_date: true,
+            due_date: true,
+            from_time: true,
+            to_time: true,
+            instructions: true,
+          },
+        }),
+      ]);
 
       for (const liveClass of liveClasses) {
         const payload = {
@@ -1180,28 +1206,6 @@ export class EngagementService {
           overdueLiveClasses.push(payload);
         }
       }
-
-      const assignments = await this.prisma.assignment.findMany({
-        where: {
-          cohort_id: toNullableIntId(cohortId),
-          due_date: {
-            gte: dateStart,
-            lte: dateEnd,
-          },
-          deleted_at: null,
-        },
-        orderBy: { id: 'asc' },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          added_date: true,
-          due_date: true,
-          from_time: true,
-          to_time: true,
-          instructions: true,
-        },
-      });
 
       for (const assignment of assignments) {
         const payload = {

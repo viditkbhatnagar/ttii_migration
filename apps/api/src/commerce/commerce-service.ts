@@ -876,6 +876,14 @@ export class CommerceService {
         continue;
       }
 
+      // The clean (output-shaped) installments read is independent of the
+      // fee-installments read for the same course — start it concurrently and
+      // await it below instead of paying two serial round-trips. Perf 2026-07-04.
+      const cleanInstallmentsPromise = this.getStudentInstallments(userId, String(courseId));
+      // Guard the in-flight promise so a rejection of the fee read below (which
+      // unwinds before we await this) can't surface as an unhandledRejection;
+      // the value is still awaited (and any error re-thrown) at use-site.
+      void cleanInstallmentsPromise.catch(() => undefined);
       const installments = await this.getStudentFeeInstallments(userId, String(courseId));
       const totalFee = toDbNumber(course.total_amount);
       const discount = toDbNumber(enrolRow.discount_perc);
@@ -908,7 +916,7 @@ export class CommerceService {
       // Output the sanitized installments shape (string dates, computed status)
       // instead of raw Prisma rows, which leak Date objects + internal columns
       // and break the Flutter parse.
-      const cleanInstallments = await this.getStudentInstallments(userId, String(courseId));
+      const cleanInstallments = await cleanInstallmentsPromise;
       output.push({
         user_id: enrolRow.user_id,
         course_id: courseId,

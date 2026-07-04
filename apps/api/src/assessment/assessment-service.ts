@@ -1773,13 +1773,18 @@ export class AssessmentService {
       cohortRows = cohortRows.filter((cohort) => toStringValue(cohort.subject_id) === realSubjectId);
     }
 
-    for (const cohort of cohortRows) {
-      const cohortId = cohort.id;
-      if (!cohortId) {
-        continue;
-      }
-
-      const assignments = await this.getAssignmentsForCohort(idString(cohortId), userId);
+    // Fetch each cohort's assignments concurrently instead of one cohort at a
+    // time (a student is in only a handful of cohorts). Promise.all preserves
+    // array order, so bucket ordering is identical to the serial version.
+    // Perf 2026-07-04.
+    const assignmentsByCohort = await Promise.all(
+      cohortRows.map((cohort) =>
+        cohort.id
+          ? this.getAssignmentsForCohort(idString(cohort.id), userId)
+          : Promise.resolve([] as Record<string, unknown>[]),
+      ),
+    );
+    for (const assignments of assignmentsByCohort) {
       for (const assignment of assignments) {
         const status = toStringValue(assignment.status);
         if (status.includes('Current')) {

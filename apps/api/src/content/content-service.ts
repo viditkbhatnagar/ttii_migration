@@ -1008,17 +1008,39 @@ export class ContentService {
       };
     }
 
-    const lessonFiles = await this.prisma.lesson_files.findMany({
-      where: {
-        lesson_id: { in: lessonIds },
-        deleted_at: null,
-      },
-      select: {
-        id: true,
-        lesson_type: true,
-        attachment_type: true,
-      },
-    });
+    // These three reads depend only on lessonIds — run them in one round-trip
+    // wave instead of serially (remote-DB latency dominates). Perf 2026-07-04.
+    const lessonIdsStr = lessonIds.map((id) => String(id));
+    const [lessonFiles, totalPractice, attemptedPracticeRows] = await Promise.all([
+      this.prisma.lesson_files.findMany({
+        where: {
+          lesson_id: { in: lessonIds },
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          lesson_type: true,
+          attachment_type: true,
+        },
+      }),
+      this.prisma.practice_attempt.count({
+        where: {
+          user_id: toNullableIntId(userId),
+          lesson_id: { in: lessonIdsStr },
+          deleted_at: null,
+        },
+      }),
+      this.prisma.practice_attempt.findMany({
+        where: {
+          user_id: toNullableIntId(userId),
+          lesson_id: { in: lessonIdsStr },
+          submit_status: true,
+          deleted_at: null,
+        },
+        select: { id: true },
+        distinct: ['id'],
+      }),
+    ]);
 
     const videoIds: number[] = [];
     const materialIds: number[] = [];
@@ -1057,25 +1079,6 @@ export class ContentService {
     // material_progress table does not exist in MySQL schema.
     const completedMaterials = 0;
 
-    const lessonIdsStr = lessonIds.map((id) => String(id));
-    const totalPractice = await this.prisma.practice_attempt.count({
-      where: {
-        user_id: toNullableIntId(userId),
-        lesson_id: { in: lessonIdsStr },
-        deleted_at: null,
-      },
-    });
-
-    const attemptedPracticeRows = await this.prisma.practice_attempt.findMany({
-      where: {
-        user_id: toNullableIntId(userId),
-        lesson_id: { in: lessonIdsStr },
-        submit_status: true,
-        deleted_at: null,
-      },
-      select: { id: true },
-      distinct: ['id'],
-    });
     const attemptedPractices = attemptedPracticeRows.length;
 
     const totalActivities = totalVideos + totalMaterials + totalPractice;
@@ -1102,27 +1105,26 @@ export class ContentService {
     const courseId = toStringValue(course.id);
     const description = stripHtml(toStringValue(course.description));
 
-    const enrolments = await this.prisma.enrol.count({
-      where: {
-        course_id: toNullableIntId(courseId),
-        deleted_at: null,
-      },
-    });
-
-    const lessonsCount = await this.prisma.lesson.count({
-      where: {
-        course_id: toNullableIntId(courseId),
-        deleted_at: null,
-      },
-    });
-
     // Lesson-wise courses (structure_type=2) have no subjects (Naji 2026-06-23).
     const structureType = Number(course.structure_type) === 2 ? 2 : 1;
-    const subjectCount = structureType === 2 ? 0 : await this.countSubjectsForCourse(courseId);
 
-    const totalReviews = await this.totalReviewsByCourse(courseId);
-    const totalRating = await this.averageRatingByCourse(courseId);
-    const isEnrolled = await this.isUserEnrolled(userId, courseId);
+    // These per-course reads are independent — issue them together in one wave
+    // instead of six serial round-trips each (the remote-DB hop dominates the
+    // course-list latency; the outer loop stays sequential to bound pool use).
+    // Perf 2026-07-04.
+    const [enrolments, lessonsCount, subjectCount, totalReviews, totalRating, isEnrolled] =
+      await Promise.all([
+        this.prisma.enrol.count({
+          where: { course_id: toNullableIntId(courseId), deleted_at: null },
+        }),
+        this.prisma.lesson.count({
+          where: { course_id: toNullableIntId(courseId), deleted_at: null },
+        }),
+        structureType === 2 ? Promise.resolve(0) : this.countSubjectsForCourse(courseId),
+        this.totalReviewsByCourse(courseId),
+        this.averageRatingByCourse(courseId),
+        this.isUserEnrolled(userId, courseId),
+      ]);
 
     const featuresRaw = toStringValue(course.features);
 
@@ -2649,55 +2651,33 @@ export class ContentService {
     const todayStart = new Date(new Date().toISOString().slice(0, 10));
     const todayEnd = new Date(`${new Date().toISOString().slice(0, 10)}T23:59:59.999Z`);
 
-    // Total streak: completed videos within the date range
-    const totalStreakRows = await this.prisma.video_progress_status.findMany({
-      where: {
-        lesson_file_id: { in: lessonVideoIds },
-        status: 1,
-        deleted_at: null,
-        OR: [
-          {
-            created_at: {
-              gte: fromDateObj,
-              lte: toDateObj,
-            },
-          },
-          {
-            updated_at: {
-              gte: fromDateObj,
-              lte: toDateObj,
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-    const totalStreakCount = totalStreakRows.length;
-
-    // Current streak: completed videos today
-    const currentStreakRows = await this.prisma.video_progress_status.findMany({
-      where: {
-        lesson_file_id: { in: lessonVideoIds },
-        status: 1,
-        deleted_at: null,
-        OR: [
-          {
-            created_at: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-          {
-            updated_at: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-    const currentStreakCount = currentStreakRows.length;
+    // Total streak (within range) + current streak (today) are independent
+    // counts — use count() (no row transfer) and run them concurrently instead
+    // of pulling every matching row twice, serially. Perf 2026-07-04.
+    const [totalStreakCount, currentStreakCount] = await Promise.all([
+      this.prisma.video_progress_status.count({
+        where: {
+          lesson_file_id: { in: lessonVideoIds },
+          status: 1,
+          deleted_at: null,
+          OR: [
+            { created_at: { gte: fromDateObj, lte: toDateObj } },
+            { updated_at: { gte: fromDateObj, lte: toDateObj } },
+          ],
+        },
+      }),
+      this.prisma.video_progress_status.count({
+        where: {
+          lesson_file_id: { in: lessonVideoIds },
+          status: 1,
+          deleted_at: null,
+          OR: [
+            { created_at: { gte: todayStart, lte: todayEnd } },
+            { updated_at: { gte: todayStart, lte: todayEnd } },
+          ],
+        },
+      }),
+    ]);
 
     return {
       total_streak: totalStreakCount * 10,

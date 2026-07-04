@@ -47,6 +47,13 @@ export function extractAuthToken(request: FastifyRequest): string | null {
 }
 
 export function requireLegacyAuth(authService: AuthService): preHandlerAsyncHookHandler {
+  // Coalesce concurrent identical token validations. A dashboard load fires
+  // ~8 parallel requests sharing one token; without this each pays the same
+  // two DB round-trips. The entry is cleared the moment the lookup settles, so
+  // this only dedups IN-FLIGHT lookups — there is no cross-time caching, so
+  // revoke/expire semantics are unchanged. Perf 2026-07-04.
+  const inflight = new Map<string, ReturnType<AuthService['authenticateAuthToken']>>();
+
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const token = extractAuthToken(request);
     const requestMeta = toRequestMeta(request);
@@ -62,7 +69,13 @@ export function requireLegacyAuth(authService: AuthService): preHandlerAsyncHook
       return;
     }
 
-    const authContext = await authService.authenticateAuthToken(token);
+    let pending = inflight.get(token);
+    if (!pending) {
+      pending = authService.authenticateAuthToken(token);
+      inflight.set(token, pending);
+      void pending.catch(() => undefined).finally(() => inflight.delete(token));
+    }
+    const authContext = await pending;
     if (!authContext) {
       await authService.logAuthDenied({
         requestMeta,
