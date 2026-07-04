@@ -10036,16 +10036,33 @@ export class OperationsService {
     return apps.map((a) => {
       let manual: Record<string, unknown> = {};
       let totalMinor = 0;
+      let firstInstalmentInr = 0;
       if (a.payment_plan) {
         try {
           const plan = JSON.parse(a.payment_plan) as Record<string, unknown>;
           manual = (plan.manual_payment as Record<string, unknown>) ?? {};
           totalMinor = Number(plan.total_amount_minor ?? 0);
+          // The first instalment is the registration — the amount the manual
+          // mark-paid / Razorpay link actually settles at lead stage (see
+          // getApplicationPlanInstallments). Show THAT, not the plan grand
+          // total, when no exact amount was captured. Inc GST: gstPercent is 0
+          // when GST is "included", so this is correct under both treatments
+          // and matches what the counsellor Record-Payment modal records.
+          // Naji 2026-07-04.
+          const installments = Array.isArray(plan.installments)
+            ? (plan.installments as Record<string, unknown>[])
+            : [];
+          const first = installments[0];
+          if (first) {
+            const base = Number(first.amountMinor ?? first.amount_minor ?? 0) / 100;
+            const gst = Number(first.gstPercent ?? first.gst_percent ?? 0);
+            if (base > 0) firstInstalmentInr = base + (base * gst) / 100;
+          }
         } catch { /* ignore malformed plan */ }
       }
-      // Prefer the actual amount received (captured at Mark-Paid time) over the
-      // plan total, which is what Naji flagged. Fall back to the total for rows
-      // recorded before amount capture existed so they don't regress to blank.
+      // Amount received: the exact captured amount (new manual payments) →
+      // otherwise the first instalment / registration (what was actually
+      // settled) → otherwise the plan total so nothing goes blank.
       const receivedMinor = Number(manual.amount_minor ?? 0);
       return {
         id: String(a.id),
@@ -10053,7 +10070,13 @@ export class OperationsService {
         name: a.name ?? '',
         email: a.user_email ?? '',
         course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
-        amount: receivedMinor > 0 ? receivedMinor / 100 : totalMinor > 0 ? totalMinor / 100 : null,
+        amount: receivedMinor > 0
+          ? receivedMinor / 100
+          : firstInstalmentInr > 0
+            ? firstInstalmentInr
+            : totalMinor > 0
+              ? totalMinor / 100
+              : null,
         mode: toStringValue(manual.mode) || a.payment_method || 'manual',
         reference: toStringValue(manual.reference),
         receipt_url: toStringValue(manual.receipt_url) ? toLegacyFileUrl(toStringValue(manual.receipt_url)) : '',
