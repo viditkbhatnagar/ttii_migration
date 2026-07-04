@@ -24,6 +24,31 @@ function ensureMessageContent(input: EmailSendRequest): void {
   }
 }
 
+/** Trimmed, de-duplicated, non-empty CC addresses (empty array when none). */
+function normalizeCc(input: EmailSendRequest): string[] {
+  if (!Array.isArray(input.cc)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input.cc) {
+    const address = typeof raw === 'string' ? raw.trim() : '';
+    // Skip blanks, the primary `to`, and anything carrying a comma/CR/LF —
+    // each entry must be a single atomic address; a comma-injected value would
+    // otherwise fan out to extra recipients on SMTP transports.
+    if (address === '' || /[,\r\n]/.test(address) || address.toLowerCase() === input.to.trim().toLowerCase()) {
+      continue;
+    }
+    const key = address.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(address);
+  }
+  return out;
+}
+
 export class NoopEmailProvider implements EmailProvider {
   readonly name = 'noop-email';
 
@@ -47,6 +72,7 @@ export class ConsoleEmailProvider implements EmailProvider {
     this.logger.info('integration.email.send', {
       provider: this.name,
       to: maskEmail(input.to),
+      cc_count: normalizeCc(input).length,
       subject: input.subject,
       template_id: input.templateId,
       has_html: typeof input.html === 'string' && input.html.trim() !== '',
@@ -92,6 +118,11 @@ export class BrevoEmailProvider implements EmailProvider {
       params: input.templateData,
       tags: input.tags,
     };
+
+    const brevoCc = normalizeCc(input);
+    if (brevoCc.length > 0) {
+      payload.cc = brevoCc.map((email) => ({ email }));
+    }
 
     if (typeof input.replyTo === 'string' && input.replyTo.trim() !== '') {
       payload.replyTo = { email: input.replyTo.trim() };
@@ -196,10 +227,12 @@ export class SmtpEmailProvider implements EmailProvider {
     const fromHeader = `"${this.config.fromName}" <${this.config.fromAddress}>`;
 
     try {
+      const smtpCc = normalizeCc(input);
       const mailOptions: Parameters<Transporter['sendMail']>[0] = {
         from: fromHeader,
         to: input.to,
         subject: input.subject,
+        ...(smtpCc.length > 0 ? { cc: smtpCc } : {}),
         ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         ...(input.html ? { html: input.html } : {}),
         ...(input.text ? { text: input.text } : {}),
@@ -297,6 +330,11 @@ export class MsGraphEmailProvider implements EmailProvider {
       subject: input.subject,
       toRecipients: [{ emailAddress: { address: input.to } }],
     };
+
+    const graphCc = normalizeCc(input);
+    if (graphCc.length > 0) {
+      message.ccRecipients = graphCc.map((address) => ({ emailAddress: { address } }));
+    }
 
     const body: Record<string, unknown> = {};
     if (input.html) {

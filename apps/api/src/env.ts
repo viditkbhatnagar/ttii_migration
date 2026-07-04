@@ -61,6 +61,10 @@ const envSchema = z.object({
   EMAIL_PROVIDER: z.enum(['console', 'noop', 'brevo', 'smtp', 'msgraph']).default('console'),
   EMAIL_FROM_ADDRESS: z.string().default('hello@teachersindia.in'),
   EMAIL_FROM_NAME: z.string().default("Teachers' Training Institute of India"),
+  // Finance/accounts mailbox that receives the "Payment Approval Required"
+  // notification when a counsellor records a manual payment (Naji 2026-07-04).
+  // Defaults so prod works without an .env change; override to redirect.
+  ACCOUNTS_EMAIL: z.string().default('accounts@teachersindia.in'),
   EMAIL_BREVO_API_KEY: optionalStringFromEnv,
   EMAIL_BREVO_BASE_URL: z.string().url().default('https://api.brevo.com/v3'),
   EMAIL_SMTP_HOST: optionalStringFromEnv,

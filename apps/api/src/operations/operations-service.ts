@@ -9855,7 +9855,7 @@ export class OperationsService {
       where: { id, deleted_at: null },
       select: {
         id: true, name: true, user_email: true, phone: true,
-        course_id: true, offering_id: true, stage: true,
+        course_id: true, offering_id: true, stage: true, pipeline_user: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
@@ -9935,40 +9935,76 @@ export class OperationsService {
     let emailDelivered = false;
     let emailError: string | null = null;
     try {
-      const { renderBrandedEmail } = await import('../integrations/email-template.js');
-      const planTableHtml = input.mode === 'installment' && (input.installments ?? []).length > 0
-        ? `<h3 style="margin:20px 0 8px;font-size:14px;font-weight:600;color:#1f2937;text-transform:uppercase;letter-spacing:0.04em;">Payment Plan</h3>
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:8px 0 12px;border-collapse:collapse;font-size:14px;">
-  <thead>
-    <tr>
-      <th align="left" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Instalment</th>
-      <th align="right" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Amount</th>
-      <th align="right" style="padding:10px 12px;background:#faf5fb;border-bottom:1px solid #e9d5e5;color:#6b7280;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Due</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${(input.installments ?? []).map((i) => `<tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#1f2937;">${escapeHtmlText(i.label)}</td>
-      <td align="right" style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#1f2937;font-variant-numeric:tabular-nums;">₹${(i.amountMinor / 100).toLocaleString('en-IN')}</td>
-      <td align="right" style="padding:10px 12px;border-bottom:1px solid #f3f4f6;color:#6b7280;">${escapeHtmlText(i.dueDate)}</td>
-    </tr>`).join('')}
-  </tbody>
-</table>`
+      const { renderPaymentPlanEmail, renderFullPaymentEmail } = await import('../integrations/payment-emails.js');
+
+      // Course Offering title — the select carries offering_id; resolve its
+      // display title the same way the application read path does.
+      const offeringTitle = app.offering_id
+        ? (await this.prisma.offerings.findFirst({ where: { id: app.offering_id }, select: { title: true } }))?.title ?? ''
         : '';
-      const html = renderBrandedEmail({
-        heading: input.mode === 'full' ? 'Your TTII payment link' : 'Your TTII registration payment',
-        preheader: `Pay ₹${(amountMinor / 100).toLocaleString('en-IN')} to confirm your seat in ${courseTitle || 'the course'}.`,
-        bodyHtml: `
-          <p style="margin:0 0 12px;">Hi ${escapeHtmlText(app.name ?? 'there')},</p>
-          <p style="margin:0 0 8px;">Please use the link below to complete your ${input.mode === 'full' ? 'course fee' : 'registration fee'} payment for <strong>${escapeHtmlText(courseTitle)}</strong>.</p>
-          ${planTableHtml}
-        `,
-        cta: { label: `Pay ₹${(amountMinor / 100).toLocaleString('en-IN')}`, href: link.shortUrl },
-        footerNote: `This link expires on ${new Date(expireBy * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`,
+
+      // Lead-owning counsellor — CC'd on the email so they keep a copy of
+      // exactly what the student received, and shown as the contact on the
+      // Payment Plan template (To: Lead, CC: Counsellor per Naji's sheet).
+      const counsellor = app.pipeline_user
+        ? await this.prisma.users.findFirst({
+            where: { id: app.pipeline_user },
+            select: { user_email: true, email: true, phone: true },
+          })
+        : null;
+      const counsellorEmail = (counsellor?.user_email ?? counsellor?.email ?? '').trim();
+      const counsellorPhone = (counsellor?.phone ?? '').trim();
+
+      const firstName = (app.name ?? '').trim().split(/\s+/)[0] || 'there';
+      const expiryDisplay = new Date(expireBy * 1000).toLocaleDateString('en-IN', {
+        day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
       });
+
+      let html: string;
+      let subject: string;
+      if (input.mode === 'installment') {
+        html = renderPaymentPlanEmail({
+          studentFirstName: firstName,
+          courseName: courseTitle,
+          offeringName: offeringTitle,
+          instalments: (input.installments ?? []).map((i) => ({
+            title: i.label,
+            dueDate: i.dueDate,
+            amount: i.amountMinor / 100,
+          })),
+          totalFee: input.totalAmount / 100,
+          payNowAmount: amountMinor / 100,
+          paymentLink: link.shortUrl,
+          paymentExpiryDate: expiryDisplay,
+          ...(counsellorEmail ? { counsellorEmail } : {}),
+          ...(counsellorPhone ? { counsellorPhone } : {}),
+        });
+        subject = 'Your TTII payment plan';
+      } else {
+        // additionalDiscounts amounts are in rupees (audit lines already baked
+        // into totalAmount by the frontend). Show them as the Discount row and
+        // reconstruct the pre-discount course fee for the summary table.
+        const discountAmount = (input.additionalDiscounts ?? []).reduce(
+          (sum, d) => sum + (Number.isFinite(d.amount) && d.amount > 0 ? d.amount : 0),
+          0,
+        );
+        html = renderFullPaymentEmail({
+          studentFirstName: firstName,
+          courseName: courseTitle,
+          offeringName: offeringTitle,
+          totalCourseFee: input.totalAmount / 100 + discountAmount,
+          discountAmount,
+          totalAmountPayable: input.totalAmount / 100,
+          paymentLink: link.shortUrl,
+          paymentDueDate: expiryDisplay,
+        });
+        subject = 'Complete your TTII payment';
+      }
+
       await registry.email.sendEmail({
         to: app.user_email,
-        subject: 'Your TTII payment link',
+        ...(counsellorEmail ? { cc: [counsellorEmail] } : {}),
+        subject,
         html,
       });
       emailDelivered = true;
@@ -10166,6 +10202,95 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+
+    // Notify Finance that a manual payment is awaiting approval (Naji 2026-07-04,
+    // "Ready in Lovable — Payment Approval"). To: accounts mailbox, no CC.
+    // Best-effort: a mail failure must never fail the record action, mirroring
+    // generatePaymentLink's pattern.
+    try {
+      const [appInfo, actorUser] = await Promise.all([
+        this.prisma.applications.findFirst({
+          where: { id },
+          select: { application_id: true, name: true, student_id: true, course_id: true, offering_id: true },
+        }),
+        this.prisma.users.findFirst({ where: { id: actor }, select: { name: true } }),
+      ]);
+      if (appInfo) {
+        const [course, offering] = await Promise.all([
+          appInfo.course_id
+            ? this.prisma.course.findFirst({ where: { id: appInfo.course_id }, select: { title: true } })
+            : Promise.resolve(null),
+          appInfo.offering_id
+            ? this.prisma.offerings.findFirst({ where: { id: appInfo.offering_id }, select: { title: true } })
+            : Promise.resolve(null),
+        ]);
+
+        const installments = Array.isArray(planObj.installments)
+          ? (planObj.installments as Record<string, unknown>[])
+          : [];
+        const instRow = installments[index];
+        const instLabel =
+          instRow && typeof instRow.label === 'string' && instRow.label.trim() !== ''
+            ? instRow.label
+            : index === 0 ? 'Registration' : `Instalment ${index}`;
+
+        // Amount received: captured amount → that instalment's plan amount → plan total.
+        const instMinor = instRow ? Number(instRow.amountMinor ?? instRow.amount_minor ?? 0) : 0;
+        const totalMinor = Number(planObj.total_amount_minor ?? 0);
+        const amountMinorForMail =
+          entry.amount_minor && entry.amount_minor > 0
+            ? entry.amount_minor
+            : instMinor > 0
+              ? instMinor
+              : totalMinor > 0
+                ? totalMinor
+                : 0;
+
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const fmtYmd = (ymd: string): string => {
+          const parts = ymd.split('-');
+          const y = parts[0];
+          const mo = Number(parts[1]);
+          const d = Number(parts[2]);
+          if (!y || !Number.isFinite(mo) || !Number.isFinite(d)) return ymd;
+          return `${d} ${MONTHS[mo - 1] ?? ''} ${y}`;
+        };
+        const istYmd = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const paymentDate = entry.paid_date ? fmtYmd(entry.paid_date) : fmtYmd(istYmd);
+        const recordedDateTime = now.toLocaleString('en-IN', {
+          day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+        });
+
+        const { renderPaymentApprovalEmail } = await import('../integrations/payment-emails.js');
+        const { createIntegrationRegistry } = await import('../integrations/registry.js');
+        const registry = createIntegrationRegistry();
+        const html = renderPaymentApprovalEmail({
+          studentName: appInfo.name ?? '',
+          applicationId: appInfo.application_id ?? String(id),
+          studentId: appInfo.student_id != null ? String(appInfo.student_id) : '',
+          courseName: course?.title ?? '',
+          offeringName: offering?.title ?? '',
+          instalmentLabel: instLabel,
+          amount: amountMinorForMail / 100,
+          paymentMethod: entry.mode,
+          paymentDate,
+          transactionReference: entry.reference,
+          recordedByName: actorUser?.name ?? '',
+          recordedDateTime,
+        });
+        await registry.email.sendEmail({
+          to: env.ACCOUNTS_EMAIL,
+          subject: `Payment approval required — ${appInfo.name ?? appInfo.application_id ?? String(id)}`,
+          html,
+        });
+      }
+    } catch (err) {
+      console.error(
+        `[markApplicationPaidManual] finance approval notification failed for application ${id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     await this.recordEvent(id, 'payment_pending_approval', `Manual payment recorded via ${input.mode || 'manual'}${input.reference ? ` (ref: ${input.reference})` : ''} — awaiting finance approval`, actorUserId, {
       mode: input.mode,
       reference: input.reference,

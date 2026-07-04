@@ -16,6 +16,12 @@ export interface EmailAttachment {
 export interface EmailSendRequest {
   to: string;
   subject: string;
+  /**
+   * Optional CC recipients. Naji 2026-07-04 — the counsellor "Send Payment
+   * link" emails go To the lead and CC the counsellor, so they have a copy
+   * of exactly what the student received. Empty/blank entries are ignored.
+   */
+  cc?: string[];
   html?: string;
   text?: string;
   templateId?: string;
