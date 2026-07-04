@@ -2723,7 +2723,7 @@ export class AdminPortalApi {
   async markApplicationPaid(
     authToken: string,
     id: string,
-    input?: { mode?: string; reference?: string; receipt_url?: string; note?: string; amount?: number; paidDate?: string },
+    input?: { mode?: string; reference?: string; receipt_url?: string; note?: string; amount?: number; paidDate?: string; installmentIndex?: number },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/mark-paid', authToken, {
       id,
@@ -2736,6 +2736,8 @@ export class AdminPortalApi {
       ...(input?.amount != null && input.amount > 0 ? { amount: input.amount } : {}),
       // Date the payment was received (YYYY-MM-DD).
       ...(input?.paidDate ? { paid_date: input.paidDate } : {}),
+      // Which instalment (0 = registration). Strict one-by-one gating server-side.
+      ...(input?.installmentIndex != null && input.installmentIndex > 0 ? { installment_index: input.installmentIndex } : {}),
     });
   }
 

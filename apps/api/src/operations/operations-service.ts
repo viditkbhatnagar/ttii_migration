@@ -835,6 +835,111 @@ function parseLooseInt(value: string | number | null | undefined): number | null
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ── Per-instalment payment ledger ─────────────────────────────────────────
+// Strict one-by-one instalment payments (Naji 2026-07-04). Lives inside the
+// applications.payment_plan JSON (no schema change) under `instalment_payments`,
+// index-aligned to `installments` (index 0 = registration). The legacy single
+// `manual_payment` object is kept as a mirror of the latest entry; on read, when
+// no ledger array exists we synthesise index 0 from it so old applications work.
+type InstalmentLedgerStatus = 'pending_approval' | 'approved' | 'rejected';
+interface InstalmentLedgerEntry {
+  index: number;
+  mode: string;
+  reference: string;
+  receipt_url: string;
+  note: string;
+  amount_minor: number | null;
+  paid_date: string | null;
+  marked_at: string;
+  marked_by: number | null;
+  status: InstalmentLedgerStatus;
+  decided_at?: string;
+  decided_by?: number;
+  reject_reason?: string;
+}
+
+function readInstalmentLedger(
+  plan: Record<string, unknown>,
+  appPaymentStatus?: string,
+): InstalmentLedgerEntry[] {
+  const num = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
+  const str = (v: unknown): string =>
+    typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : '';
+  const toStatus = (v: unknown): InstalmentLedgerStatus =>
+    v === 'approved' || v === 'rejected' ? v : 'pending_approval';
+  const raw = Array.isArray(plan.instalment_payments) ? (plan.instalment_payments as Record<string, unknown>[]) : [];
+  if (raw.length > 0) {
+    return raw
+      .map((e): InstalmentLedgerEntry => ({
+        index: Number(e.index ?? 0),
+        mode: str(e.mode),
+        reference: str(e.reference),
+        receipt_url: str(e.receipt_url),
+        note: str(e.note),
+        amount_minor: num(e.amount_minor),
+        paid_date: e.paid_date == null ? null : str(e.paid_date),
+        marked_at: str(e.marked_at),
+        marked_by: num(e.marked_by),
+        status: toStatus(e.status),
+        ...(e.decided_at == null ? {} : { decided_at: str(e.decided_at) }),
+        ...(e.decided_by == null ? {} : { decided_by: Number(e.decided_by) }),
+        ...(e.reject_reason == null ? {} : { reject_reason: str(e.reject_reason) }),
+      }))
+      .sort((a, b) => a.index - b.index);
+  }
+  const manual = plan.manual_payment as Record<string, unknown> | undefined;
+  if (manual && (str(manual.reference) || str(manual.mode) || manual.amount_minor != null)) {
+    const status: InstalmentLedgerStatus =
+      appPaymentStatus === 'paid' ? 'approved' : appPaymentStatus === 'payment_rejected' ? 'rejected' : 'pending_approval';
+    return [{
+      index: 0,
+      mode: str(manual.mode),
+      reference: str(manual.reference),
+      receipt_url: str(manual.receipt_url),
+      note: str(manual.note),
+      amount_minor: num(manual.amount_minor),
+      paid_date: manual.paid_date == null ? null : str(manual.paid_date),
+      marked_at: str(manual.marked_at),
+      marked_by: num(manual.marked_by),
+      status,
+    }];
+  }
+  // A settled registration with NO recorded manual payment (e.g. paid online via
+  // the Razorpay link) still counts as an approved index 0, so later instalments
+  // can be recorded/gated correctly. Naji 2026-07-04.
+  if (appPaymentStatus === 'paid') {
+    return [{
+      index: 0,
+      mode: '',
+      reference: '',
+      receipt_url: '',
+      note: '',
+      amount_minor: null,
+      paid_date: null,
+      marked_at: '',
+      marked_by: null,
+      status: 'approved',
+    }];
+  }
+  return [];
+}
+
+/** The coarse application-level payment_status rollup from the ledger. */
+function rollupPaymentStatus(ledger: InstalmentLedgerEntry[]): 'pending_approval' | 'paid' | 'payment_rejected' | null {
+  if (ledger.some((e) => e.status === 'pending_approval')) return 'pending_approval';
+  const reg = ledger.find((e) => e.index === 0);
+  if (reg && reg.status === 'approved') return 'paid';
+  if (ledger.some((e) => e.status === 'rejected')) return 'payment_rejected';
+  return null;
+}
+
+/** Parse a Payment Approval queue row id: "<applicationId>" or "<applicationId>-<index>". */
+function parseApprovalRowId(rowId: string): { applicationId: string; index: number } {
+  const m = /^(\d+)(?:-(\d+))?$/.exec(rowId.trim());
+  if (!m) return { applicationId: rowId, index: 0 };
+  return { applicationId: m[1] ?? rowId, index: m[2] ? Number(m[2]) : 0 };
+}
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -6523,6 +6628,7 @@ export class OperationsService {
         payment_plan: true,
         payment_status: true,
         payment_method: true,
+        payment_marked_paid_at: true,
       },
     });
     const appCourseIds = [
@@ -6554,16 +6660,21 @@ export class OperationsService {
       const installments = Array.isArray(plan?.installments) ? plan.installments : [];
       if (installments.length === 0) return [];
       const courseTitle = app.course_id ? courseMap.get(app.course_id) ?? null : null;
-      // Treat the first row (registration) as Paid when the application
-      // has overall payment_status='paid'. Remaining rows derive status
-      // from their due date — the registration is the only thing the
-      // Razorpay link / manual mark-paid actually settled at lead stage.
-      const appPaidFirst = (app.payment_status ?? '').toLowerCase() === 'paid';
+      // Treat the first row (registration) as Paid when the application's
+      // registration is settled. Use payment_marked_paid_at (set on approval and
+      // never cleared) as well as payment_status so recording a LATER instalment
+      // — which flips payment_status back to 'pending_approval' — does not make
+      // the already-paid registration look unpaid. Naji 2026-07-04.
+      const appPaidFirst =
+        app.payment_marked_paid_at != null || (app.payment_status ?? '').toLowerCase() === 'paid';
+      // Per-instalment ledger: a later row shows Paid once Finance approves it.
+      const rowLedger = plan ? readInstalmentLedger(plan as unknown as Record<string, unknown>, app.payment_status ?? undefined) : [];
+      const ledgerApproved = (i: number): boolean => rowLedger.some((e) => e.index === i && e.status === 'approved');
       return installments.map((row, idx) => {
         const amountInr = Number.isFinite(row.amountMinor) ? Number(row.amountMinor) / 100 : 0;
         const dueDate = typeof row.dueDate === 'string' && row.dueDate ? new Date(row.dueDate) : null;
         let computed_status: 'overdue' | 'due' | 'upcoming' | 'paid' = 'upcoming';
-        if (idx === 0 && appPaidFirst) {
+        if ((idx === 0 && appPaidFirst) || ledgerApproved(idx)) {
           computed_status = 'paid';
         } else if (dueDate) {
           const dm = dueDate.getMonth();
@@ -9966,6 +10077,9 @@ export class OperationsService {
       amount?: number | undefined;
       // Naji 2026-07-04 — the date the payment was actually received (YYYY-MM-DD).
       paidDate?: string | undefined;
+      // Naji 2026-07-04 — which instalment this payment is for (0 = registration).
+      // Strict one-by-one: index N is only accepted once N-1 is approved.
+      installmentIndex?: number | undefined;
     } = {},
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
@@ -9977,14 +10091,37 @@ export class OperationsService {
     // alongside the plan rows without losing them.
     const existing = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { payment_plan: true },
+      select: { payment_plan: true, payment_status: true },
     });
     let planObj: Record<string, unknown> = {};
     if (existing?.payment_plan) {
       try { planObj = JSON.parse(existing.payment_plan) as Record<string, unknown>; }
       catch { planObj = {}; }
     }
-    planObj.manual_payment = {
+
+    const index = input.installmentIndex != null && input.installmentIndex > 0 ? Math.trunc(input.installmentIndex) : 0;
+    const ledger = readInstalmentLedger(planObj, existing?.payment_status ?? undefined);
+    // Strict one-by-one gate (enforced server-side, not just the UI): a later
+    // instalment can only be recorded once the previous one is approved.
+    if (index > 0) {
+      const prev = ledger.find((e) => e.index === index - 1);
+      if (!prev || prev.status !== 'approved') {
+        return { status: 0, message: 'The previous instalment must be approved by Finance before you can record this one.' };
+      }
+    }
+    // A pending/approved payment already exists for this row → block a duplicate.
+    const currentForIndex = ledger.find((e) => e.index === index);
+    if (currentForIndex && currentForIndex.status !== 'rejected') {
+      return {
+        status: 0,
+        message: currentForIndex.status === 'approved'
+          ? 'This instalment is already paid.'
+          : 'This instalment already has a payment awaiting Finance approval.',
+      };
+    }
+
+    const entry: InstalmentLedgerEntry = {
+      index,
       mode: input.mode ?? 'manual',
       reference: input.reference ?? '',
       receipt_url: input.receiptUrl ?? '',
@@ -9997,6 +10134,20 @@ export class OperationsService {
       paid_date: input.paidDate && /^\d{4}-\d{2}-\d{2}$/.test(input.paidDate) ? input.paidDate : null,
       marked_at: now.toISOString(),
       marked_by: actor,
+      status: 'pending_approval',
+    };
+    // Upsert by index — never clobber sibling instalments' records.
+    planObj.instalment_payments = [...ledger.filter((e) => e.index !== index), entry].sort((a, b) => a.index - b.index);
+    // Legacy mirror (single object) so older readers keep rendering the latest.
+    planObj.manual_payment = {
+      mode: entry.mode,
+      reference: entry.reference,
+      receipt_url: entry.receipt_url,
+      note: entry.note,
+      amount_minor: entry.amount_minor,
+      paid_date: entry.paid_date,
+      marked_at: entry.marked_at,
+      marked_by: entry.marked_by,
     };
 
     // Naji UAT 2026-05-31 — manual payments no longer reflect immediately.
@@ -10038,121 +10189,165 @@ export class OperationsService {
       ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
       : [];
     const courseMap = new Map(courses.map((c) => [c.id, c.title ?? '']));
-    return apps.map((a) => {
-      let manual: Record<string, unknown> = {};
-      let totalMinor = 0;
-      let firstInstalmentInr = 0;
+    // One queue row PER pending instalment payment (Naji 2026-07-04). A row id
+    // is "<appId>" for the registration (index 0, backward compatible with the
+    // old whole-application queue) and "<appId>-<index>" for later instalments.
+    const rows: Record<string, unknown>[] = [];
+    for (const a of apps) {
+      let plan: Record<string, unknown> = {};
       if (a.payment_plan) {
-        try {
-          const plan = JSON.parse(a.payment_plan) as Record<string, unknown>;
-          manual = (plan.manual_payment as Record<string, unknown>) ?? {};
-          totalMinor = Number(plan.total_amount_minor ?? 0);
-          // The first instalment is the registration — the amount the manual
-          // mark-paid / Razorpay link actually settles at lead stage (see
-          // getApplicationPlanInstallments). Show THAT, not the plan grand
-          // total, when no exact amount was captured. Inc GST: gstPercent is 0
-          // when GST is "included", so this is correct under both treatments
-          // and matches what the counsellor Record-Payment modal records.
-          // Naji 2026-07-04.
-          const installments = Array.isArray(plan.installments)
-            ? (plan.installments as Record<string, unknown>[])
-            : [];
-          const first = installments[0];
-          if (first) {
-            const base = Number(first.amountMinor ?? first.amount_minor ?? 0) / 100;
-            const gst = Number(first.gstPercent ?? first.gst_percent ?? 0);
-            if (base > 0) firstInstalmentInr = base + (base * gst) / 100;
-          }
-        } catch { /* ignore malformed plan */ }
+        try { plan = JSON.parse(a.payment_plan) as Record<string, unknown>; }
+        catch { plan = {}; }
       }
-      // Amount received: the exact captured amount (new manual payments) →
-      // otherwise the first instalment / registration (what was actually
-      // settled) → otherwise the plan total so nothing goes blank.
-      const receivedMinor = Number(manual.amount_minor ?? 0);
-      // Date of payment: the captured paid_date → the "Paid on YYYY-MM-DD" the
-      // counsellor Record-Payment modal folds into the note → the recorded date.
-      // Never blank when a record exists. Naji 2026-07-04.
-      const paidOnNote = /Paid on (\d{4}-\d{2}-\d{2})/.exec(toStringValue(manual.note));
-      const paidDate =
-        toStringValue(manual.paid_date)
-        || (paidOnNote?.[1] ?? '')
-        || toStringValue(manual.marked_at).slice(0, 10)
-        || (a.updated_at ? new Date(a.updated_at).toISOString().slice(0, 10) : '');
-      return {
-        id: String(a.id),
-        application_id: a.application_id ?? '',
-        name: a.name ?? '',
-        email: a.user_email ?? '',
-        course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
-        amount: receivedMinor > 0
-          ? receivedMinor / 100
-          : firstInstalmentInr > 0
-            ? firstInstalmentInr
-            : totalMinor > 0
-              ? totalMinor / 100
-              : null,
-        mode: toStringValue(manual.mode) || a.payment_method || 'manual',
-        reference: toStringValue(manual.reference),
-        receipt_url: toStringValue(manual.receipt_url) ? toLegacyFileUrl(toStringValue(manual.receipt_url)) : '',
-        note: toStringValue(manual.note),
-        paid_date: paidDate,
-        marked_at: toStringValue(manual.marked_at),
-        updated_at: a.updated_at,
-      };
-    });
+      const installments = Array.isArray(plan.installments) ? (plan.installments as Record<string, unknown>[]) : [];
+      const totalMinor = Number(plan.total_amount_minor ?? 0);
+      const ledger = readInstalmentLedger(plan, a.payment_status ?? undefined);
+      const pending = ledger.filter((e) => e.status === 'pending_approval');
+      for (const entry of pending) {
+        // Amount: exact captured amount → that instalment's inc-GST amount
+        // (gstPercent is 0 when GST is "included", correct under both treatments)
+        // → plan total, so nothing renders blank.
+        const receivedMinor = entry.amount_minor ?? 0;
+        const instRow = installments[entry.index];
+        let instalmentInr = 0;
+        if (instRow) {
+          const base = Number(instRow.amountMinor ?? instRow.amount_minor ?? 0) / 100;
+          const gst = Number(instRow.gstPercent ?? instRow.gst_percent ?? 0);
+          if (base > 0) instalmentInr = base + (base * gst) / 100;
+        }
+        const label = instRow ? toStringValue(instRow.label) : '';
+        // Date of payment: captured paid_date → "Paid on YYYY-MM-DD" in the note
+        // → the recorded date. Never blank.
+        const paidOnNote = /Paid on (\d{4}-\d{2}-\d{2})/.exec(entry.note);
+        const paidDate =
+          (entry.paid_date ?? '')
+          || (paidOnNote?.[1] ?? '')
+          || entry.marked_at.slice(0, 10)
+          || (a.updated_at ? new Date(a.updated_at).toISOString().slice(0, 10) : '');
+        rows.push({
+          id: entry.index > 0 ? `${a.id}-${entry.index}` : String(a.id),
+          application_id: a.application_id ?? '',
+          name: a.name ?? '',
+          email: a.user_email ?? '',
+          course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
+          instalment: label || (entry.index === 0 ? 'Registration' : `Instalment ${entry.index}`),
+          amount: receivedMinor > 0
+            ? receivedMinor / 100
+            : instalmentInr > 0
+              ? instalmentInr
+              : totalMinor > 0
+                ? totalMinor / 100
+                : null,
+          mode: entry.mode || a.payment_method || 'manual',
+          reference: entry.reference,
+          receipt_url: entry.receipt_url ? toLegacyFileUrl(entry.receipt_url) : '',
+          note: entry.note,
+          paid_date: paidDate,
+          marked_at: entry.marked_at,
+          updated_at: a.updated_at,
+        });
+      }
+    }
+    return rows;
   }
 
-  async approveManualPayment(actorUserId: string, applicationId: string): Promise<Record<string, unknown>> {
+  // rowId is "<appId>" (registration / legacy) or "<appId>-<index>" for a later
+  // instalment (Naji 2026-07-04). Approving advances only that instalment.
+  async approveManualPayment(actorUserId: string, rowId: string): Promise<Record<string, unknown>> {
+    const { applicationId, index } = parseApprovalRowId(rowId);
     const id = toIntId(applicationId);
     const actor = toNullableIntId(actorUserId);
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { payment_status: true },
+      select: { payment_status: true, payment_plan: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
-    if (app.payment_status !== 'pending_approval') {
+    let planObj: Record<string, unknown> = {};
+    if (app.payment_plan) { try { planObj = JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { planObj = {}; } }
+    const ledger = readInstalmentLedger(planObj, app.payment_status ?? undefined);
+    const entry = ledger.find((e) => e.index === index);
+    if (!entry || entry.status !== 'pending_approval') {
       return { status: 0, message: 'This payment is not awaiting approval.' };
     }
     const now = new Date();
-    await this.prisma.applications.update({
-      where: { id },
-      data: {
-        stage: 'paid',
-        payment_status: 'paid',
-        payment_marked_paid_at: now,
-        payment_marked_paid_by: actor,
-        updated_at: now,
-        updated_by: actor,
-      },
-    });
-    await this.recordEvent(id, 'payment_approved', 'Manual payment approved by finance', actorUserId, {});
-    await this.notifyApplicationEvent(id, 'payment_received');
+    const nextLedger = ledger.map((e) =>
+      e.index === index ? { ...e, status: 'approved' as const, decided_at: now.toISOString(), decided_by: actor } : e,
+    );
+    planObj.instalment_payments = nextLedger;
+
+    if (index === 0) {
+      // Registration approval keeps the existing behavior: the application flips
+      // to paid and the payment_received notification fires (the enrolment trigger).
+      await this.prisma.applications.update({
+        where: { id },
+        data: {
+          stage: 'paid',
+          payment_status: 'paid',
+          payment_marked_paid_at: now,
+          payment_marked_paid_by: actor,
+          payment_plan: JSON.stringify(planObj),
+          updated_at: now,
+          updated_by: actor,
+        },
+      });
+      await this.recordEvent(id, 'payment_approved', 'Registration payment approved by finance', actorUserId, {});
+      await this.notifyApplicationEvent(id, 'payment_received');
+    } else {
+      // A later instalment only advances the ledger + the coarse rollup — it must
+      // NOT re-flip stage or re-fire the enrolment notification.
+      const rollup = rollupPaymentStatus(nextLedger);
+      await this.prisma.applications.update({
+        where: { id },
+        data: {
+          ...(rollup ? { payment_status: rollup } : {}),
+          payment_plan: JSON.stringify(planObj),
+          updated_at: now,
+          updated_by: actor,
+        },
+      });
+      await this.recordEvent(id, 'payment_approved', `Instalment ${index} payment approved by finance`, actorUserId, { instalment_index: index });
+    }
     return { status: 1, message: 'Payment approved.' };
   }
 
-  async rejectManualPayment(actorUserId: string, applicationId: string, reason: string): Promise<Record<string, unknown>> {
+  async rejectManualPayment(actorUserId: string, rowId: string, reason: string): Promise<Record<string, unknown>> {
+    const { applicationId, index } = parseApprovalRowId(rowId);
     const id = toIntId(applicationId);
     const actor = toNullableIntId(actorUserId);
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { payment_status: true },
+      select: { payment_status: true, payment_plan: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
-    if (app.payment_status !== 'pending_approval') {
+    let planObj: Record<string, unknown> = {};
+    if (app.payment_plan) { try { planObj = JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { planObj = {}; } }
+    const ledger = readInstalmentLedger(planObj, app.payment_status ?? undefined);
+    const entry = ledger.find((e) => e.index === index);
+    if (!entry || entry.status !== 'pending_approval') {
       return { status: 0, message: 'This payment is not awaiting approval.' };
     }
     const now = new Date();
+    const nextLedger = ledger.map((e) =>
+      e.index === index
+        ? { ...e, status: 'rejected' as const, decided_at: now.toISOString(), decided_by: actor, ...(reason ? { reject_reason: reason } : {}) }
+        : e,
+    );
+    planObj.instalment_payments = nextLedger;
+    // Registration reject → 'payment_rejected' (existing behavior). A later
+    // instalment reject leaves the app paid (registration is already settled).
+    const rollup = rollupPaymentStatus(nextLedger);
     await this.prisma.applications.update({
       where: { id },
       data: {
-        payment_status: 'payment_rejected',
+        payment_status: index === 0 ? 'payment_rejected' : (rollup ?? 'payment_rejected'),
+        payment_plan: JSON.stringify(planObj),
         updated_at: now,
         updated_by: actor,
       },
     });
-    await this.recordEvent(id, 'payment_rejected', `Manual payment rejected by finance${reason ? `: ${reason}` : ''}`, actorUserId, { reason });
+    await this.recordEvent(id, 'payment_rejected', `${index === 0 ? 'Registration' : `Instalment ${index}`} payment rejected by finance${reason ? `: ${reason}` : ''}`, actorUserId, { reason, instalment_index: index });
     return { status: 1, message: 'Payment rejected.' };
   }
 

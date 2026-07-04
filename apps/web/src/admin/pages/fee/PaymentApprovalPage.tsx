@@ -55,6 +55,7 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
   const columns: DataTableColumn[] = [
     { key: 'name', label: 'Student', sortable: true, render: (v) => asString(v) || '—' },
     { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '—' },
+    { key: 'instalment', label: 'Instalment', render: (v) => asString(v) || '—' },
     { key: 'amount', label: 'Amount', sortable: true, render: (v) => (v == null ? '—' : `₹${asNumber(v).toLocaleString('en-IN')}`) },
     { key: 'paid_date', label: 'Date of Payment', sortable: true, render: (v) => (asString(v) ? formatDate(v) : '—') },
     { key: 'mode', label: 'Mode', render: (v) => asString(v) || '—' },

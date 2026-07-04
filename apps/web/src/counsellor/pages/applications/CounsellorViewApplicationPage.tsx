@@ -93,6 +93,16 @@ type SavedPlan = {
     note?: string;
     marked_at?: string;
   };
+  // Per-instalment payment ledger (strict one-by-one). index 0 = registration.
+  instalment_payments?: Array<{
+    index?: number;
+    status?: string;
+    amount_minor?: number | null;
+    mode?: string;
+    reference?: string;
+    paid_date?: string | null;
+    marked_at?: string;
+  }>;
 };
 
 function StageBadge({ stage }: { stage: string }) {
@@ -194,6 +204,10 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   const [activeTab, setActiveTab] = useState('overview');
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  // Which instalment row the Record-Payment modal is capturing (0 = registration)
+  // + its inc-GST amount, for strict one-by-one recording. Naji 2026-07-04.
+  const [activeInstalmentIndex, setActiveInstalmentIndex] = useState(0);
+  const [recordRowAmount, setRecordRowAmount] = useState<number | null>(null);
   const [editLeadOpen, setEditLeadOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -353,6 +367,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
         reference: input.reference,
         receipt_url: input.receiptUrl,
         note: input.note,
+        installmentIndex: activeInstalmentIndex,
       });
       if ((res as { status?: number }).status === 1) {
         toast.success(asString((res as { message?: unknown }).message) || 'Payment recorded — pending finance approval.');
@@ -361,7 +376,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
         throw new Error(asString((res as { message?: unknown }).message) || 'Could not record payment.');
       }
     },
-    [admin, session.token, applicationId, reload],
+    [admin, session.token, applicationId, reload, activeInstalmentIndex],
   );
 
   const handleRecordReceiptUpload = useCallback(
@@ -520,6 +535,37 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   // approved a payment at that stage, and re-recording would overwrite the
   // manual_payment entry and reset payment_status to pending_approval.
   const canRecordPayment = ['lead', 'payment_pending', 'form_pending'].includes(stage);
+
+  // ── Per-instalment payment ledger (strict one-by-one, Naji 2026-07-04) ──
+  // Each instalment row unlocks only after the PREVIOUS one is Finance-approved.
+  const instalmentLedger = Array.isArray(savedPlan?.instalment_payments) ? savedPlan.instalment_payments : [];
+  const rowStatus = (i: number): 'approved' | 'pending_approval' | 'rejected' | 'unpaid' => {
+    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
+    if (e) {
+      const s = asString(e.status);
+      return s === 'approved' || s === 'pending_approval' || s === 'rejected' ? s : 'unpaid';
+    }
+    // Back-compat: a legacy single manual_payment counts as the registration (index 0).
+    if (i === 0 && manual && (asString(manual.reference) || asString(manual.mode))) {
+      return paymentStatus === 'paid' ? 'approved' : paymentStatus === 'payment_rejected' ? 'rejected' : 'pending_approval';
+    }
+    // A settled registration with no recorded manual payment (paid online via
+    // the Razorpay link) still counts as approved so instalment 1 unlocks.
+    if (i === 0 && paymentStatus === 'paid') return 'approved';
+    return 'unpaid';
+  };
+  // A row can be (re)recorded only when this row isn't already paid/pending and
+  // the previous instalment is approved (registration is gated by stage instead).
+  const rowActionable = (i: number): boolean => {
+    const st = rowStatus(i);
+    if (st === 'approved' || st === 'pending_approval') return false;
+    return i === 0 ? canRecordPayment : rowStatus(i - 1) === 'approved';
+  };
+  const openRecordForRow = (i: number, incAmount: number): void => {
+    setActiveInstalmentIndex(i);
+    setRecordRowAmount(incAmount > 0 ? incAmount : null);
+    setRecordPaymentOpen(true);
+  };
 
   const currentStageIdx = STAGES.findIndex((s) => s.key === stage);
 
@@ -794,31 +840,53 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                             </td>
                             <td className="py-3 pr-3 text-muted-foreground">{formatDate(due) || '—'}</td>
                             <td className="py-3 pr-3 text-right">
-                              {i === 0 ? (
-                                <div className="flex items-center justify-end gap-2">
-                                  {canRecordPayment ? (
+                              {(() => {
+                                // Strict one-by-one: every row gets Record Payment
+                                // + Send Link, but they stay disabled until the
+                                // previous instalment is Finance-approved.
+                                const st = rowStatus(i);
+                                if (st === 'approved') {
+                                  return (
+                                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                      Paid
+                                    </span>
+                                  );
+                                }
+                                const actionable = rowActionable(i);
+                                const locked = !actionable && st !== 'pending_approval';
+                                return (
+                                  <div className="flex items-center justify-end gap-2">
+                                    {st === 'pending_approval' ? (
+                                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                                        Pending approval
+                                      </span>
+                                    ) : st === 'rejected' ? (
+                                      <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-700">
+                                        Rejected
+                                      </span>
+                                    ) : null}
                                     <Button
                                       size="sm"
                                       variant="outline"
                                       className="h-7 gap-1.5 border-success/40 text-success hover:bg-success-soft hover:text-success"
-                                      onClick={() => setRecordPaymentOpen(true)}
+                                      disabled={!actionable}
+                                      title={locked ? 'Complete and get the previous instalment approved first' : undefined}
+                                      onClick={() => openRecordForRow(i, inc)}
                                     >
-                                      <Wallet className="h-3.5 w-3.5" /> Record Payment
+                                      <Wallet className="h-3.5 w-3.5" /> {st === 'rejected' ? 'Re-record' : 'Record Payment'}
                                     </Button>
-                                  ) : null}
-                                  {canSendPayLink ? (
                                     <Button
                                       size="sm"
                                       className="h-7 gap-1.5"
-                                      disabled={sendingPayLink}
+                                      disabled={!actionable || !canSendPayLink || sendingPayLink}
                                       onClick={() => void handleSendPayLink()}
                                     >
                                       <Send className="h-3.5 w-3.5" />
-                                      {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Payment Link')}
+                                      {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Link')}
                                     </Button>
-                                  ) : null}
-                                </div>
-                              ) : null}
+                                  </div>
+                                );
+                              })()}
                             </td>
                           </tr>
                         );
@@ -1208,9 +1276,12 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
       {/* Dedicated Record Payment modal (offline payment capture) */}
       <CounsellorRecordPaymentModal
         open={recordPaymentOpen}
-        onOpenChange={setRecordPaymentOpen}
+        onOpenChange={(open) => {
+          setRecordPaymentOpen(open);
+          if (!open) setRecordRowAmount(null);
+        }}
         studentName={name || email || 'this lead'}
-        amount={recordPaymentAmount}
+        amount={recordRowAmount ?? recordPaymentAmount}
         description={recordPaymentContext}
         onUploadReceipt={handleRecordReceiptUpload}
         onRecord={handleRecordPayment}
