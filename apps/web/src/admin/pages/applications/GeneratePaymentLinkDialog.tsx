@@ -181,6 +181,7 @@ export function GeneratePaymentLinkDialog({
   // Manual (offline) payment capture — Naji 2026-05-31. Recording this
   // doesn't send a Razorpay link; it logs the payment for Finance approval.
   const [manualMode, setManualMode] = useState('Cash');
+  const [manualAmount, setManualAmount] = useState('');
   const [manualReference, setManualReference] = useState('');
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
@@ -570,13 +571,17 @@ export function GeneratePaymentLinkDialog({
   // server returns a message saying so) rather than reflecting immediately.
   const recordManualPayment = async () => {
     // Naji 2026-05-31 — Reference + Receipt are both mandatory for a manual
-    // payment (Finance needs proof to approve it).
+    // payment (Finance needs proof to approve it). 2026-07-03 — plus the actual
+    // amount received, which Payment Approval now shows instead of the total.
+    const manualAmountNum = Number(manualAmount);
+    if (!(manualAmountNum > 0)) { toast.error('Amount received is required.'); return; }
     if (!manualReference.trim()) { toast.error('Reference number is required.'); return; }
     if (!manualReceiptUrl.trim()) { toast.error('Receipt is required.'); return; }
     setManualSubmitting(true);
     try {
       const res = await api.markApplicationPaid(authToken, applicationId, {
         mode: manualMode,
+        amount: manualAmountNum,
         reference: manualReference.trim(),
         receipt_url: manualReceiptUrl.trim(),
       });
@@ -934,6 +939,17 @@ export function GeneratePaymentLinkDialog({
             {!isCounsellorLayout ? (
               <p className="mb-3 text-[11px] text-slate-400">Paid by cash / bank / cheque / UPI offline. Sent to Finance for approval before it reflects.</p>
             ) : null}
+            <div className="mb-3 space-y-1">
+              <Label className="text-xs">Amount Received (₹) *</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={manualAmount}
+                onChange={(e) => setManualAmount(e.target.value)}
+                placeholder="Actual amount received"
+              />
+            </div>
             <div className={`grid grid-cols-1 gap-3 ${isCounsellorLayout ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div className="space-y-1">
                 <Label className="text-xs">Mode</Label>
@@ -1010,7 +1026,7 @@ export function GeneratePaymentLinkDialog({
                   <Button
                     variant="outline"
                     onClick={() => { void recordManualPayment(); }}
-                    disabled={manualSubmitting}
+                    disabled={manualSubmitting || !(Number(manualAmount) > 0)}
                   >
                     {manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
                   </Button>
@@ -1038,7 +1054,7 @@ export function GeneratePaymentLinkDialog({
               </Button>
             ) : (
               <>
-                <Button variant="outline" onClick={() => { void recordManualPayment(); }} disabled={manualSubmitting || receiptUploading}>
+                <Button variant="outline" onClick={() => { void recordManualPayment(); }} disabled={manualSubmitting || receiptUploading || !(Number(manualAmount) > 0)}>
                   {receiptUploading ? 'Uploading…' : manualSubmitting ? 'Recording…' : 'Mark as Paid (Manual)'}
                 </Button>
                 <Button

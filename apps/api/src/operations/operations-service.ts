@@ -9961,6 +9961,9 @@ export class OperationsService {
       reference?: string | undefined;
       receiptUrl?: string | undefined;
       note?: string | undefined;
+      // Naji 2026-07-03 — the actual amount received for this manual payment
+      // (rupees). Finance's Payment Approval shows this instead of the plan total.
+      amount?: number | undefined;
     } = {},
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
@@ -9984,6 +9987,9 @@ export class OperationsService {
       reference: input.reference ?? '',
       receipt_url: input.receiptUrl ?? '',
       note: input.note ?? '',
+      // Store the actual amount received in minor units (paise) to match the
+      // rest of the plan JSON. Null when the recorder didn't supply one.
+      amount_minor: input.amount != null && input.amount > 0 ? Math.round(input.amount * 100) : null,
       marked_at: now.toISOString(),
       marked_by: actor,
     };
@@ -10037,13 +10043,17 @@ export class OperationsService {
           totalMinor = Number(plan.total_amount_minor ?? 0);
         } catch { /* ignore malformed plan */ }
       }
+      // Prefer the actual amount received (captured at Mark-Paid time) over the
+      // plan total, which is what Naji flagged. Fall back to the total for rows
+      // recorded before amount capture existed so they don't regress to blank.
+      const receivedMinor = Number(manual.amount_minor ?? 0);
       return {
         id: String(a.id),
         application_id: a.application_id ?? '',
         name: a.name ?? '',
         email: a.user_email ?? '',
         course_title: a.course_id ? courseMap.get(a.course_id) ?? '' : '',
-        amount: totalMinor > 0 ? totalMinor / 100 : null,
+        amount: receivedMinor > 0 ? receivedMinor / 100 : totalMinor > 0 ? totalMinor / 100 : null,
         mode: toStringValue(manual.mode) || a.payment_method || 'manual',
         reference: toStringValue(manual.reference),
         receipt_url: toStringValue(manual.receipt_url) ? toLegacyFileUrl(toStringValue(manual.receipt_url)) : '',

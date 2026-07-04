@@ -3474,6 +3474,7 @@ export function registerOperationsRoutes(
           reference: toStringValue(payload.reference) || undefined,
           receiptUrl: toStringValue(payload.receipt_url) || undefined,
           note: toStringValue(payload.note) || undefined,
+          amount: toNumber(payload.amount) || undefined,
         },
       );
       reply.code(200).send(result);

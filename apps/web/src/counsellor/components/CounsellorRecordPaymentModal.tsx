@@ -42,6 +42,8 @@ type RecordFn = (input: {
   reference: string;
   receiptUrl: string;
   note: string;
+  /** Actual amount received, in rupees. */
+  amount: number;
 }) => Promise<void>;
 
 interface CounsellorRecordPaymentModalProps {
@@ -91,6 +93,7 @@ export function CounsellorRecordPaymentModal({
   onRecord,
 }: CounsellorRecordPaymentModalProps) {
   const [mode, setMode] = useState('cash');
+  const [amountReceived, setAmountReceived] = useState('');
   const [reference, setReference] = useState('');
   const [paidDate, setPaidDate] = useState(todayIso());
   const [note, setNote] = useState('');
@@ -100,17 +103,19 @@ export function CounsellorRecordPaymentModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset to a clean slate every time the modal opens so a previous record
-  // doesn't bleed into the next one.
+  // doesn't bleed into the next one. Amount is prefilled with the expected
+  // amount (editable — the recorder confirms/adjusts the actual received).
   useEffect(() => {
     if (!open) return;
     setMode('cash');
+    setAmountReceived(amount > 0 ? String(Math.round(amount)) : '');
     setReference('');
     setPaidDate(todayIso());
     setNote('');
     setReceiptUrl('');
     setUploading(false);
     setSubmitting(false);
-  }, [open]);
+  }, [open, amount]);
 
   const handleUpload = (file: File): void => {
     setUploading(true);
@@ -127,6 +132,11 @@ export function CounsellorRecordPaymentModal({
   };
 
   const handleSubmit = (): void => {
+    const amountNum = Number(amountReceived);
+    if (!(amountNum > 0)) {
+      toast.error('Amount received is required.');
+      return;
+    }
     if (!reference.trim()) {
       toast.error('Reference number is required.');
       return;
@@ -142,6 +152,7 @@ export function CounsellorRecordPaymentModal({
     setSubmitting(true);
     void onRecord({
       mode: modeLabel,
+      amount: amountNum,
       reference: reference.trim(),
       receiptUrl,
       note: noteParts.join(' — '),
@@ -192,6 +203,18 @@ export function CounsellorRecordPaymentModal({
         </DialogHeader>
 
         <div className="space-y-4 px-6 pb-6">
+          <div className="space-y-2">
+            <Label htmlFor="cn-rp-amount">Amount Received (₹) *</Label>
+            <Input
+              id="cn-rp-amount"
+              type="number"
+              min="1"
+              step="1"
+              value={amountReceived}
+              onChange={(e) => setAmountReceived(e.target.value)}
+              placeholder="Actual amount received"
+            />
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="cn-rp-mode">Payment Mode</Label>
@@ -277,7 +300,7 @@ export function CounsellorRecordPaymentModal({
           <Button
             className="bg-success text-success-foreground hover:bg-success/90"
             onClick={handleSubmit}
-            disabled={busy || !reference.trim() || !receiptUrl}
+            disabled={busy || !(Number(amountReceived) > 0) || !reference.trim() || !receiptUrl}
           >
             {submitting ? 'Recording…' : 'Record Payment'}
           </Button>

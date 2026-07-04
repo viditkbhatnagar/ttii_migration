@@ -110,6 +110,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   // Mark-as-Paid dialog state (Naji 2026-05-09 — replaces window.prompt).
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidMode, setMarkPaidMode] = useState('cash');
+  const [markPaidAmount, setMarkPaidAmount] = useState('');
   const [markPaidReference, setMarkPaidReference] = useState('');
   const [markPaidReceiptUrl, setMarkPaidReceiptUrl] = useState('');
   const [markPaidUploading, setMarkPaidUploading] = useState(false);
@@ -240,6 +241,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   const handleMarkPaid = useCallback(() => {
     if (!applicationId) return;
     setMarkPaidMode('cash');
+    setMarkPaidAmount('');
     setMarkPaidReference('');
     setMarkPaidReceiptUrl('');
     setMarkPaidOpen(true);
@@ -247,12 +249,15 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
   const handleSubmitMarkPaid = useCallback(async () => {
     if (!applicationId) return;
+    const amountNum = Number(markPaidAmount);
+    if (!(amountNum > 0)) { toast.error('Amount received is required.'); return; }
     if (!markPaidReference.trim()) { toast.error('Reference number is required.'); return; }
     if (!markPaidReceiptUrl.trim()) { toast.error('Receipt is required.'); return; }
     setSubmitting(true);
     try {
       const res = await api.markApplicationPaid(session.token, applicationId, {
         mode: markPaidMode,
+        amount: amountNum,
         reference: markPaidReference.trim(),
         receipt_url: markPaidReceiptUrl,
       });
@@ -267,7 +272,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed.');
     } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, markPaidMode, markPaidReference, markPaidReceiptUrl, reload]);
+  }, [api, session.token, applicationId, markPaidMode, markPaidAmount, markPaidReference, markPaidReceiptUrl, reload]);
 
   const handleReceiptUpload = useCallback(async (file: File) => {
     setMarkPaidUploading(true);
@@ -1186,6 +1191,19 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               </select>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="mp-amount">Amount Received (₹) *</Label>
+              <input
+                id="mp-amount"
+                type="number"
+                min="1"
+                step="1"
+                value={markPaidAmount}
+                onChange={(e) => setMarkPaidAmount(e.target.value)}
+                placeholder="Actual amount received"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="mp-ref">Reference Number *</Label>
               <input
                 id="mp-ref"
@@ -1224,7 +1242,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
             <Button
               className="bg-green-600 hover:bg-green-700"
               onClick={() => void handleSubmitMarkPaid()}
-              disabled={submitting || !markPaidReference.trim() || markPaidUploading}
+              disabled={submitting || !(Number(markPaidAmount) > 0) || !markPaidReference.trim() || markPaidUploading}
             >
               {submitting ? 'Saving…' : 'Mark as Paid'}
             </Button>
