@@ -22,6 +22,7 @@ import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
 import { CallButton } from '../../shared/components/CallButton.js';
 import { CallHistoryPanel } from '../../shared/components/CallHistoryPanel.js';
+import { GeneratePaymentLinkDialog } from '../applications/GeneratePaymentLinkDialog.js';
 
 // Naji UAT 2026-05-13 — Student Profile page modelled on the
 // regal-folio-kit reference. Each main tab now carries an icon for
@@ -172,6 +173,11 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     status: '',
   });
   const [instSubmitting, setInstSubmitting] = useState(false);
+
+  // Naji 2026-07-05 — Generate / Edit Payment Plan for an enrolled student,
+  // reusing the same dialog leads use. It targets the student's retained
+  // application row; the backend preserves the enrolled stage.
+  const [payPlanOpen, setPayPlanOpen] = useState(false);
 
   const studentId = useMemo(() => {
     const parts = window.location.pathname.split('/');
@@ -1989,6 +1995,18 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   /admin/student-payments/update endpoint. */}
               {enrollmentSubTab === 7 && (
                 <div className="space-y-4">
+                  {canEditStudent && (
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={() => setPayPlanOpen(true)}
+                        disabled={!asString(student?.application_id)}
+                        title={asString(student?.application_id) ? '' : 'No application record is linked to this student, so a payment plan cannot be generated here.'}
+                      >
+                        {hasPaymentPlan ? 'Edit Payment Plan' : 'Generate Payment Plan'}
+                      </Button>
+                    </div>
+                  )}
                   {studentFees.length > 0 && (
                     <Card>
                       <CardHeader>
@@ -2052,6 +2070,25 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           </div>
         </div>
       )}
+
+      {/* Generate / Edit Payment Plan — Naji 2026-07-05. Reuses the lead
+          dialog against the enrolled student's retained application row; the
+          backend preserves the enrolled stage so this never un-enrols them. */}
+      <GeneratePaymentLinkDialog
+        open={payPlanOpen}
+        onOpenChange={setPayPlanOpen}
+        api={api}
+        authToken={session.token}
+        applicationId={asString(student?.application_id)}
+        studentName={asString(student?.name) || 'this student'}
+        offeringId={asString(student?.offering_id)}
+        combinationId={asString(student?.certificate_combination_id)}
+        initialBaseFee={asNumber(studentFees[0]?.base_fee)}
+        initialDiscount={asNumber(studentFees[0]?.discount)}
+        initialGstPercent={asNumber(studentFees[0]?.gst_percent)}
+        initialSavedPlan={applicationPaymentPlan}
+        onSent={() => reload()}
+      />
 
       {/* Edit Installment Dialog — Naji UAT 2026-05-13 */}
       <Dialog open={editInstOpen} onOpenChange={(open) => { if (!open) closeEditInstallment(); }}>

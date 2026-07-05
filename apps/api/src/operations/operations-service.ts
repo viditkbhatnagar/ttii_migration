@@ -9855,12 +9855,18 @@ export class OperationsService {
       where: { id, deleted_at: null },
       select: {
         id: true, name: true, user_email: true, phone: true,
-        course_id: true, offering_id: true, stage: true, pipeline_user: true,
+        course_id: true, offering_id: true, stage: true, is_converted: true, pipeline_user: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     if (!app.user_email) return { status: 0, message: 'Application has no email.' };
     if (input.totalAmount <= 0) return { status: 0, message: 'Total amount must be > 0.' };
+
+    // Preserve enrolment: when this runs for an already-enrolled student (the
+    // Generate / Edit Payment Plan action on the admin Student page), the plan +
+    // link are (re)written but the application's stage/payment_status must NOT
+    // regress back into the lead funnel (Naji 2026-07-05). Leads are unaffected.
+    const alreadyEnrolled = app.stage === 'enrolled' || app.is_converted === 1;
 
     const amountMinor = input.mode === 'full'
       ? input.totalAmount
@@ -9915,12 +9921,13 @@ export class OperationsService {
     await this.prisma.applications.update({
       where: { id },
       data: {
-        stage: 'payment_pending',
+        // Enrolled students keep their stage/payment_status; leads move into the
+        // payment_pending funnel exactly as before.
+        ...(alreadyEnrolled ? {} : { stage: 'payment_pending', payment_status: 'sent' }),
         payment_plan: planJson,
         payment_link_url: link.shortUrl,
         payment_link_id: link.paymentLinkId,
         payment_link_expires_at: new Date(expireBy * 1000),
-        payment_status: 'sent',
         payment_method: 'razorpay',
         updated_at: now,
         updated_by: actor,
@@ -10385,9 +10392,12 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { payment_status: true, payment_plan: true },
+      select: { payment_status: true, payment_plan: true, stage: true, is_converted: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
+    // An already-enrolled student's registration approval must NOT regress the
+    // stage or re-fire the enrolment notification (Naji 2026-07-05).
+    const alreadyEnrolled = app.stage === 'enrolled' || app.is_converted === 1;
     let planObj: Record<string, unknown> = {};
     if (app.payment_plan) { try { planObj = JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { planObj = {}; } }
     const ledger = readInstalmentLedger(planObj, app.payment_status ?? undefined);
@@ -10401,7 +10411,7 @@ export class OperationsService {
     );
     planObj.instalment_payments = nextLedger;
 
-    if (index === 0) {
+    if (index === 0 && !alreadyEnrolled) {
       // Registration approval keeps the existing behavior: the application flips
       // to paid and the payment_received notification fires (the enrolment trigger).
       await this.prisma.applications.update({
@@ -10419,8 +10429,9 @@ export class OperationsService {
       await this.recordEvent(id, 'payment_approved', 'Registration payment approved by finance', actorUserId, {});
       await this.notifyApplicationEvent(id, 'payment_received');
     } else {
-      // A later instalment only advances the ledger + the coarse rollup — it must
-      // NOT re-flip stage or re-fire the enrolment notification.
+      // A later instalment — OR any approval for an already-enrolled student —
+      // only advances the ledger + the coarse rollup; it must NOT re-flip stage
+      // or re-fire the enrolment notification.
       const rollup = rollupPaymentStatus(nextLedger);
       await this.prisma.applications.update({
         where: { id },
@@ -10431,7 +10442,7 @@ export class OperationsService {
           updated_by: actor,
         },
       });
-      await this.recordEvent(id, 'payment_approved', `Instalment ${index} payment approved by finance`, actorUserId, { instalment_index: index });
+      await this.recordEvent(id, 'payment_approved', `${index === 0 ? 'Registration' : `Instalment ${index}`} payment approved by finance`, actorUserId, { instalment_index: index });
     }
     return { status: 1, message: 'Payment approved.' };
   }
@@ -10487,14 +10498,18 @@ export class OperationsService {
     if (!linkId) return;
     const app = await this.prisma.applications.findFirst({
       where: { payment_link_id: linkId, deleted_at: null },
-      select: { id: true },
+      select: { id: true, stage: true, is_converted: true },
     });
     if (!app) return;
+    // Don't regress an already-enrolled student's stage (or re-fire the enrolment
+    // notification) when they pay a link generated from the Student page
+    // Generate/Edit Payment Plan flow (Naji 2026-07-05). Leads are unaffected.
+    const alreadyEnrolled = app.stage === 'enrolled' || app.is_converted === 1;
     const now = new Date();
     await this.prisma.applications.update({
       where: { id: app.id },
       data: {
-        stage: 'paid',
+        ...(alreadyEnrolled ? {} : { stage: 'paid' }),
         payment_status: 'paid',
         payment_method: 'razorpay',
         payment_marked_paid_at: now,
@@ -10502,7 +10517,9 @@ export class OperationsService {
       },
     });
     await this.recordEvent(app.id, 'payment_received_razorpay', 'Payment received via Razorpay', null, { link_id: linkId });
-    await this.notifyApplicationEvent(app.id, 'payment_received');
+    if (!alreadyEnrolled) {
+      await this.notifyApplicationEvent(app.id, 'payment_received');
+    }
   }
 
   // Phase E (Naji 2026-05-05): approval + enrolment.
