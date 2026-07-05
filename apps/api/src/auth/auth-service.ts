@@ -627,23 +627,20 @@ export class AuthService {
       },
     });
 
+    const otpValidityMinutes = Math.max(1, Math.round(expiresInSeconds / 60));
     try {
-      const { renderBrandedEmail } = await import('../integrations/email-template.js');
+      // Naji 2026-07-05 — the Lovable "Password Reset OTP" design (navy header,
+      // big OTP block, validity + security notes). Replaces the purple wrapper.
+      const { renderPasswordResetOtpEmail } = await import('../integrations/auth-emails.js');
       await this.emailProvider.sendEmail({
         to: canonicalEmail,
-        subject: 'TTII Password Reset OTP',
-        html: renderBrandedEmail({
-          heading: 'Password reset request',
-          preheader: 'Use this OTP to reset your password.',
-          bodyHtml: `
-            <p style="margin:0 0 12px;">You requested to reset your TTII account password. Use the OTP below to continue:</p>
-            <div style="margin:20px 0;padding:24px;background:#faf5fb;border:1px solid #e9d5e5;border-radius:12px;text-align:center;">
-              <div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#8F2774;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">${otp}</div>
-            </div>
-          `,
-          footerNote: "This OTP expires in 2 minutes. If you didn't request a password reset, you can safely ignore this email.",
+        subject: 'Password Reset Verification Code',
+        html: renderPasswordResetOtpEmail({
+          name: (user.name ?? '').trim() || 'there',
+          otpCode: otp,
+          otpValidityMinutes,
         }),
-        text: `Your TTII password reset OTP is: ${otp}\n\nThis OTP expires in 2 minutes.\n\nIf you didn't request this, please ignore this email.`,
+        text: `Your TTII password reset OTP is: ${otp}\n\nThis OTP expires in ${otpValidityMinutes} minute(s).\n\nIf you didn't request this, please ignore this email.`,
       });
     } catch {
       await this.writeAuditLog({

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { hashPassword } from './password.js';
-import { renderBrandedEmail, renderEmailFieldTable } from '../integrations/email-template.js';
+import { renderUserCreationEmail } from '../integrations/auth-emails.js';
 
 /**
  * Issues a one-time credential bundle for a newly-created admin-side user
@@ -52,32 +52,15 @@ function generateTempPassword(): string {
 }
 
 function buildEmailHtml(ctx: CredentialEmailContext, tempPassword: string): string {
-  const loginUrl = ctx.loginUrl ?? 'https://admin.teachersindia.in';
-  const fields = renderEmailFieldTable([
-    { label: 'Email', value: ctx.email },
-    { label: 'Temporary password', value: tempPassword, mono: true },
-  ]);
-  return renderBrandedEmail({
-    heading: 'Welcome to TTII LMS',
-    preheader: `Your ${ctx.roleLabel} account is ready.`,
-    bodyHtml: `
-      <p style="margin:0 0 12px;">Hi <strong>${escapeText(ctx.name)}</strong>,</p>
-      <p style="margin:0 0 12px;">An account has been created for you on the TTII LMS as <strong>${escapeText(ctx.roleLabel)}</strong>. Use the credentials below to sign in.</p>
-      ${fields}
-    `,
-    cta: { label: 'Sign in to your account', href: loginUrl },
-    footerNote:
-      'For security, please change your password the first time you sign in. If you did not expect this email, please ignore it or contact our support team.',
+  // Naji 2026-07-05 — the Lovable "User Creation" design (navy header, account
+  // + credentials tables, Login to LMS CTA). Replaces the old purple wrapper.
+  return renderUserCreationEmail({
+    userFullName: ctx.name,
+    userRole: ctx.roleLabel,
+    emailId: ctx.email,
+    temporaryPassword: tempPassword,
+    loginUrl: ctx.loginUrl ?? 'https://admin.teachersindia.in',
   });
-}
-
-function escapeText(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 export async function issueAndEmailCredentials(
@@ -94,7 +77,7 @@ export async function issueAndEmailCredentials(
     const registry = createIntegrationRegistry();
     await registry.email.sendEmail({
       to: ctx.email,
-      subject: 'Your TTII LMS account is ready',
+      subject: 'Your TTII LMS Account Has Been Created',
       html: buildEmailHtml(ctx, tempPassword),
     });
     emailDelivered = true;
