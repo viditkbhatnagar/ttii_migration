@@ -306,6 +306,27 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const paymentLinkUrl = useMemo(() => asString(data?.paymentLinkUrl), [data]);
   const paymentStatus = useMemo(() => asString(data?.paymentStatus), [data]);
   const studentPaymentSchedule = useMemo(() => toRecords(data?.studentPaymentSchedule), [data]);
+  // Naji 2026-07-06 — the Fee Summary is course-scoped (paid is summed per
+  // course_id), but the raw payment schedule mixes rows from other courses
+  // (e.g. a registration recorded under a different course_id), so "Fee Paid"
+  // looked out of sync with the rows below. Scope the visible Payment History
+  // to the student's ENROLLED course(s) so both agree. Falls back to all rows
+  // when no enrolment course_id is known.
+  const enrolledCourseIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const e of enrolments) {
+      const c = asNumber(e.course_id);
+      if (c) s.add(c);
+    }
+    return s;
+  }, [enrolments]);
+  const scopedPaymentSchedule = useMemo(
+    () =>
+      enrolledCourseIds.size === 0
+        ? studentPaymentSchedule
+        : studentPaymentSchedule.filter((r) => enrolledCourseIds.has(asNumber(r.course_id))),
+    [studentPaymentSchedule, enrolledCourseIds],
+  );
   const hasPaymentPlan = applicationPaymentPlan !== null || paymentLinkUrl !== '';
 
   // Same column shape as ViewApplicationPage so Naji sees the same table
@@ -950,6 +971,21 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       {/* Tab 3: Course Fee — fees + payments aggregated */}
       {activeTab === 2 && (
         <div className="space-y-4">
+          {/* Naji 2026-07-06 — surface Generate/Edit Payment Plan on the
+              top-level Course Fee tab too (previously only in the Enrollments
+              → Payments sub-tab), so it's reachable without drilling in. */}
+          {canEditStudent && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={() => setPayPlanOpen(true)}
+                disabled={!asString(student?.application_id)}
+                title={asString(student?.application_id) ? '' : 'No application record is linked to this student, so a payment plan cannot be generated here.'}
+              >
+                {hasPaymentPlan ? 'Edit Payment Plan' : 'Generate Payment Plan'}
+              </Button>
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-3">
             <MetricCard
               label="Total Fee (All Courses)"
@@ -1128,10 +1164,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           <Card>
             <CardHeader><CardTitle className="text-base">Payment History</CardTitle></CardHeader>
             <CardContent className="p-0">
-              {studentPaymentSchedule.length > 0 ? (
+              {scopedPaymentSchedule.length > 0 ? (
                 <AdminDataTable
                   columns={paymentScheduleColumns}
-                  rows={studentPaymentSchedule}
+                  rows={scopedPaymentSchedule}
                   searchable={false}
                   exportable={false}
                 />
@@ -2050,10 +2086,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                       <CardTitle className="text-base">Payment History</CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      {studentPaymentSchedule.length > 0 ? (
+                      {scopedPaymentSchedule.length > 0 ? (
                         <AdminDataTable
                           columns={paymentScheduleColumns}
-                          rows={studentPaymentSchedule}
+                          rows={scopedPaymentSchedule}
                           actions={paymentScheduleActions}
                           searchable={false}
                           exportable={false}
