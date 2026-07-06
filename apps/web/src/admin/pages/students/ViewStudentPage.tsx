@@ -173,6 +173,11 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     status: '',
   });
   const [instSubmitting, setInstSubmitting] = useState(false);
+  // Naji 2026-07-06 — the Edit Installment dialog doubles as an Add dialog.
+  // In 'add' mode we capture the target enrolment (user_id = users.id +
+  // course_id) so the new row lands on the right enrolment.
+  const [instMode, setInstMode] = useState<'edit' | 'add'>('edit');
+  const [instAddCtx, setInstAddCtx] = useState<{ userId: string; courseId: string } | null>(null);
 
   // Naji 2026-07-05 — Generate / Edit Payment Plan for an enrolled student,
   // reusing the same dialog leads use. It targets the student's retained
@@ -356,6 +361,8 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
       if (Number.isNaN(d.getTime())) return '';
       return d.toISOString().slice(0, 10);
     };
+    setInstMode('edit');
+    setInstAddCtx(null);
     setEditInstRow(row);
     setInstForm({
       installment_details: asString(row.installment_details),
@@ -367,34 +374,76 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     });
     setEditInstOpen(true);
   };
+  // Naji 2026-07-06 — add an ad-hoc installment to the selected enrolment's
+  // schedule. Reuses the edit dialog; the enrolment supplies user_id + course_id.
+  const openAddInstallment = (ctx: { userId: string; courseId: string }) => {
+    setInstMode('add');
+    setInstAddCtx(ctx);
+    setEditInstRow(null);
+    setInstForm({ installment_details: '', amount: '', due_date: '', paid_date: '', payment_mode: '', status: 'Pending' });
+    setEditInstOpen(true);
+  };
   const closeEditInstallment = () => {
     setEditInstOpen(false);
     setEditInstRow(null);
+    setInstAddCtx(null);
+    setInstMode('edit');
   };
   const submitEditInstallment = async () => {
-    if (!editInstRow) return;
-    const id = asString(editInstRow.id);
-    if (!id) { toast.error('Installment id missing'); return; }
     setInstSubmitting(true);
     try {
-      const res = await api.updateInstallment(session.token, id, instForm);
+      let res: Record<string, unknown>;
+      if (instMode === 'add') {
+        if (!instAddCtx?.userId || !instAddCtx?.courseId) { toast.error('Enrolment context missing'); return; }
+        res = await api.addInstallment(session.token, {
+          user_id: instAddCtx.userId,
+          course_id: instAddCtx.courseId,
+          ...instForm,
+        });
+      } else {
+        if (!editInstRow) return;
+        const id = asString(editInstRow.id);
+        if (!id) { toast.error('Installment id missing'); return; }
+        res = await api.updateInstallment(session.token, id, instForm);
+      }
       if ((res as { status?: number }).status === 1) {
-        toast.success('Installment updated');
+        toast.success(instMode === 'add' ? 'Installment added' : 'Installment updated');
         closeEditInstallment();
         reload();
       } else {
-        toast.error(asString((res as { message?: unknown }).message) || 'Update failed');
+        toast.error(asString((res as { message?: unknown }).message) || 'Save failed');
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Update failed');
+      toast.error(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setInstSubmitting(false);
     }
   };
-  const paymentScheduleActions: DataTableAction[] = useMemo(
-    () => [{ label: 'Edit', onClick: (row: Record<string, unknown>) => openEditInstallment(row) }],
-    [],
-  );
+  // Naji 2026-07-06 — delete a wrong installment row (soft-delete server-side).
+  const deleteInstallmentRow = async (row: Record<string, unknown>) => {
+    const id = asString(row.id);
+    if (!id) { toast.error('Installment id missing'); return; }
+    const label = asString(row.installment_details) || 'this installment';
+    if (!window.confirm(`Delete "${label}"? This removes it from the payment schedule.`)) return;
+    try {
+      const res = await api.deleteInstallment(session.token, id);
+      if ((res as { status?: number }).status === 1) {
+        toast.success('Installment deleted');
+        reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Delete failed');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+  // Not memoized: the Delete handler closes over reactive values (api/session/
+  // reload), so a stable [] memo would capture stale closures; the array is
+  // cheap to rebuild each render.
+  const paymentScheduleActions: DataTableAction[] = [
+    { label: 'Edit', onClick: (row: Record<string, unknown>) => openEditInstallment(row) },
+    { label: 'Delete', onClick: (row: Record<string, unknown>) => void deleteInstallmentRow(row) },
+  ];
 
   // Selected enrollment for drill-down
   const selectedEnrollment = selectedEnrollmentIdx !== null ? enrolments[selectedEnrollmentIdx] : null;
@@ -2082,8 +2131,25 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   )}
 
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
                       <CardTitle className="text-base">Payment History</CardTitle>
+                      {/* Naji 2026-07-06 — add an ad-hoc installment straight to
+                          this enrolment's schedule (course context from the
+                          selected enrolment). */}
+                      {canEditStudent && selectedEnrollment && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            openAddInstallment({
+                              userId: asString(selectedEnrollment.user_id),
+                              courseId: asString(selectedEnrollment.course_id),
+                            })
+                          }
+                        >
+                          + Add Instalment
+                        </Button>
+                      )}
                     </CardHeader>
                     <CardContent className="p-0">
                       {scopedPaymentSchedule.length > 0 ? (
@@ -2134,7 +2200,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             onSubmit={(e) => { e.preventDefault(); void submitEditInstallment(); }}
           >
             <DialogHeader>
-              <DialogTitle>Edit Installment</DialogTitle>
+              <DialogTitle>{instMode === 'add' ? 'Add Installment' : 'Edit Installment'}</DialogTitle>
             </DialogHeader>
             <div className="w-full min-w-0 space-y-4 py-2">
               <div>
@@ -2143,6 +2209,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   value={instForm.installment_details}
                   onChange={(e) => setInstForm((f) => ({ ...f, installment_details: e.target.value }))}
                   placeholder="e.g. Installment 1"
+                  maxLength={200}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">

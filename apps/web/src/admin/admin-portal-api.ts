@@ -2272,6 +2272,28 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/student-payments/update', authToken, { installment_id: installmentId, ...fields });
   }
 
+  // Naji 2026-07-06 — holistic schedule editing: add an ad-hoc installment /
+  // delete a wrong row, scoped to one enrolment (user_id = users.id, course_id).
+  async addInstallment(
+    authToken: string,
+    fields: {
+      user_id: string;
+      course_id: string;
+      installment_details?: string;
+      amount?: string;
+      payment_mode?: string;
+      status?: string;
+      due_date?: string;
+      paid_date?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/student-payments/add', authToken, fields);
+  }
+
+  async deleteInstallment(authToken: string, installmentId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/student-payments/delete', authToken, { installment_id: installmentId });
+  }
+
   async loadAssignmentEvaluations(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/assignment/evaluations', authToken);
     return toRecords(payload.data);

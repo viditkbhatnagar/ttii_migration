@@ -13832,6 +13832,63 @@ export class OperationsService {
     return { status: 1, message: 'Installment updated successfully.' };
   }
 
+  // Naji 2026-07-06 — holistic schedule editing: admins can add an ad-hoc
+  // installment to a student's plan (e.g. an extra collection) and delete a
+  // wrong row. user_id is users.id (NOT applications.id) and course_id scopes
+  // the row to one enrolment, so the Fee Summary + Payment History stay in sync.
+  async addInstallment(actorUserId: string, input: {
+    userId: string;
+    courseId: string;
+    installmentDetails?: string;
+    amount?: string;
+    paymentMode?: string;
+    status?: string;
+    dueDate?: string;
+    paidDate?: string;
+  }): Promise<Record<string, unknown>> {
+    const userId = toIntId(input.userId);
+    const courseId = toIntId(input.courseId);
+    if (!userId) return { status: 0, message: 'Student is required.' };
+    if (!courseId) return { status: 0, message: 'Course is required to add an installment.' };
+
+    const amountN = Number(input.amount);
+    const dueRaw = (input.dueDate ?? '').trim();
+    const paidRaw = (input.paidDate ?? '').trim();
+    await this.prisma.student_payments.create({
+      data: {
+        user_id: userId,
+        course_id: courseId,
+        // VarChar(200) — slice defensively so an overlong label can't surface a
+        // raw driver error to the admin UI (the UI also caps the input at 200).
+        installment_details: (input.installmentDetails ?? '').trim().slice(0, 200) || null,
+        amount: Number.isFinite(amountN) && amountN >= 0 ? Math.round(amountN) : 0,
+        payment_mode: (input.paymentMode ?? '').trim() || null,
+        status: (input.status ?? '').trim() || 'Pending',
+        due_date: dueRaw ? new Date(dueRaw) : null,
+        paid_date: paidRaw ? new Date(paidRaw) : null,
+        created_by: toNullableIntId(actorUserId),
+        created_at: new Date(),
+      },
+    });
+    return { status: 1, message: 'Installment added successfully.' };
+  }
+
+  async deleteInstallment(actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(installmentId);
+    if (!id) return { status: 0, message: 'Invalid installment id.' };
+    const row = await this.prisma.student_payments.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!row) return { status: 0, message: 'Installment not found.' };
+    const now = new Date();
+    await this.prisma.student_payments.updateMany({
+      where: { id },
+      data: { deleted_at: now, deleted_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    return { status: 1, message: 'Installment deleted successfully.' };
+  }
+
   async sendPaymentReminder(_actorUserId: string, installmentId: string): Promise<Record<string, unknown>> {
     const installment = await this.prisma.student_payments.findFirst({
       where: { id: toIntId(installmentId), deleted_at: null },

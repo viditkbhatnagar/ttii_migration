@@ -4159,6 +4159,40 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji 2026-07-06 — holistic schedule editing (add an ad-hoc installment,
+  // delete a wrong row) alongside the existing per-row update above.
+  app.post('/admin/student-payments/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const args: {
+        userId: string;
+        courseId: string;
+        installmentDetails?: string;
+        amount?: string;
+        paymentMode?: string;
+        status?: string;
+        dueDate?: string;
+        paidDate?: string;
+      } = { userId: toStringValue(payload.user_id), courseId: toStringValue(payload.course_id) };
+      if (payload.installment_details !== undefined) args.installmentDetails = toStringValue(payload.installment_details);
+      if (payload.amount !== undefined) args.amount = toStringValue(payload.amount);
+      if (payload.payment_mode !== undefined) args.paymentMode = toStringValue(payload.payment_mode);
+      if (payload.status !== undefined) args.status = toStringValue(payload.status);
+      if (payload.due_date !== undefined) args.dueDate = toStringValue(payload.due_date);
+      if (payload.paid_date !== undefined) args.paidDate = toStringValue(payload.paid_date);
+      const result = await operationsService.addInstallment(requestUserId(request), args);
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/student-payments/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteInstallment(requestUserId(request), toStringValue(payload.installment_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // ── Phase F: Chat Support ─────────────────────────────────────
 
   app.get('/admin/chat_support/conversations', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
