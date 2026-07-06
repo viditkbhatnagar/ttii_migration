@@ -83,9 +83,21 @@ export interface InstructorDashboardSnapshot {
     totalLearners: number;
     avgPerformancePercent: number;
     avgPerformanceDelta: number;
+    // Naji 2026-07-06 Lovable refresh — "Total Classes" KPI (sessions this month).
+    totalClasses: number;
   };
   performanceTrend: { week: string; score: number; attendance: number }[];
+  // Naji 2026-07-06 Lovable refresh — sessions per week (last 8) for the bar chart.
+  sessionTrend: { week: string; sessions: number }[];
   cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
+  // Naji 2026-07-06 Lovable refresh — recent individual student submissions.
+  recentSubmissions: {
+    id: number;
+    studentName: string;
+    assignmentTitle: string;
+    cohort: string;
+    submittedAt: string;
+  }[];
   todaysSchedule: InstructorDashboardLiveClass[];
   recentActivities: {
     kind: 'submission' | 'evaluation' | 'class' | 'announcement';
@@ -662,6 +674,24 @@ export class InstructorPortalApi {
           };
         })
       : [];
+    const sessionTrend = Array.isArray(data.sessionTrend)
+      ? (data.sessionTrend as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          return { week: asString(r.week), sessions: asNumber(r.sessions) };
+        })
+      : [];
+    const recentSubmissions = Array.isArray(data.recentSubmissions)
+      ? (data.recentSubmissions as unknown[]).map((p) => {
+          const r = asRecord(p) ?? {};
+          return {
+            id: asNumber(r.id),
+            studentName: asString(r.studentName),
+            assignmentTitle: asString(r.assignmentTitle),
+            cohort: asString(r.cohort),
+            submittedAt: asString(r.submittedAt),
+          };
+        })
+      : [];
     const todaysSchedule = Array.isArray(data.todaysSchedule) ? (data.todaysSchedule as unknown[]).map(asLiveClassRow) : [];
     const recentActivities = Array.isArray(data.recentActivities)
       ? (data.recentActivities as unknown[]).map((p) => {
@@ -706,9 +736,12 @@ export class InstructorPortalApi {
         totalLearners: asNumber(metricsRaw.totalLearners),
         avgPerformancePercent: asNumber(metricsRaw.avgPerformancePercent),
         avgPerformanceDelta: asNumber(metricsRaw.avgPerformanceDelta),
+        totalClasses: asNumber(metricsRaw.totalClasses),
       },
       performanceTrend,
+      sessionTrend,
       cohortPerformance,
+      recentSubmissions,
       todaysSchedule,
       recentActivities,
       aiInsights,

@@ -40,9 +40,21 @@ export interface InstructorDashboardPayload {
     totalLearners: number;
     avgPerformancePercent: number;
     avgPerformanceDelta: number;
+    // Naji 2026-07-06 Lovable refresh — "Total Classes" KPI (sessions this month).
+    totalClasses: number;
   };
   performanceTrend: { week: string; score: number; attendance: number }[]; // last 8 weeks
+  // Naji 2026-07-06 Lovable refresh — sessions conducted week by week (last 8).
+  sessionTrend: { week: string; sessions: number }[];
   cohortPerformance: { cohortId: number; cohortTitle: string; avgPercent: number; learners: number }[];
+  // Naji 2026-07-06 Lovable refresh — recent individual student submissions.
+  recentSubmissions: {
+    id: number;
+    studentName: string;
+    assignmentTitle: string;
+    cohort: string;
+    submittedAt: string; // ISO timestamp
+  }[];
   todaysSchedule: InstructorLiveClassSummary[];
   recentActivities: {
     kind: 'submission' | 'evaluation' | 'class' | 'announcement';
@@ -264,9 +276,12 @@ export class InstructorService {
           totalLearners: 0,
           avgPerformancePercent: 0,
           avgPerformanceDelta: 0,
+          totalClasses: 0,
         },
         performanceTrend: [],
+        sessionTrend: [],
         cohortPerformance: [],
+        recentSubmissions: [],
         todaysSchedule: [],
         recentActivities: [],
         aiInsights: [{
@@ -376,16 +391,17 @@ export class InstructorService {
     // assignment's due_date has passed.
     const allCohortAssignments = await this.prisma.assignment.findMany({
       where: { cohort_id: { in: cohortIds }, deleted_at: null },
-      select: { id: true, cohort_id: true, due_date: true, total_marks: true },
+      select: { id: true, cohort_id: true, due_date: true, total_marks: true, title: true },
     });
     const assignmentIds = allCohortAssignments.map((a) => a.id);
     const assignmentDueMap = new Map(allCohortAssignments.map((a) => [a.id, a.due_date]));
     const assignmentTotalMap = new Map(allCohortAssignments.map((a) => [a.id, a.total_marks ?? 0]));
+    const assignmentTitleMap = new Map(allCohortAssignments.map((a) => [a.id, a.title ?? '']));
 
     const submissions = assignmentIds.length > 0
       ? await this.prisma.assignment_submissions.findMany({
           where: { assignment_id: { in: assignmentIds }, deleted_at: null },
-          select: { id: true, assignment_id: true, marks: true, user_id: true, updated_at: true, cohort_id: true },
+          select: { id: true, assignment_id: true, marks: true, user_id: true, updated_at: true, created_at: true, cohort_id: true },
         })
       : [];
     let pendingEvaluations = 0;
@@ -515,6 +531,58 @@ export class InstructorService {
     }
     recentActivities.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
 
+    // Naji 2026-07-06 Lovable refresh — "Session Trend" bar chart: number of
+    // live sessions conducted in each of the last 8 weekly windows (reuses the
+    // recentClasses set already pulled for the attendance line above).
+    const sessionTrend: { week: string; sessions: number }[] = [];
+    for (let i = 7; i >= 0; i -= 1) {
+      const end = new Date(today.getTime() - i * week + week);
+      const start = new Date(end.getTime() - week);
+      let count = 0;
+      for (const c of recentClasses) {
+        if (!c.date) continue;
+        const t = new Date(c.date);
+        if (t >= start && t < end) count += 1;
+      }
+      sessionTrend.push({ week: `W${8 - i}`, sessions: count });
+    }
+
+    // "Total Classes" KPI — live sessions in the CURRENT calendar month.
+    // Counted directly against the table (not the capped past/upcoming display
+    // slices) so a busy month isn't undercounted and it stays consistent with
+    // sessionTrend. Month bounds built from local parts (no bare-YYYY-MM-DD
+    // Date parsing) to avoid the timezone day-shift trap.
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const totalClasses = await this.prisma.live_class.count({
+      where: { cohort_id: { in: cohortIds }, deleted_at: null, date: { gte: monthStart, lt: nextMonthStart } },
+    });
+
+    // "Recent Submissions" list — newest individual student submissions with the
+    // student name + assignment title resolved via batch lookups. Sort/label by
+    // created_at (the submit time) with updated_at as a fallback, so a re-graded
+    // old row doesn't masquerade as a fresh submission.
+    const submittedAtOf = (s: { created_at: Date | null; updated_at: Date | null }): Date | null =>
+      s.created_at ?? s.updated_at;
+    const submittedSorted = [...submissions]
+      .filter((s) => submittedAtOf(s) !== null)
+      .sort((a, b) => (submittedAtOf(b)?.getTime() ?? 0) - (submittedAtOf(a)?.getTime() ?? 0))
+      .slice(0, 8);
+    const submissionUserIds = Array.from(
+      new Set(submittedSorted.map((s) => s.user_id).filter((id): id is number => typeof id === 'number' && Number.isFinite(id))),
+    );
+    const submissionUsers = submissionUserIds.length > 0
+      ? await this.prisma.users.findMany({ where: { id: { in: submissionUserIds } }, select: { id: true, name: true } })
+      : [];
+    const submissionUserNameMap = new Map(submissionUsers.map((u) => [u.id, u.name ?? '']));
+    const recentSubmissions = submittedSorted.map((s) => ({
+      id: s.id,
+      studentName: (s.user_id != null ? submissionUserNameMap.get(s.user_id) : '') || 'Student',
+      assignmentTitle: (s.assignment_id != null ? assignmentTitleMap.get(s.assignment_id) : '') || 'Assignment',
+      cohort: (s.cohort_id != null ? cohortTitleMap.get(s.cohort_id) : '') || '',
+      submittedAt: (submittedAtOf(s) ?? new Date()).toISOString(),
+    }));
+
     // AI Insights — simple heuristics so the section feels alive
     // without LLM cost. (Hooks to a real model can replace these later.)
     const aiInsights: InstructorDashboardPayload['aiInsights'] = [];
@@ -581,9 +649,12 @@ export class InstructorService {
         totalLearners,
         avgPerformancePercent,
         avgPerformanceDelta,
+        totalClasses,
       },
       performanceTrend,
+      sessionTrend,
       cohortPerformance,
+      recentSubmissions,
       todaysSchedule,
       recentActivities: recentActivities.slice(0, 6),
       aiInsights,

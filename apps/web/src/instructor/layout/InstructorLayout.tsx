@@ -4,6 +4,7 @@ import type { InstructorPortalApi } from '../instructor-portal-api.js';
 import { InstructorLayoutProvider, useInstructorLayout } from './InstructorLayoutContext.js';
 import { InstructorSidebar, InstructorSidebarMobile } from './InstructorSidebar.js';
 import { InstructorNavbar } from './InstructorNavbar.js';
+import { InstructorMobileBottomNav } from './InstructorMobileBottomNav.js';
 import { InstructorRouter } from '../routing/InstructorRouter.js';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 
@@ -37,10 +38,13 @@ function InstructorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <InstructorNavbar session={session} onNavigate={handleNavigate} onLogout={onLogout} />
-        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4 md:px-6">
+        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-24 pt-4 md:px-6 md:pb-6">
           <InstructorRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
       </div>
+
+      {/* Naji 2026-07-06 Lovable refresh — mobile bottom nav (below md only). */}
+      <InstructorMobileBottomNav pathname={pathname} onNavigate={handleNavigate} />
     </div>
   );
 }

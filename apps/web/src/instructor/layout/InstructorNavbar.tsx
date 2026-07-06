@@ -57,6 +57,14 @@ export function InstructorNavbar({ session, onNavigate, onLogout }: InstructorNa
         )}
       </Button>
 
+      {/* Naji 2026-07-06 Lovable refresh — TTII logo on mobile (desktop shows
+          the brand in the sidebar). */}
+      <img
+        src="/logos/ttii-full-color.svg"
+        alt="Teachers' Training Institute of India"
+        className="h-8 w-auto object-contain md:hidden"
+      />
+
       <div className="flex-1 mx-auto max-w-2xl">
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-400" aria-hidden="true" />
