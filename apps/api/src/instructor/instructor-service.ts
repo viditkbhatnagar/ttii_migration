@@ -160,7 +160,6 @@ export interface ScheduleLiveClassInput {
   date: string; // YYYY-MM-DD
   fromTime: string; // HH:MM
   toTime: string; // HH:MM
-  joinUrl: string;
 }
 
 export type ScheduleLiveClassResult =
@@ -663,11 +662,12 @@ export class InstructorService {
 
   /**
    * Schedules a single live session for one of this instructor's own cohorts.
-   * Manual-link only (Risha/Naji 2026-07-03): the instructor supplies the
-   * meeting URL — no Teams auto-create, so no host mailbox / license is
-   * needed. The row is created exactly like the admin/centre path
-   * (operations-service.addLiveClasses) with platform 'manual', so it shows
-   * up for students on the cohort through the existing engagement reads.
+   * Auto-creates a Microsoft Teams meeting under a configured org host (Risha/
+   * Naji 2026-07-06 — replaces the earlier manual-link approach): the instructor
+   * never needs their own Teams licence; the meeting is hosted by an allowlisted
+   * `teams_meeting_hosts` account, exactly like the admin/centre path
+   * (operations-service.addLiveClasses). The row is written with platform 'teams'
+   * so students see it and recording/attendance auto-sync applies.
    * Ownership is enforced by matching cohorts.instructor_id.
    */
   async scheduleLiveClass(
@@ -678,7 +678,6 @@ export class InstructorService {
     const date = input.date.trim();
     const fromTime = input.fromTime.trim();
     const toTime = input.toTime.trim();
-    const joinUrl = input.joinUrl.trim();
 
     if (!title) return { ok: false, code: 'invalid', message: 'Session title is required.' };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -689,10 +688,6 @@ export class InstructorService {
     }
     if (timeToMinutes(toTime) <= timeToMinutes(fromTime)) {
       return { ok: false, code: 'invalid', message: 'End time must be after the start time.' };
-    }
-    if (!joinUrl) return { ok: false, code: 'invalid', message: 'A meeting link is required.' };
-    if (!/^https?:\/\//i.test(joinUrl)) {
-      return { ok: false, code: 'invalid', message: 'Meeting link must start with http:// or https://.' };
     }
     if (!input.cohortId) {
       return { ok: false, code: 'not_found', message: 'Cohort not found or not yours.' };
@@ -706,6 +701,59 @@ export class InstructorService {
       return { ok: false, code: 'not_found', message: 'Cohort not found or not yours.' };
     }
 
+    // Auto-create the Teams meeting under a free org host (shared allowlist +
+    // conflict check with admin/centre). The instructor is not the organiser.
+    const { pickAvailableTeamsHost, createTeamsMeetingServiceFromEnv } = await import(
+      '../integrations/teams-scheduling.js'
+    );
+    const assignment = await pickAvailableTeamsHost(this.prisma, [{ date, fromTime, toTime }]);
+    if (!assignment.host) {
+      return {
+        ok: false,
+        code: 'invalid',
+        message: assignment.reason ?? 'No faculty Teams account is free for the selected time slot.',
+      };
+    }
+    const teamsHostEmail = assignment.host.teams_email;
+
+    const teamsService = await createTeamsMeetingServiceFromEnv();
+    if (!teamsService) {
+      return {
+        ok: false,
+        code: 'invalid',
+        message: 'Teams meeting integration is not configured on the server. Please contact admin.',
+      };
+    }
+
+    // Build ISO start/end the same way the admin/centre flow does (times treated
+    // as UTC-naive with a Z suffix) so both flows behave identically.
+    const toIso = (t: string): string =>
+      new Date(`${date}T${t.length === 5 ? `${t}:00` : t}Z`).toISOString();
+
+    let joinUrl: string;
+    let externalMeetingId: string | null;
+    try {
+      const meeting = await teamsService.createMeeting({
+        hostEmail: teamsHostEmail,
+        subject: title,
+        startDateTime: toIso(fromTime),
+        endDateTime: toIso(toTime),
+      });
+      joinUrl = meeting.joinUrl;
+      externalMeetingId = meeting.meetingId;
+      await this.prisma.teams_meeting_hosts.updateMany({
+        where: { teams_email: teamsHostEmail },
+        data: { policy_verified_at: new Date(), last_error: null },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.prisma.teams_meeting_hosts.updateMany({
+        where: { teams_email: teamsHostEmail },
+        data: { last_error: msg.substring(0, 1000) },
+      });
+      return { ok: false, code: 'invalid', message: `Could not create the Teams meeting: ${msg}` };
+    }
+
     const now = new Date();
     const created = await this.prisma.live_class.create({
       data: {
@@ -717,8 +765,10 @@ export class InstructorService {
         fromTime: parseTimeToDate(fromTime),
         toTime: parseTimeToDate(toTime),
         status: 'scheduled',
-        platform: 'manual',
+        platform: 'teams',
         join_url: joinUrl,
+        external_meeting_id: externalMeetingId,
+        host_email: teamsHostEmail,
         is_repetitive: 0,
         created_by: instructorId,
         updated_by: instructorId,

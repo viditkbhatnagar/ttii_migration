@@ -113,7 +113,6 @@ export interface ScheduleLiveClassInput {
   date: string; // YYYY-MM-DD
   fromTime: string; // HH:MM
   toTime: string; // HH:MM
-  joinUrl: string;
 }
 
 export interface InstructorAttendanceRow {
@@ -373,9 +372,10 @@ export class InstructorPortalApi {
   }
 
   /**
-   * Schedules a single manual-link live session for one of the instructor's
-   * cohorts. Throws an ApiError (with the server's message) on validation or
-   * ownership failure so the form can surface it. Returns the created row.
+   * Schedules a single live session (auto-created Teams meeting) for one of the
+   * instructor's cohorts. Throws an ApiError (with the server's message) on
+   * validation, no-free-host, or ownership failure so the form can surface it.
+   * Returns the created row.
    */
   async scheduleLiveClass(
     authToken: string,
@@ -390,7 +390,6 @@ export class InstructorPortalApi {
         date: input.date,
         fromTime: input.fromTime,
         toTime: input.toTime,
-        joinUrl: input.joinUrl,
       },
     );
     const row = asRecord(payload.data) ?? {};

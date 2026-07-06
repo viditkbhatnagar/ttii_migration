@@ -2238,12 +2238,8 @@ export class OperationsService {
   // ── Teams meeting host allowlist + creation helpers ─────────────
 
   private async createTeamsService() {
-    const { createTeamsMeetingService } = await import('../integrations/teams-meeting-service.js');
-    return createTeamsMeetingService({
-      clientId: env.EMAIL_MSGRAPH_CLIENT_ID,
-      clientSecret: env.EMAIL_MSGRAPH_CLIENT_SECRET,
-      tenantId: env.EMAIL_MSGRAPH_TENANT_ID,
-    });
+    const { createTeamsMeetingServiceFromEnv } = await import('../integrations/teams-scheduling.js');
+    return createTeamsMeetingServiceFromEnv();
   }
 
   async listTeamsMeetingHosts(): Promise<SqlRow[]> {
@@ -2263,61 +2259,9 @@ export class OperationsService {
   private async pickAvailableTeamsHost(
     entries: LiveClassEntryInput[],
   ): Promise<{ host: { teams_email: string } | null; reason?: string }> {
-    const hosts = await this.prisma.teams_meeting_hosts.findMany({
-      where: { is_active: 1, deleted_at: null },
-      orderBy: [{ id: 'asc' }],
-      select: { teams_email: true, display_name: true },
-    });
-
-    if (hosts.length === 0) {
-      return {
-        host: null,
-        reason:
-          'No Teams meeting hosts are configured. Add at least one under Integrations → Teams Meeting Hosts before scheduling a live session.',
-      };
-    }
-
-    const parseTime = (t: string): Date => {
-      const cleaned = /^\d{1,2}:\d{2}(:\d{2})?$/.test(t) ? (t.length === 5 ? `${t}:00` : t) : '00:00:00';
-      return new Date(`1970-01-01T${cleaned}Z`);
-    };
-
-    for (const host of hosts) {
-      let conflictedEntry: LiveClassEntryInput | null = null;
-
-      for (const entry of entries) {
-        const entryDate = new Date(entry.date);
-        const entryFrom = parseTime(entry.fromTime);
-        const entryTo = parseTime(entry.toTime);
-
-        const conflict = await this.prisma.live_class.findFirst({
-          where: {
-            host_email: host.teams_email,
-            deleted_at: null,
-            date: entryDate,
-            // Overlap: existing.fromTime < new.toTime AND existing.toTime > new.fromTime
-            fromTime: { lt: entryTo },
-            toTime: { gt: entryFrom },
-            status: { not: 'cancelled' },
-          },
-          select: { id: true },
-        });
-
-        if (conflict) {
-          conflictedEntry = entry;
-          break;
-        }
-      }
-
-      if (!conflictedEntry) {
-        return { host: { teams_email: host.teams_email } };
-      }
-    }
-
-    return {
-      host: null,
-      reason: `All ${hosts.length} Teams faculty accounts are already booked for this time slot. Pick a different time, or contact admin to add another host.`,
-    };
+    // Shared with the instructor scheduling flow (Naji/Risha 2026-07-06).
+    const { pickAvailableTeamsHost } = await import('../integrations/teams-scheduling.js');
+    return pickAvailableTeamsHost(this.prisma, entries);
   }
 
   async addTeamsMeetingHost(

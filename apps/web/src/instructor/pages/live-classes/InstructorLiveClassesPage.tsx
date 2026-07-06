@@ -84,7 +84,6 @@ interface ScheduleFormState {
   date: string;
   fromTime: string;
   toTime: string;
-  joinUrl: string;
 }
 
 const EMPTY_SCHEDULE_FORM: ScheduleFormState = {
@@ -93,7 +92,6 @@ const EMPTY_SCHEDULE_FORM: ScheduleFormState = {
   date: '',
   fromTime: '',
   toTime: '',
-  joinUrl: '',
 };
 
 function ToggleButton({
@@ -268,7 +266,7 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
 
   const allRows = useMemo(() => data ?? [], [data]);
 
-  // ── Schedule a live session (manual meeting link) ──────────────────
+  // ── Schedule a live session (auto-created Teams meeting) ───────────
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(EMPTY_SCHEDULE_FORM);
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
@@ -291,7 +289,6 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
           date: scheduleForm.date,
           fromTime: scheduleForm.fromTime,
           toTime: scheduleForm.toTime,
-          joinUrl: scheduleForm.joinUrl.trim(),
         });
         setScheduleOpen(false);
         setScheduleForm(EMPTY_SCHEDULE_FORM);
@@ -555,9 +552,9 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
         </DialogContent>
       </Dialog>
 
-      {/* Schedule a live session — manual meeting link (no Teams auto-create).
-          Instructors paste their own Zoom/Meet/Teams URL; the session shows up
-          for learners on the selected cohort. (Risha/Naji 2026-07-03) */}
+      {/* Schedule a live session — a Teams meeting is auto-created under a
+          configured org host (no instructor licence needed); the session shows
+          up for learners on the selected cohort. (Risha/Naji 2026-07-06) */}
       <Dialog
         open={scheduleOpen}
         onOpenChange={(open) => {
@@ -574,8 +571,8 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
           <DialogHeader>
             <DialogTitle>Schedule Live Session</DialogTitle>
             <DialogDescription>
-              Set up a session for one of your cohorts. Paste your own meeting link
-              (Zoom, Google Meet, or Teams) — learners on the cohort will see it.
+              Set up a session for one of your cohorts. A Microsoft Teams meeting
+              link is generated automatically — learners on the cohort will see it.
             </DialogDescription>
           </DialogHeader>
 
@@ -647,16 +644,9 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="sched-url">Meeting link</Label>
-              <Input
-                id="sched-url"
-                type="url"
-                required
-                placeholder="https://…"
-                value={scheduleForm.joinUrl}
-                onChange={(e) => setScheduleForm((f) => ({ ...f, joinUrl: e.target.value }))}
-              />
+            <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs text-violet-700">
+              A Microsoft Teams meeting link is created automatically when you schedule
+              this session and shared with your cohort — no need to paste one.
             </div>
 
             {scheduleError ? (

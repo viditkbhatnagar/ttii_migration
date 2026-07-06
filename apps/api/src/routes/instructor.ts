@@ -89,9 +89,9 @@ export function registerInstructorRoutes(
     }
   });
 
-  // Manual-link scheduling for the instructor's own cohorts. No Teams
-  // auto-create — the instructor supplies the meeting URL. See
-  // InstructorService.scheduleLiveClass. (Risha/Naji 2026-07-03)
+  // Schedules a live session for the instructor's own cohort. Auto-creates a
+  // Teams meeting under a configured org host (no per-instructor licence) — see
+  // InstructorService.scheduleLiveClass. (Risha/Naji 2026-07-06)
   app.post('/instructor/live-classes', guards, async (request, reply) => {
     try {
       const userId = requireUserId(request, reply);
@@ -103,7 +103,6 @@ export function registerInstructorRoutes(
         date: toStr(body.date),
         fromTime: toStr(body.fromTime ?? body.from_time),
         toTime: toStr(body.toTime ?? body.to_time),
-        joinUrl: toStr(body.joinUrl ?? body.join_url),
       });
       if (!result.ok) {
         reply
