@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
@@ -383,7 +384,7 @@ export default function AssociatesPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-dob">Date of Birth *</Label>
-              <Input id="a-dob" type="date" value={formDob} onChange={(e) => setFormDob(e.target.value)} />
+              <DmyDateInput id="a-dob" value={formDob} onChange={(iso) => setFormDob(iso)} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="a-nat">Nationality *</Label>

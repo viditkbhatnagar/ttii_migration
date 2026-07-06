@@ -392,19 +392,28 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   const submitEditInstallment = async () => {
     setInstSubmitting(true);
     try {
+      // Naji 2026-07-06 — keep Status and Paid Date consistent: a row that
+      // carries a Paid Date IS paid, so coerce Status to 'Paid'. Otherwise a
+      // "Pending" row with a paid_date would show a Pending badge yet still
+      // count toward Fee Paid (paidByCourse counts status='paid' OR paid_date),
+      // reopening the same table-vs-summary mismatch we just fixed.
+      const outForm = { ...instForm };
+      if (outForm.paid_date.trim() && outForm.status.trim().toLowerCase() !== 'paid') {
+        outForm.status = 'Paid';
+      }
       let res: Record<string, unknown>;
       if (instMode === 'add') {
         if (!instAddCtx?.userId || !instAddCtx?.courseId) { toast.error('Enrolment context missing'); return; }
         res = await api.addInstallment(session.token, {
           user_id: instAddCtx.userId,
           course_id: instAddCtx.courseId,
-          ...instForm,
+          ...outForm,
         });
       } else {
         if (!editInstRow) return;
         const id = asString(editInstRow.id);
         if (!id) { toast.error('Installment id missing'); return; }
-        res = await api.updateInstallment(session.token, id, instForm);
+        res = await api.updateInstallment(session.token, id, outForm);
       }
       if ((res as { status?: number }).status === 1) {
         toast.success(instMode === 'add' ? 'Installment added' : 'Installment updated');

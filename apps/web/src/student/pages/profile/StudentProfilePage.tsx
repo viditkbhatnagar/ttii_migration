@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
@@ -332,7 +333,7 @@ export default function StudentProfilePage({ api, session }: StudentPageProps) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="dob" className={FIELD_LABEL_CLASS}>Date of Birth</Label>
-                    <Input id="dob" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="rounded-xl" />
+                    <DmyDateInput id="dob" value={dateOfBirth} onChange={(iso) => setDateOfBirth(iso)} className="rounded-xl" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="gender" className={FIELD_LABEL_CLASS}>Gender</Label>

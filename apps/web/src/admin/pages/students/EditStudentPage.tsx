@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
@@ -274,7 +275,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
             <FieldRow label="Phone" value={form.phone ?? ''} onChange={(v) => set('phone', v)} />
             <FieldRow label="Alternate Phone" value={form.alternate_phone ?? ''} onChange={(v) => set('alternate_phone', v)} />
             <FieldRow label="WhatsApp" value={form.whatsapp_no ?? ''} onChange={(v) => set('whatsapp_no', v)} />
-            <FieldRow label="Date of Birth" type="date" value={form.date_of_birth ?? ''} onChange={(v) => set('date_of_birth', v)} />
+            <FieldRow label="Date of Birth" dmyDate value={form.date_of_birth ?? ''} onChange={(v) => set('date_of_birth', v)} />
             <FieldRow label="Age" value={form.age ?? ''} onChange={() => undefined} readOnly hint="Auto-calculated from Date of Birth" />
             <SelectRow label="Gender" value={form.gender ?? ''} onChange={(v) => set('gender', v)}
               options={[{ value: '', label: 'Select' }, { value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }, { value: 'Other', label: 'Other' }]} />
@@ -386,7 +387,7 @@ export default function EditStudentPage({ api, session, onNavigate }: AdminPageP
 }
 
 function FieldRow({
-  label, value, onChange, type, readOnly, hint, titleCase,
+  label, value, onChange, type, readOnly, hint, titleCase, dmyDate,
 }: {
   label: string;
   value: string;
@@ -395,21 +396,28 @@ function FieldRow({
   readOnly?: boolean;
   hint?: string;
   titleCase?: boolean;
+  dmyDate?: boolean;
 }) {
   return (
     <div>
       <Label className="mb-1 text-xs">{label}</Label>
-      <Input
-        type={type ?? 'text'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={titleCase ? (e) => {
-          const next = titleCaseEachWord(e.target.value);
-          if (next !== e.target.value) onChange(next);
-        } : undefined}
-        readOnly={readOnly}
-        className={readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : undefined}
-      />
+      {dmyDate ? (
+        // Naji/Risha 2026-07-06 — a native <input type=date> rejects typed
+        // dd/mm/yyyy; use the masked field (stores ISO) so DOB is editable.
+        <DmyDateInput value={value} onChange={onChange} />
+      ) : (
+        <Input
+          type={type ?? 'text'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={titleCase ? (e) => {
+            const next = titleCaseEachWord(e.target.value);
+            if (next !== e.target.value) onChange(next);
+          } : undefined}
+          readOnly={readOnly}
+          className={readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : undefined}
+        />
+      )}
       {hint ? <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p> : null}
     </div>
   );

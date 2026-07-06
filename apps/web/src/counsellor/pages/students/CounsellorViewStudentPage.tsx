@@ -150,6 +150,25 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
   const payments = useMemo(() => toRecords(data?.payments), [data]);
   const studentFees = useMemo(() => toRecords(data?.studentFees), [data]);
   const studentPaymentSchedule = useMemo(() => toRecords(data?.studentPaymentSchedule), [data]);
+  // Naji 2026-07-06 — same fee-sync scoping as admin ViewStudentPage: the fee
+  // tiles above are course-scoped, but the raw schedule mixes rows from other
+  // courses, so scope the visible Payment History to the enrolled course(s).
+  // Falls back to all rows when no enrolment course_id is known.
+  const enrolledCourseIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const e of enrolments) {
+      const c = asNumber(e.course_id);
+      if (c) s.add(c);
+    }
+    return s;
+  }, [enrolments]);
+  const scopedPaymentSchedule = useMemo(
+    () =>
+      enrolledCourseIds.size === 0
+        ? studentPaymentSchedule
+        : studentPaymentSchedule.filter((r) => enrolledCourseIds.has(asNumber(r.course_id))),
+    [studentPaymentSchedule, enrolledCourseIds],
+  );
   const applicationDocuments = useMemo(() => toRecords(data?.applicationDocuments), [data]);
   const assignmentSubmissions = useMemo(() => toRecords(data?.assignmentSubmissions), [data]);
   const documents = useMemo(() => toRecords(analyticsData?.documents), [analyticsData]);
@@ -651,11 +670,11 @@ export default function CounsellorViewStudentPage({ api, session, onNavigate }: 
 
           <Card className="border-border/70 p-6 shadow-[var(--shadow-soft)]">
             <h3 className="mb-4 text-sm font-semibold">Payment History</h3>
-            {studentPaymentSchedule.length === 0 ? (
+            {scopedPaymentSchedule.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No payment records found.</p>
             ) : (
               <div className="space-y-2.5">
-                {studentPaymentSchedule.map((p, idx) => {
+                {scopedPaymentSchedule.map((p, idx) => {
                   const status = asString(p.status) || 'Pending';
                   const isPaid = status.toLowerCase() === 'paid';
                   return (

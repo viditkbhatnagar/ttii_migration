@@ -11391,8 +11391,17 @@ export class OperationsService {
     for (const sp of studentPaymentSchedule) {
       const courseId = Number(sp.course_id ?? 0);
       if (!courseId) continue;
+      // Naji 2026-07-06 — count a row as paid when status='paid' OR it carries a
+      // real paid_date, mirroring deriveFeeStatusByUser (~line 174) and the
+      // documented convention. Previously status-only, which disagreed with the
+      // row-level fee status and let a row recorded with a Paid Date but a
+      // non-Paid status show as settled in Payment History yet add ₹0 to Fee
+      // Paid. Robust against legacy '0000-00-00' whether paid_date is a Date,
+      // a raw MariaDB date string, or null.
       const status = String(sp.status ?? '').trim().toLowerCase();
-      if (status !== 'paid') continue;
+      const paidDateStr = sp.paid_date == null ? '' : String(sp.paid_date).trim();
+      const hasPaidDate = paidDateStr !== '' && !paidDateStr.startsWith('0000-00-00');
+      if (status !== 'paid' && !hasPaidDate) continue;
       const amt = Number(sp.amount ?? 0);
       if (!Number.isFinite(amt) || amt <= 0) continue;
       paidByCourse.set(courseId, (paidByCourse.get(courseId) ?? 0) + amt);

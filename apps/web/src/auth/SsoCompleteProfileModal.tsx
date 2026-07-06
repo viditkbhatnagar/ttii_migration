@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import type { AuthSession } from '@ttii/frontend-core';
+import { DmyDateInput } from '../components/ui/dmy-date-field.js';
 import type { StudentPortalApi } from '../student/student-portal-api.js';
 
 interface SsoCompleteProfileModalProps {
@@ -130,11 +131,10 @@ export function SsoCompleteProfileModal({ api, session, onComplete }: SsoComplet
             <label htmlFor="sso-complete-dob" className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Date of birth (optional)
             </label>
-            <input
+            <DmyDateInput
               id="sso-complete-dob"
-              type="date"
               value={dateOfBirth}
-              onChange={(e) => setDateOfBirth(e.target.value)}
+              onChange={(iso) => setDateOfBirth(iso)}
               className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
             />
           </div>

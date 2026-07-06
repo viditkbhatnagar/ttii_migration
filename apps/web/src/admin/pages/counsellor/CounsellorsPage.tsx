@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
@@ -411,7 +412,7 @@ export default function CounsellorsPage({ api, session }: AdminPageProps) {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="c-dob">Date of Birth *</Label>
-              <Input id="c-dob" type="date" value={formDob} onChange={(e) => setFormDob(e.target.value)} />
+              <DmyDateInput id="c-dob" value={formDob} onChange={(iso) => setFormDob(iso)} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="c-nat">Nationality *</Label>
