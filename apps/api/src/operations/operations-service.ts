@@ -2413,7 +2413,7 @@ export class OperationsService {
   }
 
   async addLiveClasses(
-    scope: 'admin' | 'centre',
+    scope: 'admin' | 'centre' | 'instructor',
     actorUserId: string,
     input: AddLiveClassInput,
   ): Promise<Record<string, unknown>> {
@@ -2430,6 +2430,12 @@ export class OperationsService {
     const cohortWhere: Record<string, unknown> = { id: toIntId(cohortIdStr), deleted_at: null };
     if (scope === 'centre' && centreId) {
       cohortWhere.centre_id = toIntId(centreId);
+    }
+    // Ownership: an instructor may only add sessions to cohorts assigned to them
+    // (Naji/Risha 2026-07-06). A non-owned cohort simply won't match → the
+    // "Instructor not set, Live class not added!" guard below returns cleanly.
+    if (scope === 'instructor') {
+      cohortWhere.instructor_id = toIntId(actorUserId);
     }
 
     const cohort = await this.prisma.cohorts.findFirst({

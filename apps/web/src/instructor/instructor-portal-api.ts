@@ -372,32 +372,86 @@ export class InstructorPortalApi {
   }
 
   /**
-   * Schedules a single live session (auto-created Teams meeting) for one of the
-   * instructor's cohorts. Throws an ApiError (with the server's message) on
-   * validation, no-free-host, or ownership failure so the form can surface it.
-   * Returns the created row.
+   * Cohort-scoped live-session scheduling — same request shape + shared backend
+   * as the admin cohort flow (Naji/Risha 2026-07-06). POSTs to
+   * /instructor/live_class/add, which reuses operationsService.addLiveClasses
+   * scoped to the instructor's OWN cohorts (server enforces ownership). Returns
+   * the raw result envelope; the caller checks result.success/status.
    */
-  async scheduleLiveClass(
+  async addCohortLiveSession(
     authToken: string,
-    input: ScheduleLiveClassInput,
-  ): Promise<InstructorLiveClassRow> {
-    const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
-      '/instructor/live-classes',
-      authToken,
-      {
-        cohortId: input.cohortId,
+    cohortId: string,
+    input: {
+      sessionId: string;
+      title: string;
+      date: string;
+      fromTime: string;
+      toTime: string;
+      zoomId?: string;
+      password?: string;
+      isRepetitive?: boolean;
+      repeatDates?: string[];
+      platform?: 'teams' | 'zoom' | 'manual' | 'other';
+      teamsHostEmail?: string;
+      manualJoinUrl?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/instructor/live_class/add', authToken, {
+      cohort_id: cohortId,
+      zoom_id: input.zoomId ?? '',
+      password: input.password ?? '',
+      entries: [{
+        session_id: input.sessionId,
         title: input.title,
         date: input.date,
         fromTime: input.fromTime,
         toTime: input.toTime,
-      },
-    );
-    const row = asRecord(payload.data) ?? {};
-    return {
-      ...asLiveClassRow(row),
-      recordingFetchedAt: asNullableString(row.recordingFetchedAt),
-      attendanceFetchedAt: asNullableString(row.attendanceFetchedAt),
-    };
+        is_repetitive: input.isRepetitive ? 1 : 0,
+        repeat_dates: input.repeatDates ?? [],
+      }],
+      platform: input.platform,
+      teams_host_email: input.teamsHostEmail,
+      manual_join_url: input.manualJoinUrl,
+    });
+  }
+
+  async addCohortLiveSessionsBulk(
+    authToken: string,
+    cohortId: string,
+    input: {
+      platform?: 'teams' | 'zoom' | 'manual' | 'other';
+      teamsHostEmail?: string;
+      manualJoinUrl?: string;
+      zoomId?: string;
+      password?: string;
+      entries: Array<{
+        sessionId: string;
+        title: string;
+        date: string;
+        fromTime: string;
+        toTime: string;
+        isRepetitive?: boolean;
+        repeatDates?: string[];
+      }>;
+    },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/instructor/live_class/add', authToken, {
+      cohort_id: cohortId,
+      zoom_id: input.zoomId ?? '',
+      password: input.password ?? '',
+      entries: input.entries.map((e) => ({
+        session_id: e.sessionId,
+        title: e.title,
+        date: e.date,
+        fromTime: e.fromTime,
+        toTime: e.toTime,
+        is_repetitive: e.isRepetitive ? 1 : 0,
+        repeat_dates: e.repeatDates ?? [],
+      })),
+      platform: input.platform,
+      teams_host_email: input.teamsHostEmail,
+      manual_join_url: input.manualJoinUrl,
+    });
   }
 
   async loadLiveClassAttendance(

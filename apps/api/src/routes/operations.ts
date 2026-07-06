@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, INSTRUCTOR_PORTAL_ROLES } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
@@ -227,6 +227,7 @@ export function registerOperationsRoutes(
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
   const requireCentreRole = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
+  const requireInstructorRole = requireLegacyRoles(authService, INSTRUCTOR_PORTAL_ROLES);
   // Editing a student (profile / enrolment / credentials) is admin-only —
   // counsellors (role 9) may only VIEW + add enrolments (Naji 2026-06-15).
   const requireStudentEditRole = requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES);
@@ -646,6 +647,37 @@ export function registerOperationsRoutes(
       };
 
       const result = await operationsService.addLiveClasses('admin', requestUserId(request), input);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // Instructor cohort scheduling (Naji/Risha 2026-07-06) — same body + shared
+  // addLiveClasses service as admin/centre, but scoped so an instructor can only
+  // schedule against cohorts assigned to them (enforced inside addLiveClasses via
+  // the 'instructor' scope). This replaces the old single-session /instructor/
+  // live-classes endpoint so faculty get full admin parity (platform selector +
+  // bulk Schedule Builder) from inside the cohort.
+  app.post('/instructor/live_class/add', { preHandler: [requireAuth, requireInstructorRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const platformRaw = toStringValue(payload.platform);
+      const platform =
+        platformRaw === 'teams' || platformRaw === 'zoom' || platformRaw === 'manual' || platformRaw === 'other'
+          ? platformRaw
+          : undefined;
+      const input: AddLiveClassInput = {
+        cohortId: toStringValue(payload.cohort_id),
+        zoomId: toStringValue(payload.zoom_id),
+        password: toStringValue(payload.password),
+        entries: toLiveEntries(payload.entries),
+        platform,
+        teamsHostEmail: toStringValue(payload.teams_host_email) || undefined,
+        manualJoinUrl: toStringValue(payload.manual_join_url) || undefined,
+      };
+
+      const result = await operationsService.addLiveClasses('instructor', requestUserId(request), input);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);

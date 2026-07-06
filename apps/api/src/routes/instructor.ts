@@ -43,12 +43,6 @@ function toIntId(value: unknown): number {
   return 0;
 }
 
-function toStr(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return '';
-}
-
 function toFilter(value: unknown): LiveClassFilter {
   if (value === 'upcoming' || value === 'past' || value === 'all') return value;
   return 'all';
@@ -89,32 +83,11 @@ export function registerInstructorRoutes(
     }
   });
 
-  // Schedules a live session for the instructor's own cohort. Auto-creates a
-  // Teams meeting under a configured org host (no per-instructor licence) — see
-  // InstructorService.scheduleLiveClass. (Risha/Naji 2026-07-06)
-  app.post('/instructor/live-classes', guards, async (request, reply) => {
-    try {
-      const userId = requireUserId(request, reply);
-      if (userId === null) return;
-      const body = (request.body as Record<string, unknown>) ?? {};
-      const result = await instructorService.scheduleLiveClass(userId, {
-        cohortId: toIntId(body.cohortId ?? body.cohort_id),
-        title: toStr(body.title),
-        date: toStr(body.date),
-        fromTime: toStr(body.fromTime ?? body.from_time),
-        toTime: toStr(body.toTime ?? body.to_time),
-      });
-      if (!result.ok) {
-        reply
-          .code(result.code === 'not_found' ? 404 : 400)
-          .send({ status: 0, message: result.message, data: {} });
-        return;
-      }
-      reply.code(200).send({ status: 1, message: 'Live session scheduled successfully.', data: result.row });
-    } catch (error: unknown) {
-      sendInstructorError(reply, error);
-    }
-  });
+  // Live-session scheduling for instructors moved to POST /instructor/live_class/add
+  // (routes/operations.ts) so faculty get full admin parity (platform selector +
+  // bulk Schedule Builder) from inside the cohort. The old single-session
+  // /instructor/live-classes endpoint + InstructorService.scheduleLiveClass were
+  // removed. (Naji/Risha 2026-07-06)
 
   app.get('/instructor/live-classes/:id/attendance', guards, async (request, reply) => {
     try {

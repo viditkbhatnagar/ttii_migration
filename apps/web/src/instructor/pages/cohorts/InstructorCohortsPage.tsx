@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import { BookOpen, Calendar, Loader2, Search, Users } from 'lucide-react';
+import { BookOpen, Calendar, Loader2, Plus, Search, Users } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -13,6 +14,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
+import { AddLiveSessionModal } from '../../../admin/shared/components/AddLiveSessionModal.js';
 import type {
   InstructorCohortDetailSnapshot,
   InstructorCohortSummary,
@@ -163,6 +165,10 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
   const [detail, setDetail] = useState<InstructorCohortDetailSnapshot | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [search, setSearch] = useState('');
+  // Naji/Risha 2026-07-06 — schedule live sessions from inside the cohort,
+  // reusing the admin cohort modal (platform selector + bulk builder).
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
 
   const openDetail = useCallback(
     async (cohort: InstructorCohortSummary) => {
@@ -276,12 +282,23 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
           style={{ width: 'min(900px, calc(100vw - 2rem))', maxWidth: 'min(900px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
-            <DialogTitle>{activeCohort?.title || 'Cohort'}</DialogTitle>
-            <DialogDescription>
-              {activeCohort?.cohortCode ? `${activeCohort.cohortCode} • ` : ''}
-              {activeCohort?.courseTitle ? `${activeCohort.courseTitle} • ` : ''}
-              {formatRange(activeCohort?.startDate ?? null, activeCohort?.endDate ?? null)}
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-3 pr-6">
+              <div className="min-w-0">
+                <DialogTitle>{activeCohort?.title || 'Cohort'}</DialogTitle>
+                <DialogDescription>
+                  {activeCohort?.cohortCode ? `${activeCohort.cohortCode} • ` : ''}
+                  {activeCohort?.courseTitle ? `${activeCohort.courseTitle} • ` : ''}
+                  {formatRange(activeCohort?.startDate ?? null, activeCohort?.endDate ?? null)}
+                </DialogDescription>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setScheduleOpen(true)}
+                className="shrink-0 rounded-full bg-violet-600 text-white hover:bg-violet-700"
+              >
+                <Plus className="mr-1 size-4" /> Add Live Session
+              </Button>
+            </div>
           </DialogHeader>
 
           {detailLoading ? (
@@ -332,6 +349,21 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Cohort-scoped scheduling — the cohort is implied (no dropdown), same
+          modal + shared backend as admin (Naji/Risha 2026-07-06). */}
+      {activeCohort && (
+        <AddLiveSessionModal
+          open={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          api={api}
+          token={session.token}
+          cohortId={String(activeCohort.id)}
+          submitting={scheduleSubmitting}
+          setSubmitting={setScheduleSubmitting}
+          onSuccess={() => { setScheduleOpen(false); toast.success('Live session scheduled.'); }}
+        />
+      )}
     </div>
   );
 }
