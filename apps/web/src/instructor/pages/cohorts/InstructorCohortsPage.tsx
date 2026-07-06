@@ -1,11 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   BookOpen,
-  Calendar,
-  LayoutGrid,
   Loader2,
   Plus,
   Search,
+  LayoutGrid,
   Table as TableIcon,
   Users,
   Video,
@@ -15,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
   Dialog,
@@ -33,12 +33,13 @@ import type {
 } from '../../instructor-portal-api.js';
 import type { InstructorPageProps } from '../../routing/instructor-routes.js';
 
-// Naji UAT — EduPulse Faculty refresh. This page keeps its ORIGINAL behavior
-// (real cohort data, learner-roster modal, cohort-scoped Add-Live-Session
-// modal) and adds the new Lovable layout: a Grid/Table view toggle on top of
-// the existing violet cohort cards, plus a compact table view for the same
-// real data. All cohort fields come straight from api.loadCohorts /
-// api.loadDashboard — no mock data.
+// Naji UAT — EduPulse Faculty refresh. This page reproduces Naji's Lovable
+// cohorts markup VERBATIM (his semantic .faculty-portal classes: bg-primary,
+// bg-primary-soft, text-muted-foreground, soft-shadow, glow-shadow, gradients,
+// etc.) while keeping 100% of the real backend data + behaviors: real cohorts
+// from api.loadCohorts / api.loadDashboard, the learner-roster "detail" (his
+// route → our modal styled as his hero), and the cohort-scoped
+// AddLiveSessionModal. No mock data — every value is a real API field.
 
 type CohortView = 'grid' | 'table';
 
@@ -60,25 +61,25 @@ function nextSessionLabel(value: string | null): string {
   return `${datePart} · ${formatDate(value)}`;
 }
 
+// His Lovable learner status pill used `bg-success/15 text-success` etc. Map our
+// real statusLabel onto his semantic tone classes so it renders in the faculty
+// theme rather than admin magenta.
 function statusToneClass(label: string): string {
   switch (label) {
     case 'Active':
-      return 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100';
+      return 'bg-success/15 text-success hover:bg-success/20';
     case 'Graduated':
-      return 'bg-sky-100 text-sky-700 hover:bg-sky-100';
+      return 'bg-info/15 text-info hover:bg-info/20';
     case 'Dropped':
-      return 'bg-red-100 text-red-700 hover:bg-red-100';
-    case 'Inactive':
-      return 'bg-slate-200 text-slate-700 hover:bg-slate-200';
+      return 'bg-destructive/15 text-destructive hover:bg-destructive/20';
     default:
-      return 'bg-slate-100 text-slate-600 hover:bg-slate-100';
+      return 'bg-muted text-muted-foreground hover:bg-muted';
   }
 }
 
-// Approximate course progress from dates. cohort.startDate / endDate are
-// usually populated; if either is missing we fall back to 0 so the bar
-// still renders cleanly. This mirrors how the Lovable mockup shows a
-// progress %, without us needing a separate completion table.
+// Approximate course progress from dates (cohort.startDate / endDate). If either
+// is missing we fall back to 0 so the bar still renders. This mirrors how the
+// Lovable mockup shows a progress %, without a separate completion table.
 function computeProgressPercent(start: string | null, end: string | null): number {
   if (!start || !end) return 0;
   const s = new Date(start).getTime();
@@ -88,88 +89,6 @@ function computeProgressPercent(start: string | null, end: string | null): numbe
   if (now <= s) return 0;
   if (now >= e) return 100;
   return Math.round(((now - s) / (e - s)) * 100);
-}
-
-function CohortCard({
-  cohort,
-  onView,
-  attendanceByCohort,
-  nextSessionByCohort,
-}: {
-  cohort: InstructorCohortSummary;
-  onView: (cohort: InstructorCohortSummary) => void;
-  attendanceByCohort: Map<number, number>;
-  nextSessionByCohort: Map<number, string | null>;
-}) {
-  const progress = computeProgressPercent(cohort.startDate, cohort.endDate);
-  const attendance = attendanceByCohort.get(cohort.id) ?? 0;
-  const nextSession = nextSessionByCohort.get(cohort.id) ?? null;
-  return (
-    <Card className="group overflow-hidden border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-500/20">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-violet-600">
-              {cohort.courseTitle || 'Cohort'}
-            </p>
-            <h3 className="mt-1 truncate text-base font-semibold text-slate-900">
-              {cohort.title || `Cohort #${cohort.id}`}
-            </h3>
-          </div>
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
-            <BookOpen className="size-5" />
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-          <div className="rounded-lg bg-slate-100 p-3">
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <Users className="size-3" /> Learners
-            </div>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{cohort.learnerCount}</p>
-          </div>
-          <div className="rounded-lg bg-slate-100 p-3">
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <Video className="size-3" /> Upcoming
-            </div>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{cohort.upcomingSessionCount}</p>
-          </div>
-          <div className="rounded-lg bg-slate-100 p-3">
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <Calendar className="size-3" /> Attend.
-            </div>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{attendance > 0 ? `${attendance}%` : '—'}</p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <div className="mb-1.5 flex items-center justify-between text-xs">
-            <span className="text-slate-500">Course Progress</span>
-            <span className="font-semibold text-slate-700">{progress}%</span>
-          </div>
-          <Progress value={progress} className="h-2" />
-        </div>
-
-        <div className="mt-4 flex items-end justify-between border-t border-slate-200 pt-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Next Session</p>
-            <p className="mt-0.5 truncate text-xs text-slate-700">
-              {nextSession ? nextSessionLabel(nextSession) : 'TBD'}
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-violet-600 hover:bg-violet-50 hover:text-violet-700"
-            onClick={() => onView(cohort)}
-          >
-            Open
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function InstructorCohortsPage({ api, session }: InstructorPageProps) {
@@ -211,9 +130,7 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
 
   const cohorts = useMemo(() => data ?? [], [data]);
 
-  // Pull per-cohort attendance from the dashboard payload (we already
-  // compute weekly attendance there; here we surface the latest single
-  // weekly average as the cohort's attendance number).
+  // Per-cohort attendance from the dashboard payload (weekly avg per cohort).
   const attendanceByCohort = useMemo(() => {
     const map = new Map<number, number>();
     const cohortPerf = dashboardData?.cohortPerformance ?? [];
@@ -243,35 +160,42 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
     );
   }, [cohorts, search]);
 
+  const activeProgress = activeCohort
+    ? computeProgressPercent(activeCohort.startDate, activeCohort.endDate)
+    : 0;
+  const activeAttendance = activeCohort ? attendanceByCohort.get(activeCohort.id) ?? 0 : 0;
+  const activeNextSession = activeCohort ? nextSessionByCohort.get(activeCohort.id) ?? null : null;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Cohorts</h1>
-        <p className="mt-0.5 text-sm text-slate-500">Your assigned learner groups</p>
+    <div className="faculty-portal space-y-6">
+      {/* His <PageHeader title subtitle /> reproduced inline (our layout already
+          provides the TopBar + sidebar, so we do NOT render his shell). */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Cohorts</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Your assigned learner groups</p>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input
-            type="search"
-            aria-label="Search cohorts"
+        <div className="relative max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             placeholder="Search cohorts…"
+            className="h-10 rounded-full pl-9"
+            aria-label="Search cohorts"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-10 w-full rounded-full border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
           />
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 p-1">
+          <div className="flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 p-1">
             <Button
               variant={view === 'grid' ? 'secondary' : 'ghost'}
               size="sm"
               className="h-8 rounded-full px-3 text-xs"
               onClick={() => setView('grid')}
             >
-              <LayoutGrid className="mr-1.5 size-3.5" /> Grid
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" /> Grid
             </Button>
             <Button
               variant={view === 'table' ? 'secondary' : 'ghost'}
@@ -279,14 +203,16 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
               className="h-8 rounded-full px-3 text-xs"
               onClick={() => setView('table')}
             >
-              <TableIcon className="mr-1.5 size-3.5" /> Table
+              <TableIcon className="mr-1.5 h-3.5 w-3.5" /> Table
             </Button>
           </div>
+          {/* Naji 2026-07-06 — kept the real "New Cohort Request" action (mailto
+              to admissions) from the prior version, themed to match the Lovable. */}
           <Button
-            className="rounded-full bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 hover:text-white"
+            className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => window.open('mailto:admissions@teachersindia.in?subject=New%20Cohort%20Request', '_blank')}
           >
-            <Plus className="mr-1.5 size-4" /> New Cohort Request
+            <Plus className="mr-1.5 h-4 w-4" /> New Cohort Request
           </Button>
         </div>
       </div>
@@ -294,67 +220,125 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
       {loading ? (
         <PageLoader label="Loading cohorts..." />
       ) : error ? (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-sm text-red-600">
-          {error}
-        </div>
+        <Card className="soft-shadow border-destructive/40">
+          <CardContent className="p-8 text-center text-sm text-destructive" role="alert">
+            {error}
+          </CardContent>
+        </Card>
       ) : filtered.length === 0 ? (
-        <div role="status" className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-sm text-slate-400">
-          {search ? 'No cohorts match that search.' : "You aren't assigned to any cohorts yet."}
-        </div>
+        <Card className="soft-shadow border-dashed border-border/60">
+          <CardContent className="p-12 text-center text-sm text-muted-foreground" role="status">
+            {search ? 'No cohorts match that search.' : "You aren't assigned to any cohorts yet."}
+          </CardContent>
+        </Card>
       ) : view === 'grid' ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((cohort) => (
-            <CohortCard
-              key={cohort.id}
-              cohort={cohort}
-              onView={(c) => void openDetail(c)}
-              attendanceByCohort={attendanceByCohort}
-              nextSessionByCohort={nextSessionByCohort}
-            />
-          ))}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filtered.map((c) => {
+            const progress = computeProgressPercent(c.startDate, c.endDate);
+            const nextSession = nextSessionByCohort.get(c.id) ?? null;
+            return (
+              <Card
+                key={c.id}
+                className="soft-shadow group overflow-hidden border-border/60 transition hover:-translate-y-0.5 hover:glow-shadow"
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-primary">
+                        {c.courseTitle || 'Cohort'}
+                      </p>
+                      <h3 className="mt-1 truncate text-base font-semibold">
+                        {c.title || `Cohort #${c.id}`}
+                      </h3>
+                    </div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                      <BookOpen className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-lg bg-muted/50 p-3">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Users className="h-3 w-3" /> Learners
+                      </div>
+                      <p className="mt-1 text-lg font-semibold">{c.learnerCount}</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 p-3">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Video className="h-3 w-3" /> Upcoming
+                      </div>
+                      <p className="mt-1 text-lg font-semibold">{c.upcomingSessionCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="mb-1.5 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Course Progress</span>
+                      <span className="font-semibold">{progress}%</span>
+                    </div>
+                    <Progress value={progress} className="h-2" />
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-border/60 pt-4">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Next session</p>
+                      <p className="truncate text-xs font-medium">
+                        {nextSession ? nextSessionLabel(nextSession) : 'TBD'}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-primary hover:bg-primary-soft"
+                      onClick={() => void openDetail(c)}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       ) : (
-        <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <Card className="soft-shadow overflow-hidden border-border/60">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-100 hover:bg-slate-100">
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-16 text-xs font-semibold tracking-wider">Sl No</TableHead>
-                  <TableHead className="text-xs font-semibold tracking-wider">Cohort Code</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wider">Cohort ID</TableHead>
                   <TableHead className="text-xs font-semibold tracking-wider">Cohort</TableHead>
-                  <TableHead className="text-xs font-semibold tracking-wider">Course</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wider">Subject</TableHead>
                   <TableHead className="text-xs font-semibold tracking-wider">Learners</TableHead>
-                  <TableHead className="text-xs font-semibold tracking-wider">Upcoming</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wider">Live Classes</TableHead>
                   <TableHead className="text-xs font-semibold tracking-wider">Progress</TableHead>
                   <TableHead className="w-20 text-xs font-semibold tracking-wider">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((cohort, index) => {
-                  const progress = computeProgressPercent(cohort.startDate, cohort.endDate);
+                {filtered.map((c, index) => {
+                  const progress = computeProgressPercent(c.startDate, c.endDate);
                   return (
-                    <TableRow key={cohort.id} className="text-sm">
-                      <TableCell className="text-slate-500">{index + 1}</TableCell>
-                      <TableCell className="font-medium text-violet-600">{cohort.cohortCode || '—'}</TableCell>
-                      <TableCell className="font-medium text-slate-900">
-                        {cohort.title || `Cohort #${cohort.id}`}
-                      </TableCell>
-                      <TableCell className="text-slate-500">{cohort.courseTitle || '—'}</TableCell>
-                      <TableCell className="text-slate-700">{cohort.learnerCount}</TableCell>
-                      <TableCell className="text-slate-700">{cohort.upcomingSessionCount}</TableCell>
+                    <TableRow key={c.id} className="text-sm">
+                      <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell className="font-medium text-primary">{c.cohortCode || '—'}</TableCell>
+                      <TableCell className="font-medium">{c.title || `Cohort #${c.id}`}</TableCell>
+                      <TableCell className="text-muted-foreground">{c.courseTitle || '—'}</TableCell>
+                      <TableCell>{c.learnerCount}</TableCell>
+                      <TableCell>{c.upcomingSessionCount}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Progress value={progress} className="h-1.5 w-20" />
-                          <span className="text-xs font-medium text-slate-700">{progress}%</span>
+                          <span className="text-xs font-medium">{progress}%</span>
                         </div>
                       </TableCell>
                       <TableCell>
                         <Button
-                          type="button"
                           size="sm"
                           variant="ghost"
-                          className="h-8 px-2 text-violet-600 hover:bg-violet-50 hover:text-violet-700"
-                          onClick={() => void openDetail(cohort)}
+                          className="text-primary hover:bg-primary-soft h-8 px-2"
+                          onClick={() => void openDetail(c)}
                         >
                           Open
                         </Button>
@@ -368,104 +352,133 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
         </Card>
       )}
 
+      {/* His cohort DETAIL route → our modal. Reproduces his hero (gradient
+          from-primary via-primary + stat grid) and his learner roster inside a
+          single-page-with-modal shell. Inline width so it doesn't collapse to
+          the shadcn sm:max-w-lg default; wide enough for the Email column. */}
       <Dialog open={activeCohort !== null} onOpenChange={(open) => !open && closeDetail()}>
-        {/* Inline width (not just max-w-*) so it doesn't collapse to the shadcn
-            sm:max-w-lg default on mobile; wide enough for the Email column.
-            Risha 2026-07-01: email was clipped in the learner roster. */}
         <DialogContent
-          className="faculty-portal max-h-[90dvh] overflow-y-auto"
+          className="faculty-portal max-h-[90dvh] overflow-y-auto p-0"
           style={{ width: 'min(900px, calc(100vw - 2rem))', maxWidth: 'min(900px, calc(100vw - 2rem))' }}
         >
-          <DialogHeader>
-            <div className="flex items-start justify-between gap-3 pr-6">
-              <div className="min-w-0">
-                <DialogTitle>{activeCohort?.title || 'Cohort'}</DialogTitle>
-                <DialogDescription>
-                  {activeCohort?.cohortCode ? `${activeCohort.cohortCode} • ` : ''}
-                  {activeCohort?.courseTitle ? `${activeCohort.courseTitle} • ` : ''}
-                  {formatRange(activeCohort?.startDate ?? null, activeCohort?.endDate ?? null)}
-                </DialogDescription>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => setScheduleOpen(true)}
-                className="shrink-0 rounded-full bg-violet-600 text-white hover:bg-violet-700"
-              >
-                <Plus className="mr-1 size-4" /> Add Live Session
-              </Button>
-            </div>
-          </DialogHeader>
-
           {activeCohort && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: 'Learners', value: String(activeCohort.learnerCount) },
-                {
-                  label: 'Progress',
-                  value: `${computeProgressPercent(activeCohort.startDate, activeCohort.endDate)}%`,
-                },
-                { label: 'Upcoming', value: String(activeCohort.upcomingSessionCount) },
-                {
-                  label: 'Attendance',
-                  value:
-                    (attendanceByCohort.get(activeCohort.id) ?? 0) > 0
-                      ? `${attendanceByCohort.get(activeCohort.id) ?? 0}%`
-                      : '—',
-                },
-              ].map((s) => (
-                <div key={s.label} className="rounded-xl bg-violet-50 p-3">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-violet-600">{s.label}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-900">{s.value}</p>
-                </div>
-              ))}
-            </div>
-          )}
+            <>
+              <DialogHeader className="sr-only">
+                <DialogTitle>{activeCohort.title || 'Cohort'}</DialogTitle>
+                <DialogDescription>
+                  {activeCohort.cohortCode ? `${activeCohort.cohortCode} • ` : ''}
+                  {activeCohort.courseTitle ? `${activeCohort.courseTitle} • ` : ''}
+                  {formatRange(activeCohort.startDate, activeCohort.endDate)}
+                </DialogDescription>
+              </DialogHeader>
 
-          {detailLoading ? (
-            <div className="flex items-center justify-center p-8 text-slate-500">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading learners...
-            </div>
-          ) : !detail ? (
-            <div role="status" className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
-              Could not load learner roster.
-            </div>
-          ) : detail.learners.length === 0 ? (
-            <div role="status" className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
-              No learners enrolled in this cohort yet.
-            </div>
-          ) : (
-            <div className="max-h-96 overflow-auto rounded-xl border border-slate-200">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-100 hover:bg-slate-100">
-                    <TableHead>Name</TableHead>
-                    <TableHead>Enrollment ID</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detail.learners.map((learner) => (
-                    <TableRow key={learner.id}>
-                      <TableCell className="font-medium text-slate-900">
-                        {learner.name || '—'}
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {learner.enrollmentId || '—'}
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {learner.email || '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={statusToneClass(learner.statusLabel)}>
-                          {learner.statusLabel}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+              {/* Hero — his exact gradient + badge + stat grid */}
+              <div className="overflow-hidden rounded-t-lg">
+                <div className="bg-gradient-to-br from-primary via-primary to-[oklch(0.42_0.22_300)] p-6 text-primary-foreground">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Badge className="bg-white/15 text-white hover:bg-white/20">
+                        {activeCohort.courseTitle || 'Cohort'}
+                      </Badge>
+                      <h2 className="mt-3 text-2xl font-bold">{activeCohort.title || 'Cohort'}</h2>
+                      <p className="mt-1 text-xs text-white/70">
+                        Cohort ID:{' '}
+                        <span className="font-medium text-white">{activeCohort.cohortCode || '—'}</span>
+                      </p>
+                      <p className="mt-1 text-xs text-white/70">
+                        {formatRange(activeCohort.startDate, activeCohort.endDate)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setScheduleOpen(true)}
+                      className="shrink-0 rounded-full bg-white/15 text-white hover:bg-white/25"
+                    >
+                      <Plus className="mr-1 h-4 w-4" /> Add Live Session
+                    </Button>
+                  </div>
+                  <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {[
+                      { label: 'Learners', value: String(activeCohort.learnerCount) },
+                      { label: 'Progress', value: `${activeProgress}%` },
+                      { label: 'Upcoming', value: String(activeCohort.upcomingSessionCount) },
+                      {
+                        label: 'Attendance',
+                        value: activeAttendance > 0 ? `${activeAttendance}%` : '—',
+                      },
+                    ].map((s) => (
+                      <div key={s.label}>
+                        <p className="text-[10px] uppercase tracking-wider text-white/70">{s.label}</p>
+                        <p className="mt-1 text-lg font-semibold">{s.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Learner roster — real detail.learners in his soft-shadow table */}
+              <div className="p-6 pt-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Learners
+                  </p>
+                  {activeNextSession && (
+                    <p className="text-xs text-muted-foreground">
+                      Next session · {nextSessionLabel(activeNextSession)}
+                    </p>
+                  )}
+                </div>
+
+                {detailLoading ? (
+                  <div className="flex items-center justify-center p-8 text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading learners...
+                  </div>
+                ) : !detail ? (
+                  <Card className="soft-shadow border-dashed border-border/60">
+                    <CardContent className="p-8 text-center text-sm text-muted-foreground" role="status">
+                      Could not load learner roster.
+                    </CardContent>
+                  </Card>
+                ) : detail.learners.length === 0 ? (
+                  <Card className="soft-shadow border-dashed border-border/60">
+                    <CardContent className="p-8 text-center text-sm text-muted-foreground" role="status">
+                      No learners enrolled in this cohort yet.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="soft-shadow overflow-hidden border-border/60">
+                    <CardContent className="p-0">
+                      <div className="divide-y">
+                        {detail.learners.map((learner) => (
+                          <div key={learner.id} className="flex items-center gap-4 p-4">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary">
+                              {(learner.name || '?')
+                                .split(' ')
+                                .map((n) => n[0] ?? '')
+                                .join('')
+                                .slice(0, 2)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{learner.name || '—'}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {learner.email || '—'}
+                              </p>
+                            </div>
+                            <div className="hidden w-36 md:block">
+                              <p className="text-[10px] uppercase text-muted-foreground">Enrollment ID</p>
+                              <p className="truncate text-xs font-medium">{learner.enrollmentId || '—'}</p>
+                            </div>
+                            <Badge className={statusToneClass(learner.statusLabel)}>
+                              {learner.statusLabel}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
@@ -481,7 +494,10 @@ export default function InstructorCohortsPage({ api, session }: InstructorPagePr
           cohortId={String(activeCohort.id)}
           submitting={scheduleSubmitting}
           setSubmitting={setScheduleSubmitting}
-          onSuccess={() => { setScheduleOpen(false); toast.success('Live session scheduled.'); }}
+          onSuccess={() => {
+            setScheduleOpen(false);
+            toast.success('Live session scheduled.');
+          }}
         />
       )}
     </div>

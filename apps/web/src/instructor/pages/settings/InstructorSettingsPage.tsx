@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, KeyRound, User } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { PageLoader } from '@/components/ui/page-loader';
 import { useInstructorLayout } from '../../layout/InstructorLayoutContext.js';
@@ -109,7 +108,7 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
         );
         hydrate(snapshot);
         refreshCurrentUser();
-        toast.success('Profile updated.');
+        toast.success('Profile updated');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Could not update profile.');
       } finally {
@@ -133,7 +132,7 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
       setPasswordSaving(true);
       try {
         await api.changePassword(session.token, passwordForm);
-        toast.success('Password updated.');
+        toast.success('Password updated');
         setPasswordForm({ password: '', confirmPassword: '' });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Could not change password.');
@@ -149,71 +148,58 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
   }
 
   const roleLabel = roleId === 3 ? 'Instructor · Faculty' : 'Faculty';
+  const displayName = profileForm.name.trim() === '' ? 'Faculty' : profileForm.name;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="mt-1 text-sm text-slate-500">Manage your account and preferences.</p>
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Manage your account and preferences</p>
       </div>
 
       {loadError ? (
         <div
           role="alert"
-          className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600"
+          className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
         >
           {loadError}
         </div>
       ) : null}
 
       <Tabs defaultValue="profile" className="space-y-4">
-        <TabsList className="bg-slate-100">
-          <TabsTrigger
-            value="profile"
-            className="data-[state=active]:bg-white data-[state=active]:text-violet-600"
-          >
-            Profile
-          </TabsTrigger>
-          <TabsTrigger
-            value="security"
-            className="data-[state=active]:bg-white data-[state=active]:text-violet-600"
-          >
-            Password &amp; Security
-          </TabsTrigger>
+        <TabsList className="bg-muted/60">
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="security">Password &amp; Security</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="space-y-4">
-          <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
+          <Card className="soft-shadow">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                <span className="rounded-lg bg-violet-600/10 p-2 text-violet-600">
-                  <User className="h-5 w-5" />
-                </span>
-                Profile information
-              </CardTitle>
+              <CardTitle className="text-base">Profile information</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               <form onSubmit={(e) => void onSaveProfile(e)} className="space-y-6">
                 <div className="flex items-center gap-5">
-                  <Avatar className="h-20 w-20 ring-2 ring-violet-300">
+                  <div className="relative">
                     {profileForm.image ? (
-                      <AvatarImage src={profileForm.image} alt={profileForm.name} />
-                    ) : null}
-                    <AvatarFallback className="bg-violet-600 text-2xl font-semibold text-white">
-                      {initialsFromName(profileForm.name)}
-                    </AvatarFallback>
-                  </Avatar>
+                      <img
+                        src={profileForm.image}
+                        alt={displayName}
+                        className="h-20 w-20 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary text-2xl font-semibold text-primary-foreground">
+                        {initialsFromName(profileForm.name)}
+                      </div>
+                    )}
+                  </div>
                   <div>
-                    <p className="font-semibold text-slate-900">
-                      {profileForm.name.trim() === '' ? 'Faculty' : profileForm.name}
-                    </p>
-                    <p className="text-xs text-slate-500">{roleLabel}</p>
+                    <p className="font-semibold">{displayName}</p>
+                    <p className="text-xs text-muted-foreground">{roleLabel}</p>
                   </div>
                 </div>
-
-                <Separator className="bg-slate-200" />
-
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Separator />
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="settings-name">Full name</Label>
                     <Input
@@ -262,13 +248,8 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
                     />
                   </div>
                 </div>
-
                 <div className="flex justify-end">
-                  <Button
-                    type="submit"
-                    className="bg-violet-600 text-white hover:bg-violet-600/90"
-                    disabled={profileSaving}
-                  >
+                  <Button type="submit" disabled={profileSaving}>
                     {profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Save changes
                   </Button>
@@ -279,21 +260,16 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
         </TabsContent>
 
         <TabsContent value="security" className="space-y-4">
-          <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
+          <Card className="soft-shadow">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                <span className="rounded-lg bg-violet-600/10 p-2 text-violet-600">
-                  <KeyRound className="h-5 w-5" />
-                </span>
-                Change password
-              </CardTitle>
+              <CardTitle className="text-base">Change password</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <form onSubmit={(e) => void onChangePassword(e)} className="space-y-4">
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Pick a new password — at least 8 characters.
                 </p>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="settings-password">New password</Label>
                     <Input
@@ -319,13 +295,8 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
                     />
                   </div>
                 </div>
-
                 <div className="flex justify-end">
-                  <Button
-                    type="submit"
-                    className="bg-violet-600 text-white hover:bg-violet-600/90"
-                    disabled={passwordSaving}
-                  >
+                  <Button type="submit" disabled={passwordSaving}>
                     {passwordSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Update password
                   </Button>
