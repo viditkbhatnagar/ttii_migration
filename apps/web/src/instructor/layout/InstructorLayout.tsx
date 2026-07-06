@@ -27,11 +27,12 @@ function InstructorLayoutInner({ pathname, session, api, onNavigate, onLogout }:
   return (
     // Naji UAT 2026-05-22 — switched the chrome to match the EduPulse
     // Faculty Portal mockup: white sidebar + light slate-50 page bg.
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    // `faculty-portal` (app.css) applies Naji's EduPulse font + exact purple.
+    <div className="faculty-portal flex h-screen overflow-hidden bg-slate-50">
       <InstructorSidebar pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
 
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
-        <SheetContent side="left" className="w-64 p-0 border-0" showCloseButton={false}>
+        <SheetContent side="left" className="faculty-portal w-64 p-0 border-0" showCloseButton={false}>
           <InstructorSidebarMobile pathname={pathname} session={session} onNavigate={handleNavigate} onLogout={onLogout} />
         </SheetContent>
       </Sheet>

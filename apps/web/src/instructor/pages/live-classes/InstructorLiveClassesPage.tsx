@@ -843,7 +843,7 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
 
       {/* Attendance dialog (behavior preserved) */}
       <Dialog open={attendanceFor !== null} onOpenChange={(open) => !open && closeAttendance()}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="faculty-portal max-w-3xl">
           <DialogHeader>
             <DialogTitle>{attendanceFor?.title || 'Attendance'}</DialogTitle>
             <DialogDescription>

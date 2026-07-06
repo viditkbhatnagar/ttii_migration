@@ -410,7 +410,7 @@ export default function InstructorAssignmentsPage({ api, session }: InstructorPa
         onOpenChange={(open) => !open && closeAssignment()}
       >
         <DialogContent
-          className="max-h-[90dvh] gap-0 overflow-hidden p-0 [&>*]:min-w-0"
+          className="faculty-portal max-h-[90dvh] gap-0 overflow-hidden p-0 [&>*]:min-w-0"
           style={{ width: '64rem', maxWidth: 'min(64rem, calc(100vw - 2rem))' }}
         >
           <DialogHeader className="shrink-0 space-y-1 border-b border-slate-200 p-5">

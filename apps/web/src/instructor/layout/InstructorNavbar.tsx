@@ -105,7 +105,7 @@ export function InstructorNavbar({ session, onNavigate, onLogout }: InstructorNa
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="faculty-portal w-48">
           <DropdownMenuItem onClick={() => onNavigate('/instructor/settings')}>
             <User className="mr-2 size-4" aria-hidden="true" />
             Profile
