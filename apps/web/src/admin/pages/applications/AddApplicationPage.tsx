@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldDmyDate } from '@/components/ui/dmy-date-field';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -866,10 +867,11 @@ export default function AddApplicationPage({ api, session, onNavigate }: AdminPa
                       placeholder="Enter full name"
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label>Date of Birth (dd/mm/yyyy) *</Label>
-                    <Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} />
-                  </div>
+                  <FieldDmyDate
+                    label="Date of Birth *"
+                    value={form.dateOfBirth}
+                    onChange={(iso) => set('dateOfBirth', iso)}
+                  />
                   <div className="grid gap-2">
                     <Label>Age</Label>
                     <Input value={calculateAge(form.dateOfBirth)} readOnly className="bg-gray-50" placeholder="Auto-calculated" />
