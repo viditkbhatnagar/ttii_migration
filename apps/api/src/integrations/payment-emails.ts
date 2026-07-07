@@ -128,10 +128,11 @@ const SHARED_STYLE = `
     .data-table th, .data-table td { font-size: 12px !important; padding: 10px 8px !important; }
   }`;
 
+// Naji 2026-07-07 — official TTII social handles for the email footer icons.
 const SOCIAL_LINKS: Array<{ href: string; label: string; size: string }> = [
-  { href: 'https://facebook.com/teachersindia', label: 'f', size: '16px' },
-  { href: 'https://instagram.com/teachersindia', label: 'IG', size: '14px' },
-  { href: 'https://linkedin.com/company/teachersindia', label: 'in', size: '13px' },
+  { href: 'https://www.facebook.com/teacherstraininginsitute', label: 'f', size: '16px' },
+  { href: 'https://www.instagram.com/ttii_official', label: 'IG', size: '14px' },
+  { href: 'https://www.linkedin.com/company/teachersindia', label: 'in', size: '13px' },
   { href: 'https://youtube.com/@teachersindia', label: 'YT', size: '13px' },
 ];
 
