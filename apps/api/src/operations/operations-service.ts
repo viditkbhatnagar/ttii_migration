@@ -6204,21 +6204,28 @@ export class OperationsService {
             select: { id: true, combination_code: true },
           })
         : Promise.resolve([] as Array<{ id: number; combination_code: string | null }>),
-      offeringIdSet.size > 0 && combinationIdSet.size > 0
+      // Fetch ALL packages for each offering (not just exact (offering,
+      // combination) pairs) so the fee can default to the offering's package
+      // pricing when the held combination has no package under it — matching the
+      // View Student Fee Summary resolution (Naji 2026-07-07 "Fee Information is
+      // wrong in Fee Summary Module").
+      offeringIdSet.size > 0
         ? this.prisma.offering_certificate_packages.findMany({
-            where: {
-              deleted_at: null,
-              offering_id: { in: [...offeringIdSet] },
-              combination_id: { in: [...combinationIdSet] },
-            },
-            select: { offering_id: true, combination_id: true, base_fee: true, discount: true, offered_fee: true, registration_fee: true, gst_percent: true },
+            where: { deleted_at: null, offering_id: { in: [...offeringIdSet] } },
+            orderBy: [{ position: 'asc' }, { id: 'asc' }],
+            select: { offering_id: true, combination_id: true, fee_category: true, base_fee: true, discount: true, offered_fee: true, registration_fee: true, gst_percent: true },
           })
-        : Promise.resolve([] as Array<{ offering_id: number; combination_id: number; base_fee: unknown; discount: unknown; offered_fee: unknown; registration_fee: unknown; gst_percent: unknown }>),
+        : Promise.resolve([] as Array<{ offering_id: number; combination_id: number; fee_category: string; base_fee: unknown; discount: unknown; offered_fee: unknown; registration_fee: unknown; gst_percent: unknown }>),
     ]);
 
     const offeringMap = new Map(offerings.map((o) => [o.id, o]));
     const combinationMap = new Map(combinations.map((c) => [c.id, c.combination_code ?? '']));
-    const packageMap = new Map(packages.map((p) => [`${p.offering_id}:${p.combination_id}`, p]));
+    const packagesByOffering = new Map<number, typeof packages>();
+    for (const p of packages) {
+      const list = packagesByOffering.get(p.offering_id) ?? [];
+      list.push(p);
+      packagesByOffering.set(p.offering_id, list);
+    }
 
     // student_payments aggregation via raw SQL — paid_date is unreadable
     // through Prisma due to legacy 0000-00-00 values. Use status='Paid'
@@ -6257,22 +6264,31 @@ export class OperationsService {
       const combinationId = app?.combination_id ?? null;
       const offering = offeringId ? offeringMap.get(offeringId) : null;
       const combinationTitle = combinationId ? combinationMap.get(combinationId) ?? '' : '';
-      const pkg = offeringId && combinationId ? packageMap.get(`${offeringId}:${combinationId}`) : null;
+      // Resolve the offering's package the SAME way the View Student Fee Summary
+      // does: prefer 'paid' packages, match the held combination, else the
+      // offering's first/default package (so the fee tracks the offering even
+      // when the combination has no package under it).
+      const offeringPkgs = offeringId ? packagesByOffering.get(offeringId) ?? [] : [];
+      const paidPkgs = offeringPkgs.filter((p) => (p.fee_category ?? 'paid') === 'paid');
+      const pickPkgs = paidPkgs.length > 0 ? paidPkgs : offeringPkgs;
+      const pkg =
+        (combinationId ? pickPkgs.find((p) => p.combination_id === combinationId) : undefined) ?? pickPkgs[0] ?? null;
 
-      // Course Fee (Inc GST when applicable) — prefer package, fall back to offering.
+      // Course Fee (Inc GST) — IDENTICAL formula to the View Student Fee Summary:
+      // (offered_fee, else base-discount) + GST. Registration fee is a SEPARATE
+      // charge and is NOT folded into the course fee (folding it in was the
+      // reported discrepancy). Falls back to the offering's own scalar pricing.
       let courseFee = 0;
       if (pkg) {
-        const offered = Number(pkg.offered_fee ?? 0);
         const base = Number(pkg.base_fee ?? 0);
         const discount = Number(pkg.discount ?? 0);
-        const reg = Number(pkg.registration_fee ?? 0);
-        const exclGst = offered > 0 ? offered : Math.max(0, base - discount);
+        // offered_fee != null (not > 0) so a genuinely-free (0) package reads 0,
+        // exactly like studentFees.
+        const exclGst = pkg.offered_fee != null ? Number(pkg.offered_fee) : Math.max(0, base - discount);
         const gstPct = Number(pkg.gst_percent ?? 0);
-        const incGst = exclGst + (exclGst * gstPct) / 100;
-        courseFee = incGst + reg;
+        courseFee = exclGst + Math.round((exclGst * gstPct) / 100);
       } else if (offering) {
-        const offered = Number(offering.offered_fee ?? offering.base_fee ?? offering.pricing_amount ?? 0);
-        courseFee = offered;
+        courseFee = Number(offering.offered_fee ?? offering.base_fee ?? offering.pricing_amount ?? 0);
       }
 
       const pay = e.user_id && e.course_id ? payByKey.get(`${e.user_id}:${e.course_id}`) : null;
