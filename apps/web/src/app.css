@@ -310,6 +310,18 @@
   box-shadow: 0 10px 40px -12px oklch(0.52 0.22 295 / 0.35);
 }
 
+/* Mobile-safe modal max-height with a vh FALLBACK. dvh is unsupported in some
+   older in-app webviews (the app is opened from WhatsApp/Instagram links), where
+   a dvh-only cap is ignored, the modal grows unbounded, and DialogContent
+   overflow-hidden clips the footer + attachments with NO scroll. vh bounds the
+   modal everywhere; dvh refines it where supported. Use this instead of a bare
+   max-h-[85dvh] on any modal whose body must scroll on mobile. (Risha 2026-07-07
+   students could not see the uploaded assignment on mobile.) */
+.modal-maxh {
+  max-height: 85vh;
+  max-height: 85dvh;
+}
+
 .faculty-portal,
 .faculty-portal h1, .faculty-portal h2, .faculty-portal h3,
 .faculty-portal h4, .faculty-portal h5, .faculty-portal h6 {
