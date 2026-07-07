@@ -255,15 +255,16 @@ function drawFooter(doc: PDFKit.PDFDocument, submittedOn: string, pageNumber: nu
   doc.strokeColor(COLOR_ROW_DIVIDER).lineWidth(0.5);
   doc.moveTo(x, y - 8).lineTo(x + width, y - 8).stroke();
   doc.fillColor(COLOR_TEXT_MUTED).font('Helvetica').fontSize(8);
-  doc.text(`Submitted on: ${submittedOn}`, x, y, { width: width / 3 });
-  doc.text("Teachers' Training Institute of India", x + width / 3, y, {
-    width: width / 3,
-    align: 'center',
-  });
-  doc.text(`Page ${pageNumber} of ${totalPages}`, x + (width * 2) / 3, y, {
-    width: width / 3,
-    align: 'right',
-  });
+  // The footer y (page.height - 30) sits below the bottom margin. With a `width`
+  // option PDFKit keeps its line wrapper active and treats that as an overflow,
+  // auto-adding a blank page per footer element (was producing 6 blank pages).
+  // `lineBreak:false` + a bounded `height` disables the wrap/overflow-pagination
+  // so the footer renders in the bottom margin without spawning pages. Verified:
+  // width alone -> 4 pages; adding height -> 2 pages.
+  const footerOpts = { width: width / 3, lineBreak: false, height: 12 } as const;
+  doc.text(`Submitted on: ${submittedOn}`, x, y, footerOpts);
+  doc.text("Teachers' Training Institute of India", x + width / 3, y, { ...footerOpts, align: 'center' });
+  doc.text(`Page ${pageNumber} of ${totalPages}`, x + (width * 2) / 3, y, { ...footerOpts, align: 'right' });
   doc.restore();
 }
 

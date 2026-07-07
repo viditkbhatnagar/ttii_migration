@@ -491,7 +491,36 @@ export function registerEngagementRoutes(
         : all;
       // PHP-faithful shape: data is an OBJECT of expired/live/upcoming arrays,
       // not a flat array (which crashes the Flutter list parse).
-      reply.code(200).send({ status: 1, message: 'success', data: groupLiveClassesByState(filtered) });
+      const grouped = groupLiveClassesByState(filtered);
+      // Vidit 2026-07-07 — the mobile Expired player reads data.expired[].
+      // video_files[].link, but the mapper leaves video_files [] for every row.
+      // Fill it for recorded/expired classes using the same access-checked
+      // resolver as the recording-url route (legacy URL as-is; private DO Spaces
+      // recordings signed here). Left [] when there is genuinely no recording.
+      const storage = options.storage as
+        | { createSignedDownloadUrl: (input: { key: string; expiresInSeconds: number }) => Promise<string> }
+        | undefined;
+      await Promise.all(
+        grouped.expired.map(async (row) => {
+          const existing = row.video_files;
+          if (Array.isArray(existing) && existing.length > 0) return;
+          if (!row.has_recording) return;
+          try {
+            const target = await engagementService.getStudentLiveRecordingTarget(
+              requestUserId(request),
+              String(row.id),
+            );
+            if (!target) return;
+            let link = '';
+            if (target.kind === 'url') link = target.url;
+            else if (storage) link = await storage.createSignedDownloadUrl({ key: target.key, expiresInSeconds: 3600 });
+            if (link) row.video_files = [{ link, rendition: 'auto' }];
+          } catch {
+            // Leave video_files [] if resolution/signing fails — never null.
+          }
+        }),
+      );
+      reply.code(200).send({ status: 1, message: 'success', data: grouped });
     } catch (error: unknown) {
       sendEngagementError(reply, error);
     }

@@ -835,7 +835,11 @@ function AssignmentDetail({
       {/* Body — only the LEFT column scrolls; the Quick Info pane stays static
           (Naji 2026-06-06: right info should not scroll). */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-5 sm:p-6">
+        {/* min-h-0 REQUIRED for the mobile flex-col case — without it a flex-1
+            child keeps min-height:auto and overflow-y-auto never scrolls, so the
+            attachments + submission below the fold get clipped (Risha 2026-07-07,
+            "can't see the uploaded assignment on mobile"). */}
+        <div className="min-w-0 min-h-0 flex-1 space-y-6 overflow-y-auto p-5 sm:p-6">
           {/* Grade — shown prominently for reviewed assignments. */}
           {isReviewed ? (
             <section className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-4">
