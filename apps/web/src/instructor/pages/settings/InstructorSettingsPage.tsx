@@ -151,7 +151,7 @@ export default function InstructorSettingsPage({ api, session }: InstructorPageP
   const displayName = profileForm.name.trim() === '' ? 'Faculty' : profileForm.name;
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+    <div className="space-y-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">Manage your account and preferences</p>

@@ -1,6 +1,5 @@
 import {
   ClipboardCheck,
-  GraduationCap,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -86,19 +85,20 @@ function BrandHeader({ collapsed, onClick }: { collapsed: boolean; onClick: () =
       onClick={onClick}
       aria-label="Go to faculty dashboard"
       className={cn(
-        'flex w-full items-center gap-2.5 px-4 py-5 hover:opacity-90 transition-opacity',
+        'flex w-full items-center px-4 py-4 hover:opacity-90 transition-opacity',
         collapsed && 'justify-center px-2',
       )}
     >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
-        <GraduationCap className="size-5" aria-hidden="true" />
-      </span>
-      {!collapsed ? (
-        <div className="min-w-0 text-left">
-          <p className="text-sm font-bold text-slate-900">EduPulse</p>
-          <p className="text-[11px] font-medium text-slate-500">Faculty Portal</p>
-        </div>
-      ) : null}
+      {/* Naji 2026-07-07 — TTII logo in the sidebar (was an EduPulse text brand). */}
+      {collapsed ? (
+        <img src="/logos/ttii-icon-color.svg" alt="TTII" className="size-8 shrink-0 object-contain" />
+      ) : (
+        <img
+          src="/logos/ttii-full-color.svg"
+          alt="Teachers' Training Institute of India"
+          className="h-11 w-auto max-w-full object-contain"
+        />
+      )}
     </button>
   );
 }

@@ -95,9 +95,10 @@ export default function InstructorDashboardPage({ api, session, onNavigate }: In
     [api, session.token],
   );
 
+  // Naji 2026-07-07 — greet with the instructor's real first name; do NOT
+  // prepend a "Dr." title that was never provided.
   const firstName = (currentUser?.name.split(/\s+/)[0] ?? '').trim();
-  const lastName = (currentUser?.name.split(/\s+/)[1] ?? '').trim();
-  const greetingName = lastName ? `Dr. ${lastName}` : firstName || 'Faculty';
+  const greetingName = firstName || 'Faculty';
 
   const metrics = data?.metrics;
   const sessionTrend = useMemo(() => data?.sessionTrend ?? [], [data]);
@@ -157,7 +158,7 @@ export default function InstructorDashboardPage({ api, session, onNavigate }: In
   if (loading) return <DashboardLoader label="faculty dashboard" />;
   if (error) {
     return (
-      <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="space-y-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         </div>
@@ -173,7 +174,7 @@ export default function InstructorDashboardPage({ api, session, onNavigate }: In
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+    <div className="space-y-6">
       {/* PageHeader (inline — our layout already provides navbar + sidebar) */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>

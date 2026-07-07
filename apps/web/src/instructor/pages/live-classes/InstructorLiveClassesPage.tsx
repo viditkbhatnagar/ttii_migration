@@ -771,7 +771,7 @@ export default function InstructorLiveClassesPage({ api, session, onNavigate }: 
   };
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+    <div className="space-y-6">
       <PageHeader title="Live Classes" subtitle="Manage your Online Sessions." />
 
       {recordingError ? (
