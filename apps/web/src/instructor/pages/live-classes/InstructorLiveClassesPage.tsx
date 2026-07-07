@@ -204,7 +204,9 @@ function SessionActions({
   onDelete: () => void;
   recordingLoading: boolean;
 }) {
-  const hasRecording = Boolean(row.recordingStorageKey || row.recordingUrl);
+  // Server-computed flag: true for a Spaces storage key OR a legacy absolute
+  // recording_url / video_url (mirrors the admin/student model).
+  const hasRecording = row.hasRecording;
   return (
     <div className="flex items-center justify-end gap-1.5">
       {status !== 'past' ? (

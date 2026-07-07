@@ -8,8 +8,10 @@ import {
   Megaphone,
   Plus,
   Search,
+  Send,
   LayoutGrid,
   Table as TableIcon,
+  Trash2,
   Users,
   Video,
 } from 'lucide-react';
@@ -19,14 +21,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
 import { AddLiveSessionModal } from '../../../admin/shared/components/AddLiveSessionModal.js';
 import type {
   InstructorAssignmentSummary,
+  InstructorCohortAnnouncement,
   InstructorCohortDetailSnapshot,
   InstructorCohortSummary,
   InstructorLiveClassRow,
@@ -193,7 +205,9 @@ function ClassRow({
   recordingLoading: boolean;
 }) {
   const time = format12hTime(row.fromTime);
-  const hasRecording = Boolean(row.recordingStorageKey || row.recordingUrl);
+  // Server-computed flag: true for a Spaces storage key OR a legacy absolute
+  // recording_url / video_url (mirrors the admin/student model).
+  const hasRecording = row.hasRecording;
   return (
     <Card className="soft-shadow">
       <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -228,6 +242,194 @@ function ClassRow({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Announcements tab — real per-cohort announcements backed by the shared
+// cohort_announcements table (AnnouncementService). Instructors can post + delete
+// their own cohort's announcements. Loaded lazily when the cohort detail opens.
+// ---------------------------------------------------------------------------
+
+function AnnouncementsTab({
+  api,
+  session,
+  cohortId,
+}: {
+  api: InstructorPageProps['api'];
+  session: InstructorPageProps['session'];
+  cohortId: number;
+}) {
+  const { data, loading, error, reload } = useAdminPageData(
+    () => api.loadCohortAnnouncements(session.token, cohortId),
+    [api, session.token, cohortId],
+  );
+
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const announcements = useMemo<InstructorCohortAnnouncement[]>(() => data ?? [], [data]);
+
+  const resetCompose = useCallback(() => {
+    setTitle('');
+    setContent('');
+  }, []);
+
+  const submit = useCallback(async () => {
+    const t = title.trim();
+    const c = content.trim();
+    if (!t || !c) {
+      toast.error('Title and content are required.');
+      return;
+    }
+    setSubmitting(true);
+    const created = await api.createCohortAnnouncement(session.token, cohortId, {
+      title: t,
+      content: c,
+    });
+    setSubmitting(false);
+    if (!created) {
+      toast.error('Could not post the announcement. Please try again.');
+      return;
+    }
+    toast.success('Announcement posted.');
+    setComposeOpen(false);
+    resetCompose();
+    reload();
+  }, [api, session.token, cohortId, title, content, resetCompose, reload]);
+
+  const remove = useCallback(
+    async (id: number) => {
+      setDeletingId(id);
+      const ok = await api.deleteCohortAnnouncement(session.token, id);
+      setDeletingId(null);
+      if (!ok) {
+        toast.error('Could not delete the announcement.');
+        return;
+      }
+      toast.success('Announcement deleted.');
+      reload();
+    },
+    [api, session.token, reload],
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Post updates for everyone in this cohort.
+        </p>
+        <Button className="rounded-full" onClick={() => setComposeOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" /> Add Announcement
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center p-8 text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading announcements...
+        </div>
+      ) : error ? (
+        <Card className="soft-shadow border-destructive/40">
+          <CardContent className="p-8 text-center text-sm text-destructive" role="alert">
+            {error}
+          </CardContent>
+        </Card>
+      ) : announcements.length === 0 ? (
+        <EmptyState icon={Megaphone} text="No announcements yet." />
+      ) : (
+        announcements.map((a) => (
+          <Card key={a.id} className="soft-shadow">
+            <CardContent className="flex items-start gap-3 p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                <Megaphone className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{a.title || 'Untitled announcement'}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                  {a.content}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {a.createdAt ? formatDate(a.createdAt) : ''}
+                </p>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Delete announcement"
+                className="text-muted-foreground hover:text-destructive"
+                disabled={deletingId === a.id}
+                onClick={() => void remove(a.id)}
+              >
+                {deletingId === a.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        ))
+      )}
+
+      <Dialog
+        open={composeOpen}
+        onOpenChange={(open) => {
+          setComposeOpen(open);
+          if (!open) resetCompose();
+        }}
+      >
+        <DialogContent className="faculty-portal">
+          <DialogHeader>
+            <DialogTitle>New Announcement</DialogTitle>
+            <DialogDescription>
+              This is shared with all learners in this cohort.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-1.5">
+              <Label htmlFor="announcement-title">Title</Label>
+              <Input
+                id="announcement-title"
+                value={title}
+                maxLength={200}
+                placeholder="e.g. Class rescheduled to Friday"
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="announcement-content">Message</Label>
+              <textarea
+                id="announcement-content"
+                rows={5}
+                className="flex min-h-[112px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={content}
+                placeholder="Write your announcement…"
+                onChange={(e) => setContent(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComposeOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void submit()}
+              disabled={submitting || !title.trim() || !content.trim()}
+            >
+              {submitting ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1.5 h-4 w-4" />
+              )}
+              Post Announcement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -596,11 +798,10 @@ function CohortDetailView({
           </div>
         </TabsContent>
 
-        {/* Announcements tab — kept so his 4-tab layout matches, but there is no
-            announcements backend, so we render only his empty state (no compose
-            box → no fake local-only data). */}
+        {/* Announcements tab — real per-cohort announcements (shared
+            cohort_announcements table). Post + delete this cohort's own. */}
         <TabsContent value="announcements" className="mt-4 space-y-3">
-          <EmptyState icon={Megaphone} text="No announcements yet." />
+          <AnnouncementsTab api={api} session={session} cohortId={cohort.id} />
         </TabsContent>
       </Tabs>
 
@@ -756,14 +957,7 @@ export default function InstructorCohortsPage({ api, session, onNavigate }: Inst
               <TableIcon className="mr-1.5 h-3.5 w-3.5" /> Table
             </Button>
           </div>
-          {/* Naji 2026-07-06 — kept the real "New Cohort Request" action (mailto
-              to admissions) from the prior version, themed to match the Lovable. */}
-          <Button
-            className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => window.open('mailto:admissions@teachersindia.in?subject=New%20Cohort%20Request', '_blank')}
-          >
-            <Plus className="mr-1.5 h-4 w-4" /> New Cohort Request
-          </Button>
+          {/* Naji 2026-07-07 — "New Cohort Request" button removed (not required). */}
         </div>
       </div>
 

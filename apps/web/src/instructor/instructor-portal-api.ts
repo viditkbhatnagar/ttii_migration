@@ -117,6 +117,9 @@ export type InstructorLiveClassFilter = 'upcoming' | 'past' | 'all';
 export interface InstructorLiveClassRow extends InstructorDashboardLiveClass {
   recordingFetchedAt: string | null;
   attendanceFetchedAt: string | null;
+  // True when a recording is playable from ANY source (Spaces key OR legacy
+  // recording_url / video_url). Gate the "Watch Recording" button on this.
+  hasRecording: boolean;
 }
 
 export interface ScheduleLiveClassInput {
@@ -125,6 +128,14 @@ export interface ScheduleLiveClassInput {
   date: string; // YYYY-MM-DD
   fromTime: string; // HH:MM
   toTime: string; // HH:MM
+}
+
+export interface InstructorCohortAnnouncement {
+  id: number;
+  cohortId: number | null;
+  title: string;
+  content: string;
+  createdAt: string | null;
 }
 
 export interface InstructorAttendanceRow {
@@ -379,6 +390,7 @@ export class InstructorPortalApi {
         ...asLiveClassRow(row),
         recordingFetchedAt: asNullableString(row.recordingFetchedAt),
         attendanceFetchedAt: asNullableString(row.attendanceFetchedAt),
+        hasRecording: Boolean(row.hasRecording),
       };
     });
   }
@@ -626,6 +638,80 @@ export class InstructorPortalApi {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Loads announcements for one of this instructor's cohorts. Returns [] on any
+   * error (including a 404 for a cohort that isn't theirs) so the tab renders an
+   * empty state rather than throwing.
+   */
+  async loadCohortAnnouncements(
+    authToken: string,
+    cohortId: number,
+  ): Promise<InstructorCohortAnnouncement[]> {
+    try {
+      const payload = await this.get<LegacyEnvelope<unknown>>(
+        `/instructor/cohorts/${cohortId}/announcements`,
+        authToken,
+      );
+      const list = Array.isArray(payload.data) ? payload.data : [];
+      return list.map((item) => {
+        const row = asRecord(item) ?? {};
+        return {
+          id: asNumber(row.id),
+          cohortId: row.cohortId == null ? null : asNumber(row.cohortId),
+          title: asString(row.title),
+          content: asString(row.content),
+          createdAt: asNullableString(row.createdAt),
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Posts a new announcement to one of this instructor's cohorts. Returns the
+   * created row, or null when the request fails / the cohort isn't theirs.
+   */
+  async createCohortAnnouncement(
+    authToken: string,
+    cohortId: number,
+    input: { title: string; content: string },
+  ): Promise<InstructorCohortAnnouncement | null> {
+    try {
+      const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+        `/instructor/cohorts/${cohortId}/announcements`,
+        authToken,
+        { title: input.title, content: input.content },
+      );
+      const row = asRecord(payload.data) ?? {};
+      return {
+        id: asNumber(row.id),
+        cohortId: row.cohortId == null ? null : asNumber(row.cohortId),
+        title: asString(row.title),
+        content: asString(row.content),
+        createdAt: asNullableString(row.createdAt),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Deletes an announcement (server enforces the instructor owns the cohort it
+   * belongs to). Returns true on success, false otherwise.
+   */
+  async deleteCohortAnnouncement(authToken: string, announcementId: number): Promise<boolean> {
+    try {
+      await this.post<LegacyEnvelope<unknown>>(
+        `/instructor/announcements/${announcementId}/delete`,
+        authToken,
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 

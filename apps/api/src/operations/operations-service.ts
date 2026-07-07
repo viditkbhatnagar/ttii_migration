@@ -11372,7 +11372,13 @@ export class OperationsService {
     const offering = applicationOfferingId
       ? await this.prisma.offerings.findFirst({
           where: { id: applicationOfferingId, deleted_at: null },
-          select: { id: true, title: true, offering_code: true },
+          // Pricing columns (base_fee / discount / offered_fee) let the Fee
+          // Summary fall back to the OFFERING's own pricing when no
+          // offering_certificate_packages row exists for the chosen
+          // (offering, combination) pair — so the figures still track the
+          // chosen offering instead of freezing on the legacy course_fee.
+          // NB: offerings has no GST column (GST lives on the package).
+          select: { id: true, title: true, offering_code: true, course_id: true, base_fee: true, discount: true, offered_fee: true },
         })
       : null;
 
@@ -11603,13 +11609,26 @@ export class OperationsService {
     // is set (legacy enrolments).
     const studentFees = enrichedEnrolments.map(e => {
       const paid = e.course_id ? (paidByCourse.get(e.course_id) ?? 0) : 0;
-      const baseFee = enrolmentPackage?.base_fee != null
-        ? Number(enrolmentPackage.base_fee)
-        : Number(e.course_fee ?? 0);
-      const discount = enrolmentPackage?.discount != null ? Number(enrolmentPackage.discount) : 0;
-      const courseFee = enrolmentPackage?.offered_fee != null
-        ? Number(enrolmentPackage.offered_fee)
-        : Math.max(0, baseFee - discount);
+      // Fee source priority: offering_certificate_packages (package row for the
+      // chosen offering+combination) → the OFFERING's own pricing → legacy
+      // course_fees. The offering fallback keeps the Fee Summary tracking the
+      // chosen offering even when no package row exists for the pair, instead
+      // of freezing on the offering-independent legacy course fee.
+      // Branch on the whole ROW, not per field: use the package row when one
+      // exists (preserving its original per-field defaults so a partial-NULL
+      // package can't pull a phantom value off the offering), else the OFFERING
+      // pricing — but ONLY for the enrolment on that offering's own course (so a
+      // multi-course student's other courses keep their own legacy fee) — else
+      // the legacy course_fees row.
+      const offeringFee =
+        offering && e.course_id === offering.course_id && (offering.base_fee != null || offering.offered_fee != null)
+          ? offering
+          : null;
+      const feeSrc = enrolmentPackage ?? offeringFee;
+      const baseFee = feeSrc?.base_fee != null ? Number(feeSrc.base_fee) : Number(e.course_fee ?? 0);
+      const discount = feeSrc?.discount != null ? Number(feeSrc.discount) : 0;
+      const courseFee = feeSrc?.offered_fee != null ? Number(feeSrc.offered_fee) : Math.max(0, baseFee - discount);
+      // offerings has no GST column, so GST stays 0 without a package row.
       const gstPercent = enrolmentPackage?.gst_percent != null ? Number(enrolmentPackage.gst_percent) : 0;
       const gstAmount = Math.round((courseFee * gstPercent) / 100);
       const courseFeeIncGst = courseFee + gstAmount;
@@ -12666,8 +12685,15 @@ export class OperationsService {
       const combinationPk = input.combinationId !== undefined ? toNullableIntId(input.combinationId) : undefined;
 
       const appFields: Record<string, unknown> = {};
-      if (input.offeringId !== undefined) appFields.offering_id = offeringPk && offeringPk > 0 ? offeringPk : null;
-      if (input.combinationId !== undefined) appFields.certificate_combination_id = combinationPk && combinationPk > 0 ? combinationPk : null;
+      // Treat a blank/untouched dropdown as "leave unchanged" — never null an
+      // existing offering/combination id (nulling it forces enrolmentPackage=null
+      // forever and freezes the Fee Summary on the legacy course_fee fallback).
+      if (input.offeringId !== undefined && input.offeringId.trim() !== '' && offeringPk && offeringPk > 0) {
+        appFields.offering_id = offeringPk;
+      }
+      if (input.combinationId !== undefined && input.combinationId.trim() !== '' && combinationPk && combinationPk > 0) {
+        appFields.certificate_combination_id = combinationPk;
+      }
       if (input.pipeline !== undefined) appFields.pipeline = input.pipeline.trim() || null;
       if (input.pipelineUser !== undefined) appFields.pipeline_user = pipelineUserPk && pipelineUserPk > 0 ? pipelineUserPk : null;
       if (input.leadSource !== undefined) appFields.lead_source = input.leadSource.trim() || null;

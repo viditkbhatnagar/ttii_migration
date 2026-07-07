@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { AnnouncementService } from '../operations/announcement-service.js';
 
 export interface InstructorProfile {
   id: number;
@@ -74,7 +75,19 @@ export type LiveClassFilter = 'upcoming' | 'past' | 'all';
 export interface InstructorLiveClassListItem extends InstructorLiveClassSummary {
   recordingFetchedAt: string | null;
   attendanceFetchedAt: string | null;
+  // True when a playable recording exists from ANY source: an uploaded Spaces
+  // storage key OR a legacy absolute recording_url / video_url. Mirrors the
+  // admin/student model (operations-service.getLiveSessionRecordingTarget).
+  hasRecording: boolean;
 }
+
+// Resolver result for a live-session recording: either a Spaces storage key we
+// sign, or an absolute URL we hand back as-is (legacy Vimeo/Graph links live in
+// recording_url / video_url). Mirrors operations-service.getLiveSessionRecordingTarget.
+export type InstructorRecordingTarget =
+  | { kind: 'key'; key: string }
+  | { kind: 'url'; url: string }
+  | null;
 
 export interface InstructorAttendanceRow {
   id: number;
@@ -174,6 +187,49 @@ export interface ScheduleLiveClassInput {
   toTime: string; // HH:MM
 }
 
+// A per-cohort announcement as surfaced to the instructor portal. Backed by the
+// shared cohort_announcements table via AnnouncementService (no new table).
+export interface InstructorCohortAnnouncement {
+  id: number;
+  cohortId: number | null;
+  title: string;
+  content: string;
+  createdAt: string | null;
+}
+
+export interface CreateCohortAnnouncementInput {
+  title: string;
+  content: string;
+}
+
+// Parse an id-ish value (AnnouncementService serializes ids as strings) into a
+// number, tolerating string | number and returning NaN for anything else.
+function idFromUnknown(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return Number.parseInt(value, 10);
+  return NaN;
+}
+
+// Coerce a serialized AnnouncementService record into the instructor shape.
+function toInstructorAnnouncement(rec: Record<string, unknown>): InstructorCohortAnnouncement {
+  const idNum = idFromUnknown(rec.id);
+  const cohortNum = idFromUnknown(rec.cohort_id);
+  const created = rec.created_at;
+  const createdAt =
+    created instanceof Date
+      ? created.toISOString()
+      : typeof created === 'string' && created
+        ? created
+        : null;
+  return {
+    id: Number.isFinite(idNum) ? idNum : 0,
+    cohortId: Number.isFinite(cohortNum) ? cohortNum : null,
+    title: typeof rec.title === 'string' ? rec.title : '',
+    content: typeof rec.content === 'string' ? rec.content : '',
+    createdAt,
+  };
+}
+
 export type ScheduleLiveClassResult =
   | { ok: true; row: InstructorLiveClassListItem }
   | { ok: false; code: 'not_found' | 'invalid'; message: string };
@@ -233,9 +289,11 @@ function formatScheduleLabel(isoDateValue: string | null, hhmm: string | null): 
 
 export class InstructorService {
   private prisma: PrismaClient;
+  private announcements: AnnouncementService;
 
   constructor(prisma: PrismaClient = getPrismaClient()) {
     this.prisma = prisma;
+    this.announcements = new AnnouncementService();
   }
 
   async getDashboard(instructorId: number): Promise<InstructorDashboardPayload> {
@@ -709,6 +767,7 @@ export class InstructorService {
         join_url: true,
         recording_url: true,
         recording_storage_key: true,
+        video_url: true,
         recording_fetched_at: true,
         attendance_fetched_at: true,
       },
@@ -728,6 +787,11 @@ export class InstructorService {
       recordingStorageKey: row.recording_storage_key ?? null,
       recordingFetchedAt: isoString(row.recording_fetched_at),
       attendanceFetchedAt: isoString(row.attendance_fetched_at),
+      hasRecording: Boolean(
+        row.recording_storage_key ||
+          (row.recording_url && /^https?:\/\//i.test(row.recording_url)) ||
+          (row.video_url && /^https?:\/\//i.test(row.video_url)),
+      ),
     }));
   }
 
@@ -878,6 +942,8 @@ export class InstructorService {
         recordingStorageKey: created.recording_storage_key ?? null,
         recordingFetchedAt: isoString(created.recording_fetched_at),
         attendanceFetchedAt: isoString(created.attendance_fetched_at),
+        // Just-scheduled session — no recording exists yet.
+        hasRecording: false,
       },
     };
   }
@@ -897,6 +963,8 @@ export class InstructorService {
         date: true,
         cohort_id: true,
         recording_storage_key: true,
+        recording_url: true,
+        video_url: true,
       },
     });
     if (!row || !row.cohort_id) return null;
@@ -908,9 +976,94 @@ export class InstructorService {
     return row;
   }
 
-  async getRecordingStorageKey(instructorId: number, liveClassId: number): Promise<string | null> {
+  /**
+   * Resolves the playable recording for one of this instructor's live sessions.
+   * Returns a Spaces storage key (route signs it), an absolute legacy URL
+   * (recording_url || video_url — route hands it back as-is), or null when no
+   * recording exists / the session isn't this instructor's. Mirrors the
+   * admin/student model (operations-service.getLiveSessionRecordingTarget).
+   */
+  async getRecordingTarget(instructorId: number, liveClassId: number): Promise<InstructorRecordingTarget> {
     const row = await this.loadOwnedLiveClass(instructorId, liveClassId);
-    return row?.recording_storage_key ?? null;
+    if (!row) return null;
+    if (row.recording_storage_key) return { kind: 'key', key: row.recording_storage_key };
+    // Test each source independently (mirrors the hasRecording gate) so a
+    // non-http(s) recording_url doesn't mask a valid http(s) video_url.
+    const fallback =
+      row.recording_url && /^https?:\/\//i.test(row.recording_url)
+        ? row.recording_url
+        : row.video_url && /^https?:\/\//i.test(row.video_url)
+          ? row.video_url
+          : null;
+    if (fallback) return { kind: 'url', url: fallback };
+    return null;
+  }
+
+  /**
+   * Confirms `cohortId` is a live, non-deleted cohort owned by this instructor.
+   * Returns true/false — callers translate false into a 404 (never leak whether
+   * the cohort exists under another instructor).
+   */
+  private async ownsCohort(instructorId: number, cohortId: number): Promise<boolean> {
+    if (!cohortId) return false;
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cohortId, instructor_id: instructorId, deleted_at: null },
+      select: { id: true },
+    });
+    return Boolean(cohort);
+  }
+
+  /**
+   * Lists announcements for one of this instructor's cohorts. Returns null when
+   * the cohort isn't theirs (route → 404). Reuses the shared AnnouncementService
+   * / cohort_announcements table — no instructor-specific storage.
+   */
+  async listCohortAnnouncements(
+    instructorId: number,
+    cohortId: number,
+  ): Promise<InstructorCohortAnnouncement[] | null> {
+    if (!(await this.ownsCohort(instructorId, cohortId))) return null;
+    const rows = await this.announcements.list({ cohortId: String(cohortId) });
+    return rows.map(toInstructorAnnouncement);
+  }
+
+  /**
+   * Creates a "sent" in-app announcement on one of this instructor's cohorts.
+   * Returns null when the cohort isn't theirs (route → 404). The instructor id
+   * is recorded as created_by via AnnouncementService.create.
+   */
+  async createCohortAnnouncement(
+    instructorId: number,
+    cohortId: number,
+    input: CreateCohortAnnouncementInput,
+  ): Promise<InstructorCohortAnnouncement | null> {
+    if (!(await this.ownsCohort(instructorId, cohortId))) return null;
+    const created = await this.announcements.create(String(instructorId), {
+      cohort_id: String(cohortId),
+      title: input.title,
+      content: input.content,
+      status: 'sent',
+      audience_type: 'all',
+      delivery_channels: ['in_app'],
+    });
+    return toInstructorAnnouncement(created);
+  }
+
+  /**
+   * Soft-deletes an announcement, but ONLY when it belongs to a cohort this
+   * instructor owns — never another cohort's or an admin-scoped (cohort-less)
+   * announcement. Returns false when the announcement is missing or not theirs
+   * (route → 404).
+   */
+  async deleteCohortAnnouncement(instructorId: number, announcementId: number): Promise<boolean> {
+    if (!announcementId) return false;
+    const existing = await this.announcements.get(String(announcementId));
+    if (!existing) return false;
+    const cohortNum = idFromUnknown(existing.cohort_id);
+    if (!Number.isFinite(cohortNum) || cohortNum <= 0) return false;
+    if (!(await this.ownsCohort(instructorId, cohortNum))) return false;
+    await this.announcements.delete(String(instructorId), String(announcementId));
+    return true;
   }
 
   async listCohorts(instructorId: number): Promise<InstructorCohortSummary[]> {

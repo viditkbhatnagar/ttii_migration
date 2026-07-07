@@ -192,18 +192,85 @@ export function registerInstructorRoutes(
       if (userId === null) return;
       const params = request.params as { id?: string };
       const liveClassId = toIntId(params.id);
-      const key = await instructorService.getRecordingStorageKey(userId, liveClassId);
-      if (!key) {
+      const target = await instructorService.getRecordingTarget(userId, liveClassId);
+      if (!target) {
         reply.code(404).send({ status: 0, message: 'Recording not available for this session.', data: {} });
         return;
       }
+      // Legacy absolute recording_url / video_url: hand back as-is (no signing).
+      if (target.kind === 'url') {
+        reply.code(200).send({ status: 1, message: 'success', data: { url: target.url } });
+        return;
+      }
+      // Uploaded Spaces object: mint a short-lived signed download URL.
       if (!storage) {
         reply.code(503).send({ status: 0, message: 'Storage provider not configured.', data: {} });
         return;
       }
       const expiresInSeconds = 3600;
-      const url = await storage.createSignedDownloadUrl({ key, expiresInSeconds });
+      const url = await storage.createSignedDownloadUrl({ key: target.key, expiresInSeconds });
       reply.code(200).send({ status: 1, message: 'success', data: { url, expiresInSeconds } });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  // Per-cohort announcements (reuse the shared cohort_announcements table via
+  // AnnouncementService — no new storage). All three routes are
+  // instructor-ownership-guarded inside the service.
+  app.get('/instructor/cohorts/:id/announcements', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const cohortId = toIntId(params.id);
+      const data = await instructorService.listCohortAnnouncements(userId, cohortId);
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Cohort not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.post('/instructor/cohorts/:id/announcements', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const cohortId = toIntId(params.id);
+      const body = (request.body as Record<string, unknown>) ?? {};
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      const content = typeof body.content === 'string' ? body.content.trim() : '';
+      if (!title || !content) {
+        reply.code(400).send({ status: 0, message: 'Title and content are required.', data: {} });
+        return;
+      }
+      const data = await instructorService.createCohortAnnouncement(userId, cohortId, { title, content });
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Cohort not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'Announcement posted.', data });
+    } catch (error: unknown) {
+      sendInstructorError(reply, error);
+    }
+  });
+
+  app.post('/instructor/announcements/:id/delete', guards, async (request, reply) => {
+    try {
+      const userId = requireUserId(request, reply);
+      if (userId === null) return;
+      const params = request.params as { id?: string };
+      const announcementId = toIntId(params.id);
+      const ok = await instructorService.deleteCohortAnnouncement(userId, announcementId);
+      if (!ok) {
+        reply.code(404).send({ status: 0, message: 'Announcement not found or not yours.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'Announcement deleted.', data: {} });
     } catch (error: unknown) {
       sendInstructorError(reply, error);
     }
