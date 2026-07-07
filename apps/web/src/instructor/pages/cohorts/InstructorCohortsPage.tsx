@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
 import { formatDate } from '../../../admin/shared/utils/admin-data-utils.js';
-import { AddLiveSessionModal } from '../../../admin/shared/components/AddLiveSessionModal.js';
+import { InstructorScheduleClassModal } from './InstructorScheduleClassModal.js';
 import type {
   InstructorAssignmentSummary,
   InstructorCohortAnnouncement,
@@ -54,7 +54,8 @@ import type { InstructorPageProps } from '../../routing/instructor-routes.js';
 // real API field: cohorts from api.loadCohorts / api.loadDashboard, live
 // classes from api.loadLiveClasses (cohort-filtered), assignments from
 // api.loadAssignments (cohort-filtered), learners from api.loadCohortDetail,
-// and cohort-scoped scheduling via the shared AddLiveSessionModal. No mock data.
+// and cohort-scoped scheduling via InstructorScheduleClassModal (Naji's Lovable
+// "Add Live Sessions" design, same shared backend as admin). No mock data.
 
 type CohortView = 'grid' | 'table';
 
@@ -468,7 +469,6 @@ function CohortDetailView({
 
   const [recordingLoadingId, setRecordingLoadingId] = useState<number | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
   const [learnerQuery, setLearnerQuery] = useState('');
 
   const cohortClasses = useMemo(
@@ -805,16 +805,16 @@ function CohortDetailView({
         </TabsContent>
       </Tabs>
 
-      {/* Cohort-scoped scheduling — the cohort is implied (no dropdown), same
-          modal + shared backend as admin (Naji/Risha 2026-07-06). */}
-      <AddLiveSessionModal
+      {/* Cohort-scoped scheduling — Naji's Lovable "Add Live Sessions" design
+          (faculty theme), same shared backend as admin. The cohort is implied
+          (no dropdown); the modal manages its own submitting state. */}
+      <InstructorScheduleClassModal
         open={scheduleOpen}
         onClose={() => setScheduleOpen(false)}
         api={api}
         token={session.token}
         cohortId={String(cohort.id)}
-        submitting={scheduleSubmitting}
-        setSubmitting={setScheduleSubmitting}
+        cohortName={cohort.title || 'this cohort'}
         onSuccess={() => {
           setScheduleOpen(false);
           toast.success('Live session scheduled.');

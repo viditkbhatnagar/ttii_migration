@@ -11484,16 +11484,30 @@ export class OperationsService {
     // base_fee / discount / course_fee / gst_percent / course_fee_inc_gst
     // pulled from offering_certificate_packages (the source of truth for
     // pricing once an offering + combination are picked).
-    const enrolmentPackage = application?.offering_id && application?.certificate_combination_id
-      ? await this.prisma.offering_certificate_packages.findFirst({
-          where: {
-            offering_id: application.offering_id,
-            combination_id: application.certificate_combination_id,
-            deleted_at: null,
-          },
-          select: { base_fee: true, discount: true, offered_fee: true, gst_percent: true, registration_fee: true },
+    // Naji 2026-07-07 — resolve pricing from the offering's PACKAGE layer, not a
+    // single exact (offering, combination) row. Package-priced offerings leave
+    // the offering-level base_fee/offered_fee columns NULL, so when the admin
+    // changes the offering and the old combination doesn't match a package for
+    // the NEW offering (or is blank), the exact-pair lookup returned null and the
+    // Fee Summary froze on the offering-independent legacy course fee. Fetch all
+    // packages for the offering and pick the one matching the chosen combination,
+    // else the offering's first/default package — so the fee tracks the offering.
+    const offeringPackages = application?.offering_id
+      ? await this.prisma.offering_certificate_packages.findMany({
+          where: { offering_id: application.offering_id, deleted_at: null },
+          orderBy: [{ position: 'asc' }, { id: 'asc' }],
+          select: { combination_id: true, fee_category: true, base_fee: true, discount: true, offered_fee: true, gst_percent: true, registration_fee: true },
         })
-      : null;
+      : [];
+    // Prefer 'paid' packages so a free/scholarship row at position 0 can't make
+    // the default show ₹0. Match the chosen combination first, else default to
+    // the offering's first paid package.
+    const paidPackages = offeringPackages.filter((p) => (p.fee_category ?? 'paid') === 'paid');
+    const pickList = paidPackages.length > 0 ? paidPackages : offeringPackages;
+    const enrolmentPackage =
+      (application?.certificate_combination_id
+        ? pickList.find((p) => p.combination_id === application.certificate_combination_id)
+        : undefined) ?? pickList[0] ?? null;
 
     // Naji UAT 2026-05-15 — Cohort sub-tab under Enrollments needs to
     // surface every cohort this student is enrolled in, grouped by the
@@ -11620,16 +11634,19 @@ export class OperationsService {
       // pricing — but ONLY for the enrolment on that offering's own course (so a
       // multi-course student's other courses keep their own legacy fee) — else
       // the legacy course_fees row.
-      const offeringFee =
-        offering && e.course_id === offering.course_id && (offering.base_fee != null || offering.offered_fee != null)
-          ? offering
-          : null;
-      const feeSrc = enrolmentPackage ?? offeringFee;
+      // Apply the offering's pricing ONLY to the enrolment on that offering's own
+      // course (a multi-course student's other courses keep their own legacy
+      // fee). Fee source priority: the resolved offering package → the offering's
+      // own scalar pricing (only if it has no packages) → legacy course_fees.
+      const onOfferingCourse = offering != null && e.course_id === offering.course_id;
+      const offeringScalar =
+        onOfferingCourse && offering && (offering.base_fee != null || offering.offered_fee != null) ? offering : null;
+      const feeSrc = onOfferingCourse ? (enrolmentPackage ?? offeringScalar) : null;
       const baseFee = feeSrc?.base_fee != null ? Number(feeSrc.base_fee) : Number(e.course_fee ?? 0);
       const discount = feeSrc?.discount != null ? Number(feeSrc.discount) : 0;
       const courseFee = feeSrc?.offered_fee != null ? Number(feeSrc.offered_fee) : Math.max(0, baseFee - discount);
-      // offerings has no GST column, so GST stays 0 without a package row.
-      const gstPercent = enrolmentPackage?.gst_percent != null ? Number(enrolmentPackage.gst_percent) : 0;
+      // GST comes from the resolved package (offerings carry no GST column).
+      const gstPercent = onOfferingCourse && enrolmentPackage?.gst_percent != null ? Number(enrolmentPackage.gst_percent) : 0;
       const gstAmount = Math.round((courseFee * gstPercent) / 100);
       const courseFeeIncGst = courseFee + gstAmount;
       return {
