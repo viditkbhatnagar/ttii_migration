@@ -20,6 +20,13 @@ import { GeneratePaymentLinkDialog } from './GeneratePaymentLinkDialog.js';
 // Stages where the Lead Snapshot view applies:
 const LEAD_STAGES = new Set(['lead', 'payment_pending', 'paid', 'form_pending']);
 
+// Pipeline label -> role_id, mirroring AddApplicationPage's map and the
+// backend create-lead labels. Drives the Reassign dialog's user dropdown.
+const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
+const PIPELINE_OPTIONS = ['Admin', 'Counsellor', 'Associate'] as const;
+const reassignSelectClass =
+  'h-10 w-full rounded-md border border-input bg-white px-3 text-sm text-gray-900 disabled:cursor-not-allowed disabled:opacity-60';
+
 // Naji UAT 2026-05-31 — once the student submits, the View page shows a
 // single unified tab bar. Lead Snapshot / Payment Plan / Lead History stay
 // available through every stage; Basic Information / Qualification /
@@ -118,6 +125,15 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   // Naji UAT 2026-05-31 — which verification key is mid-flight (disables
   // just that button while its toggle round-trips).
   const [verifyBusyKey, setVerifyBusyKey] = useState<string | null>(null);
+  // Reassign-pipeline dialog. Lets an admin correct a lead's owner
+  // (pipeline + pipeline user) without the heavyweight Edit Application
+  // form, whose full validation blocks saving a bare lead. Naji 2026-07-08.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignPipeline, setReassignPipeline] = useState('');
+  const [reassignUser, setReassignUser] = useState('');
+  const [reassignUsers, setReassignUsers] = useState<Record<string, unknown>[]>([]);
+  const [reassignUsersLoading, setReassignUsersLoading] = useState(false);
+  const [reassignSaving, setReassignSaving] = useState(false);
 
   // Extract ID from URL path
   const applicationId = useMemo(() => {
@@ -138,6 +154,72 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
 
   const payments = useMemo(() => toRecords(data?.payments), [data]);
   const educationPathway = useMemo(() => toRecords(data?.education_pathway), [data]);
+
+  // Load pipeline-user options for the pipeline chosen in the reassign dialog.
+  // Cascades whenever the pipeline changes while the dialog is open.
+  useEffect(() => {
+    if (!reassignOpen || !reassignPipeline) {
+      setReassignUsers([]);
+      return;
+    }
+    const roleId = PIPELINE_ROLE_MAP[reassignPipeline];
+    if (!roleId) {
+      setReassignUsers([]);
+      return;
+    }
+    let cancelled = false;
+    setReassignUsersLoading(true);
+    void api
+      .loadPipelineUsers(session.token, roleId)
+      .then((rows) => {
+        if (cancelled) return;
+        const loaded = toRecords(rows);
+        setReassignUsers(loaded);
+        // Drop a stale prefilled owner (e.g. a since-deleted user absent from
+        // the list) so the dropdown and the Save guard stay in agreement.
+        setReassignUser((cur) => (cur && loaded.some((u) => asString(u.id) === cur) ? cur : ''));
+      })
+      .catch(() => {
+        if (!cancelled) setReassignUsers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setReassignUsersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reassignOpen, reassignPipeline, api, session.token]);
+
+  const openReassign = useCallback(() => {
+    const currentPipeline = asString(app?.pipeline);
+    const prefill = (PIPELINE_OPTIONS as readonly string[]).includes(currentPipeline) ? currentPipeline : '';
+    setReassignPipeline(prefill);
+    // Keep the current owner selected only when its pipeline is prefilled, so
+    // the id in the dropdown matches a loaded (same-role) option.
+    setReassignUser(prefill ? asString(app?.pipeline_user) : '');
+    setReassignOpen(true);
+  }, [app]);
+
+  const submitReassign = useCallback(async () => {
+    if (!reassignPipeline) { toast.error('Please choose a pipeline.'); return; }
+    if (!reassignUser) { toast.error('Please choose a pipeline user.'); return; }
+    setReassignSaving(true);
+    try {
+      const res = await api.reassignApplicationPipeline(session.token, applicationId, reassignPipeline, reassignUser);
+      const ok = asString((res as { status?: unknown }).status) === '1' || (res as { status?: unknown }).status === 1;
+      if (ok) {
+        toast.success(asString((res as { message?: unknown }).message) || 'Pipeline reassigned.');
+        setReassignOpen(false);
+        reload();
+      } else {
+        toast.error(asString((res as { message?: unknown }).message) || 'Could not reassign pipeline.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reassign pipeline.');
+    } finally {
+      setReassignSaving(false);
+    }
+  }, [api, session.token, applicationId, reassignPipeline, reassignUser, reload]);
 
   // Naji UAT 2026-05-31 — uploaded documents (parsed server-side from the
   // legacy biography JSON) for the Documents tab + the verification gate.
@@ -384,6 +466,9 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
   // Naji UAT 2026-05-31 — application approve/reject is an Admin-only action
   // (roles 1 Super Admin, 8/9 Admin). Counsellors no longer approve.
   const isAdmin = [1, 8, 9].includes(session.roleId);
+  // Reassigning lead ownership is an admin action (Super Admin / Admin only);
+  // counsellors don't reassign leads. Matches the backend role gate.
+  const canReassign = session.roleId === 1 || session.roleId === 8;
 
   // Naji 2026-05-08 — Lead Snapshot also surfaces the payment plan
   // summary so admins/counsellors can see at a glance that one was
@@ -484,6 +569,11 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {canReassign ? (
+                <Button size="sm" variant="outline" onClick={openReassign}>
+                  Reassign
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
@@ -1302,6 +1392,86 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={reassignOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReassignOpen(false);
+            setReassignPipeline('');
+            setReassignUser('');
+            setReassignUsers([]);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign Pipeline</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-gray-600">
+              Currently{' '}
+              <span className="font-medium text-gray-900">{asString(app?.pipeline) || '-'}</span>
+              {asString(app?.pipeline_user_name) ? ` · ${asString(app?.pipeline_user_name)}` : ''}. Choose the
+              pipeline and user this lead should belong to.
+            </p>
+            <div className="space-y-2">
+              <Label className="text-sm">Pipeline *</Label>
+              <select
+                className={reassignSelectClass}
+                value={reassignPipeline}
+                onChange={(e) => { setReassignPipeline(e.target.value); setReassignUser(''); }}
+              >
+                <option value="">Select Pipeline</option>
+                {PIPELINE_OPTIONS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Pipeline User *</Label>
+              <select
+                className={reassignSelectClass}
+                value={reassignUser}
+                onChange={(e) => setReassignUser(e.target.value)}
+                disabled={!reassignPipeline || reassignUsersLoading}
+              >
+                <option value="">
+                  {!reassignPipeline
+                    ? 'Select a pipeline first'
+                    : reassignUsersLoading
+                      ? 'Loading users...'
+                      : 'Select Pipeline User'}
+                </option>
+                {reassignUsers.map((u) => {
+                  const uid = asString(u.id);
+                  return (
+                    <option key={uid} value={uid}>
+                      {asString(u.name) || asString(u.user_email) || uid}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setReassignOpen(false); setReassignPipeline(''); setReassignUser(''); setReassignUsers([]); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitReassign()}
+              disabled={reassignSaving || reassignUsersLoading || !reassignPipeline || !reassignUser}
+            >
+              {reassignSaving ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

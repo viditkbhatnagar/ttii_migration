@@ -288,6 +288,26 @@ export function registerOperationsRoutes(
     },
   });
 
+  // Surgical reassignment of an application/lead's pipeline + pipeline_user.
+  // Same gate as the full edit (requireAdminRole); the service validates the
+  // pipeline label and that the chosen user belongs to the mapped role.
+  app.post('/admin/applications/reassign_pipeline', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.reassignPipeline(
+        requestUserId(request),
+        toStringValue(payload.id || payload.application_id),
+        {
+          pipeline: toStringValue(payload.pipeline),
+          pipelineUser: toStringValue(payload.pipeline_user),
+        },
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
   app.get('/centre/applications/index', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

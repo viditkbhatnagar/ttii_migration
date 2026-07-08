@@ -2160,6 +2160,21 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/edit', authToken, { id, ...input });
   }
 
+  // Reassign only the pipeline + pipeline user of a lead/application. Partial
+  // update — does not touch any other field (unlike editApplication).
+  async reassignApplicationPipeline(
+    authToken: string,
+    id: string,
+    pipeline: string,
+    pipelineUser: string,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/reassign_pipeline', authToken, {
+      id,
+      pipeline,
+      pipeline_user: pipelineUser,
+    });
+  }
+
   async deleteApplication(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/applications/delete', authToken, { id });
   }

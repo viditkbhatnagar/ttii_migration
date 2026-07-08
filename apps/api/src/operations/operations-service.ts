@@ -1026,6 +1026,75 @@ export class OperationsService {
     return users as unknown as SqlRow[];
   }
 
+  // Reassign ONLY pipeline + pipeline_user for an application/lead. Unlike
+  // updateApplication (a ~30-column full-object overwrite that the Edit
+  // Application form gates behind full-application validation — so it can't
+  // be used to fix a bare lead), this is a surgical partial update: correct
+  // a lead's owner without re-entering the whole application. Naji 2026-07-08.
+  async reassignPipeline(
+    actorUserId: string,
+    applicationId: string,
+    input: { pipeline: string; pipelineUser: string },
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+
+    // Reassigning lead ownership is an admin action. Restrict to Super Admin
+    // (1) and Admin (8) — counsellors (9) must not reassign leads, else a
+    // counsellor could grab another counsellor's lead by id. (The list read
+    // already silos leads per counsellor; this keeps the write path in step.)
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { role_id: true },
+    });
+    if (!actor || (actor.role_id !== 1 && actor.role_id !== 8)) {
+      return { status: 0, message: 'You are not permitted to reassign pipelines.' };
+    }
+
+    // Pipeline label -> role_id. Mirrors the create-lead roleLabel map and
+    // the admin form's PIPELINE_ROLE_MAP. Centre pipelines are out of scope.
+    const PIPELINE_ROLE: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
+    const pipeline = (input.pipeline || '').trim();
+    const roleId = PIPELINE_ROLE[pipeline];
+    if (!roleId) {
+      return { status: 0, message: 'Invalid pipeline. Choose Admin, Counsellor, or Associate.' };
+    }
+
+    const pipelineUserId = toNullableIntId(input.pipelineUser);
+    if (!pipelineUserId) return { status: 0, message: 'Pipeline user is required.' };
+
+    // The chosen user must be an active member of the mapped role, so
+    // pipeline_user can never point at a mismatched or deleted user.
+    const user = await this.prisma.users.findFirst({
+      where: { id: pipelineUserId, role_id: roleId, deleted_at: null },
+      select: { id: true, name: true },
+    });
+    if (!user) {
+      return { status: 0, message: `Selected user is not an active ${pipeline}.` };
+    }
+
+    const existing = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { id: true },
+    });
+    if (!existing) return { status: 0, message: 'Application not found.' };
+
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        pipeline,
+        pipeline_user: pipelineUserId,
+        updated_by: toIntId(actorUserId),
+      },
+    });
+
+    return {
+      status: 1,
+      message: 'Pipeline reassigned.',
+      data: { pipeline, pipeline_user: pipelineUserId, pipeline_user_name: user.name },
+    };
+  }
+
   async listAdminApplications(filters: AdminApplicationFilters): Promise<Record<string, unknown>> {
     const range = normalizeReportRange(filters.fromDate, filters.toDate);
 
