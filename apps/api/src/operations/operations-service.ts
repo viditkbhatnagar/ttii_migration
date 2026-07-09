@@ -1121,7 +1121,15 @@ export class OperationsService {
       where.created_at = { ...(where.created_at as Record<string, unknown> ?? {}), lte: new Date(`${range.toDate}T23:59:59Z`) };
     }
     if ((filters.pipelineRoleId ?? 0) > 0) {
-      where.pipeline = String(filters.pipelineRoleId);
+      // `applications.pipeline` is stored as a LABEL ("Counsellor"/"Associate"/
+      // "Admin"/"Super Admin") by createLead + the Add/Edit forms, but some
+      // legacy rows store the numeric role-id string. Match BOTH so filtering
+      // by role actually returns those leads (Naji 2026-07-09 — otherwise
+      // label-valued rows silently vanish from the pipeline filter).
+      const rid = Number(filters.pipelineRoleId);
+      const pipelineLabelByRole: Record<number, string> = { 1: 'Super Admin', 8: 'Admin', 9: 'Counsellor', 10: 'Associate' };
+      const label = pipelineLabelByRole[rid];
+      where.pipeline = label ? { in: [label, String(rid)] } : String(rid);
     }
 
     // Naji 2026-05-08 — Counsellor scoping: role 9 only sees their own
@@ -9897,6 +9905,33 @@ export class OperationsService {
   // payment plan (full or installment), calls Razorpay Payment Links
   // API, persists everything on the application row, transitions stage
   // to 'payment_pending', and emails the student the link + plan.
+  // Keep only prior ledger entries that still map to the SAME instalment in a
+  // rewritten plan (valid index AND matching amount). Guards against a
+  // deleted/reordered row silently reattaching an "approved/Paid" status to a
+  // different, unpaid instalment — which would also bypass the strict
+  // one-by-one approval gate. Entries that no longer match are dropped (safe:
+  // that instalment simply reverts to unpaid, same as the old full-wipe).
+  private preserveLedgerEntries(
+    prior: unknown,
+    installments: Array<{ label?: string; amountMinor?: number; amount_minor?: number }>,
+  ): unknown[] | undefined {
+    if (!Array.isArray(prior)) return undefined;
+    const kept = prior.filter((e) => {
+      if (!e || typeof e !== 'object') return false;
+      const idx = Number((e as { index?: unknown }).index);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= installments.length) return false;
+      const row = installments[idx];
+      if (!row) return false;
+      const ledgerAmt = Number((e as { amount_minor?: unknown }).amount_minor);
+      if (Number.isFinite(ledgerAmt) && ledgerAmt > 0) {
+        const rowAmt = Number(row.amountMinor ?? row.amount_minor ?? 0);
+        if (rowAmt !== ledgerAmt) return false;
+      }
+      return true;
+    });
+    return kept.length > 0 ? kept : undefined;
+  }
+
   async generatePaymentLink(
     actorUserId: string,
     input: {
@@ -9916,8 +9951,8 @@ export class OperationsService {
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
       select: {
-        id: true, name: true, user_email: true, phone: true,
-        course_id: true, offering_id: true, stage: true, is_converted: true, pipeline_user: true,
+        id: true, application_id: true, name: true, user_email: true, phone: true, payment_plan: true,
+        student_id: true, course_id: true, offering_id: true, stage: true, is_converted: true, pipeline_user: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
@@ -9946,9 +9981,20 @@ export class OperationsService {
     const courseTitle = app.course_id
       ? (await this.prisma.course.findFirst({ where: { id: app.course_id }, select: { title: true } }))?.title ?? ''
       : '';
-    const description = input.mode === 'full'
-      ? `${courseTitle} — Course fee`
-      : `${courseTitle} — Registration fee`;
+
+    // Identify the payer in Razorpay (Naji 2026-07-09: the dashboard/app only
+    // showed a payment id + void@razorpay.com, with no way to tell WHICH
+    // student paid). Carry the student's TTS code (enrolled), the TTII
+    // application reference, name, phone and course in the description + notes
+    // so every payment is attributable in the Razorpay UI.
+    const studentCode = app.student_id
+      ? toStringValue((await this.prisma.users.findFirst({ where: { id: app.student_id }, select: { student_id: true } }))?.student_id)
+      : '';
+    const applicantRef = toStringValue(app.application_id) || `APP-${id}`;
+    const payerRef = studentCode || applicantRef;
+    const studentName = app.name ?? 'Student';
+    const feeLabel = input.mode === 'full' ? 'Course fee' : 'Registration fee';
+    const description = `${studentName} (${payerRef}) — ${courseTitle} — ${feeLabel}`.slice(0, 250);
 
     let link;
     try {
@@ -9957,16 +10003,38 @@ export class OperationsService {
         currency: 'INR',
         description,
         customer: {
-          name: app.name ?? 'Student',
+          name: studentName,
           email: app.user_email,
           ...(app.phone ? { phone: app.phone } : {}),
         },
-        notes: { application_id: String(id), mode: input.mode },
+        notes: {
+          application_ref: applicantRef,
+          student_name: studentName,
+          ...(studentCode ? { student_id: studentCode } : {}),
+          ...(app.phone ? { phone: app.phone } : {}),
+          ...(courseTitle ? { course: courseTitle } : {}),
+          mode: input.mode,
+        },
         expireBy,
       });
     } catch (err) {
       return { status: 0, message: err instanceof Error ? err.message : 'Razorpay request failed.' };
     }
+
+    // Preserve the per-instalment payment ledger + manual-payment record when
+    // (re)writing the plan. Editing/resending a plan for a student who already
+    // paid must NOT wipe their "Paid" status (Naji 2026-07-09). Entries stay
+    // index-aligned to the installments array.
+    let priorLedger: unknown;
+    let priorManual: unknown;
+    if (app.payment_plan) {
+      try {
+        const prev = JSON.parse(app.payment_plan) as Record<string, unknown>;
+        priorLedger = prev.instalment_payments;
+        priorManual = prev.manual_payment;
+      } catch { /* malformed prior plan — nothing to preserve */ }
+    }
+    const keptLedger = this.preserveLedgerEntries(priorLedger, input.installments ?? []);
 
     const planJson = JSON.stringify({
       mode: input.mode,
@@ -9977,6 +10045,8 @@ export class OperationsService {
       // link. Amounts are already baked into the totals above by the
       // frontend; this just records WHY the amount was reduced for Finance.
       additional_discounts: input.additionalDiscounts ?? [],
+      ...(keptLedger ? { instalment_payments: keptLedger } : {}),
+      ...(priorManual != null ? { manual_payment: priorManual } : {}),
     });
 
     const now = new Date();
@@ -10137,9 +10207,22 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { id: true },
+      select: { id: true, payment_plan: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
+    // Preserve the payment ledger + manual-payment record across a plan save,
+    // so an already-paid instalment doesn't lose its "Paid" status (Naji
+    // 2026-07-09). Index-aligned to the installments array.
+    let priorLedger: unknown;
+    let priorManual: unknown;
+    if (app.payment_plan) {
+      try {
+        const prev = JSON.parse(app.payment_plan) as Record<string, unknown>;
+        priorLedger = prev.instalment_payments;
+        priorManual = prev.manual_payment;
+      } catch { /* malformed prior plan — nothing to preserve */ }
+    }
+    const keptLedger = this.preserveLedgerEntries(priorLedger, plan.installments ?? []);
     const planJson = JSON.stringify({
       mode: plan.mode,
       total_amount_minor: plan.totalAmountMinor,
@@ -10149,6 +10232,8 @@ export class OperationsService {
       // already reflect the reduction; this records the WHY for Finance.
       additional_discounts: plan.additionalDiscounts ?? [],
       saved_at: new Date().toISOString(),
+      ...(keptLedger ? { instalment_payments: keptLedger } : {}),
+      ...(priorManual != null ? { manual_payment: priorManual } : {}),
     });
     await this.prisma.applications.update({
       where: { id },

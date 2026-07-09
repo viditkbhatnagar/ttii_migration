@@ -529,12 +529,19 @@ export class CommerceService {
       select: {
         id: true,
         sale_price: true,
+        title: true,
       },
     });
 
     if (!course) {
       throw new Error('Course not found');
     }
+
+    // Identify the payer in Razorpay (Naji 2026-07-09) — carry the student's
+    // name + TTS code + course so the order is attributable, not just a number.
+    const payer = userIntId
+      ? await this.prisma.users.findFirst({ where: { id: userIntId }, select: { name: true, student_id: true } })
+      : null;
 
     const amountMinor = Math.round(toDbNumber(course.sale_price) * 100);
     const receipt = input.receipt.trim() === '' ? `receipt_${Date.now()}` : input.receipt.trim();
@@ -547,6 +554,9 @@ export class CommerceService {
       notes: {
         user_id: String(userId),
         course_id: String(input.courseId),
+        ...(payer?.name ? { student_name: payer.name } : {}),
+        ...(payer?.student_id ? { student_id: String(payer.student_id) } : {}),
+        ...(course.title ? { course: course.title } : {}),
       },
     });
 
