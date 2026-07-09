@@ -231,6 +231,10 @@ export function registerOperationsRoutes(
   // Editing a student (profile / enrolment / credentials) is admin-only —
   // counsellors (role 9) may only VIEW + add enrolments (Naji 2026-06-15).
   const requireStudentEditRole = requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES);
+  // Admin/Subadmin only ([1,8]) — for surfaces counsellors must NOT touch at
+  // all (Finance ledger, fee summaries). Naji 2026-07-09: the payment ledger is
+  // a Finance function; counsellors work leads, not enrolled-student fees.
+  const requireAdminOnlyRole = requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES);
 
   // Per-record IDOR guard: on the counsellor-reachable /admin application + lead
   // routes, a counsellor (role 9) may only act on leads they OWN; admins /
@@ -248,9 +252,6 @@ export function registerOperationsRoutes(
     const payload = requestPayload(request);
     return toStringValue(payload.id || payload.application_id);
   };
-  // Payment approvals carry a rowId "<appId>" or "<appId>-<index>".
-  const appIdFromRowId = (request: FastifyRequest): string =>
-    toStringValue(requestPayload(request).id).split('-')[0] ?? '';
   const appIdFromParams = (request: FastifyRequest): string =>
     toStringValue((request.params as { id?: unknown }).id);
 
@@ -2325,7 +2326,7 @@ export function registerOperationsRoutes(
 
   // ─── Phase 3: Fee Installments ────────────────────────────────────────
 
-  app.get('/admin/fee_management/installments', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/fee_management/installments', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listFeeInstallments({
@@ -2345,7 +2346,7 @@ export function registerOperationsRoutes(
 
   // ─── Phase 3: Payment Status ──────────────────────────────────────────
 
-  app.get('/admin/fee_management/fee_summary', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+  app.get('/admin/fee_management/fee_summary', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listFeeSummary();
       reply.code(200).send({ status: 1, message: 'success', data });
@@ -2353,14 +2354,14 @@ export function registerOperationsRoutes(
   });
 
   // Payment Approval (Finance) — Naji UAT 2026-05-31.
-  app.get('/admin/fee_management/payment_approvals', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/fee_management/payment_approvals', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const data = await operationsService.listPaymentApprovals(requestUserId(request));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/fee_management/payment_approvals/approve', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromRowId)] }, async (request, reply) => {
+  app.post('/admin/fee_management/payment_approvals/approve', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.approveManualPayment(requestUserId(request), toStringValue(payload.id));
@@ -2368,7 +2369,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/fee_management/payment_approvals/reject', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromRowId)] }, async (request, reply) => {
+  app.post('/admin/fee_management/payment_approvals/reject', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.rejectManualPayment(requestUserId(request), toStringValue(payload.id), toStringValue(payload.reason));
@@ -2376,7 +2377,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.get('/admin/fee_management/payment_status', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/fee_management/payment_status', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listPaymentStatus({
@@ -4148,7 +4149,7 @@ export function registerOperationsRoutes(
 
   // ── Phase F: Payment Actions ──────────────────────────────────
 
-  app.post('/admin/fee_management/mark_paid', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/fee_management/mark_paid', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const extras: {
@@ -4170,7 +4171,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/fee_management/send_reminder', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/fee_management/send_reminder', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.sendPaymentReminder(requestUserId(request), toStringValue(payload.installment_id));
@@ -4178,7 +4179,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/student-payments/update', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/student-payments/update', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const args: {
@@ -4203,7 +4204,7 @@ export function registerOperationsRoutes(
 
   // Naji 2026-07-06 — holistic schedule editing (add an ad-hoc installment,
   // delete a wrong row) alongside the existing per-row update above.
-  app.post('/admin/student-payments/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/student-payments/add', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const args: {
@@ -4227,7 +4228,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/student-payments/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/student-payments/delete', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.deleteInstallment(requestUserId(request), toStringValue(payload.installment_id));
