@@ -105,6 +105,155 @@ function toStringValue(value: unknown): string {
   return value.trim();
 }
 
+// Full Add/Edit Application payload → AdminApplicationInput. Mirrors the inline
+// mapping in the /admin/applications/edit handler verbatim so the associate
+// Edit Application route (/centre/associate/applications/edit) hands the exact
+// same shape to the SAME updateApplication service method. Kept as a shared
+// helper so the two routes never drift.
+function buildAdminApplicationInputFromPayload(payload: Record<string, unknown>): AdminApplicationInput {
+  return {
+    firstName: toStringValue(payload.first_name),
+    lastName: toStringValue(payload.last_name),
+    email: toStringValue(payload.email),
+    phone: toStringValue(payload.phone),
+    alternatePhone: toStringValue(payload.alternate_phone),
+    dateOfBirth: toStringValue(payload.date_of_birth),
+    gender: toStringValue(payload.gender),
+    nationality: toStringValue(payload.nationality),
+    maritalStatus: toStringValue(payload.marital_status),
+    fatherName: toStringValue(payload.father_name),
+    motherName: toStringValue(payload.mother_name),
+    guardianName: toStringValue(payload.guardian_name),
+    aadharNo: toStringValue(payload.aadhar_no),
+    passportNo: toStringValue(payload.passport_no),
+    whatsappNo: toStringValue(payload.whatsapp_no),
+    addressLine1: toStringValue(payload.address_line_1),
+    addressLine2: toStringValue(payload.address_line_2),
+    city: toStringValue(payload.city),
+    state: toStringValue(payload.state),
+    pincode: toStringValue(payload.pincode),
+    country: toStringValue(payload.country),
+    permanentAddress: toStringValue(payload.permanent_address),
+    correspondenceAddress: toStringValue(payload.correspondence_address),
+    highestQualification: toStringValue(payload.highest_qualification),
+    specialization: toStringValue(payload.specialization),
+    institutionName: toStringValue(payload.institution_name),
+    yearOfPassing: toStringValue(payload.year_of_passing),
+    percentageOrCgpa: toStringValue(payload.percentage_or_cgpa),
+    workExperience: toStringValue(payload.work_experience),
+    currentOccupation: toStringValue(payload.current_occupation),
+    employmentStatus: toStringValue(payload.employment_status),
+    courseId: toStringValue(payload.course_id),
+    centreId: toStringValue(payload.centre_id),
+    batchId: toStringValue(payload.batch_id),
+    offeringId: toStringValue(payload.offering_id),
+    enrollmentDate: toStringValue(payload.enrollment_date),
+    modeOfStudy: toStringValue(payload.mode_of_study),
+    language: toStringValue(payload.language),
+    pipeline: toStringValue(payload.pipeline),
+    pipelineUser: toStringValue(payload.pipeline_user),
+    discount: toStringValue(payload.discount),
+    gstApplicability: toStringValue(payload.gst_applicability),
+    leadSource: toStringValue(payload.lead_source),
+    applicationStatus: toStringValue(payload.application_status),
+    notes: toStringValue(payload.notes),
+    crmTags: toStringValue(payload.crm_tags),
+    photoUrl: toStringValue(payload.photo_url),
+    countryCode: toStringValue(payload.country_code),
+    whatsappCountryCode: toStringValue(payload.whatsapp_country_code),
+    certificateCombinationId: toStringValue(payload.certificate_combination_id),
+    applicationDate: toStringValue(payload.application_date),
+    referenceStudentId: toStringValue(payload.reference_student_id),
+    discountType: toStringValue(payload.discount_type),
+    registrationFee: toStringValue(payload.registration_fee),
+    gstPercent: toStringValue(payload.gst_percent),
+    finalCourseFee: toStringValue(payload.final_course_fee),
+    installmentPlan: toStringValue(payload.installment_plan),
+    documents: toStringValue(payload.documents),
+  };
+}
+
+// Payment-link / payment-plan installments parser — mirrors the inline parsing
+// in the /admin/applications/payment-link/generate + payment-plan/save handlers.
+function parsePaymentInstallments(
+  payload: Record<string, unknown>,
+): Array<{ label: string; amountMinor: number; dueDate: string; gstPercent: number }> {
+  const installmentsRaw = Array.isArray(payload.installments) ? payload.installments : [];
+  return installmentsRaw
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null;
+      const r = entry as Record<string, unknown>;
+      const label = toStringValue(r.label);
+      const amountMinor = toInteger(r.amount_minor);
+      const dueDate = toStringValue(r.due_date);
+      const gstPercent = Number(r.gst_percent ?? 0);
+      if (!label || amountMinor <= 0) return null;
+      return { label, amountMinor, dueDate, gstPercent: Number.isFinite(gstPercent) ? gstPercent : 0 };
+    })
+    .filter((v): v is { label: string; amountMinor: number; dueDate: string; gstPercent: number } => v !== null);
+}
+
+// Add-enrolment args — mirrors the inline construction in the
+// /admin/students/:id/add-enrolment handler (exactOptional-safe conditional
+// assignment so undefined fields are omitted, not set to undefined).
+function buildAddEnrolmentArgs(payload: Record<string, unknown>): {
+  courseId: string;
+  offeringId?: string;
+  combinationId?: string;
+  modeOfStudy?: string;
+  preferredLanguage?: string;
+  pipeline?: string;
+  pipelineUser?: string;
+  leadSource?: string;
+  referenceStudentId?: string;
+  registrationFee?: string;
+  discount?: string;
+  discountType?: string;
+  gstPercent?: string;
+  finalCourseFee?: string;
+  paymentMode?: 'link' | 'manual' | 'draft';
+  manualPaymentMode?: string;
+  manualReference?: string;
+} {
+  const args: {
+    courseId: string;
+    offeringId?: string;
+    combinationId?: string;
+    modeOfStudy?: string;
+    preferredLanguage?: string;
+    pipeline?: string;
+    pipelineUser?: string;
+    leadSource?: string;
+    referenceStudentId?: string;
+    registrationFee?: string;
+    discount?: string;
+    discountType?: string;
+    gstPercent?: string;
+    finalCourseFee?: string;
+    paymentMode?: 'link' | 'manual' | 'draft';
+    manualPaymentMode?: string;
+    manualReference?: string;
+  } = { courseId: toStringValue(payload.course_id) };
+  if (payload.offering_id !== undefined) args.offeringId = toStringValue(payload.offering_id);
+  if (payload.combination_id !== undefined) args.combinationId = toStringValue(payload.combination_id);
+  if (payload.mode_of_study !== undefined) args.modeOfStudy = toStringValue(payload.mode_of_study);
+  if (payload.preferred_language !== undefined) args.preferredLanguage = toStringValue(payload.preferred_language);
+  if (payload.pipeline !== undefined) args.pipeline = toStringValue(payload.pipeline);
+  if (payload.pipeline_user !== undefined) args.pipelineUser = toStringValue(payload.pipeline_user);
+  if (payload.lead_source !== undefined) args.leadSource = toStringValue(payload.lead_source);
+  if (payload.reference_student_id !== undefined) args.referenceStudentId = toStringValue(payload.reference_student_id);
+  if (payload.registration_fee !== undefined) args.registrationFee = toStringValue(payload.registration_fee);
+  if (payload.discount !== undefined) args.discount = toStringValue(payload.discount);
+  if (payload.discount_type !== undefined) args.discountType = toStringValue(payload.discount_type);
+  if (payload.gst_percent !== undefined) args.gstPercent = toStringValue(payload.gst_percent);
+  if (payload.final_course_fee !== undefined) args.finalCourseFee = toStringValue(payload.final_course_fee);
+  const pm = toStringValue(payload.payment_mode);
+  if (pm === 'link' || pm === 'manual' || pm === 'draft') args.paymentMode = pm;
+  if (payload.manual_payment_mode !== undefined) args.manualPaymentMode = toStringValue(payload.manual_payment_mode);
+  if (payload.manual_reference !== undefined) args.manualReference = toStringValue(payload.manual_reference);
+  return args;
+}
+
 function toStringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -255,6 +404,38 @@ export function registerOperationsRoutes(
   const appIdFromParams = (request: FastifyRequest): string =>
     toStringValue((request.params as { id?: unknown }).id);
 
+  // Associate/centre per-application ownership guard (role 10 + role 7). Unlike
+  // requireAppOwnership (which uses actorOwnsApplication → the role-9 pipeline
+  // scope), this gates on the CENTRE ownership OR-clause (created_by = actor OR
+  // added_under_centre = actor's centre) — the same clause listCentreApplications
+  // uses. Returns 404 (existence-hiding) when the actor does not own the record,
+  // so an associate can neither read nor mutate another associate's application
+  // by id. Also correctly tightens the shared /centre/applications/convert route
+  // for centre role 7.
+  const requireAssociateAppOwnership = (getAppId: (request: FastifyRequest) => string) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      const owned = await operationsService.actorOwnsAssociateApp(requestUserId(request), getAppId(request));
+      if (!owned) {
+        await reply.code(404).send({ status: 0, message: 'Application not found.' });
+      }
+    };
+
+  // Associate/centre per-student ownership guard. The actor may act on a student
+  // only if that student sits under the actor's centre OR is linked to an
+  // application the actor owns. 404 otherwise.
+  const requireAssociateStudentOwnership = (getStudentId: (request: FastifyRequest) => string) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      const owned = await operationsService.actorOwnsAssociateStudent(requestUserId(request), getStudentId(request));
+      if (!owned) {
+        await reply.code(404).send({ status: 0, message: 'Student not found.' });
+      }
+    };
+
+  const studentIdFromParams = (request: FastifyRequest): string =>
+    toStringValue((request.params as { id?: unknown }).id);
+  const studentIdFromQuery = (request: FastifyRequest): string =>
+    toStringValue(requestPayload(request).id);
+
   app.get('/admin/applications/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
@@ -371,7 +552,12 @@ export function registerOperationsRoutes(
   app.route({
     method: ['GET', 'POST'],
     url: '/centre/applications/convert',
-    preHandler: [requireAuth, requireCentreRole],
+    // IDOR fix (2026-07-09): convertApplication is unscoped for role 10/7
+    // (applicationOwnerScope only narrows role 9), so without this guard an
+    // associate/centre could convert ANY unconverted application by id. Gate on
+    // centre ownership; 404 when not owned. Normal centre-role converts still
+    // pass (same OR-clause listCentreApplications shows them).
+    preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)],
     handler: async (request, reply) => {
       try {
         const payload = requestPayload(request);
@@ -397,6 +583,338 @@ export function registerOperationsRoutes(
         sendOperationsError(reply, error);
       }
     },
+  });
+
+  // ── Associate application detail + status (role 10, associate-scoped) ───────
+  // Same gate as the rest of /centre/* (requireCentreRole admits CENTRE=7 +
+  // ASSOCIATE=10). The service methods scope to the actor's OWN applications
+  // (created_by / added_under_centre) — they never use the role-9 scope, so an
+  // associate can only read/act on applications they referred or own.
+  app.get('/centre/applications/get', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.getAssociateApplication(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send({ status: 1, message: 'success', data: result });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/centre/applications/update_status', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.updateAssociateApplicationStatus(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toStringValue(payload.status),
+        toStringValue(payload.reject_reason),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // ── Associate CRM reads (role 10) — associate-scoped siblings of the
+  // /admin/counsellor/* endpoints. Each returns the same payload shape as its
+  // counsellor counterpart so the reused counsellor pages render unchanged.
+  app.get('/centre/associate/dashboard', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const data = await operationsService.getAssociateDashboard(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/payments', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const data = await operationsService.getAssociatePayments(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/leaderboard', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const data = await operationsService.getAssociateLeaderboard(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/targets', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const data = await operationsService.listAssociateCrmTargets(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/referrals', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const data = await operationsService.listAssociateReferrals(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // ── Associate catalog reads (global reference data — gate-only) ────────────
+  // Reuse the exact service methods the /admin routes call. No ownership scope:
+  // centres / batches / languages are global reference lists the Add/Edit forms
+  // need. Gated to centre roles only.
+  app.get('/centre/associate/centres', { preHandler: [requireAuth, requireCentreRole] }, async (_request, reply) => {
+    try {
+      // listCentresCatalog() (NOT listCentres()) — returns only id/centre_id/
+      // centre_name; never the centre password hash, wallet_balance, contact PII,
+      // or document paths. (Security review 2026-07-09.)
+      const centres = await operationsService.listCentresCatalog();
+      reply.code(200).send({ status: 1, message: 'success', data: centres });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/batches', { preHandler: [requireAuth, requireCentreRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listBatches();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/centre/associate/languages', { preHandler: [requireAuth, requireCentreRole] }, async (_request, reply) => {
+    try {
+      const data = await operationsService.listLanguages();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // ── Associate per-application actions (ownership-guarded) ──────────────────
+  // Each route mirrors its /admin sibling and calls the SAME service method
+  // unchanged, AFTER requireAssociateAppOwnership confirms the associate owns
+  // the target application (created_by / added_under_centre). 404 otherwise.
+  app.post('/centre/associate/applications/edit', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      if (!id) {
+        reply.code(200).send({ status: 0, message: 'Application ID is required.' });
+        return;
+      }
+      const result = await operationsService.updateApplication(requestUserId(request), id, buildAdminApplicationInputFromPayload(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/delete', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.deleteApplication(requestUserId(request), toStringValue(payload.id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/verify', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const verifiedRaw = payload.verified;
+      const verified = verifiedRaw === true || verifiedRaw === 1 || verifiedRaw === '1' || verifiedRaw === 'true';
+      const result = await operationsService.setApplicationVerification(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toStringValue(payload.key),
+        verified,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/form-link/generate', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.generateApplicationFormToken(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toInteger(payload.expires_in_days) || 7,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/payment-link/generate', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
+      const result = await operationsService.generatePaymentLink(requestUserId(request), {
+        applicationId: toStringValue(payload.id),
+        mode,
+        registrationFee: toInteger(payload.registration_fee_minor),
+        totalAmount: toInteger(payload.total_amount_minor),
+        installments: parsePaymentInstallments(payload),
+        additionalDiscounts: parseAdditionalDiscounts(payload.additional_discounts),
+        expiresInDays: toInteger(payload.expires_in_days) || 7,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/payment-plan/save', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const mode = toStringValue(payload.mode) === 'installment' ? 'installment' : 'full';
+      const result = await operationsService.savePaymentPlan(requestUserId(request), toStringValue(payload.id), {
+        mode,
+        totalAmountMinor: toInteger(payload.total_amount_minor),
+        registrationFeeMinor: toInteger(payload.registration_fee_minor) || null,
+        installments: parsePaymentInstallments(payload),
+        additionalDiscounts: parseAdditionalDiscounts(payload.additional_discounts),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/applications/mark-paid', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.markApplicationPaidManual(
+        requestUserId(request),
+        toStringValue(payload.id),
+        {
+          mode: toStringValue(payload.mode) || undefined,
+          reference: toStringValue(payload.reference) || undefined,
+          receiptUrl: toStringValue(payload.receipt_url) || undefined,
+          note: toStringValue(payload.note) || undefined,
+          amount: toNumber(payload.amount) || undefined,
+          paidDate: toStringValue(payload.paid_date) || undefined,
+          installmentIndex: toNumber(payload.installment_index) || undefined,
+        },
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Associate leads (create is owned by the actor; edit is guarded) ────────
+  app.post('/centre/associate/leads/add', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const email = toStringValue(payload.email);
+      if (email) {
+        const verification = await verifyEmail(email);
+        if (!verification.valid) {
+          reply.code(200).send({ status: 0, message: verification.message ?? 'Email failed verification.', data: { reason: verification.reason } });
+          return;
+        }
+      }
+      // addLead stamps created_by = actor + pipeline_user = actor, so the
+      // associate owns the lead it creates (surfaces in their scoped list).
+      const result = await operationsService.addLead(requestUserId(request), {
+        name: toStringValue(payload.name),
+        email,
+        phone: toStringValue(payload.phone),
+        countryCode: toStringValue(payload.country_code),
+        courseId: toStringValue(payload.course_id),
+        offeringId: toStringValue(payload.offering_id),
+        combinationId: toStringValue(payload.combination_id),
+        source: toStringValue(payload.source),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/leads/edit', { preHandler: [requireAuth, requireCentreRole, requireAssociateAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const id = toStringValue(payload.id);
+      const email = toStringValue(payload.email);
+      if (email) {
+        const verification = await verifyEmail(email);
+        if (!verification.valid) {
+          reply.code(200).send({ status: 0, message: verification.message ?? 'Email failed verification.', data: { reason: verification.reason } });
+          return;
+        }
+      }
+      const result = await operationsService.editLead(requestUserId(request), id, {
+        name: toStringValue(payload.name),
+        email,
+        phone: toStringValue(payload.phone),
+        countryCode: toStringValue(payload.country_code),
+        courseId: toStringValue(payload.course_id),
+        offeringId: toStringValue(payload.offering_id),
+        combinationId: toStringValue(payload.combination_id),
+        source: toStringValue(payload.source),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/centre/associate/leads/duplicate-check', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      // Redacted variant — masked name + match channel only, never the raw
+      // email/phone/student_id/user-id of a system-wide match. Prevents
+      // cross-tenant PII enumeration. (Security review 2026-07-09.)
+      const result = await operationsService.findDuplicateStudentRedacted({
+        email: toStringValue(payload.email),
+        phone: toStringValue(payload.phone),
+      });
+      reply.code(200).send({ status: 1, data: result });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Associate student detail + add-enrolment (student-ownership-guarded) ───
+  app.get('/centre/associate/students/view', { preHandler: [requireAuth, requireCentreRole, requireAssociateStudentOwnership(studentIdFromQuery)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getStudentDetail(toStringValue(payload.id));
+      reply.code(200).send(data);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/centre/associate/students/analytics', { preHandler: [requireAuth, requireCentreRole, requireAssociateStudentOwnership(studentIdFromQuery)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getStudentAnalytics(toStringValue(payload.id));
+      reply.code(200).send(data);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/centre/associate/students/:id/add-enrolment', { preHandler: [requireAuth, requireCentreRole, requireAssociateStudentOwnership(studentIdFromParams)] }, async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const payload = requestPayload(request);
+      const result = await operationsService.addAdditionalEnrolment(requestUserId(request), params.id, buildAddEnrolmentArgs(payload));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // ── Associate self-account edit (own users.id ONLY) ───────────────────────
+  // Forces the target id to the caller's own id, so an associate can only ever
+  // edit their own profile via Settings — never another user's record.
+  app.post('/centre/associate/user/edit', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      // Name + phone ONLY. Deliberately drops status / role_id / image so an
+      // associate self-edit can never re-enable a just-disabled account, change
+      // role, or overwrite privileged fields. (Security review 2026-07-09.)
+      const editInput: { name: string; phone?: string } = {
+        name: toStringValue(payload.name),
+        phone: toStringValue(payload.phone),
+      };
+      const result = await operationsService.editUser(
+        requestUserId(request),
+        requestUserId(request),
+        editInput,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
   app.get('/centre/dashboard/index', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {

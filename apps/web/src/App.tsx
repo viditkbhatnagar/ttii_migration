@@ -29,6 +29,7 @@ import { InstructorPortalApi } from './instructor/instructor-portal-api.js';
 import { CounsellorPortal, normalizeCounsellorPath } from './counsellor/counsellor-portal.js';
 import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
 import { AssociatePortal, normalizeAssociatePath } from './associate/associate-portal.js';
+import { AssociatePortalApi } from './associate/associate-portal-api.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import { StudentLoader } from './student/components/StudentLoader.js';
@@ -221,6 +222,14 @@ function createDefaultCounsellorPortalApi(baseUrl = resolveApiBaseUrl()): Counse
   );
 }
 
+function createDefaultAssociatePortalApi(baseUrl = resolveApiBaseUrl()): AssociatePortalApi {
+  return new AssociatePortalApi(
+    new LegacyApiClient({
+      baseUrl,
+    }),
+  );
+}
+
 interface RoleShellRouteProps {
   route: RoleRouteDefinition;
   pathname: string;
@@ -229,6 +238,7 @@ interface RoleShellRouteProps {
   adminPortalApi: AdminPortalApi;
   instructorPortalApi: InstructorPortalApi;
   counsellorPortalApi: CounsellorPortalApi;
+  associatePortalApi: AssociatePortalApi;
 }
 
 function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteDefinition; pathname: string; guardStatus: string }) {
@@ -281,7 +291,7 @@ function RoleShellOverview({ route, pathname, guardStatus }: { route: RoleRouteD
   );
 }
 
-function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi }: RoleShellRouteProps) {
+function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi, associatePortalApi }: RoleShellRouteProps) {
   const { authApi, phase, session, logout } = useAuthState();
   const [guardStatus, setGuardStatus] = useState<'checking' | 'ready' | 'unauthenticated' | 'forbidden' | 'error'>(
     'checking',
@@ -459,14 +469,15 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
       );
     }
 
-    // Associates ride the associate-scoped CentrePortalApi (loadApplications /
-    // loadStudents are already scoped to the associate on the backend) — never
-    // the counsellor /admin/counsellor_* endpoints, which would 403 or leak.
+    // Associates render the counsellor portal 1:1, backed by an
+    // AssociatePortalApi whose reads are scoped to the associate's own data via
+    // the /centre and /centre/associate endpoints — never the counsellor
+    // /admin/* endpoints, which would 403 or leak another user's data.
     return (
       <AssociatePortal
         pathname={pathname}
         session={session}
-        api={centrePortalApi}
+        api={associatePortalApi}
         onNavigate={navigateTo}
         onLogout={() => {
           void logout();
@@ -1067,6 +1078,7 @@ function PortalRouter({
   adminPortalApi,
   instructorPortalApi,
   counsellorPortalApi,
+  associatePortalApi,
 }: {
   initialPath: string;
   studentPortalApi: StudentPortalApi;
@@ -1074,6 +1086,7 @@ function PortalRouter({
   adminPortalApi: AdminPortalApi;
   instructorPortalApi: InstructorPortalApi;
   counsellorPortalApi: CounsellorPortalApi;
+  associatePortalApi: AssociatePortalApi;
 }) {
   const pathname = usePathname(initialPath);
   const subdomainPortal = useMemo(() => detectPortalFromSubdomain(), []);
@@ -1155,6 +1168,7 @@ function PortalRouter({
       adminPortalApi={adminPortalApi}
       instructorPortalApi={instructorPortalApi}
       counsellorPortalApi={counsellorPortalApi}
+      associatePortalApi={associatePortalApi}
     />
   );
 }
@@ -1167,9 +1181,10 @@ export interface AppProps {
   adminPortalApi?: AdminPortalApi;
   instructorPortalApi?: InstructorPortalApi;
   counsellorPortalApi?: CounsellorPortalApi;
+  associatePortalApi?: AssociatePortalApi;
 }
 
-export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi }: AppProps) {
+export default function App({ initialPath = '/', authApi, studentPortalApi, centrePortalApi, adminPortalApi, instructorPortalApi, counsellorPortalApi, associatePortalApi }: AppProps) {
   const resolvedAuthApi = useMemo(() => authApi ?? createDefaultAuthApi(), [authApi]);
   const resolvedStudentPortalApi = useMemo(
     () => studentPortalApi ?? createDefaultStudentPortalApi(),
@@ -1191,6 +1206,10 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
     () => counsellorPortalApi ?? createDefaultCounsellorPortalApi(),
     [counsellorPortalApi],
   );
+  const resolvedAssociatePortalApi = useMemo(
+    () => associatePortalApi ?? createDefaultAssociatePortalApi(),
+    [associatePortalApi],
+  );
 
   return (
     <AppErrorBoundary>
@@ -1203,6 +1222,7 @@ export default function App({ initialPath = '/', authApi, studentPortalApi, cent
             adminPortalApi={resolvedAdminPortalApi}
             instructorPortalApi={resolvedInstructorPortalApi}
             counsellorPortalApi={resolvedCounsellorPortalApi}
+            associatePortalApi={resolvedAssociatePortalApi}
           />
           <SessionExpiredDialog />
         </ConfirmDialogProvider>

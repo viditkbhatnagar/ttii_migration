@@ -1,11 +1,11 @@
 import type { AuthSession } from '@ttii/frontend-core';
-import type { CentrePortalApi } from '../centre/centre-portal-api.js';
+import type { AssociatePortalApi } from './associate-portal-api.js';
 import { AssociateLayout } from './layout/AssociateLayout.js';
 
 interface AssociatePortalProps {
   pathname: string;
   session: AuthSession;
-  api: CentrePortalApi;
+  api: AssociatePortalApi;
   onNavigate: (href: string) => void;
   onLogout: () => void;
 }

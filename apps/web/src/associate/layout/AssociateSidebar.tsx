@@ -1,10 +1,18 @@
 import {
+  BarChart3,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
+  FileBarChart2,
   FileText,
+  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   PlayCircle,
+  Settings,
+  Share2,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,7 +26,15 @@ const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard,
   FileText,
   GraduationCap,
+  BarChart3,
+  BookOpen,
+  CreditCard,
   PlayCircle,
+  FolderOpen,
+  FileBarChart2,
+  Target,
+  Share2,
+  Settings,
 };
 
 interface AssociateSidebarProps {
@@ -62,6 +78,7 @@ function SidebarNavItem({
   );
 }
 
+// Flat list — matches the counsellor prototype exactly (no General/Tools sections).
 function SidebarNav({
   pathname,
   collapsed,
@@ -130,26 +147,37 @@ function SidebarLogo({
   );
 }
 
-// Footer — associates have NO Monthly-Goal card; when collapsed we keep only an
-// expand affordance so the sidebar can be reopened.
-function CollapsedExpandButton({ onToggle }: { onToggle?: () => void }) {
-  if (!onToggle) return null;
+// Footer — orange "Monthly Goal" progress card (real target achievement %).
+function MonthlyGoalFooter({ collapsed, pct, onToggle }: { collapsed: boolean; pct: number; onToggle?: () => void }) {
+  if (collapsed) {
+    return onToggle ? (
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Expand sidebar"
+        title="Expand sidebar"
+        className="h-9 w-full text-cn-sidebar-fg hover:bg-cn-navy-2 hover:text-white"
+        onClick={onToggle}
+      >
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </Button>
+    ) : null;
+  }
+
+  const safe = Math.min(100, Math.max(0, Math.round(pct)));
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label="Expand sidebar"
-      title="Expand sidebar"
-      className="h-9 w-full text-cn-sidebar-fg hover:bg-cn-navy-2 hover:text-white"
-      onClick={onToggle}
-    >
-      <ChevronRight className="size-4" aria-hidden="true" />
-    </Button>
+    <div className="rounded-lg bg-cn-orange p-3 text-white">
+      <p className="text-xs font-medium opacity-90">Monthly Goal</p>
+      <p className="text-lg font-bold">{safe}% Complete</p>
+      <div className="mt-2 h-1.5 rounded-full bg-white/20">
+        <div className="h-full rounded-full bg-white transition-all" style={{ width: `${safe}%` }} />
+      </div>
+    </div>
   );
 }
 
 export function AssociateSidebar({ pathname, session: _session, onNavigate }: AssociateSidebarProps) {
-  const { sidebarCollapsed, toggleSidebar } = useAssociateLayout();
+  const { sidebarCollapsed, toggleSidebar, monthlyGoalPct } = useAssociateLayout();
 
   return (
     <aside
@@ -167,16 +195,16 @@ export function AssociateSidebar({ pathname, session: _session, onNavigate }: As
         </div>
       </ScrollArea>
 
-      {sidebarCollapsed ? (
-        <div className="border-t border-cn-navy-2 p-2">
-          <CollapsedExpandButton onToggle={toggleSidebar} />
-        </div>
-      ) : null}
+      <div className={cn('border-t border-cn-navy-2', sidebarCollapsed ? 'p-2' : 'p-4')}>
+        <MonthlyGoalFooter collapsed={sidebarCollapsed} pct={monthlyGoalPct ?? 0} onToggle={toggleSidebar} />
+      </div>
     </aside>
   );
 }
 
 export function AssociateSidebarMobile({ pathname, session: _session, onNavigate }: AssociateSidebarProps) {
+  const { monthlyGoalPct } = useAssociateLayout();
+
   return (
     <div className="flex h-full flex-col bg-cn-navy">
       <SidebarLogo collapsed={false} onNavigate={onNavigate} />
@@ -186,6 +214,10 @@ export function AssociateSidebarMobile({ pathname, session: _session, onNavigate
           <SidebarNav pathname={pathname} collapsed={false} onNavigate={onNavigate} />
         </div>
       </ScrollArea>
+
+      <div className="border-t border-cn-navy-2 p-4">
+        <MonthlyGoalFooter collapsed={false} pct={monthlyGoalPct ?? 0} />
+      </div>
     </div>
   );
 }

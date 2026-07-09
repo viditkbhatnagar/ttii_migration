@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { AuthService } from '../auth/auth-service.js';
 import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
-import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import { CertificationPartnerService, type CertificationPartnerInput } from '../content/certification-partner-service.js';
 import { CertificateCombinationService, type CertificateCombinationInput } from '../content/certificate-combination-service.js';
 
@@ -69,11 +69,51 @@ export function registerCertificationRoutes(
   const requireAuth = requireLegacyAuth(authService);
   const requireAdmin = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
   const guards = { preHandler: [requireAuth, requireAdmin] };
+  // Centre roles (CENTRE=7 + ASSOCIATE=10) — read-only mirrors of the partner /
+  // combination catalog for the associate Add/Edit/Payment forms. Global
+  // reference data → gate-only.
+  const requireCentre = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
+  const centreGuards = { preHandler: [requireAuth, requireCentre] };
 
   // ─── Certification Partners ──────────────────────────────────────────
   app.get('/admin/certification_partners', guards, async (_request, reply) => {
     try {
       reply.code(200).send({ status: 1, message: 'success', data: await partners.list() });
+    } catch (e) { sendError(reply, e); }
+  });
+
+  // ─── Centre/associate catalog mirrors (reuse the exact service methods) ──
+  app.get('/centre/certification_partners', centreGuards, async (_request, reply) => {
+    try {
+      reply.code(200).send({ status: 1, message: 'success', data: await partners.list() });
+    } catch (e) { sendError(reply, e); }
+  });
+
+  app.get('/centre/certificate_combinations', centreGuards, async (request, reply) => {
+    try {
+      const p = requestPayload(request);
+      const courseId = toStringValue(p.course_id) || undefined;
+      const status = toStringValue(p.status) || undefined;
+      reply.code(200).send({
+        status: 1,
+        message: 'success',
+        data: await combos.list({
+          ...(courseId ? { courseId } : {}),
+          ...(status ? { status } : {}),
+        }),
+      });
+    } catch (e) { sendError(reply, e); }
+  });
+
+  app.get('/centre/certificate_combinations/:id', centreGuards, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await combos.get(toStringValue(params.id));
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Combination not found.', data: {} });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
     } catch (e) { sendError(reply, e); }
   });
 

@@ -1,7 +1,7 @@
 import { Suspense, useMemo } from 'react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { resolveAssociateRoute, type AssociatePageProps } from './associate-routes.js';
-import type { CentrePortalApi } from '../../centre/centre-portal-api.js';
+import type { AssociatePortalApi } from '../associate-portal-api.js';
 import type { AuthSession } from '@ttii/frontend-core';
 
 function AssociatePageSkeleton() {
@@ -26,7 +26,7 @@ function AssociateNotFoundPage({ pathname, onNavigate }: { pathname: string; onN
 
 interface AssociateRouterProps {
   pathname: string;
-  api: CentrePortalApi;
+  api: AssociatePortalApi;
   session: AuthSession;
   onNavigate: (href: string) => void;
 }

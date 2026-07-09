@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
-import type { CentrePortalApi } from '../../centre/centre-portal-api.js';
+import type { AssociatePortalApi } from '../associate-portal-api.js';
 import { AssociateLayoutProvider, useAssociateLayout } from './AssociateLayoutContext.js';
 import { AssociateSidebar, AssociateSidebarMobile } from './AssociateSidebar.js';
 import { AssociateNavbar } from './AssociateNavbar.js';
@@ -12,7 +12,7 @@ import { PortalThemeProvider } from '@/lib/portal-theme';
 interface AssociateLayoutInnerProps {
   pathname: string;
   session: AuthSession;
-  api: CentrePortalApi;
+  api: AssociatePortalApi;
   onNavigate: (href: string) => void;
   onLogout: () => void;
 }
@@ -63,7 +63,7 @@ function AssociateLayoutInner({ pathname, session, api, onNavigate, onLogout }: 
 export interface AssociateLayoutProps {
   pathname: string;
   session: AuthSession;
-  api: CentrePortalApi;
+  api: AssociatePortalApi;
   onNavigate: (href: string) => void;
   onLogout: () => void;
 }

@@ -4,7 +4,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { extractAuthToken, requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { buildLegacyUserData } from '../auth/legacy-user-data.js';
 import { getPrismaClient } from '../data/prisma-client.js';
-import { ADMIN_PORTAL_ROLES } from '../auth/roles.js';
+import { ADMIN_PORTAL_ROLES, CENTRE_PORTAL_ROLES } from '../auth/roles.js';
 import { ProgramService, type ProgramInput } from '../content/program-service.js';
 import { OfferingService, type OfferingInput } from '../content/offering-service.js';
 import { ContentAssetService, type ContentAssetInput, type QuizQuestionInput } from '../content/content-asset-service.js';
@@ -577,6 +577,66 @@ export function registerContentRoutes(
   // ── Admin Course CRUD routes ────────────────────────────────────
 
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
+  // Centre roles (CENTRE=7 + ASSOCIATE=10) — for associate-portal catalog reads
+  // and a shared upload. These are global reference data / a public-asset
+  // upload, so gate-only (no ownership scope needed).
+  const requireCentreRole = requireLegacyRoles(authService, CENTRE_PORTAL_ROLES);
+
+  // ── Centre/associate catalog reads (reuse the exact /admin service calls) ──
+  // NOTE: /centre/offerings + /centre/offerings/:id/packages live next to the
+  // admin offerings block below, where `offeringService` is in scope.
+  app.get('/centre/courses/:id/required-documents', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const id = toStringValue((request.params as { id?: string }).id);
+      const data = await contentService.listCourseRequiredDocuments(id);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendContentError(reply, error); }
+  });
+
+  // Shared public-asset upload for centre/associate portals — mirrors
+  // /admin/upload (same storage, same public-read brand-asset semantics).
+  app.post('/centre/upload', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    const storage = options.storage;
+    if (!storage) {
+      return reply.code(500).send({ status: 0, message: 'Storage not configured' });
+    }
+    try {
+      const file = await request.file();
+      if (!file) {
+        return reply.code(400).send({ status: 0, message: 'No file provided' });
+      }
+      // Restrict this centre/associate-population upload to images + PDF.
+      // Defense in depth: validate BOTH the declared mimetype and the file
+      // extension; reject anything else with a clear 400. (Security review
+      // 2026-07-09.)
+      const ext = (file.filename.split('.').pop() ?? '').toLowerCase();
+      const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
+      const ALLOWED_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'pdf']);
+      if (!ALLOWED_MIME.has(file.mimetype) || !ALLOWED_EXT.has(ext)) {
+        file.file.resume(); // drain the rejected upload stream so the request completes
+        return reply.code(400).send({
+          status: 0,
+          message: 'Unsupported file type. Allowed: PNG, JPG, WEBP, GIF, PDF.',
+        });
+      }
+      const key = `public/uploads/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const chunks: Buffer[] = [];
+      for await (const chunk of file.file) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+      }
+      const body = Buffer.concat(chunks);
+      const result = await storage.uploadObject({
+        key,
+        body,
+        contentType: file.mimetype,
+        cacheControl: 'public, max-age=31536000, immutable',
+        publicRead: true,
+      });
+      reply.code(200).send({ status: 1, message: 'File uploaded', data: { key: result.key, url: result.location } });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
 
   function toNumber(value: unknown): number {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -1355,6 +1415,38 @@ export function registerContentRoutes(
 
   // ── Certificate Packages on an Offering ──────────────────────────
   app.get('/admin/offerings/:id/packages', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const params = request.params as { id?: string };
+      const data = await offeringService.listOfferingPackages(toStringValue(params.id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  // Centre/associate mirrors (gate-only; reuse the exact offeringService calls).
+  app.get('/centre/offerings', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toStringValue(payload.course_id) || undefined;
+      const centreId = toStringValue(payload.centre_id) || undefined;
+      const programId = toStringValue(payload.program_id) || undefined;
+      const statusFilter = toStringValue(payload.status) || undefined;
+      const enrollmentOpen = toStringValue(payload.enrollment_open) === '1';
+      const offerings = await offeringService.listOfferings({
+        ...(courseId ? { courseId } : {}),
+        ...(centreId ? { centreId } : {}),
+        ...(programId ? { programId } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(enrollmentOpen ? { enrollmentOpen: true } : {}),
+      });
+      reply.code(200).send({ status: 1, message: 'success', data: offerings });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  app.get('/centre/offerings/:id/packages', { preHandler: [requireAuth, requireCentreRole] }, async (request, reply) => {
     try {
       const params = request.params as { id?: string };
       const data = await offeringService.listOfferingPackages(toStringValue(params.id));

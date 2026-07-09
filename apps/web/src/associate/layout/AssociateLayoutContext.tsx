@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
-import type { CentrePortalApi } from '../../centre/centre-portal-api.js';
+import type { AssociatePortalApi } from '../associate-portal-api.js';
 
 interface AssociateCurrentUser {
   name: string;
@@ -25,16 +25,15 @@ interface AssociateLayoutState {
   closeMobileSidebar: () => void;
   currentUser: AssociateCurrentUser | null;
   refreshCurrentUser: () => void;
-  /** Topbar notifications feed. Associates have no target/CRM feed, so this
-   *  stays empty (the navbar renders its "all caught up" empty state). */
-  notifications: readonly AssociateNotification[];
+  /** Real monthly target achievement % (sidebar "Monthly Goal" card). null until
+   *  loaded. Associates carry no target, so the backend returns 0 — the card
+   *  still renders identically to the counsellor sidebar. */
+  monthlyGoalPct: number | null;
+  /** Latest application events, surfaced as topbar notifications. */
+  notifications: AssociateNotification[];
 }
 
 const AssociateLayoutCtx = createContext<AssociateLayoutState | null>(null);
-
-// Associates have no CRM/target notifications feed. A stable module-level empty
-// array keeps the topbar's "all caught up" state without churning memo deps.
-const EMPTY_NOTIFICATIONS: readonly AssociateNotification[] = [];
 
 function computeInitials(name: string): string {
   const trimmed = name.trim();
@@ -51,7 +50,7 @@ function computeInitials(name: string): string {
 
 interface AssociateLayoutProviderProps {
   children: ReactNode;
-  api: CentrePortalApi;
+  api: AssociatePortalApi;
   session: AuthSession;
 }
 
@@ -60,6 +59,8 @@ export function AssociateLayoutProvider({ children, api, session }: AssociateLay
   const [mobileOpen, setMobileOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<AssociateCurrentUser | null>(null);
   const [userVersion, setUserVersion] = useState(0);
+  const [monthlyGoalPct, setMonthlyGoalPct] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<AssociateNotification[]>([]);
 
   const toggleSidebar = useCallback(() => setCollapsed((v) => !v), []);
   const toggleMobileSidebar = useCallback(() => setMobileOpen((v) => !v), []);
@@ -89,6 +90,45 @@ export function AssociateLayoutProvider({ children, api, session }: AssociateLay
     };
   }, [api, session, userVersion]);
 
+  // Best-effort: pull the associate dashboard once for the sidebar Monthly-Goal
+  // % and the topbar notifications feed (real application events). Failures stay
+  // silent — the chrome simply renders its empty state.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const dash = await api.loadCounsellorDashboard(session.token);
+        if (cancelled) return;
+        const kpis = (dash.kpis ?? {}) as Record<string, unknown>;
+        const pct = Number(kpis.achievementPct);
+        setMonthlyGoalPct(Number.isFinite(pct) ? pct : 0);
+        const activity = Array.isArray(dash.recentActivity) ? dash.recentActivity : [];
+        const asStr = (v: unknown, fallback: string): string =>
+          typeof v === 'string' ? v : typeof v === 'number' ? String(v) : fallback;
+        setNotifications(
+          activity.slice(0, 6).map((raw, i) => {
+            const e = (raw ?? {}) as Record<string, unknown>;
+            const createdAt = e.createdAt;
+            return {
+              id: asStr(e.id, String(i)),
+              type: asStr(e.type, 'event'),
+              title: asStr(e.title, 'Activity'),
+              detail: asStr(e.detail, ''),
+              createdAt: typeof createdAt === 'string' ? createdAt : null,
+            };
+          }),
+        );
+      } catch {
+        if (cancelled) return;
+        setMonthlyGoalPct(0);
+        setNotifications([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session]);
+
   const value = useMemo(
     () => ({
       sidebarCollapsed: collapsed,
@@ -98,7 +138,8 @@ export function AssociateLayoutProvider({ children, api, session }: AssociateLay
       closeMobileSidebar,
       currentUser,
       refreshCurrentUser,
-      notifications: EMPTY_NOTIFICATIONS,
+      monthlyGoalPct,
+      notifications,
     }),
     [
       collapsed,
@@ -108,6 +149,8 @@ export function AssociateLayoutProvider({ children, api, session }: AssociateLay
       closeMobileSidebar,
       currentUser,
       refreshCurrentUser,
+      monthlyGoalPct,
+      notifications,
     ],
   );
 

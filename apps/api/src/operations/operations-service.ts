@@ -7599,6 +7599,550 @@ export class OperationsService {
     })) as unknown as SqlRow[];
   }
 
+  // ─── Associate CRM (role 10) — associate-scoped siblings of the counsellor
+  // dashboard/payments/leaderboard/targets/referrals reads. Each returns the
+  // SAME output shape as its counsellor counterpart so the reused counsellor
+  // pages render unchanged, but every read is scoped to the ACTOR's own data
+  // via the centre ownership OR-clause (added_under_centre = actor's centre OR
+  // created_by = actor). NEVER uses pipeline_user / the role-9 scope, so an
+  // associate can only ever see applications/students they referred or own.
+
+  /** Applications owned by this associate — mirrors listCentreApplications'
+   *  scoping. created_by always matches (addCentreApplication stamps it); the
+   *  centre clause is only added when the associate has a centre so we never
+   *  match centre-less rows via `added_under_centre = 0`. */
+  private associateOwnershipOr(actorUserId: string, centreId: string): Prisma.applicationsWhereInput[] {
+    const ownershipOr: Prisma.applicationsWhereInput[] = [{ created_by: toIntId(actorUserId) }];
+    if (centreId) ownershipOr.push({ added_under_centre: toIntId(centreId) });
+    return ownershipOr;
+  }
+
+  /**
+   * Route-guard companion for the associate/centre per-application routes.
+   * Returns true iff the application exists AND is owned by the actor
+   * (created_by = actor OR added_under_centre = actor's centre). Never uses the
+   * role-9 pipeline scope. Applied as a preHandler so an associate can only
+   * read/act on applications they referred or own — and to close the shared
+   * /centre/applications/convert IDOR for centre role 7 as well.
+   */
+  async actorOwnsAssociateApp(actorUserId: string, applicationId: string): Promise<boolean> {
+    const id = toIntId(applicationId);
+    if (!id) return false;
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const owned = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null, OR: this.associateOwnershipOr(actorUserId, centreId) },
+      select: { id: true },
+    });
+    return owned !== null;
+  }
+
+  /**
+   * Route-guard companion for the associate/centre per-student routes. Returns
+   * true iff the student (role 2) sits under the actor's centre OR is linked to
+   * an application the actor owns (via applications.student_id back-ref or the
+   * student's users.application_id). Never exposes arbitrary students.
+   */
+  async actorOwnsAssociateStudent(actorUserId: string, studentId: string): Promise<boolean> {
+    const uid = toIntId(studentId);
+    if (!uid) return false;
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const user = await this.prisma.users.findFirst({
+      where: { id: uid, role_id: 2, deleted_at: null },
+      select: { id: true, application_id: true, added_under_centre: true },
+    });
+    if (!user) return false;
+    // Direct: the student's own record is under the associate's centre.
+    if (centreId && user.added_under_centre === toIntId(centreId)) return true;
+    // Otherwise: a linked application the associate owns.
+    const appLinkOr: Prisma.applicationsWhereInput[] = [{ student_id: uid }];
+    if (user.application_id) appLinkOr.push({ id: user.application_id });
+    const owned = await this.prisma.applications.findFirst({
+      where: {
+        deleted_at: null,
+        AND: [{ OR: appLinkOr }, { OR: this.associateOwnershipOr(actorUserId, centreId) }],
+      },
+      select: { id: true },
+    });
+    return owned !== null;
+  }
+
+  /**
+   * Associate dashboard — same payload shape as getCounsellorDashboard, scoped
+   * to the associate's own applications. Associates have no counsellor_target
+   * rows, so the target/achievement KPIs are 0 (every key stays present).
+   */
+  async getAssociateDashboard(actorUserId: string): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
+
+    const [apps, dropoutCount] = await Promise.all([
+      this.prisma.applications.findMany({
+        where: { deleted_at: null, OR: ownershipOr },
+        select: {
+          id: true,
+          application_id: true,
+          name: true,
+          course_id: true,
+          stage: true,
+          is_converted: true,
+          created_at: true,
+        },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.users.count({
+        where: {
+          role_id: 2,
+          deleted_at: null,
+          drop_out_at: { not: null },
+          OR: centreId
+            ? [{ added_under_centre: Number(centreId) }, { created_by: toIntId(actorUserId) }]
+            : [{ created_by: toIntId(actorUserId) }],
+        },
+      }),
+    ]);
+
+    const isEnrolled = (a: { stage: string | null; is_converted: number | null }): boolean =>
+      a.stage === 'enrolled' || a.is_converted === 1;
+    const isRejected = (a: { stage: string | null }): boolean => a.stage === 'rejected';
+
+    const totalApplications = apps.length;
+    const totalEnrollments = apps.filter(isEnrolled).length;
+    const pendingApplications = apps.filter((a) => !isEnrolled(a) && !isRejected(a)).length;
+    const ytd = apps.filter((a) => a.created_at != null && a.created_at >= yearStart).length;
+
+    // Associates carry no targets — keep the keys, zero the values.
+    const monthlyTargetPoint = 0;
+    const targetAchieved = 0;
+    const achievementPct = 0;
+
+    // Admissions trend — last 6 calendar months (applications + enrollments).
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const trendBuckets: { label: string; applications: number; enrollments: number }[] = [];
+    const trendIndex = new Map<string, number>();
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      trendIndex.set(`${d.getFullYear()}-${d.getMonth()}`, trendBuckets.length);
+      trendBuckets.push({ label: monthLabels[d.getMonth()] ?? '', applications: 0, enrollments: 0 });
+    }
+    for (const a of apps) {
+      if (a.created_at == null) continue;
+      const idx = trendIndex.get(`${a.created_at.getFullYear()}-${a.created_at.getMonth()}`);
+      if (idx === undefined) continue;
+      const bucket = trendBuckets[idx];
+      if (!bucket) continue;
+      bucket.applications += 1;
+      if (isEnrolled(a)) bucket.enrollments += 1;
+    }
+
+    // Course performance — group by course_id, resolve titles, top 6 by volume.
+    const byCourse = new Map<number, { applications: number; enrollments: number }>();
+    for (const a of apps) {
+      if (a.course_id == null) continue;
+      const entry = byCourse.get(a.course_id) ?? { applications: 0, enrollments: 0 };
+      entry.applications += 1;
+      if (isEnrolled(a)) entry.enrollments += 1;
+      byCourse.set(a.course_id, entry);
+    }
+    const courseIds = [...byCourse.keys()];
+    const courses =
+      courseIds.length > 0
+        ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : [];
+    const courseMap = new Map<number, string>(courses.map((c) => [c.id, c.title ?? `Course #${c.id}`]));
+    const courseTitle = (id: number | null): string =>
+      id != null ? courseMap.get(id) ?? `Course #${id}` : '—';
+    const coursePerformance = [...byCourse.entries()]
+      .map(([courseId, v]) => ({
+        courseId,
+        courseTitle: courseTitle(courseId),
+        applications: v.applications,
+        enrollments: v.enrollments,
+        conversionPct: v.applications > 0 ? Math.round((v.enrollments / v.applications) * 100) : 0,
+      }))
+      .sort((a, b) => b.applications - a.applications)
+      .slice(0, 6);
+
+    // Pipeline snapshot — most recent rows per pending stage.
+    const snapshotRow = (a: (typeof apps)[number]) => ({
+      id: a.id,
+      applicationId: a.application_id ?? `#${a.id}`,
+      name: a.name ?? '—',
+      course: courseTitle(a.course_id),
+      date: a.created_at ? a.created_at.toISOString() : null,
+      stage: a.stage ?? 'lead',
+    });
+    const byStage = (stage: string) => apps.filter((a) => a.stage === stage).slice(0, 5).map(snapshotRow);
+
+    // Recent activity — latest events across the associate's applications.
+    const appIds = apps.map((a) => a.id);
+    const appNameById = new Map<number, string>(apps.map((a) => [a.id, a.name ?? '—']));
+    const events =
+      appIds.length > 0
+        ? await this.prisma.application_events.findMany({
+            where: { application_id: { in: appIds } },
+            orderBy: { created_at: 'desc' },
+            take: 8,
+            select: { id: true, application_id: true, event_type: true, description: true, created_at: true },
+          })
+        : [];
+    const recentActivity = events.map((e) => ({
+      id: e.id,
+      type: e.event_type ?? 'event',
+      title: e.description ?? e.event_type ?? 'Activity',
+      detail: appNameById.get(e.application_id) ?? '',
+      createdAt: e.created_at ? e.created_at.toISOString() : null,
+    }));
+
+    // Month-over-month deltas (calendar month) for the count KPIs.
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const inThisMonth = (d: Date | null): boolean => d != null && d >= thisMonthStart;
+    const inLastMonth = (d: Date | null): boolean => d != null && d >= lastMonthStart && d < thisMonthStart;
+    const pctChange = (cur: number, prev: number): number =>
+      prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : cur > 0 ? 100 : 0;
+    const appsThis = apps.filter((a) => inThisMonth(a.created_at));
+    const appsLast = apps.filter((a) => inLastMonth(a.created_at));
+    const isPending = (a: { stage: string | null; is_converted: number | null }): boolean =>
+      !isEnrolled(a) && !isRejected(a);
+    const deltas = {
+      totalApplications: pctChange(appsThis.length, appsLast.length),
+      totalEnrollments: pctChange(appsThis.filter(isEnrolled).length, appsLast.filter(isEnrolled).length),
+      pendingApplications: pctChange(appsThis.filter(isPending).length, appsLast.filter(isPending).length),
+    };
+
+    // Rolling 30-day deltas (last 30 days vs the prior 30 days).
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const window30Start = new Date(now.getTime() - 30 * DAY_MS);
+    const window60Start = new Date(now.getTime() - 60 * DAY_MS);
+    const inCurrentWindow = (d: Date | null): boolean => d != null && d >= window30Start;
+    const inPriorWindow = (d: Date | null): boolean =>
+      d != null && d >= window60Start && d < window30Start;
+    const deltaPct = (current: number, prior: number): number =>
+      prior === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - prior) / prior) * 100);
+    const appsCurrentWindow = apps.filter((a) => inCurrentWindow(a.created_at));
+    const appsPriorWindow = apps.filter((a) => inPriorWindow(a.created_at));
+    const applicationsDeltaPct = deltaPct(appsCurrentWindow.length, appsPriorWindow.length);
+    const enrollmentsDeltaPct = deltaPct(
+      appsCurrentWindow.filter(isEnrolled).length,
+      appsPriorWindow.filter(isEnrolled).length,
+    );
+    const pendingDeltaPct = deltaPct(
+      appsCurrentWindow.filter(isPending).length,
+      appsPriorWindow.filter(isPending).length,
+    );
+
+    // Application funnel — counts per pipeline stage (Lead → Rejected) + conversion.
+    const FUNNEL_STAGES: { key: string; label: string }[] = [
+      { key: 'lead', label: 'Lead' },
+      { key: 'payment_pending', label: 'Payment Pending' },
+      { key: 'paid', label: 'Paid' },
+      { key: 'form_pending', label: 'Form Pending' },
+      { key: 'form_submitted', label: 'Form Submitted' },
+      { key: 'approval_waiting', label: 'Approval Waiting' },
+      { key: 'rejected', label: 'Rejected' },
+    ];
+    const funnel = FUNNEL_STAGES.map((s) => ({
+      key: s.key,
+      label: s.label,
+      count: apps.filter((a) => a.stage === s.key).length,
+    }));
+    const overallConversionPct =
+      totalApplications > 0 ? Math.round((totalEnrollments / totalApplications) * 1000) / 10 : 0;
+
+    return {
+      kpis: {
+        totalApplications,
+        totalEnrollments,
+        pendingApplications,
+        totalDropouts: dropoutCount,
+        monthlyTargetPoint,
+        targetAchieved,
+        achievementPct,
+        ytd,
+        applicationsDeltaPct,
+        enrollmentsDeltaPct,
+        pendingDeltaPct,
+      },
+      deltas,
+      funnel,
+      overallConversionPct,
+      admissionsTrend: {
+        labels: trendBuckets.map((b) => b.label),
+        applications: trendBuckets.map((b) => b.applications),
+        enrollments: trendBuckets.map((b) => b.enrollments),
+      },
+      coursePerformance,
+      pipelineSnapshot: {
+        paymentPending: byStage('payment_pending'),
+        formPending: byStage('form_pending'),
+        approvalWaiting: byStage('approval_waiting'),
+      },
+      recentActivity,
+    };
+  }
+
+  /**
+   * Associate payments — same shape as getCounsellorPayments ({ summary, rows }),
+   * scoped to the associate's own applications.
+   */
+  async getAssociatePayments(actorUserId: string): Promise<Record<string, unknown>> {
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
+    const apps = await this.prisma.applications.findMany({
+      where: { deleted_at: null, OR: ownershipOr },
+      select: {
+        id: true,
+        application_id: true,
+        name: true,
+        course_id: true,
+        application_final_fee: true,
+        payment_status: true,
+        payment_link_url: true,
+        payment_marked_paid_at: true,
+        stage: true,
+        created_at: true,
+      },
+      orderBy: { id: 'desc' },
+    });
+
+    const courseIds = [...new Set(apps.map((a) => a.course_id).filter((x): x is number => x != null))];
+    const courses =
+      courseIds.length > 0
+        ? await this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+        : [];
+    const courseMap = new Map<number, string>(courses.map((c) => [c.id, c.title ?? `Course #${c.id}`]));
+
+    const PAID_STAGES = new Set(['paid', 'form_pending', 'form_submitted', 'approval_waiting', 'enrolled']);
+    const isPaid = (a: {
+      stage: string | null;
+      payment_status: string | null;
+      payment_marked_paid_at: Date | null;
+    }): boolean =>
+      a.payment_marked_paid_at != null ||
+      (a.payment_status ?? '').toLowerCase() === 'paid' ||
+      (a.stage != null && PAID_STAGES.has(a.stage));
+
+    let collectedAmount = 0;
+    let pendingAmount = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
+
+    const rows = apps.map((a) => {
+      const fee = Number(a.application_final_fee ?? 0) || 0;
+      const paid = isPaid(a);
+      const hasLink = (a.payment_link_url ?? '') !== '';
+      const state = paid ? 'paid' : hasLink || a.stage === 'payment_pending' ? 'pending' : 'no_link';
+      if (paid) {
+        collectedAmount += fee;
+        paidCount += 1;
+      } else if (state === 'pending') {
+        pendingAmount += fee;
+        pendingCount += 1;
+      }
+      return {
+        id: a.id,
+        applicationId: a.application_id ?? `#${a.id}`,
+        name: a.name ?? '—',
+        course: a.course_id != null ? courseMap.get(a.course_id) ?? `Course #${a.course_id}` : '—',
+        fee,
+        state,
+        paymentLink: a.payment_link_url ?? '',
+        paidAt: a.payment_marked_paid_at ? a.payment_marked_paid_at.toISOString() : null,
+        createdAt: a.created_at ? a.created_at.toISOString() : null,
+      };
+    });
+
+    return {
+      summary: { collectedAmount, pendingAmount, paidCount, pendingCount, total: apps.length },
+      rows,
+    };
+  }
+
+  /**
+   * Associate leaderboard — same shape as getCounsellorLeaderboard
+   * ({ leaderboard: rows }). Associates don't compete on a shared board, so this
+   * returns a single self-row computed from the associate's own applications
+   * (empty ranking otherwise). Keys match the counsellor row exactly.
+   */
+  async getAssociateLeaderboard(actorUserId: string): Promise<Record<string, unknown>> {
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
+    const [self, apps] = await Promise.all([
+      this.prisma.users.findFirst({
+        where: { id: toIntId(actorUserId), deleted_at: null },
+        select: { id: true, name: true },
+      }),
+      this.prisma.applications.findMany({
+        where: { deleted_at: null, OR: ownershipOr },
+        select: { is_converted: true, stage: true },
+      }),
+    ]);
+    if (!self) return { leaderboard: [] };
+
+    const admissions = apps.length;
+    const enrollments = apps.filter((a) => a.stage === 'enrolled' || a.is_converted === 1).length;
+
+    const initialsOf = (name: string | null): string => {
+      const t = (name ?? '').trim();
+      if (t === '') return 'AS';
+      return (
+        t
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((w) => w[0] ?? '')
+          .join('')
+          .toUpperCase() || 'AS'
+      );
+    };
+    const tierFor = (pct: number): string =>
+      pct >= 100 ? 'Diamond' : pct >= 80 ? 'Platinum' : pct >= 60 ? 'Gold' : pct >= 40 ? 'Silver' : 'Bronze';
+
+    return {
+      leaderboard: [
+        {
+          id: self.id,
+          name: self.name ?? '—',
+          initials: initialsOf(self.name),
+          points: enrollments,
+          admissions,
+          enrollments,
+          achievementPct: 0,
+          tier: tierFor(0),
+          isCurrentUser: true,
+          rank: 1,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Associate targets — associates carry no targets, so this returns an empty
+   * list with the same array typing as listCounsellorTargets. Distinct name
+   * from the admin-facing listAssociateTargets() (which lists ALL associates_target
+   * rows for the admin table).
+   */
+  listAssociateCrmTargets(_actorUserId: string): Promise<SqlRow[]> {
+    return Promise.resolve([] as unknown as SqlRow[]);
+  }
+
+  /**
+   * Refer-a-friend rows for this associate — reuses listReferrals scoped to the
+   * associate's own user id (same output shape).
+   */
+  async listAssociateReferrals(actorUserId: string): Promise<SqlRow[]> {
+    return this.listReferrals(toIntId(actorUserId));
+  }
+
+  /**
+   * Application detail for the associate View page — same payload as
+   * getApplication, but ONLY when the application is owned by the associate
+   * (created_by / added_under_centre match). Never uses the role-9 scope.
+   */
+  async getAssociateApplication(actorUserId: string, id: string): Promise<Record<string, unknown>> {
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
+    const owned = await this.prisma.applications.findFirst({
+      where: { id: toIntId(id), deleted_at: null, OR: ownershipOr },
+      select: { id: true },
+    });
+    if (!owned) return { status: 0, message: 'Application not found.' };
+    // Ownership already verified above; getApplication's own scope is a no-op
+    // for role 10 (applicationOwnerScope only narrows role 9), so it hydrates
+    // the same rich detail the counsellor View page consumes.
+    return this.getApplication(actorUserId, id);
+  }
+
+  /**
+   * Associate-scoped status update — mirrors updateApplicationStatus but gated
+   * by the associate ownership OR-clause instead of the role-9 scope, so an
+   * associate can only transition applications they own. Does NOT widen the
+   * admin path or touch applicationOwnerScope.
+   */
+  async updateAssociateApplicationStatus(
+    actorUserId: string,
+    id: string,
+    status: string,
+    rejectReason?: string,
+  ): Promise<Record<string, unknown>> {
+    if (!id) return { status: 0, message: 'Application ID is required.' };
+    if (!status) return { status: 0, message: 'Status is required.' };
+    const now = new Date();
+    const centreId = await this.resolveActorCentreId(actorUserId);
+    const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
+    const data: Record<string, unknown> = {
+      status: status as $Enums.applications_status,
+      updated_by: toIntId(actorUserId),
+      updated_at: now,
+    };
+    if (status === 'rejected' && rejectReason) {
+      data.reject_reason = rejectReason;
+    }
+    const result = await this.prisma.applications.updateMany({
+      where: { id: toIntId(id), deleted_at: null, OR: ownershipOr },
+      data: data as Prisma.applicationsUpdateManyMutationInput,
+    });
+    if (result.count === 0) return { status: 0, message: 'Application not found.' };
+    return { status: 1, message: `Application ${status} successfully.` };
+  }
+
+  /**
+   * Catalog-safe centres list for the associate portal reference dropdowns.
+   * Selects ONLY the non-sensitive display fields — never the centre password
+   * hash, wallet_balance, contact PII (phone/whatsapp/email/address), or the
+   * registration/affiliation document paths that the admin-facing listCentres()
+   * returns. (Security review 2026-07-09.)
+   */
+  async listCentresCatalog(): Promise<SqlRow[]> {
+    const centres = await this.prisma.centres.findMany({
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+      select: { id: true, centre_id: true, centre_name: true },
+    });
+    return centres as unknown as SqlRow[];
+  }
+
+  /**
+   * Redacted duplicate-student check for the associate Add-Lead flow. Reuses the
+   * shared findDuplicateStudent() to decide EXISTENCE, but returns ONLY a masked
+   * name + the match channel — never the raw email / phone / student_id / user id
+   * of a match. Prevents cross-tenant PII enumeration while keeping the "already
+   * exists" warning renderable. Shape-identical to findDuplicateStudent so the
+   * existing frontend/bridge parser is unchanged. (Security review 2026-07-09.)
+   */
+  async findDuplicateStudentRedacted(input: { email?: string; phone?: string }): Promise<{
+    matches: Array<{
+      id: number;
+      name: string | null;
+      student_id: string | null;
+      user_email: string | null;
+      phone: string | null;
+      match_via: 'email' | 'phone' | 'both';
+    }>;
+  }> {
+    const raw = await this.findDuplicateStudent(input);
+    const maskName = (name: string | null): string => {
+      const trimmed = (name ?? '').trim();
+      if (!trimmed) return 'Existing student';
+      return trimmed
+        .split(/\s+/)
+        .map((w) => (w.length <= 1 ? w : `${w[0] ?? ''}${'*'.repeat(Math.min(4, w.length - 1))}`))
+        .join(' ');
+    };
+    return {
+      matches: raw.matches.map((m) => ({
+        id: 0,
+        name: maskName(m.name),
+        student_id: null,
+        user_email: null,
+        phone: null,
+        match_via: m.match_via,
+      })),
+    };
+  }
+
   async listAssociates(): Promise<SqlRow[]> {
     const associates = await this.prisma.users.findMany({
       where: { role_id: 10, deleted_at: null },
@@ -13098,7 +13642,11 @@ export class OperationsService {
       } catch { /* swallow — admin can re-trigger from the application view */ }
     }
 
-    // Optional manual payment record.
+    // Optional manual payment record. Segregation of duties: only an
+    // admin/subadmin may record a payment as already Paid. A counsellor or
+    // associate can log the collection, but it lands as Pending so Finance must
+    // confirm receipt before it counts (recording != confirming) — otherwise a
+    // commission-driven actor could fabricate self-confirmed "Paid" revenue.
     if (input.paymentMode === 'manual' && finalFee && finalFee > 0) {
       await this.prisma.student_payments.create({
         data: {
@@ -13107,9 +13655,9 @@ export class OperationsService {
           installment_details: 'Full course fee',
           amount: Math.round(finalFee),
           payment_mode: input.manualPaymentMode || 'Cash',
-          status: 'Paid',
+          status: isAdmin ? 'Paid' : 'Pending',
           due_date: now,
-          paid_date: now,
+          paid_date: isAdmin ? now : null,
           created_by: actorPk,
           updated_by: actorPk,
           created_at: now,
