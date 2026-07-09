@@ -12,6 +12,7 @@ const PORTAL_PATH_PREFIX: Record<PortalSurface, string> = {
   centre: '/centre',
   instructor: '/instructor',
   counsellor: '/counsellor',
+  associate: '/associate',
 };
 
 const ALL_PORTAL_PREFIXES = Object.values(PORTAL_PATH_PREFIX);

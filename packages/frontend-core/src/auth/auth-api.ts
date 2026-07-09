@@ -37,8 +37,13 @@ const adminPortalRoles = new Set<number>([
   LEGACY_ROLE_ID.SUBADMIN,
 ]);
 
+// Associates (role 10) were split off the Centre portal (2026-07-09) onto
+// their own counsellor-styled /associate surface. CENTRE (role 7) is untouched.
 const centrePortalRoles = new Set<number>([
   LEGACY_ROLE_ID.CENTRE,
+]);
+
+const associatePortalRoles = new Set<number>([
   LEGACY_ROLE_ID.ASSOCIATE,
 ]);
 
@@ -243,9 +248,16 @@ export class LegacyAuthApi implements AuthApi {
   }
 
   async checkPortalAccess(surface: PortalSurface, authToken: string): Promise<void> {
+    // The backend exposes portal-shell guards for admin/centre/student/
+    // instructor/counsellor only. The Associate surface is a frontend-only
+    // split of the Centre portal (role 10 is authorised by the backend's
+    // CENTRE_PORTAL_ROLES = [CENTRE, ASSOCIATE]), so its guard check maps to
+    // the existing /auth/portal/centre endpoint. This keeps the runtime guard
+    // green without a new backend route.
+    const guardSurface = surface === 'associate' ? 'centre' : surface;
     await this.apiClient.request({
       method: 'GET',
-      path: `/auth/portal/${surface}`,
+      path: `/auth/portal/${guardSurface}`,
       authToken,
     });
   }
@@ -447,6 +459,10 @@ export function resolvePortalSurfaceForRole(roleId: number): PortalSurface {
     return 'centre';
   }
 
+  if (associatePortalRoles.has(roleId)) {
+    return 'associate';
+  }
+
   if (instructorPortalRoles.has(roleId)) {
     return 'instructor';
   }
@@ -462,7 +478,7 @@ export function resolvePortalSurfaceForRole(roleId: number): PortalSurface {
   return 'student';
 }
 
-export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | '/student' | '/instructor' | '/counsellor' {
+export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | '/student' | '/instructor' | '/counsellor' | '/associate' {
   const surface = resolvePortalSurfaceForRole(roleId);
 
   if (surface === 'admin') {
@@ -471,6 +487,10 @@ export function resolveShellPathForRole(roleId: number): '/admin' | '/centre' | 
 
   if (surface === 'centre') {
     return '/centre';
+  }
+
+  if (surface === 'associate') {
+    return '/associate';
   }
 
   if (surface === 'instructor') {

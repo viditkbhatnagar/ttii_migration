@@ -1,4 +1,4 @@
-import { type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -60,6 +60,16 @@ function formatDateOnly(value: Date): string {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export interface CentreProfileSnapshot {
+  userId: string;
+  roleId: number;
+  name: string;
+  email: string;
+  phone: string;
+  countryCode: string;
+  image: string;
 }
 
 export interface CentreDashboardSnapshot {
@@ -168,6 +178,38 @@ export class CentrePortalApi {
       ...(body ? { body } : {}),
       ...(query ? { query } : {}),
     });
+  }
+
+  /**
+   * Self profile for the topbar/account menu. Uses the shared `/profile/index`
+   * endpoint (auth-token scoped) so it works for Centre (role 7) and Associate
+   * (role 10) alike. Failures fall back to session identity — the chrome simply
+   * renders an empty name.
+   */
+  async loadProfile(authToken: string, session: AuthSession): Promise<CentreProfileSnapshot> {
+    try {
+      const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/profile/index', authToken);
+      const profile = asRecord(payload.data) ?? {};
+      return {
+        userId: asString(profile.id) || String(session.userId),
+        roleId: typeof profile.role_id === 'number' ? profile.role_id : session.roleId,
+        name: asString(profile.name),
+        email: asString(profile.user_email) || asString(profile.email),
+        phone: asString(profile.phone),
+        countryCode: asString(profile.country_code),
+        image: asString(profile.image),
+      };
+    } catch {
+      return {
+        userId: String(session.userId),
+        roleId: session.roleId,
+        name: '',
+        email: '',
+        phone: '',
+        countryCode: '',
+        image: '',
+      };
+    }
   }
 
   async loadDashboard(authToken: string): Promise<CentreDashboardSnapshot> {

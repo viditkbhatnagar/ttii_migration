@@ -28,6 +28,7 @@ import { InstructorPortal, normalizeInstructorPath } from './instructor/instruct
 import { InstructorPortalApi } from './instructor/instructor-portal-api.js';
 import { CounsellorPortal, normalizeCounsellorPath } from './counsellor/counsellor-portal.js';
 import { CounsellorPortalApi } from './counsellor/counsellor-portal-api.js';
+import { AssociatePortal, normalizeAssociatePath } from './associate/associate-portal.js';
 import { StudentPortal, normalizeStudentPath } from './student/student-portal.js';
 import { StudentPortalApi } from './student/student-portal-api.js';
 import { StudentLoader } from './student/components/StudentLoader.js';
@@ -327,11 +328,13 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
       ? normalizeStudentPath(pathname)
       : route.surface === 'centre'
         ? normalizeCentrePath(pathname)
-        : route.surface === 'instructor'
-          ? normalizeInstructorPath(pathname)
-          : route.surface === 'counsellor'
-            ? normalizeCounsellorPath(pathname)
-            : normalizeAdminPath(pathname);
+        : route.surface === 'associate'
+          ? normalizeAssociatePath(pathname)
+          : route.surface === 'instructor'
+            ? normalizeInstructorPath(pathname)
+            : route.surface === 'counsellor'
+              ? normalizeCounsellorPath(pathname)
+              : normalizeAdminPath(pathname);
     if (normalizedPath !== pathname) {
       navigateTo(normalizedPath);
     }
@@ -435,6 +438,32 @@ function RoleShellRoute({ route, pathname, studentPortalApi, centrePortalApi, ad
 
     return (
       <CentrePortal
+        pathname={pathname}
+        session={session}
+        api={centrePortalApi}
+        onNavigate={navigateTo}
+        onLogout={() => {
+          void logout();
+          navigateTo('/');
+        }}
+      />
+    );
+  }
+
+  if (route.surface === 'associate') {
+    if (!session) {
+      return (
+        <InlineNotice tone="warning" title="Session missing">
+          Associate portal requires an active session.
+        </InlineNotice>
+      );
+    }
+
+    // Associates ride the associate-scoped CentrePortalApi (loadApplications /
+    // loadStudents are already scoped to the associate on the backend) — never
+    // the counsellor /admin/counsellor_* endpoints, which would 403 or leak.
+    return (
+      <AssociatePortal
         pathname={pathname}
         session={session}
         api={centrePortalApi}
