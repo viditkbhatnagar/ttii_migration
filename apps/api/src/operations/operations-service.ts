@@ -1121,15 +1121,22 @@ export class OperationsService {
       where.created_at = { ...(where.created_at as Record<string, unknown> ?? {}), lte: new Date(`${range.toDate}T23:59:59Z`) };
     }
     if ((filters.pipelineRoleId ?? 0) > 0) {
-      // `applications.pipeline` is stored as a LABEL ("Counsellor"/"Associate"/
-      // "Admin"/"Super Admin") by createLead + the Add/Edit forms, but some
-      // legacy rows store the numeric role-id string. Match BOTH so filtering
-      // by role actually returns those leads (Naji 2026-07-09 — otherwise
-      // label-valued rows silently vanish from the pipeline filter).
+      // `applications.pipeline` stores a MIX of encodings for the SAME role:
+      // labels from createLead + the Add/Edit forms (mostly the singular
+      // "Counsellor"/"Associate", but production data also has the plural
+      // lowercase "associates"), and — when the form's pipeline was blank — the
+      // numeric role-id string ("9"/"10"). Match every known variant for the
+      // selected role so no lead silently vanishes from the pipeline filter
+      // (Naji 2026-07-09; verified against the real production encodings).
       const rid = Number(filters.pipelineRoleId);
-      const pipelineLabelByRole: Record<number, string> = { 1: 'Super Admin', 8: 'Admin', 9: 'Counsellor', 10: 'Associate' };
-      const label = pipelineLabelByRole[rid];
-      where.pipeline = label ? { in: [label, String(rid)] } : String(rid);
+      const pipelineVariantsByRole: Record<number, string[]> = {
+        1: ['Super Admin', 'Super Admins', 'super admin'],
+        8: ['Admin', 'Admins', 'admin'],
+        9: ['Counsellor', 'Counsellors', 'counsellor', 'counsellors'],
+        10: ['Associate', 'Associates', 'associate', 'associates'],
+      };
+      const variants = pipelineVariantsByRole[rid] ?? [];
+      where.pipeline = { in: [...variants, String(rid)] };
     }
 
     // Naji 2026-05-08 — Counsellor scoping: role 9 only sees their own
