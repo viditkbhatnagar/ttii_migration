@@ -1317,6 +1317,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         initialDiscount={Number(app.application_discount ?? 0)}
         initialGstPercent={Number(app.application_gst_percent ?? 18)}
         initialSavedPlan={savedPlan}
+        paymentStatus={paymentStatus}
         onSent={() => reload()}
       />
 

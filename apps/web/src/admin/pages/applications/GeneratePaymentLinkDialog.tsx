@@ -34,6 +34,11 @@ interface PlanRow {
   amount: number; // INR — instalment amount EXCLUDING GST
   gstPercent: number; // GST applied to this row
   dueDate: string; // yyyy-mm-dd
+  // An approved payment already exists for this instalment (per-instalment
+  // ledger or the legacy registration manual payment). Locked from delete +
+  // amount edit so a paid instalment can't lose its "Paid" status or get its
+  // ledger entry silently reattached to a different row (Naji 2026-07-09).
+  paid?: boolean;
 }
 
 // Naji 2026-06-29 — extra ad-hoc discounts entered in the dialog. Each line
@@ -88,8 +93,40 @@ interface Props {
       gstPercent?: number;
       gst_percent?: number;
     }>;
+    // Per-instalment approval ledger (index-aligned, index 0 = registration) +
+    // legacy registration manual-payment mirror, used to lock already-paid rows.
+    instalment_payments?: Array<{ index?: number; status?: string; amount_minor?: number | null }>;
+    manual_payment?: { mode?: string; reference?: string; marked_at?: string; amount_minor?: number | null } | null;
   } | null;
+  // Application-level payment_status ('paid' | 'pending_approval' | 'payment_rejected' | …).
+  // Required to decide the reg row's paid state the same way the server does when
+  // the ledger array is absent (manual-only mirror, or paid online via the link).
+  paymentStatus?: string;
   onSent?: () => void;
+}
+
+// Mirror of the API's readInstalmentLedger() (operations-service.ts): the set of
+// instalment indices that are APPROVED (i.e. actually paid). Kept in lockstep so
+// the dialog locks EXACTLY the rows the server treats as settled — never a
+// pending/rejected row (which must stay editable), and including a reg fee paid
+// online via the Razorpay link (which leaves no ledger array, only payment_status).
+function approvedInstalmentIndices(
+  plan: { instalment_payments?: Array<{ index?: number; status?: string }> } | null | undefined,
+  paymentStatus?: string,
+): Set<number> {
+  const approved = new Set<number>();
+  const raw = plan && Array.isArray(plan.instalment_payments) ? plan.instalment_payments : [];
+  if (raw.length > 0) {
+    for (const e of raw) {
+      if (String(e.status) === 'approved') approved.add(Number(e.index ?? 0));
+    }
+    return approved;
+  }
+  // No ledger array. Legacy manual-payment mirror OR a link paid online both
+  // resolve to reg (index 0) — but ONLY when the application is actually 'paid'.
+  // A pending/rejected reg must NOT be locked.
+  if (paymentStatus === 'paid') approved.add(0);
+  return approved;
 }
 
 function todayIso(): string {
@@ -144,7 +181,7 @@ function DmyDateInput({ value, onChange, className }: { value: string; onChange:
 export function GeneratePaymentLinkDialog({
   open, onOpenChange, api, authToken, applicationId, studentName,
   offeringId, combinationId, initialBaseFee, initialDiscount,
-  initialOfferedFee, initialGstPercent, initialSavedPlan, onSent,
+  initialOfferedFee, initialGstPercent, initialSavedPlan, paymentStatus, onSent,
   dialogClassName = '',
   variant = 'admin',
 }: Props) {
@@ -216,11 +253,16 @@ export function GeneratePaymentLinkDialog({
       // Restore saved plan if one was passed in (Edit / Resend flow).
       if (initialSavedPlan && Array.isArray(initialSavedPlan.installments) && initialSavedPlan.installments.length > 0) {
         setMode(initialSavedPlan.mode === 'installment' ? 'installment' : 'full');
-        const restored: PlanRow[] = initialSavedPlan.installments.map((row) => ({
+        // Which rows are already APPROVED (paid) → lock them. Computed exactly the
+        // way the server's readInstalmentLedger does so a pending/rejected reg row
+        // stays editable and a reg paid online (no ledger array) still locks.
+        const approvedIdx = approvedInstalmentIndices(initialSavedPlan, paymentStatus);
+        const restored: PlanRow[] = initialSavedPlan.installments.map((row, i) => ({
           label: typeof row.label === 'string' ? row.label : '',
           amount: Number(row.amountMinor ?? row.amount_minor ?? 0) / 100,
           gstPercent: Number(row.gstPercent ?? row.gst_percent ?? 0),
           dueDate: typeof (row.dueDate ?? row.due_date) === 'string' ? (row.dueDate ?? row.due_date) as string : '',
+          paid: approvedIdx.has(i),
         }));
         setPlan(restored);
         const reg = Number(initialSavedPlan.registration_fee_minor ?? 0) / 100;
@@ -424,13 +466,22 @@ export function GeneratePaymentLinkDialog({
       toast.error('Set Registration Fee + Due Now or Number of installments to generate a plan.');
       return;
     }
-    setPlan(rows);
+    // Re-apply the paid lock after a regenerate. Paid instalments form a
+    // contiguous prefix from index 0 (strict one-by-one), and regenerating
+    // keeps the reg row at index 0 — so carrying the approved set by index keeps
+    // an already-paid reg row locked instead of silently re-exposing it.
+    const approvedIdx = approvedInstalmentIndices(initialSavedPlan, paymentStatus);
+    setPlan(approvedIdx.size > 0 ? rows.map((r, i) => (approvedIdx.has(i) ? { ...r, paid: true } : r)) : rows);
   };
 
   const updatePlanRow = (idx: number, patch: Partial<PlanRow>) => {
     setPlan((cur) => cur ? cur.map((r, i) => i === idx ? { ...r, ...patch } : r) : cur);
   };
   const removePlanRow = (idx: number) => {
+    if (plan?.[idx]?.paid) {
+      toast.error('This instalment is already paid and can’t be removed. Reject the payment first if you need to change it.');
+      return;
+    }
     setPlan((cur) => cur ? cur.filter((_, i) => i !== idx) : cur);
   };
 
@@ -848,7 +899,9 @@ export function GeneratePaymentLinkDialog({
                                   type="number"
                                   value={r.amount}
                                   onChange={(e) => updatePlanRow(idx, { amount: Number(e.target.value) || 0 })}
-                                  className="w-20 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm"
+                                  disabled={r.paid}
+                                  title={r.paid ? 'Paid instalment — amount is locked' : undefined}
+                                  className={`w-20 rounded-md border border-slate-200 px-1.5 py-1 text-right text-sm${r.paid ? ' cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                                 />
                               </td>
                               {/* GST % is read-only — Naji 2026-05-31: it's
@@ -872,14 +925,23 @@ export function GeneratePaymentLinkDialog({
                                 />
                               </td>
                               <td className="px-1.5 py-1.5 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => removePlanRow(idx)}
-                                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                                  title="Remove row"
-                                >
-                                  <Trash2 className="size-4" />
-                                </button>
+                                {r.paid ? (
+                                  <span
+                                    className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                                    title="This instalment has an approved payment and is locked"
+                                  >
+                                    Paid
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => removePlanRow(idx)}
+                                    className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                                    title="Remove row"
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );

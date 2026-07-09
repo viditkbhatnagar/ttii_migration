@@ -1298,6 +1298,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
         initialDiscount={Number(app.application_discount ?? 0)}
         initialGstPercent={Number(app.application_gst_percent ?? 18)}
         initialSavedPlan={savedPlan}
+        paymentStatus={paymentStatus}
         onSent={() => reload()}
       />
 

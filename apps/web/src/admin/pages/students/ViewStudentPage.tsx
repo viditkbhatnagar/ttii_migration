@@ -2198,6 +2198,7 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
         initialDiscount={asNumber(studentFees[0]?.discount)}
         initialGstPercent={asNumber(studentFees[0]?.gst_percent)}
         initialSavedPlan={applicationPaymentPlan}
+        paymentStatus={paymentStatus}
         onSent={() => reload()}
       />
 
