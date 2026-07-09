@@ -933,6 +933,110 @@ function rollupPaymentStatus(ledger: InstalmentLedgerEntry[]): 'pending_approval
   return null;
 }
 
+/** Parse 'YYYY-MM-DD' (or an ISO datetime's date prefix) into a UTC-midnight Date
+ *  for @db.Date columns. Returns null for empty / '0000-00-00' / malformed input.
+ *  Built in UTC so it never day-shifts back in IST (the date-only gotcha). */
+function ymdToUtcDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || !mo || !d) return null; // guards '0000-00-00'
+  return new Date(Date.UTC(y, mo - 1, d));
+}
+
+/** UTC-midnight Date for the Asia/Kolkata calendar day of a plain 'YYYY-MM-DD', an
+ *  ISO datetime, or a Date. Plain dates are taken as-is (already IST-intended);
+ *  datetimes (e.g. a ledger `decided_at` = toISOString()) are converted to their
+ *  IST day first, so an approval timestamped before 05:30 IST doesn't get stored a
+ *  day early. Returns null for empty/malformed input. */
+function istCalendarDayUtc(value: string | Date | null | undefined): Date | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return ymdToUtcDate(value);
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return typeof value === 'string' ? ymdToUtcDate(value) : null;
+  // en-CA formats as YYYY-MM-DD; the timeZone option yields the IST calendar day.
+  const ist = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+  return ymdToUtcDate(ist);
+}
+
+/** Build the student_payments rows that mirror an application-stage payment plan.
+ *  Pure (no DB) so both the conversion write-path and the backfill script reuse
+ *  the exact same mapping. One row per installments[] entry, index-aligned to the
+ *  instalment ledger so each row's Paid/Pending status + paid metadata matches
+ *  readInstalmentLedger() exactly. amountMinor (paise) -> whole INR, because
+ *  student_payments.amount is stored in whole rupees (NOT minor units). */
+export function buildStudentPaymentRowsFromPlan(
+  paymentPlanJson: string | null | undefined,
+  paymentStatus: string | null | undefined,
+  ctx: { studentUserId: number; courseId: number; actorUserId: number | null; now: Date; settledAt?: Date | string | null },
+): Prisma.student_paymentsCreateManyInput[] {
+  if (!paymentPlanJson) return [];
+  let planObj: Record<string, unknown>;
+  try {
+    planObj = JSON.parse(paymentPlanJson) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  const rawInstallments = Array.isArray(planObj.installments)
+    ? (planObj.installments as Array<Record<string, unknown>>)
+    : [];
+  // A full-payment plan (mode:'full') carries no installments[] — only a total.
+  // Synthesize a single "Course Fee" row from the total so a full-fee student's
+  // ledger isn't silently empty. Index 0 aligns with the registration/full ledger
+  // entry, so its Paid/Pending status comes through correctly.
+  const totalMinor = Number(planObj.total_amount_minor ?? 0);
+  const installments: Array<Record<string, unknown>> = rawInstallments.length > 0
+    ? rawInstallments
+    : Number.isFinite(totalMinor) && totalMinor > 0
+      ? [{ label: 'Course Fee', amountMinor: totalMinor, dueDate: '' }]
+      : [];
+  if (installments.length === 0) return [];
+  const ledger = readInstalmentLedger(planObj, paymentStatus ?? undefined);
+  const byIndex = new Map<number, InstalmentLedgerEntry>();
+  for (const e of ledger) byIndex.set(e.index, e);
+  const { studentUserId, courseId, actorUserId, now, settledAt } = ctx;
+  return installments.map((inst, i): Prisma.student_paymentsCreateManyInput => {
+    const amountMinor = Number(inst.amountMinor ?? inst.amount_minor ?? 0);
+    const amountInr = Number.isFinite(amountMinor) && amountMinor > 0 ? Math.round(amountMinor / 100) : 0;
+    const label = typeof inst.label === 'string' ? inst.label : '';
+    const dueStr = typeof inst.dueDate === 'string' ? inst.dueDate : typeof inst.due_date === 'string' ? inst.due_date : '';
+    const entry = byIndex.get(i);
+    const isPaid = entry?.status === 'approved';
+    // Prefer the ledger's own paid date, then its approval timestamp, then the
+    // application's recorded payment moment, then the conversion moment — each
+    // resolved to the IST calendar day so it never stores a day early.
+    const paidDate = isPaid
+      ? (istCalendarDayUtc(entry?.paid_date ?? entry?.decided_at ?? null)
+        ?? istCalendarDayUtc(settledAt ?? null)
+        ?? istCalendarDayUtc(now))
+      : null;
+    return {
+      user_id: studentUserId,
+      course_id: courseId,
+      installment_details: label.slice(0, 200) || null,
+      amount: amountInr,
+      payment_mode: (entry?.mode || '').slice(0, 20) || null,
+      status: isPaid ? 'Paid' : 'Pending',
+      due_date: ymdToUtcDate(dueStr),
+      paid_date: paidDate,
+      reference_number: (entry?.reference || '').slice(0, 100) || null,
+      receipt_url: (entry?.receipt_url || '').slice(0, 500) || null,
+      payment_to: 'ttii',
+      created_by: actorUserId,
+      updated_by: actorUserId,
+      created_at: now,
+      updated_at: now,
+    };
+  });
+}
+
 /** Parse a Payment Approval queue row id: "<applicationId>" or "<applicationId>-<index>". */
 function parseApprovalRowId(rowId: string): { applicationId: string; index: number } {
   const m = /^(\d+)(?:-(\d+))?$/.exec(rowId.trim());
@@ -1636,6 +1740,41 @@ export class OperationsService {
     };
   }
 
+  /** Materialize an application-stage payment_plan into student_payments rows —
+   *  the post-conversion source of truth every payment view reads. Idempotent:
+   *  no-ops when the (user, course) already has ANY payment row, so re-conversion
+   *  and the one-off backfill can never double-insert. `client` may be a
+   *  transaction handle or the base client. */
+  private async materializePaymentPlanToStudentPayments(
+    client: Prisma.TransactionClient,
+    input: {
+      paymentPlanJson: string | null | undefined;
+      paymentStatus: string | null | undefined;
+      studentUserId: number;
+      courseId: number;
+      actorUserId: number | null;
+      now: Date;
+      settledAt?: Date | string | null;
+    },
+  ): Promise<{ created: number; skipped: 'no-plan' | 'exists' | null }> {
+    const { studentUserId, courseId } = input;
+    if (!studentUserId || !courseId) return { created: 0, skipped: 'no-plan' };
+    const rows = buildStudentPaymentRowsFromPlan(input.paymentPlanJson, input.paymentStatus, {
+      studentUserId,
+      courseId,
+      actorUserId: input.actorUserId,
+      now: input.now,
+      settledAt: input.settledAt ?? null,
+    });
+    if (rows.length === 0) return { created: 0, skipped: 'no-plan' };
+    const existing = await client.student_payments.count({
+      where: { user_id: studentUserId, course_id: courseId, deleted_at: null },
+    });
+    if (existing > 0) return { created: 0, skipped: 'exists' };
+    await client.student_payments.createMany({ data: rows });
+    return { created: rows.length, skipped: null };
+  }
+
   async convertApplication(actorUserId: string, applicationId: string): Promise<Record<string, unknown>> {
     if (!applicationId) {
       return {
@@ -1681,7 +1820,9 @@ export class OperationsService {
           dynamic_link: '',
           image: '',
           profile_picture: '',
-          application_id: 0,
+          // Link the student back to the source application so post-conversion
+          // reads (and the payment backfill) can resolve users.id <- application.
+          application_id: application.id,
           created_by: toIntId(actorUserId),
           updated_by: toIntId(actorUserId),
           created_at: now,
@@ -1710,6 +1851,9 @@ export class OperationsService {
         data: {
           is_converted: 1,
           status: 'converted',
+          // Link the converted student back onto the application (legacy convert
+          // never did this, which broke the app-scoped Payments reads).
+          student_id: student.id,
           updated_by: toIntId(actorUserId),
           updated_at: now,
         },
@@ -1720,6 +1864,26 @@ export class OperationsService {
         studentCode,
       };
     });
+
+    // Materialize the application-stage payment plan into student_payments so the
+    // post-conversion payment views (Payment History, Payment Status) reflect it.
+    // Idempotent + non-blocking — a failure here must never un-convert the student
+    // (the one-off backfill is the safety net).
+    if (application.course_id) {
+      try {
+        await this.materializePaymentPlanToStudentPayments(this.prisma, {
+          paymentPlanJson: application.payment_plan,
+          paymentStatus: application.payment_status,
+          studentUserId: created.studentUserId,
+          courseId: application.course_id,
+          actorUserId: toNullableIntId(actorUserId),
+          now: new Date(),
+          settledAt: application.payment_marked_paid_at,
+        });
+      } catch (err) {
+        console.error('[convertApplication] payment materialization failed:', err instanceof Error ? err.message : err);
+      }
+    }
 
     return {
       status: 1,
@@ -10732,7 +10896,7 @@ export class OperationsService {
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const app = await this.prisma.applications.findFirst({
       where: { id, deleted_at: null },
-      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true },
+      select: { id: true, stage: true, name: true, user_email: true, phone: true, course_id: true, biography: true, verification: true, payment_plan: true, payment_status: true, payment_marked_paid_at: true },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     // Accept legacy 'form_submitted' too — the counsellor-approve step was
@@ -10828,6 +10992,22 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+
+    // Materialize the application-stage payment plan into student_payments so the
+    // post-conversion payment views reflect it. Idempotent + non-blocking — a
+    // failure must never block the enrolment (the backfill is the safety net).
+    try {
+      await this.materializePaymentPlanToStudentPayments(this.prisma, {
+        paymentPlanJson: app.payment_plan,
+        paymentStatus: app.payment_status,
+        studentUserId: student.id,
+        courseId: app.course_id,
+        actorUserId: actor,
+        now,
+      });
+    } catch (err) {
+      console.error('[adminApproveApplication] payment materialization failed:', err instanceof Error ? err.message : err);
+    }
 
     // Course welcome email — skipped here for the existing student
     // case; new students already received the credentials email above.
