@@ -9961,12 +9961,35 @@ export class OperationsService {
       where: { id, deleted_at: null },
       select: {
         id: true, application_id: true, name: true, user_email: true, phone: true, payment_plan: true,
+        payment_status: true,
         student_id: true, course_id: true, offering_id: true, stage: true, is_converted: true, pipeline_user: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
     if (!app.user_email) return { status: 0, message: 'Application has no email.' };
     if (input.totalAmount <= 0) return { status: 0, message: 'Total amount must be > 0.' };
+
+    // Anti double-bill (Naji 2026-07-09): both link modes charge the registration
+    // / index-0 payment (full mode charges the whole fee; installment mode charges
+    // plan[0] = reg). If reg is already settled — paid online via the link
+    // (payment_status='paid' → synthetic approved index 0) or manual-approved (an
+    // approved ledger entry at index 0) — issuing another link would re-charge the
+    // student. Refuse and point at Save / Edit Plan (savePaymentPlan), which
+    // updates the schedule WITHOUT a link. Later instalments use a separate path,
+    // so this never blocks a legitimate next-instalment link.
+    const priorPlanObj: Record<string, unknown> | null = app.payment_plan
+      ? (() => { try { return JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { return null; } })()
+      : null;
+    // NB: call readInstalmentLedger even when payment_plan is null/malformed — it
+    // still synthesises an approved index 0 from payment_status='paid' alone, so a
+    // legacy already-paid row with no JSON plan is still caught (fail-safe).
+    const settledLedger = readInstalmentLedger(priorPlanObj ?? {}, app.payment_status ?? undefined);
+    if (settledLedger.some((e) => e.index === 0 && e.status === 'approved')) {
+      return {
+        status: 0,
+        message: 'Registration fee is already paid for this student. Use Save / Edit Plan to update the schedule without resending the payment link.',
+      };
+    }
 
     // Preserve enrolment: when this runs for an already-enrolled student (the
     // Generate / Edit Payment Plan action on the admin Student page), the plan +
@@ -10034,15 +10057,8 @@ export class OperationsService {
     // (re)writing the plan. Editing/resending a plan for a student who already
     // paid must NOT wipe their "Paid" status (Naji 2026-07-09). Entries stay
     // index-aligned to the installments array.
-    let priorLedger: unknown;
-    let priorManual: unknown;
-    if (app.payment_plan) {
-      try {
-        const prev = JSON.parse(app.payment_plan) as Record<string, unknown>;
-        priorLedger = prev.instalment_payments;
-        priorManual = prev.manual_payment;
-      } catch { /* malformed prior plan — nothing to preserve */ }
-    }
+    const priorLedger: unknown = priorPlanObj?.instalment_payments;
+    const priorManual: unknown = priorPlanObj?.manual_payment;
     const keptLedger = this.preserveLedgerEntries(priorLedger, input.installments ?? []);
 
     const planJson = JSON.stringify({
