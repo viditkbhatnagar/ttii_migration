@@ -972,21 +972,27 @@ export class OperationsService {
   }
 
   private async nextStudentCode(tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>): Promise<string> {
-    const latestStudent = await tx.users.findFirst({
+    // Allocate from the MAX numeric suffix across ALL TTS student codes, not
+    // just the latest row (Naji 2026-07-09). Reading a single latest row would
+    // collide after a bulk renumber or any out-of-order manual insert.
+    const rows = await tx.users.findMany({
       where: {
         role_id: 2,
         deleted_at: null,
         student_id: { startsWith: 'TTS' },
       },
-      orderBy: { id: 'desc' },
       select: { student_id: true },
     });
 
-    const current = toStringValue(latestStudent?.student_id);
-    const match = current.match(/(\d+)$/);
-    const nextNumber = (match ? Number.parseInt(match[1] ?? '0', 10) : 0) + 1;
+    let maxNumber = 0;
+    for (const r of rows) {
+      const match = toStringValue(r.student_id).match(/(\d+)$/);
+      if (!match) continue;
+      const n = Number.parseInt(match[1] ?? '0', 10);
+      if (Number.isFinite(n) && n > maxNumber) maxNumber = n;
+    }
 
-    return `TTS${String(nextNumber).padStart(4, '0')}`;
+    return `TTS${String(maxNumber + 1).padStart(4, '0')}`;
   }
 
   // Naji 2026-05-07: continue the legacy TTII26#### sequence rather
@@ -1918,10 +1924,30 @@ export class OperationsService {
 
     const statusLabels: Record<number, string> = { 0: 'Inactive', 1: 'Active', 2: 'Graduated', 3: 'Dropped' };
 
+    // Group enrolments per user once (avoids an O(n·m) find in the map below)
+    // and derive a REAL enrolment count + a robust course. Naji 2026-07-09:
+    // the "Enrollments" column was a hardcoded frontend `|| 1` and "Courses"
+    // showed N/A whenever the enrol row's course_id didn't equal users.course_id.
+    const enrolsByUser = new Map<number, typeof enrolments>();
+    for (const e of enrolments) {
+      if (e.user_id === null || e.user_id === undefined) continue;
+      const arr = enrolsByUser.get(e.user_id) ?? [];
+      arr.push(e);
+      enrolsByUser.set(e.user_id, arr);
+    }
+
     return users
       .filter(u => filteredUserIds === null || filteredUserIds.has(u.id))
       .map(u => {
-        const enrol = enrolments.find(e => e.user_id === u.id && e.course_id === u.course_id);
+        const userEnrols = enrolsByUser.get(u.id) ?? [];
+        // Prefer an enrol row matching the user's own course; else the earliest.
+        const enrol = userEnrols.find(e => e.course_id === u.course_id) ?? userEnrols[0] ?? null;
+        // Real count of enrol rows; fall back to 1 when the student carries a
+        // course on their user row but has no enrol row yet (legacy import).
+        const enrolmentCount = userEnrols.length > 0 ? userEnrols.length : (u.course_id ? 1 : 0);
+        const courseTitle = enrol?.course_id
+          ? (courseMap.get(enrol.course_id)?.title ?? null)
+          : (u.course_id ? (courseMap.get(u.course_id)?.title ?? null) : null);
         // Legacy data populates `profile_picture` for almost every student;
         // `image` is set on rows created by the new LMS. Surface both as
         // absolute URLs and let the frontend pick whichever is non-empty.
@@ -1934,7 +1960,8 @@ export class OperationsService {
           enrollment_id: enrol?.enrollment_id ?? null,
           batch_id: enrol?.batch_id ?? null,
           batch_title: enrol?.batch_id ? batchMap.get(enrol.batch_id)?.title ?? null : null,
-          course_title: enrol?.course_id ? courseMap.get(enrol.course_id)?.title ?? null : null,
+          course_title: courseTitle,
+          enrolment_count: enrolmentCount,
           centre_name: centres.find(c => u.added_under_centre !== null && u.added_under_centre !== undefined && c.id === u.added_under_centre)?.centre_name ?? null,
           status_label: u.status !== null && u.status !== undefined ? (statusLabels[u.status] ?? 'Unknown') : 'Unknown',
           enrolled_date: enrolledDateByUser.get(u.id) ?? '',

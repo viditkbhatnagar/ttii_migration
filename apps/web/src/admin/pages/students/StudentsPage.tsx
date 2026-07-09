@@ -213,8 +213,9 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         label: 'Enrollments',
         sortable: true,
         render: (value: unknown, row: Record<string, unknown>) => {
-          const count = Number(value) || Number(row.enrolment_count) || 1;
-          return <span>{count}</span>;
+          // Real count from the backend (`enrolment_count`); no fake `|| 1`.
+          const n = Number(row.enrolment_count ?? row.enrollment_count ?? value);
+          return <span>{Number.isFinite(n) ? n : 0}</span>;
         },
       },
       {
