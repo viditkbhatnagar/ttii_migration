@@ -18,7 +18,7 @@ import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { startAdminCall } from '../../shared/call-actions.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
-import { titleCaseOnBlur } from '@/lib/text-format';
+import { titleCaseOnBlur, titleCaseEachWord } from '@/lib/text-format';
 
 export default function StudentsPage({ api, session, onNavigate }: AdminPageProps) {
   /* ── Filter state ────────────────────────────────────────────────────────── */
@@ -174,7 +174,9 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         label: 'Name',
         sortable: true,
         render: (_value: unknown, row: Record<string, unknown>) => {
-          const name = asString(row.name) || asString(row.student_name) || 'N/A';
+          // Naji 2026-07-09 — legacy names are stored ALL-CAPS; always show Title Case.
+          const rawName = asString(row.name) || asString(row.student_name);
+          const name = rawName ? titleCaseEachWord(rawName) : 'N/A';
           const id = asString(row._id) || asString(row.id);
           return (
             <span
@@ -288,7 +290,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   const handleExport = () => {
     const headers = ['Student Name', 'Phone', 'Email', 'Course', 'Status'];
     const csvRows = filteredStudents.map((row) => [
-      asString(row.name) || asString(row.student_name) || '',
+      titleCaseEachWord(asString(row.name) || asString(row.student_name)),
       asString(row.phone) || '',
       asString(row.email) || '',
       asString(row.course_title) || '',
@@ -322,7 +324,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
   /* ── Render ──────────────────────────────────────────────────────────────── */
   return (
     <div>
-      <AdminPageHeader title="Students" addLabel="Add Students" onAdd={() => onNavigate('/admin/students/add')}>
+      <AdminPageHeader title="Students">
         <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
           <Download className="size-4" aria-hidden="true" />
           Export

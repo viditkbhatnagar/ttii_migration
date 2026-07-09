@@ -89,7 +89,6 @@ const FeeSummaryPage = lazy(() => import('../pages/fee/FeeSummaryPage.js'));
 const CounsellorsPage = lazy(() => import('../pages/counsellor/CounsellorsPage.js'));
 const CounsellorTargetPage = lazy(() => import('../pages/counsellor/CounsellorTargetPage.js'));
 const AssociatesPage = lazy(() => import('../pages/associates/AssociatesPage.js'));
-const AssociateTargetPage = lazy(() => import('../pages/associates/AssociateTargetPage.js'));
 const DocumentRequestsPage = lazy(() => import('../pages/documents/DocumentRequestsPage.js'));
 const DocumentsIssuedPage = lazy(() => import('../pages/documents/DocumentsIssuedPage.js'));
 const DocumentsDeliveryPage = lazy(() => import('../pages/documents/DocumentsDeliveryPage.js'));
@@ -237,7 +236,6 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Associates
   { path: '/admin/associates/index', pageComponent: AssociatesPage, title: 'Associates Directory' },
-  { path: '/admin/associates_target/index', pageComponent: AssociateTargetPage, title: 'Associate Target' },
 
   // Exam
   { path: '/admin/exam/index', aliases: ['/admin/exam'], pageComponent: ExamsPage, title: 'Exams' },

@@ -1751,10 +1751,6 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async loadAssociateTargets(authToken: string): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/associates_target/index', authToken);
-    return toRecords(payload.data);
-  }
 
   async loadDocumentRequests(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/requests', authToken);
@@ -2078,17 +2074,6 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/counsellor_target/delete', authToken, { id });
   }
 
-  async addAssociateTarget(authToken: string, id: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/associates_target/add', authToken, input);
-  }
-
-  async editAssociateTarget(authToken: string, id: string, input: { user_id: string; target_type: string; target_value: number; period_from: string; period_to: string; remarks?: string | undefined }): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/associates_target/edit', authToken, { id, ...input });
-  }
-
-  async deleteAssociateTarget(authToken: string, id: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/associates_target/delete', authToken, { id });
-  }
 
   // ── Email verification (MX + disposable check, no OTP) ────────────────────
 

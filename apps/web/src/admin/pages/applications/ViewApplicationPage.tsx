@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
@@ -495,6 +496,18 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
       note?: string;
       marked_at?: string;
     };
+    // Per-instalment payment ledger (index 0 = registration). Drives the
+    // per-row "Paid" chip (Naji 2026-07-09).
+    instalment_payments?: Array<{
+      index?: number;
+      status?: string;
+      amount_minor?: number | null;
+      mode?: string;
+      reference?: string;
+      receipt_url?: string | null;
+      paid_date?: string | null;
+      marked_at?: string;
+    }>;
   };
   const savedPlan: SavedPlan | null = (() => {
     const raw = app.payment_plan;
@@ -525,27 +538,39 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
           : paymentStatus.replace(/_/g, ' ')}
     </span>
   ) : null;
-  const manualPaymentBlock = manual && (asString(manual.reference) || asString(manual.mode)) ? (
-    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
-      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-700">
-        {paymentStatus === 'paid' ? 'Payment Received' : 'Manual Payment Recorded'}
-      </p>
-      <div className="grid gap-x-8 sm:grid-cols-2">
-        <InfoRow label="Mode" value={asString(manual.mode) || '-'} />
-        <InfoRow label="Reference" value={asString(manual.reference) || '-'} />
-        <InfoRow label="Recorded" value={manual.marked_at ? formatDate(manual.marked_at) : '-'} />
-        {asString(manual.receipt_url) ? (
-          <div className="flex justify-between gap-4 py-1.5 text-sm">
-            <span className="text-gray-500">Receipt</span>
-            <a href={asString(manual.receipt_url)} target="_blank" rel="noreferrer" className="font-medium text-ttii-primary hover:underline">View</a>
-          </div>
-        ) : null}
-      </div>
-      {paymentStatus === 'pending_approval' ? (
-        <p className="mt-2 text-xs text-amber-700">Awaiting Finance approval before it reflects to the student.</p>
-      ) : null}
-    </div>
-  ) : null;
+  // Per-instalment payment ledger → per-row "Paid" chip in the schedule
+  // (Naji 2026-07-09: replaces the single aggregate "Payment Received" box).
+  const instalmentLedger = Array.isArray(savedPlan?.instalment_payments) ? savedPlan.instalment_payments : [];
+  const rowIsPaid = (i: number): boolean => {
+    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
+    if (e) return asString(e.status) === 'approved';
+    // Back-compat: a settled registration (paid online or a legacy single
+    // manual_payment) counts as the registration row (index 0).
+    return i === 0 && paymentStatus === 'paid';
+  };
+  const rowPaymentInfo = (i: number): { mode: string; reference: string; date: string; receipt: string } | null => {
+    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
+    if (e && asString(e.status) === 'approved') {
+      return {
+        mode: asString(e.mode),
+        reference: asString(e.reference),
+        date: e.paid_date ? asString(e.paid_date) : asString(e.marked_at),
+        receipt: asString(e.receipt_url),
+      };
+    }
+    if (i === 0 && manual && (asString(manual.reference) || asString(manual.mode))) {
+      return {
+        mode: asString(manual.mode),
+        reference: asString(manual.reference),
+        date: asString(manual.marked_at),
+        receipt: asString(manual.receipt_url),
+      };
+    }
+    if (i === 0 && paymentStatus === 'paid') {
+      return { mode: '', reference: '', date: '', receipt: '' };
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-4">
@@ -907,6 +932,7 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                         <th className="px-3 py-2 text-right">GST %</th>
                         <th className="px-3 py-2 text-right">Inc. GST (₹)</th>
                         <th className="px-3 py-2">Due</th>
+                        <th className="px-3 py-2">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -922,6 +948,41 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                             <td className="px-3 py-2 text-right text-gray-700">{gst}%</td>
                             <td className="px-3 py-2 text-right font-medium text-gray-900">₹{incl.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                             <td className="px-3 py-2 text-gray-700">{formatDate(due) || '-'}</td>
+                            <td className="px-3 py-2">
+                              {rowIsPaid(i) ? (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                    >
+                                      Paid
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-64 text-sm">
+                                    {(() => {
+                                      const info = rowPaymentInfo(i);
+                                      if (!info) return <p className="text-gray-500">Payment recorded.</p>;
+                                      const hasAny = info.mode || info.reference || info.date || info.receipt;
+                                      return (
+                                        <div className="space-y-1.5">
+                                          <p className="font-semibold text-gray-900">Payment details</p>
+                                          {info.mode ? <p><span className="text-gray-500">Mode:</span> {info.mode}</p> : null}
+                                          {info.reference ? <p><span className="text-gray-500">Reference:</span> {info.reference}</p> : null}
+                                          {info.date ? <p><span className="text-gray-500">Date:</span> {formatDate(info.date) || info.date}</p> : null}
+                                          {info.receipt ? (
+                                            <a href={info.receipt} target="_blank" rel="noreferrer" className="inline-block font-medium text-ttii-primary hover:underline">View receipt</a>
+                                          ) : null}
+                                          {!hasAny ? <p className="text-gray-500">Paid online.</p> : null}
+                                        </div>
+                                      );
+                                    })()}
+                                  </PopoverContent>
+                                </Popover>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -929,7 +990,6 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
                   </table>
                 </div>
               ) : null}
-              {manualPaymentBlock}
             </CardContent>
           </Card>
         ) : (

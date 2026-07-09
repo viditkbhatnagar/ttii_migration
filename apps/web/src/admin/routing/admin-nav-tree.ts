@@ -140,7 +140,6 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     icon: 'Handshake',
     children: [
       { id: 'associates-directory', label: 'Associates Directory', href: '/admin/associates/index' },
-      { id: 'associate-target', label: 'Associate Target', href: '/admin/associates_target/index' },
     ],
   },
   // CRM, AI Mentor, Circulars: hidden on Naji's request 2026-05-07.

@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DashboardLoader } from '@/components/ui/dashboard-loader';
 import { cn } from '@/lib/utils';
 import { useAdminPageData } from '../../../admin/shared/hooks/useAdminPageData.js';
@@ -100,6 +101,7 @@ type SavedPlan = {
     amount_minor?: number | null;
     mode?: string;
     reference?: string;
+    receipt_url?: string | null;
     paid_date?: string | null;
     marked_at?: string;
   }>;
@@ -554,6 +556,30 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     if (i === 0 && paymentStatus === 'paid') return 'approved';
     return 'unpaid';
   };
+  // Payment details for a paid row → the "Paid" chip's popover (Naji 2026-07-09).
+  const rowPaymentInfo = (i: number): { mode: string; reference: string; date: string; receipt: string } | null => {
+    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
+    if (e && asString(e.status) === 'approved') {
+      return {
+        mode: asString(e.mode),
+        reference: asString(e.reference),
+        date: e.paid_date ? asString(e.paid_date) : asString(e.marked_at),
+        receipt: asString(e.receipt_url),
+      };
+    }
+    if (i === 0 && manual && (asString(manual.reference) || asString(manual.mode))) {
+      return {
+        mode: asString(manual.mode),
+        reference: asString(manual.reference),
+        date: asString(manual.marked_at),
+        receipt: asString(manual.receipt_url),
+      };
+    }
+    if (i === 0 && paymentStatus === 'paid') {
+      return { mode: '', reference: '', date: '', receipt: '' };
+    }
+    return null;
+  };
   // A row can be (re)recorded only when this row isn't already paid/pending and
   // the previous instalment is approved (registration is gated by stage instead).
   const rowActionable = (i: number): boolean => {
@@ -846,10 +872,35 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                                 // previous instalment is Finance-approved.
                                 const st = rowStatus(i);
                                 if (st === 'approved') {
+                                  const info = rowPaymentInfo(i);
                                   return (
-                                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                                      Paid
-                                    </span>
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-200"
+                                        >
+                                          Paid
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="counsellor-theme w-64 text-sm">
+                                        {info ? (() => {
+                                          const hasAny = info.mode || info.reference || info.date || info.receipt;
+                                          return (
+                                            <div className="space-y-1.5">
+                                              <p className="font-semibold text-foreground">Payment details</p>
+                                              {info.mode ? <p><span className="text-muted-foreground">Mode:</span> {info.mode}</p> : null}
+                                              {info.reference ? <p><span className="text-muted-foreground">Reference:</span> {info.reference}</p> : null}
+                                              {info.date ? <p><span className="text-muted-foreground">Date:</span> {formatDate(info.date) || info.date}</p> : null}
+                                              {info.receipt ? (
+                                                <a href={info.receipt} target="_blank" rel="noreferrer" className="inline-block font-medium text-primary hover:underline">View receipt</a>
+                                              ) : null}
+                                              {!hasAny ? <p className="text-muted-foreground">Paid online.</p> : null}
+                                            </div>
+                                          );
+                                        })() : <p className="text-muted-foreground">Payment recorded.</p>}
+                                      </PopoverContent>
+                                    </Popover>
                                   );
                                 }
                                 const actionable = rowActionable(i);
@@ -896,29 +947,6 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                 </div>
               ) : null}
 
-              {manual && (asString(manual.reference) || asString(manual.mode)) ? (
-                <div className="mt-4 rounded-lg border border-success/30 bg-success-soft/60 p-4">
-                  <p className="mb-2 text-xs font-bold uppercase tracking-wider text-success">
-                    {paymentStatus === 'paid' ? 'Payment Received' : 'Manual Payment Recorded'}
-                  </p>
-                  <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-                    <Field label="Mode" value={asString(manual.mode)} />
-                    <Field label="Reference" value={asString(manual.reference)} />
-                    <Field label="Recorded" value={manual.marked_at ? formatDate(manual.marked_at) : ''} />
-                    {asString(manual.receipt_url) ? (
-                      <div>
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>
-                        <a href={asString(manual.receipt_url)} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-sm font-medium text-primary hover:underline">
-                          View
-                        </a>
-                      </div>
-                    ) : null}
-                  </div>
-                  {paymentStatus === 'pending_approval' ? (
-                    <p className="mt-2 text-xs text-warning-foreground">Awaiting Finance approval before it reflects to the student.</p>
-                  ) : null}
-                </div>
-              ) : null}
             </Card>
           ) : (
             <Card className="p-10 text-center shadow-[var(--shadow-soft)] border-border/70">
