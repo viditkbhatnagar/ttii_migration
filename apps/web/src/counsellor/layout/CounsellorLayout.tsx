@@ -7,6 +7,7 @@ import { CounsellorNavbar } from './CounsellorNavbar.js';
 import { CounsellorRouter } from '../routing/CounsellorRouter.js';
 import { resolveCounsellorRoute } from '../routing/counsellor-routes.js';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { PortalThemeProvider } from '@/lib/portal-theme';
 
 interface CounsellorLayoutInnerProps {
   pathname: string;
@@ -69,8 +70,13 @@ export interface CounsellorLayoutProps {
 
 export function CounsellorLayout(props: CounsellorLayoutProps) {
   return (
-    <CounsellorLayoutProvider api={props.api} session={props.session}>
-      <CounsellorLayoutInner {...props} />
-    </CounsellorLayoutProvider>
+    // Re-apply the navy/orange theme to PORTALED shadcn content so shared
+    // components (e.g. AdminDataTable menus, RoleSwitcher) don't escape
+    // .counsellor-theme into admin-magenta.
+    <PortalThemeProvider value="counsellor-theme">
+      <CounsellorLayoutProvider api={props.api} session={props.session}>
+        <CounsellorLayoutInner {...props} />
+      </CounsellorLayoutProvider>
+    </PortalThemeProvider>
   );
 }

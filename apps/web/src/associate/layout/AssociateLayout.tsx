@@ -7,6 +7,7 @@ import { AssociateNavbar } from './AssociateNavbar.js';
 import { AssociateRouter } from '../routing/AssociateRouter.js';
 import { resolveAssociateRoute } from '../routing/associate-routes.js';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { PortalThemeProvider } from '@/lib/portal-theme';
 
 interface AssociateLayoutInnerProps {
   pathname: string;
@@ -69,8 +70,13 @@ export interface AssociateLayoutProps {
 
 export function AssociateLayout(props: AssociateLayoutProps) {
   return (
-    <AssociateLayoutProvider api={props.api} session={props.session}>
-      <AssociateLayoutInner {...props} />
-    </AssociateLayoutProvider>
+    // Re-apply the navy/orange theme to PORTALED shadcn content (Dialog /
+    // DropdownMenu / …) rendered from reused shared pages, which would
+    // otherwise escape .counsellor-theme and render admin-magenta.
+    <PortalThemeProvider value="counsellor-theme">
+      <AssociateLayoutProvider api={props.api} session={props.session}>
+        <AssociateLayoutInner {...props} />
+      </AssociateLayoutProvider>
+    </PortalThemeProvider>
   );
 }

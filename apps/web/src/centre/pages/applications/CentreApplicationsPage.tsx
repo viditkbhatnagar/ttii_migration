@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { usePortalThemeClass } from '@/lib/portal-theme';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,7 @@ interface ApplicationsData {
 }
 
 export default function CentreApplicationsPage({ api, session }: CentrePageProps) {
+  const portalTheme = usePortalThemeClass();
   const { data, loading, error, reload } = useAdminPageData<ApplicationsData>(
     async () => {
       const [snapshot, courses, pipelineUsers] = await Promise.all([
@@ -300,7 +302,7 @@ export default function CentreApplicationsPage({ api, session }: CentrePageProps
           </DialogTrigger>
         </AdminPageHeader>
 
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={`sm:max-w-md ${portalTheme}`.trim()}>
           <DialogHeader>
             <DialogTitle>Add Application</DialogTitle>
           </DialogHeader>

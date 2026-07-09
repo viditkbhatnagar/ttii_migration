@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { detectPortalFromSubdomain } from '@/lib/subdomain';
+import { usePortalThemeClass } from '@/lib/portal-theme';
 
 // Human-readable labels for each legacy role id. Mirrors ROLE_LABELS in the
 // admin navbar so the switcher reads the same as the role badge.
@@ -42,7 +43,9 @@ const ROLE_LABELS: Record<number, string> = {
 //   learn.teachersindia.in       → student
 const PORTAL_SURFACE_SETS: Record<string, Set<string>> = {
   admin: new Set(['admin', 'instructor']),
-  centre: new Set(['centre', 'counsellor']),
+  // admissions subdomain hosts centre + counsellor + associate (Associate
+  // split onto its own /associate surface, Naji 2026-07-09) — all switchable.
+  centre: new Set(['centre', 'counsellor', 'associate']),
   student: new Set(['student']),
 };
 
@@ -52,7 +55,7 @@ const PORTAL_SURFACE_SETS: Record<string, Set<string>> = {
 function switchableSurfacesForCurrentHost(): Set<string> {
   const portal = detectPortalFromSubdomain();
   if (portal) return PORTAL_SURFACE_SETS[portal] ?? new Set<string>();
-  return new Set(['admin', 'instructor', 'centre', 'counsellor']);
+  return new Set(['admin', 'instructor', 'centre', 'counsellor', 'associate']);
 }
 
 function resolveApiBaseUrl(): string {
@@ -88,6 +91,7 @@ interface RoleSwitcherProps {
  * Renders nothing when the user has one or zero same-subdomain roles.
  */
 export function RoleSwitcher({ session, authApi, variant = 'dark' }: RoleSwitcherProps) {
+  const portalTheme = usePortalThemeClass();
   const resolvedAuthApi = useMemo<AuthApi>(
     () => authApi ?? new LegacyAuthApi(new LegacyApiClient({ baseUrl: resolveApiBaseUrl() })),
     [authApi],
@@ -170,7 +174,7 @@ export function RoleSwitcher({ session, authApi, variant = 'dark' }: RoleSwitche
           <ChevronsUpDown aria-hidden="true" className="size-3.5 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className={`w-56 ${portalTheme}`.trim()}>
         <DropdownMenuLabel>Switch role</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {sameSubdomainRoles.map((role) => {

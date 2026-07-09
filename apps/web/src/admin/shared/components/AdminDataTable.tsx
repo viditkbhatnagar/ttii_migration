@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { usePortalThemeClass } from '@/lib/portal-theme';
 
 function safeStringify(val: unknown): string {
   if (val == null) return '';
@@ -90,6 +91,10 @@ export function AdminDataTable({
   pageSize = 10,
   onRowClick,
 }: AdminDataTableProps) {
+  // Re-apply the scoped portal theme to the portaled row-action menu (it
+  // escapes .counsellor-theme to admin-magenta otherwise). '' outside a
+  // themed portal → no change for admin/centre.
+  const portalTheme = usePortalThemeClass();
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -257,7 +262,7 @@ export function AdminDataTable({
                                 <MoreHorizontal aria-hidden="true" className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
+                            <DropdownMenuContent align="end" className={portalTheme || undefined}>
                               {actions.map((action, ai) => {
                                 const label = typeof action.label === 'function' ? action.label(row) : action.label;
                                 const variant = typeof action.variant === 'function' ? action.variant(row) : action.variant;
