@@ -232,6 +232,28 @@ export function registerOperationsRoutes(
   // counsellors (role 9) may only VIEW + add enrolments (Naji 2026-06-15).
   const requireStudentEditRole = requireLegacyRoles(authService, ADMIN_PORTAL_SURFACE_ROLES);
 
+  // Per-record IDOR guard: on the counsellor-reachable /admin application + lead
+  // routes, a counsellor (role 9) may only act on leads they OWN; admins /
+  // subadmins pass through. `getAppId` extracts the application id per route.
+  // Returns 404 (existence-hiding) when the actor does not own the record, so a
+  // counsellor cannot probe or mutate another counsellor's lead by id.
+  const requireAppOwnership = (getAppId: (request: FastifyRequest) => string) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      const owned = await operationsService.actorOwnsApplication(requestUserId(request), getAppId(request));
+      if (!owned) {
+        await reply.code(404).send({ status: 0, message: 'Application not found.' });
+      }
+    };
+  const appIdFromBody = (request: FastifyRequest): string => {
+    const payload = requestPayload(request);
+    return toStringValue(payload.id || payload.application_id);
+  };
+  // Payment approvals carry a rowId "<appId>" or "<appId>-<index>".
+  const appIdFromRowId = (request: FastifyRequest): string =>
+    toStringValue(requestPayload(request).id).split('-')[0] ?? '';
+  const appIdFromParams = (request: FastifyRequest): string =>
+    toStringValue((request.params as { id?: unknown }).id);
+
   app.get('/admin/applications/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
@@ -2331,14 +2353,14 @@ export function registerOperationsRoutes(
   });
 
   // Payment Approval (Finance) — Naji UAT 2026-05-31.
-  app.get('/admin/fee_management/payment_approvals', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+  app.get('/admin/fee_management/payment_approvals', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
-      const data = await operationsService.listPaymentApprovals();
+      const data = await operationsService.listPaymentApprovals(requestUserId(request));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/fee_management/payment_approvals/approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/fee_management/payment_approvals/approve', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromRowId)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.approveManualPayment(requestUserId(request), toStringValue(payload.id));
@@ -2346,7 +2368,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/fee_management/payment_approvals/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/fee_management/payment_approvals/reject', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromRowId)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.rejectManualPayment(requestUserId(request), toStringValue(payload.id), toStringValue(payload.reason));
@@ -3212,7 +3234,7 @@ export function registerOperationsRoutes(
   app.get('/admin/applications/get', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.getApplication(toStringValue(payload.id));
+      const result = await operationsService.getApplication(requestUserId(request), toStringValue(payload.id));
       reply.code(200).send({ status: 1, message: 'success', data: result });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
@@ -3250,7 +3272,7 @@ export function registerOperationsRoutes(
   });
 
   // Naji 2026-05-09 — Lead History timeline. Returns events newest-first.
-  app.get('/admin/applications/:id/events', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/applications/:id/events', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromParams)] }, async (request, reply) => {
     try {
       const params = request.params as { id?: string };
       const data = await operationsService.listApplicationEvents(toStringValue(params.id));
@@ -3264,7 +3286,7 @@ export function registerOperationsRoutes(
   app.get('/admin/applications/:id/pdf', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const params = request.params as { id?: string };
-      const rendered = await operationsService.renderApplicationFormPdf(toStringValue(params.id));
+      const rendered = await operationsService.renderApplicationFormPdf(requestUserId(request), toStringValue(params.id));
       if (rendered.status !== 1) {
         reply.code(404).send({ status: 0, message: rendered.message });
         return;
@@ -3279,7 +3301,7 @@ export function registerOperationsRoutes(
   // Naji 2026-05-08 — Edit Lead. Used by ViewApplicationPage Edit
   // button when the row is in an early stage. Updates only the Add Lead
   // captured fields.
-  app.post('/admin/leads/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/leads/edit', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const id = toStringValue(payload.id);
@@ -3337,7 +3359,7 @@ export function registerOperationsRoutes(
   });
 
   // Phase D (Naji 2026-05-05): magic-link application form.
-  app.post('/admin/applications/form-link/generate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/form-link/generate', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.generateApplicationFormToken(
@@ -3454,7 +3476,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/applications/payment-link/generate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/payment-link/generate', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const installmentsRaw = Array.isArray(payload.installments) ? payload.installments : [];
@@ -3487,7 +3509,7 @@ export function registerOperationsRoutes(
 
   // Naji 2026-05-08 — save plan only (no Razorpay, no email). Used by
   // the Save / Save & Close buttons in the Generate Payment Link dialog.
-  app.post('/admin/applications/payment-plan/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/payment-plan/save', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const installmentsRaw = Array.isArray(payload.installments) ? payload.installments : [];
@@ -3515,7 +3537,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/applications/mark-paid', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/mark-paid', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.markApplicationPaidManual(
@@ -3541,7 +3563,7 @@ export function registerOperationsRoutes(
   // are dispatched from THERE via operationsService.handleRazorpayWebhook
   // — see commerce.ts. We can't re-declare the same path here.
 
-  app.post('/admin/applications/counsellor-approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/counsellor-approve', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.counsellorApproveApplication(
@@ -3552,7 +3574,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/applications/admin-approve', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/admin-approve', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.adminApproveApplication(
@@ -3565,7 +3587,7 @@ export function registerOperationsRoutes(
 
   // Naji UAT 2026-05-31 — admin verification gate. Toggles one verification
   // key ("basic" / "qualification" / "documents" / "doc:<index>") on or off.
-  app.post('/admin/applications/verify', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/verify', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const verifiedRaw = payload.verified;
@@ -3580,7 +3602,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/applications/reject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/applications/reject', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.rejectApplication(

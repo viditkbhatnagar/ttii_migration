@@ -1637,8 +1637,9 @@ export class OperationsService {
       };
     }
 
+    const scope = await this.applicationOwnerScope(actorUserId);
     const application = await this.prisma.applications.findFirst({
-      where: { id: toIntId(applicationId), deleted_at: null, is_converted: 0 },
+      where: { id: toIntId(applicationId), deleted_at: null, is_converted: 0, ...scope },
     });
 
     if (!application) {
@@ -8740,10 +8741,11 @@ export class OperationsService {
     return keys;
   }
 
-  async getApplication(id: string): Promise<Record<string, unknown>> {
+  async getApplication(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
 
-    const app = await this.prisma.applications.findFirst({ where: { id: toIntId(id), deleted_at: null } });
+    const scope = await this.applicationOwnerScope(actorUserId);
+    const app = await this.prisma.applications.findFirst({ where: { id: toIntId(id), deleted_at: null, ...scope } });
     if (!app) return { status: 0, message: 'Application not found.' };
 
     // Resolve related records. Naji 2026-05-07: country / nationality /
@@ -10457,9 +10459,11 @@ export class OperationsService {
   // Naji UAT 2026-05-31 — Finance reviews manual (Mark Paid) payments before
   // they reflect to the student. Razorpay payments never appear here.
 
-  async listPaymentApprovals(): Promise<Record<string, unknown>[]> {
+  async listPaymentApprovals(actorUserId: string): Promise<Record<string, unknown>[]> {
+    // Counsellors only see their own leads' pending approvals; admins see all.
+    const scope = await this.applicationOwnerScope(actorUserId);
     const apps = await this.prisma.applications.findMany({
-      where: { payment_status: 'pending_approval', deleted_at: null },
+      where: { payment_status: 'pending_approval', deleted_at: null, ...scope },
       orderBy: { updated_at: 'desc' },
     });
     if (apps.length === 0) return [];
@@ -10816,7 +10820,7 @@ export class OperationsService {
     // approval. Render + send is fire-and-forget; render or delivery
     // failures get console.error'd but don't roll back the enrolment.
     try {
-      const rendered = await this.renderApplicationFormPdf(applicationId);
+      const rendered = await this.renderApplicationFormPdf(actorUserId, applicationId);
       if (rendered.status === 1) {
         const { createIntegrationRegistry } = await import('../integrations/registry.js');
         const { renderBrandedEmail } = await import('../integrations/email-template.js');
@@ -10867,14 +10871,16 @@ export class OperationsService {
    * adminApproveApplication to attach it to the approval email. Naji
    * UAT 2026-05-15 — replaces the manual PDF send the team was doing.
    */
-  async renderApplicationFormPdf(applicationId: string): Promise<{
+  async renderApplicationFormPdf(actorUserId: string, applicationId: string): Promise<{
     status: 1;
     buffer: Buffer;
     filename: string;
   } | { status: 0; message: string }> {
     const id = toIntId(applicationId);
     if (!id) return { status: 0, message: 'Invalid application id.' };
-    const enriched = await this.getApplication(applicationId);
+    // Owner-scoped through getApplication: a counsellor downloading via the
+    // admin PDF endpoint only gets their own leads' PDFs; admins get any.
+    const enriched = await this.getApplication(actorUserId, applicationId);
     if (enriched.status !== 1) {
       return { status: 0, message: (enriched as { message?: string }).message ?? 'Application not found.' };
     }
@@ -11152,6 +11158,41 @@ export class OperationsService {
   // update to an existing applications row. Biography JSON merges with
   // existing keys so we don't clobber installment_plan / documents /
   // discount_type set elsewhere.
+  // IDOR guard (hardens the Naji 2026-05-08 per-counsellor siloing, 2026-07-09):
+  // counsellors (role 9) may only read/mutate applications they OWN
+  // (pipeline_user = themselves), mirroring the scoping already enforced on the
+  // list read. Admins / Subadmins (roles 1, 8) stay unscoped. A scoped lookup
+  // that misses returns the normal "not found", so a counsellor cannot even
+  // probe another counsellor's lead by enumerating ids.
+  private async applicationOwnerScope(actorUserId: string): Promise<Prisma.applicationsWhereInput> {
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { role_id: true },
+    });
+    return actor?.role_id === 9 ? { pipeline_user: toIntId(actorUserId) } : {};
+  }
+
+  // Route-guard companion to applicationOwnerScope: returns true if the actor
+  // may act on this application. Admins / Subadmins (roles 1, 8) always may;
+  // counsellors (role 9) only for leads they OWN (pipeline_user = themselves).
+  // Applied as a preHandler across the counsellor-reachable /admin application
+  // + lead routes to close the surface-wide IDOR-on-write/read (2026-07-09).
+  async actorOwnsApplication(actorUserId: string, applicationId: string): Promise<boolean> {
+    const id = toIntId(applicationId);
+    if (!id) return false;
+    const actor = await this.prisma.users.findFirst({
+      where: { id: toIntId(actorUserId), deleted_at: null },
+      select: { role_id: true },
+    });
+    if (!actor) return false;
+    if (actor.role_id !== 9) return true; // admins / subadmins are unscoped
+    const owned = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null, pipeline_user: toIntId(actorUserId) },
+      select: { id: true },
+    });
+    return owned !== null;
+  }
+
   async updateApplication(
     actorUserId: string,
     applicationId: string,
@@ -11159,8 +11200,9 @@ export class OperationsService {
   ): Promise<Record<string, unknown>> {
     const id = toIntId(applicationId);
     if (!id) return { status: 0, message: 'Application ID is required.' };
+    const scope = await this.applicationOwnerScope(actorUserId);
     const existing = await this.prisma.applications.findFirst({
-      where: { id, deleted_at: null },
+      where: { id, deleted_at: null, ...scope },
       select: { id: true, biography: true },
     });
     if (!existing) return { status: 0, message: 'Application not found.' };
@@ -11248,8 +11290,9 @@ export class OperationsService {
   async deleteApplication(actorUserId: string, id: string): Promise<Record<string, unknown>> {
     if (!id) return { status: 0, message: 'Application ID is required.' };
     const now = new Date();
+    const scope = await this.applicationOwnerScope(actorUserId);
     const result = await this.prisma.applications.updateMany({
-      where: { id: toIntId(id), deleted_at: null },
+      where: { id: toIntId(id), deleted_at: null, ...scope },
       data: { deleted_by: toIntId(actorUserId), deleted_at: now },
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
@@ -11269,8 +11312,9 @@ export class OperationsService {
     if (status === 'rejected' && rejectReason) {
       data.reject_reason = rejectReason;
     }
+    const scope = await this.applicationOwnerScope(actorUserId);
     const result = await this.prisma.applications.updateMany({
-      where: { id: toIntId(id), deleted_at: null },
+      where: { id: toIntId(id), deleted_at: null, ...scope },
       data: data as Prisma.applicationsUpdateManyMutationInput,
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
