@@ -11812,6 +11812,46 @@ export class OperationsService {
       };
     });
 
+    // Display-only enrolments (Naji 2026-07-09): when the student has NO real
+    // `enrol` row, surface a single synthesized enrolment so the header count +
+    // Enrolled Courses rail stop reading "0 courses". Course source: the
+    // enrolled application, else the legacy `users.course_id` (a role-2 user
+    // with a course IS a student on that course even without an enrol row).
+    // Used ONLY for display — the Fee Summary (studentFees below) stays sourced
+    // from real enrol rows, so its numbers are byte-identical for anyone who
+    // already had an enrol row. Course-less orphans get an empty rail (nothing
+    // to show), same as before.
+    const appEnrolled = !!application && (application.stage === 'enrolled' || application.is_converted === 1);
+    const synthCourseId = enrichedEnrolments.length === 0
+      ? ((appEnrolled ? application?.course_id : null) ?? user.course_id ?? null)
+      : null;
+    const synthCourseTitle = synthCourseId
+      ? (courseMap.get(synthCourseId)?.title
+          ?? (await this.prisma.course.findFirst({ where: { id: synthCourseId }, select: { title: true } }))?.title
+          ?? null)
+      : null;
+    const displayEnrolments: Array<Record<string, unknown>> = enrichedEnrolments.length > 0
+      ? (enrichedEnrolments as unknown as Array<Record<string, unknown>>)
+      : synthCourseId
+        ? [{
+            id: 0,
+            user_id: uid,
+            course_id: synthCourseId,
+            enrollment_id: toStringValue(application?.application_id) || toStringValue(user.student_id),
+            enrollment_status: 'Active',
+            batch_id: null,
+            course_title: synthCourseTitle,
+            offering_title: appEnrolled ? (offering?.title ?? offering?.offering_code ?? null) : null,
+            certificate_combination_code: enrolmentCombination?.combination_code ?? null,
+            batch_title: null,
+            course_fee: 0,
+            progress: 0,
+            status: 'Active',
+            cohorts: [],
+            synthesized: true,
+          }]
+        : [];
+
     // Per-enrolment fee aggregation for Tab 3 (Course Fee) + the
     // Payments sub-tab on the enrolment drill-down. Naji UAT 2026-05-12 —
     // expanded with the full pricing breakdown sourced from the
@@ -12139,7 +12179,7 @@ export class OperationsService {
       status: 1,
       message: 'success',
       student: studentWithPhoto,
-      enrolments: enrichedEnrolments,
+      enrolments: displayEnrolments,
       payments,
       studentPaymentSchedule,
       studentFees,
