@@ -18,7 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { useAssociateLayout } from './AssociateLayoutContext.js';
+import { useCounsellorLayout } from '../../counsellor/layout/CounsellorLayoutContext.js';
 import { ASSOCIATE_NAV_TREE, findActiveAssociateNav, type AssociateNavItem } from '../routing/associate-nav-tree.js';
 import type { AuthSession } from '@ttii/frontend-core';
 
@@ -177,7 +177,7 @@ function MonthlyGoalFooter({ collapsed, pct, onToggle }: { collapsed: boolean; p
 }
 
 export function AssociateSidebar({ pathname, session: _session, onNavigate }: AssociateSidebarProps) {
-  const { sidebarCollapsed, toggleSidebar, monthlyGoalPct } = useAssociateLayout();
+  const { sidebarCollapsed, toggleSidebar, monthlyGoalPct } = useCounsellorLayout();
 
   return (
     <aside
@@ -203,7 +203,7 @@ export function AssociateSidebar({ pathname, session: _session, onNavigate }: As
 }
 
 export function AssociateSidebarMobile({ pathname, session: _session, onNavigate }: AssociateSidebarProps) {
-  const { monthlyGoalPct } = useAssociateLayout();
+  const { monthlyGoalPct } = useCounsellorLayout();
 
   return (
     <div className="flex h-full flex-col bg-cn-navy">

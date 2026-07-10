@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
 import type { AssociatePortalApi } from '../associate-portal-api.js';
-import { AssociateLayoutProvider, useAssociateLayout } from './AssociateLayoutContext.js';
+import { CounsellorLayoutProvider, useCounsellorLayout } from '../../counsellor/layout/CounsellorLayoutContext.js';
 import { AssociateSidebar, AssociateSidebarMobile } from './AssociateSidebar.js';
 import { AssociateNavbar } from './AssociateNavbar.js';
 import { AssociateRouter } from '../routing/AssociateRouter.js';
@@ -18,7 +18,7 @@ interface AssociateLayoutInnerProps {
 }
 
 function AssociateLayoutInner({ pathname, session, api, onNavigate, onLogout }: AssociateLayoutInnerProps) {
-  const { mobileSidebarOpen, closeMobileSidebar } = useAssociateLayout();
+  const { mobileSidebarOpen, closeMobileSidebar } = useCounsellorLayout();
 
   const handleNavigate = useCallback((href: string) => {
     closeMobileSidebar();
@@ -74,9 +74,9 @@ export function AssociateLayout(props: AssociateLayoutProps) {
     // DropdownMenu / …) rendered from reused shared pages, which would
     // otherwise escape .counsellor-theme and render admin-magenta.
     <PortalThemeProvider value="counsellor-theme">
-      <AssociateLayoutProvider api={props.api} session={props.session}>
+      <CounsellorLayoutProvider api={props.api} session={props.session}>
         <AssociateLayoutInner {...props} />
-      </AssociateLayoutProvider>
+      </CounsellorLayoutProvider>
     </PortalThemeProvider>
   );
 }

@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useAssociateLayout, type AssociateNotification } from './AssociateLayoutContext.js';
+import { useCounsellorLayout, type CounsellorNotification } from '../../counsellor/layout/CounsellorLayoutContext.js';
 import type { AuthSession } from '@ttii/frontend-core';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
 
@@ -48,7 +48,7 @@ function timeAgo(iso: string | null): string {
   return days === 1 ? 'Yesterday' : `${days} days ago`;
 }
 
-function toView(n: AssociateNotification): NotificationView {
+function toView(n: CounsellorNotification): NotificationView {
   const type = `${n.type} ${n.title}`.toLowerCase();
   let icon: LucideIcon = FilePlus;
   let tone = 'bg-primary-soft text-accent-foreground';
@@ -75,7 +75,7 @@ function toView(n: AssociateNotification): NotificationView {
 // notifications and account (right). Kept functional: mobile menu toggle and
 // the multi-role RoleSwitcher (renders only for users with more than one role).
 export function AssociateNavbar({ session, onLogout }: AssociateNavbarProps) {
-  const { toggleMobileSidebar, currentUser, notifications } = useAssociateLayout();
+  const { toggleMobileSidebar, currentUser, notifications } = useCounsellorLayout();
   const [search, setSearch] = useState('');
   const [allRead, setAllRead] = useState(false);
 
