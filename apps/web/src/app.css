@@ -417,3 +417,15 @@
 .prose p:empty::before {
   content: "\00a0";
 }
+
+/* Public application form — keep the counsellor navy/orange palette (applied via
+   the co-class .counsellor-theme) but render in a neutral system sans, matching
+   Naji's delivered Lovable design (which uses ui-sans-serif, NOT Poppins).
+   Placed AFTER the .counsellor-theme font rule so it wins at equal specificity
+   for the form subtree and its portaled dialogs/popovers (which also carry the
+   .apply-form-theme class). (Naji 2026-07-10.) */
+.apply-form-theme,
+.apply-form-theme h1, .apply-form-theme h2, .apply-form-theme h3,
+.apply-form-theme h4, .apply-form-theme h5, .apply-form-theme h6 {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}

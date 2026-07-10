@@ -82,7 +82,7 @@ export function PhotoCropper({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
-      <DialogContent className="counsellor-theme w-[calc(100vw-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
+      <DialogContent className="counsellor-theme apply-form-theme w-[calc(100vw-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>Crop &amp; Adjust Photo</DialogTitle>
         </DialogHeader>

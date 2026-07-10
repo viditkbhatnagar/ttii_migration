@@ -618,7 +618,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
 
   if (phase === 'error') {
     return (
-      <div className="counsellor-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
+      <div className="counsellor-theme apply-form-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
         <div className={cn(cardCls, 'w-full max-w-md text-center')}>
           <h1 className="text-lg font-semibold text-destructive">Cannot open application</h1>
           <p className="mt-2 text-sm text-muted-foreground">{errorMsg}</p>
@@ -629,7 +629,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
 
   if (phase === 'submitted') {
     return (
-      <div className="counsellor-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
+      <div className="counsellor-theme apply-form-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
         <div className={cn(cardCls, 'w-full max-w-lg text-center')}>
           <div className="mx-auto h-12 w-12 rounded-full bg-success-soft flex items-center justify-center">
             <Check className="h-6 w-6 text-success" />
@@ -661,7 +661,7 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const districtList = form.country === 'India' ? getDistrictsForState(form.state) : null;
 
   return (
-    <div className="counsellor-theme min-h-screen" style={{ background: 'var(--cn-bg-gradient)' }}>
+    <div className="counsellor-theme apply-form-theme min-h-screen" style={{ background: 'var(--cn-bg-gradient)' }}>
       <div className="max-w-5xl mx-auto px-4 md:px-8 pt-8 md:pt-10">
         <header
           style={{ background: '#0B2758' }}
@@ -1398,7 +1398,7 @@ function PerDocumentUploads({
       />
 
       <Dialog open={!!viewDoc} onOpenChange={(o) => !o && setViewDoc(null)}>
-        <DialogContent className="counsellor-theme w-[calc(100vw-2rem)] max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
+        <DialogContent className="counsellor-theme apply-form-theme w-[calc(100vw-2rem)] max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{viewDoc?.label || 'Document'}</DialogTitle>
           </DialogHeader>
