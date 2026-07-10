@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Check, ChevronDown, Eye } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
+import { PhotoCropper } from './PhotoCropper';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
 // Naji UAT 2026-05-31 — Country / State / District as cascading
@@ -39,27 +41,16 @@ const YEAR_OPTIONS: readonly string[] = (() => {
 // Country name list for the Nationality + Country dropdowns.
 const COUNTRY_NAMES: readonly string[] = COUNTRIES.map((c) => c.name);
 
+const GENDER_OPTIONS: readonly string[] = ['Male', 'Female', 'Other'];
+const MARITAL_OPTIONS: readonly string[] = ['Single', 'Married', 'Divorced', 'Widowed'];
+const EMPLOYMENT_OPTIONS: readonly string[] = ['Employed', 'Self-employed', 'Unemployed', 'Student', 'Other'];
+
 function asString(v: unknown): string {
   if (typeof v !== 'string') return '';
   return v;
 }
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
-
-// Naji UAT 2026-05-31 — DOB must read + accept dd/mm/yyyy (the native
-// <input type="date"> renders in the browser locale, which can't be
-// overridden). We display/accept dd/mm/yyyy and keep the canonical
-// yyyy-mm-dd internally so the backend is unaffected. Same pattern as
-// GeneratePaymentLinkDialog.tsx.
-function isoToDmy(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
-}
-function dmyToIso(dmy: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dmy.trim());
-  if (!m) return '';
-  return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
 }
 
 // Age in whole years from an ISO yyyy-mm-dd date of birth.
@@ -211,14 +202,146 @@ const DECLARATION_LINES: readonly string[] = [
   'I consent to the institute contacting me via phone, email, or WhatsApp for academic and administrative purposes and authorize the use of my photograph and personal details for official, academic, or promotional purposes if required.',
 ];
 
+/* ---------- Presentation primitives (ported from Naji's Lovable design) ----------
+   The whole page is wrapped in `.counsellor-theme` (see the returned root
+   div) which re-points the shadcn tokens (--primary → orange #F47C2C,
+   --secondary-foreground → navy #0B2758, --secondary → #EEF4FF, --ring →
+   orange, …) to the exact palette of the delivered design — identical to the
+   already-shipped counsellor/Lovable design system. Shadows use the global
+   --cn-shadow-* tokens so they resolve regardless of scope; the header navy is
+   the literal #0B2758 (the design's --sidebar-bg). */
+const labelCls = 'block text-sm font-semibold text-foreground mb-1.5';
+const req = <span className="text-destructive"> *</span>;
+const inputCls =
+  'w-full rounded-lg border border-input bg-secondary/40 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring transition';
+const readonlyCls =
+  'w-full rounded-lg border border-input bg-secondary/60 px-3 py-2 text-sm text-foreground';
+const sectionTitle = 'text-base font-semibold text-secondary-foreground mb-4';
+const cardCls = 'bg-card rounded-2xl shadow-[var(--cn-shadow-card)] border border-border p-6 md:p-8';
+
+function Field({ label, required, children, hint }: { label: string; required?: boolean; children: React.ReactNode; hint?: string }) {
+  return (
+    <div>
+      <label className={labelCls}>{label}{required && req}</label>
+      {children}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/* Custom Select (matches the design screenshot). Not a Radix Select, so it
+   renders inline inside the themed subtree and cannot self-wipe on option
+   churn — onChange only ever fires with a real option string. */
+function Select({
+  options,
+  value,
+  onChange,
+  placeholder = 'Select',
+  disabled,
+}: {
+  options: readonly string[];
+  value?: string;
+  onChange?: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [internal, setInternal] = useState(value ?? '');
+  const current = value !== undefined ? value : internal;
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const pick = (opt: string) => {
+    setInternal(opt);
+    onChange?.(opt);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        className={
+          'w-full flex items-center justify-between gap-2 rounded-lg border border-input bg-secondary/40 px-3 py-2 text-sm text-left transition focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring disabled:opacity-60 disabled:cursor-not-allowed ' +
+          (current ? 'text-foreground' : 'text-muted-foreground')
+        }
+      >
+        <span className="truncate">{current || placeholder}</span>
+        <ChevronDown className={'h-4 w-4 shrink-0 text-muted-foreground transition-transform ' + (open ? 'rotate-180' : '')} />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1.5 w-full rounded-xl border border-border bg-card shadow-[var(--cn-shadow-card)] py-1 max-h-64 overflow-auto">
+          {options.map((opt) => {
+            const selected = opt === current;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => pick(opt)}
+                className={
+                  'w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left transition ' +
+                  (selected
+                    ? 'text-primary font-semibold bg-primary-soft/60 hover:bg-primary hover:text-primary-foreground'
+                    : 'text-foreground hover:bg-primary hover:text-primary-foreground')
+                }
+              >
+                <span className="truncate">{opt}</span>
+                {selected && <Check className="h-4 w-4 text-primary shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// data: URL → File so a cropped photo/document (a JPEG data URL from the
+// PhotoCropper) can be handed to the SAME token-scoped multipart upload the
+// non-cropped path uses. Keeps storage-backed uploads (DO Spaces) intact — we
+// never persist a raw base64 string onto the application.
+async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+}
+
+interface UploadedDoc {
+  name: string;
+  url: string;
+  key: string;
+  size: number;
+  contentType: string;
+  // Naji UAT 2026-05-31 — when the course defines required documents, each
+  // upload is tagged with its slot so the admin can see which doc is which
+  // and the form can enforce mandatory slots.
+  document_type_id?: number;
+  label?: string;
+}
+
 /**
  * Public Application Form — Naji 2026-05-05, Phase D.
  *
  * Lives on `learn.teachersindia.in/apply/<token>`. No login. The
  * counsellor-generated token is single-use; the page hydrates the
  * form with whatever data we have on the application + any saved
- * draft. Save-as-draft and Submit. Signature is a typed full-name
- * confirmation (signature pad component is a future polish).
+ * draft. Save-as-draft and Submit.
+ *
+ * Naji 2026-07-10 — reskinned to the delivered Lovable design (navy logo
+ * header + orange/navy card sections, custom selects, dd/mm/yyyy DOB with
+ * auto-Age, WhatsApp "Same as" toggles, "Same as Permanent Address" toggle,
+ * Education Pathway repeater, PhotoCropper on the profile photo + document
+ * images, and a canvas Signature gate). The data layer (state shape, load
+ * effect, validation, upload endpoints, submit payload) is unchanged.
  */
 export default function PublicApplyPage({ token }: { token: string }) {
   const [phase, setPhase] = useState<'loading' | 'error' | 'ready' | 'submitted'>('loading');
@@ -234,13 +357,15 @@ export default function PublicApplyPage({ token }: { token: string }) {
   const [signature, setSignature] = useState<string>('');
   // Naji UAT 2026-05-17 — five-point Student Declaration block as
   // explicit checkboxes the student must tick before they can submit.
-  // Mirrors the bullets printed in the application PDF; the boolean
-  // array indexes match DECLARATION_LINES (see below).
   const [declarations, setDeclarations] = useState<boolean[]>([false, false, false, false, false]);
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [educationPathway, setEducationPathway] = useState<EducationPathwayRow[]>([]);
   const [saving, setSaving] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  // Design-only convenience toggles (not persisted directly — they mirror
+  // values into the existing FormState fields).
+  const [whatsappSameAs, setWhatsappSameAs] = useState<'phone' | 'alternate' | null>(null);
+  const [sameAsPermanent, setSameAsPermanent] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +479,53 @@ export default function PublicApplyPage({ token }: { token: string }) {
     setForm((f) => ({ ...f, [key]: e.target.value }));
   };
 
+  // Title-case name-like fields on blur (mirrors the previous FieldText behaviour).
+  const blurTitle = (key: keyof FormState) => (e: React.FocusEvent<HTMLInputElement>) => {
+    const nextValue = titleCaseEachWord(e.target.value);
+    if (nextValue !== e.target.value) setForm((f) => ({ ...f, [key]: nextValue }));
+  };
+
+  // WhatsApp "Same as Phone / Alternate" toggles — mirror the chosen source
+  // into the existing whatsapp fields and lock the inputs while active.
+  const handleWhatsappSameAs = (source: 'phone' | 'alternate', checked: boolean) => {
+    if (checked) {
+      setWhatsappSameAs(source);
+      setForm((f) => (source === 'phone'
+        ? { ...f, whatsapp_country_code: f.country_code, whatsapp_no: f.phone }
+        : { ...f, whatsapp_country_code: f.country_code, whatsapp_no: f.alternate_phone }));
+    } else if (whatsappSameAs === source) {
+      setWhatsappSameAs(null);
+    }
+  };
+
+  const handleAlternateChange = (value: string) => {
+    setForm((f) => {
+      const nextForm: FormState = { ...f, alternate_phone: value };
+      if (whatsappSameAs === 'alternate') nextForm.whatsapp_no = value;
+      return nextForm;
+    });
+  };
+
+  // "Same as Permanent Address" — mirror address → native_address and lock.
+  const handlePermanentChange = (value: string) => {
+    setForm((f) => {
+      const nextForm: FormState = { ...f, address: value };
+      if (sameAsPermanent) nextForm.native_address = value;
+      return nextForm;
+    });
+  };
+
+  const handleSameAsPermanent = (checked: boolean) => {
+    setSameAsPermanent(checked);
+    if (checked) setForm((f) => ({ ...f, native_address: f.address }));
+  };
+
+  // Country / State / District cascade — changing Country resets State +
+  // District; changing State resets District (unchanged from the prior logic).
+  const handleCountryChange = (value: string) => setForm((f) => ({ ...f, country: value, state: '', district: '' }));
+  const handleStateChange = (value: string) => setForm((f) => ({ ...f, state: value, district: '' }));
+  const handleDistrictChange = (value: string) => setForm((f) => ({ ...f, district: value }));
+
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
@@ -443,227 +615,338 @@ export default function PublicApplyPage({ token }: { token: string }) {
   };
 
   if (phase === 'loading') return <PageLoader label="Opening application..." />;
+
   if (phase === 'error') {
     return (
-      <main className="mx-auto w-[min(560px,calc(100%-2rem))] py-12 text-center">
-        <Card><CardContent className="space-y-3 p-8">
-          <h1 className="text-lg font-semibold text-red-600">Cannot open application</h1>
-          <p className="text-sm text-slate-600">{errorMsg}</p>
-        </CardContent></Card>
-      </main>
+      <div className="counsellor-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
+        <div className={cn(cardCls, 'w-full max-w-md text-center')}>
+          <h1 className="text-lg font-semibold text-destructive">Cannot open application</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{errorMsg}</p>
+        </div>
+      </div>
     );
   }
+
   if (phase === 'submitted') {
     return (
-      <main className="mx-auto w-[min(560px,calc(100%-2rem))] py-12 text-center">
-        <Card><CardContent className="space-y-3 p-8">
-          <h1 className="text-lg font-semibold text-emerald-600">Application submitted</h1>
-          <p className="text-sm text-slate-600">
-            Thank you. Your counsellor will review your application and confirm your enrolment by email.
+      <div className="counsellor-theme min-h-screen flex items-center justify-center px-4 py-12" style={{ background: 'var(--cn-bg-gradient)' }}>
+        <div className={cn(cardCls, 'w-full max-w-lg text-center')}>
+          <div className="mx-auto h-12 w-12 rounded-full bg-success-soft flex items-center justify-center">
+            <Check className="h-6 w-6 text-success" />
+          </div>
+          <h1 className="mt-5 text-xl font-bold text-secondary-foreground">Application Submitted Successfully!</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Thank you{appName ? <>, <span className="font-semibold text-foreground">{appName}</span></> : ''}. Your application has been received. Your counsellor will review it and confirm your enrolment by email.
           </p>
-        </CardContent></Card>
-      </main>
+          {(courseTitle || offeringTitle) && (
+            <div className="mt-5 rounded-xl border border-border bg-secondary/40 p-4 text-left">
+              <p className="text-xs font-semibold tracking-wider text-info uppercase mb-3">Course Details</p>
+              <div className="grid gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Course</p>
+                  <p className="text-sm font-semibold text-foreground">{courseTitle || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Offering</p>
+                  <p className="text-sm font-semibold text-foreground">{offeringTitle || '—'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
-  return (
-    <main className="mx-auto w-[min(800px,calc(100%-2rem))] py-8 space-y-4">
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-900">TTII Application Form</h1>
-            <p className="text-sm text-slate-500">{appName ? `Hi ${appName} — please review and complete the details below.` : 'Please complete the details below.'}</p>
-          </div>
+  const districtList = form.country === 'India' ? getDistrictsForState(form.state) : null;
 
-          {/* Course & Offering — Naji UAT 2026-05-31 — shown read-only at
-              the top so the applicant can confirm what they're applying for.
-              These are NOT editable. */}
-          {courseTitle || offeringTitle ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">You are applying for</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <ReadOnlyField label="Course" value={courseTitle || '—'} />
-                <ReadOnlyField label="Offering" value={offeringTitle || '—'} />
+  return (
+    <div className="counsellor-theme min-h-screen" style={{ background: 'var(--cn-bg-gradient)' }}>
+      <div className="max-w-5xl mx-auto px-4 md:px-8 pt-8 md:pt-10">
+        <header
+          style={{ background: '#0B2758' }}
+          className="rounded-2xl py-6 md:py-8 flex items-center justify-center shadow-[var(--cn-shadow-card)]"
+        >
+          <img src="/logos/ttii-full-white.svg" alt="Teachers' Training Institute of India" className="h-10 md:h-12 w-auto" />
+        </header>
+      </div>
+
+      <main className="max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
+        {/* Header card */}
+        <div className={cardCls}>
+          <h1 className="text-xl md:text-2xl font-bold text-secondary-foreground text-center">Application Form</h1>
+          <p className="text-sm text-muted-foreground mt-1 text-center">
+            {appName ? `Hi ${appName}, please review and complete the details below.` : 'Please review and complete the details below.'}
+          </p>
+
+          {(courseTitle || offeringTitle) && (
+            <div className="mt-5 rounded-xl border border-border bg-secondary/40 p-4 md:p-5">
+              <p className="text-xs font-semibold tracking-wider text-info uppercase mb-3">You are applying for</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                <Field label="Course">
+                  <div className={readonlyCls + ' whitespace-normal break-words leading-snug min-h-[2.5rem] flex items-center'}>{courseTitle || '—'}</div>
+                </Field>
+                <Field label="Offering">
+                  <div className={readonlyCls + ' whitespace-normal break-words leading-snug min-h-[2.5rem] flex items-center'}>{offeringTitle || '—'}</div>
+                </Field>
               </div>
             </div>
-          ) : null}
-
-          {/* Profile Photo — Naji 2026-05-09 — was admin-only. Naji UAT
-              2026-05-31 — mandatory, plain file upload (no crop step). */}
-          <h2 className="pt-2 text-sm font-semibold text-slate-700">Profile Photo *</h2>
-          <PhotoUploader
-            token={token}
-            value={form.photo_url}
-            onChange={(url) => setForm((p) => ({ ...p, photo_url: url }))}
-          />
-
-          <h2 className="pt-2 text-sm font-semibold text-slate-700">Personal</h2>
-          <div className="grid grid-cols-2 gap-4">
-            {/* Naji UAT 2026-05-31 — single Full Name field. */}
-            <FieldText label="Full Name *" value={form.full_name} onChange={update('full_name')} titleCase />
-            {/* DOB in dd/mm/yyyy + auto-computed read-only Age. */}
-            <FieldDmyDate label="Date of Birth *" value={form.date_of_birth} onChange={(iso) => setForm((p) => ({ ...p, date_of_birth: iso }))} />
-            <ReadOnlyField label="Age" value={computeAge(form.date_of_birth) || '—'} />
-            <FieldSelect label="Gender *" value={form.gender} onChange={update('gender')} options={['', 'Male', 'Female', 'Other']} />
-            <FieldSelect label="Nationality *" value={form.nationality} onChange={update('nationality')} options={['', ...COUNTRY_NAMES]} />
-            <FieldSelect label="Marital Status *" value={form.marital_status} onChange={update('marital_status')} options={['', 'Single', 'Married', 'Divorced', 'Widowed']} />
-            <FieldText label="Father's Name *" value={form.father_name} onChange={update('father_name')} titleCase />
-            <FieldText label="Mother's Name *" value={form.mother_name} onChange={update('mother_name')} titleCase />
-            <FieldText label="Guardian's Name" value={form.guardian_name} onChange={update('guardian_name')} titleCase />
-            {/* Naji UAT 2026-05-31 — at least one of Aadhaar / Passport is
-                required (validated on submit); neither is individually marked
-                mandatory. */}
-            <FieldText label="Aadhaar No" value={form.aadhar_no} onChange={update('aadhar_no')} />
-            <FieldText label="Passport No" value={form.passport_no} onChange={update('passport_no')} />
-          </div>
-          <p className="-mt-2 text-xs text-slate-500">Provide at least one of Aadhaar No or Passport No.</p>
-
-          {/* Contact Information — Naji 2026-05-08: was missing entirely;
-              public form now mirrors the admin Add Application contact group.
-              Naji UAT 2026-05-31 — Email + Phone (incl. country code) are
-              read-only, prefilled from the lead. */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Contact Information</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <ReadOnlyField label="Email" value={form.email || '—'} />
-            <ReadOnlyField label="Phone" value={form.phone ? `+${form.country_code} ${form.phone}` : '—'} />
-            <FieldText label="Alternate Phone" value={form.alternate_phone} onChange={update('alternate_phone')} />
-            <PhoneFieldGroup
-              label="WhatsApp Number"
-              code={form.whatsapp_country_code}
-              onCodeChange={update('whatsapp_country_code')}
-              number={form.whatsapp_no}
-              onNumberChange={update('whatsapp_no')}
-            />
-          </div>
-
-          {/* Address — Naji UAT 2026-05-31 — Country / State / District are
-              cascading dropdowns placed together; Country first, then State,
-              then District. */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Address</h2>
-          <div className="grid grid-cols-1 gap-4">
-            <FieldTextArea label="Permanent Address *" value={form.address} onChange={update('address')} />
-            <FieldTextArea label="Correspondence / Native Address *" value={form.native_address} onChange={update('native_address')} />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <FieldSelect
-                label="Country *"
-                value={form.country}
-                options={['', ...COUNTRY_NAMES]}
-                onChange={(e) => {
-                  const country = e.target.value;
-                  // Changing Country resets State + District.
-                  setForm((p) => ({ ...p, country, state: '', district: '' }));
-                }}
-              />
-              <StateField
-                country={form.country}
-                value={form.state}
-                onChange={(state) => setForm((p) => ({ ...p, state, district: '' }))}
-              />
-              <DistrictField
-                country={form.country}
-                state={form.state}
-                value={form.district}
-                onChange={(district) => setForm((p) => ({ ...p, district }))}
-              />
-            </div>
-          </div>
-
-          {/* Qualification — Naji UAT 2026-05-31 — Highest Qualification +
-              Year of Passing are dropdowns; Percentage / Grade removed. */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Qualification</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <FieldSelect label="Highest Qualification *" value={form.highest_qualification} onChange={update('highest_qualification')} options={['', ...QUALIFICATION_OPTIONS]} />
-            <FieldText label="Specialization" value={form.specialization} onChange={update('specialization')} titleCase />
-            <FieldText label="School / College *" value={form.previous_school} onChange={update('previous_school')} titleCase />
-            <FieldSelect label="Year of Passing *" value={form.year_of_passing} onChange={update('year_of_passing')} options={['', ...YEAR_OPTIONS]} />
-          </div>
-
-          {/* Education Pathway — multi-row repeater, mirrors the admin
-              Application View. Naji 2026-05-08 — required to match
-              "Application form information should be as per our Full Application." */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Education Pathway</h2>
-          <p className="text-xs text-slate-500">Add one row per qualification (school, diploma, bachelor's, etc.).</p>
-          <EducationPathwayEditor rows={educationPathway} onChange={setEducationPathway} />
-
-          {/* Employment — Naji UAT 2026-05-31 — only Employment Status,
-              Current Occupation (designation), Experience, and Teaching
-              Experience. Organisation removed from the UI (still sent as ''
-              by toBackendForm so the backend column is untouched). */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Employment</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <FieldSelect label="Employment Status *" value={form.employment_status} onChange={update('employment_status')} options={['', 'Employed', 'Self-employed', 'Unemployed', 'Student', 'Other']} />
-            <FieldText label="Current Occupation" value={form.designation} onChange={update('designation')} titleCase />
-            <FieldText label="Experience" value={form.experience_years} onChange={update('experience_years')} />
-            <FieldText label="Teaching Experience" value={form.teaching_experience} onChange={update('teaching_experience')} titleCase />
-          </div>
-
-          {/* Documents — Naji UAT 2026-05-31 — driven by the course's
-              required-documents config when the loader returns it; otherwise
-              the generic multi-file uploader. */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Documents</h2>
-          {requiredDocs.length > 0 ? (
-            <>
-              {/* Naji UAT 2026-05-31 — one upload box per document the course
-                  requires (course_required_documents). Mandatory slots are
-                  enforced on submit. */}
-              <p className="text-xs text-slate-500">
-                Upload each document required for your course. PDF / JPG / PNG; up to 10 MB each.
-              </p>
-              <PerDocumentUploads token={token} requiredDocs={requiredDocs} documents={documents} setDocuments={setDocuments} />
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-slate-500">
-                Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.
-              </p>
-              <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
-            </>
           )}
+        </div>
 
-          {/* Naji UAT 2026-05-17 — Declarations as checkboxes BEFORE
-              the signature so the student explicitly acknowledges each
-              point. Submit is blocked until all five are ticked. */}
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Declarations</h2>
-          <p className="text-xs text-slate-500">
-            Please read and tick each point to confirm. All boxes must be ticked before you can submit.
+        {/* Personal */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Personal</h2>
+          <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
+            <div className="md:col-span-2">
+              <PhotoUploader token={token} value={form.photo_url} onChange={(url) => setForm((p) => ({ ...p, photo_url: url }))} />
+            </div>
+
+            <Field label="Full Name" required>
+              <input className={inputCls} value={form.full_name} onChange={update('full_name')} onBlur={blurTitle('full_name')} />
+            </Field>
+            <Field label="Date of Birth" required>
+              <DmyDateInput value={form.date_of_birth} onChange={(iso) => setForm((p) => ({ ...p, date_of_birth: iso }))} className={inputCls} />
+            </Field>
+            <Field label="Age">
+              <input readOnly value={computeAge(form.date_of_birth) || '—'} className={readonlyCls} />
+            </Field>
+            <Field label="Gender" required>
+              <Select options={GENDER_OPTIONS} value={form.gender} onChange={(v) => setForm((p) => ({ ...p, gender: v }))} />
+            </Field>
+            <Field label="Nationality" required>
+              <Select options={COUNTRY_NAMES} value={form.nationality} onChange={(v) => setForm((p) => ({ ...p, nationality: v }))} />
+            </Field>
+            <Field label="Marital Status" required>
+              <Select options={MARITAL_OPTIONS} value={form.marital_status} onChange={(v) => setForm((p) => ({ ...p, marital_status: v }))} />
+            </Field>
+            <Field label="Father's Name" required>
+              <input className={inputCls} value={form.father_name} onChange={update('father_name')} onBlur={blurTitle('father_name')} />
+            </Field>
+            <Field label="Mother's Name" required>
+              <input className={inputCls} value={form.mother_name} onChange={update('mother_name')} onBlur={blurTitle('mother_name')} />
+            </Field>
+            <Field label="Guardian's Name">
+              <input className={inputCls} value={form.guardian_name} onChange={update('guardian_name')} onBlur={blurTitle('guardian_name')} />
+            </Field>
+            <Field label="Aadhaar No">
+              <input className={inputCls} value={form.aadhar_no} onChange={update('aadhar_no')} />
+            </Field>
+            <Field label="Passport No" hint="Provide at least one of Aadhaar No or Passport No.">
+              <input className={inputCls} value={form.passport_no} onChange={update('passport_no')} />
+            </Field>
+          </div>
+        </div>
+
+        {/* Contact */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Contact Information</h2>
+          <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
+            <Field label="Email">
+              <div className={readonlyCls}>{form.email || '—'}</div>
+            </Field>
+            <Field label="Phone">
+              <div className={readonlyCls}>{form.phone ? `+${form.country_code} ${form.phone}` : '—'}</div>
+            </Field>
+            <Field label="Alternate Phone">
+              <input className={inputCls} inputMode="tel" value={form.alternate_phone} onChange={(e) => handleAlternateChange(e.target.value)} />
+            </Field>
+            <Field label="WhatsApp Number">
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-2">
+                  <input
+                    aria-label="WhatsApp country code"
+                    value={form.whatsapp_country_code}
+                    disabled={!!whatsappSameAs}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      setForm((f) => ({ ...f, whatsapp_country_code: digits }));
+                    }}
+                    placeholder="91"
+                    className={cn('w-20 shrink-0 text-center', inputCls, whatsappSameAs && 'bg-secondary/60 cursor-not-allowed')}
+                  />
+                  <input
+                    aria-label="WhatsApp number"
+                    value={form.whatsapp_no}
+                    disabled={!!whatsappSameAs}
+                    onChange={update('whatsapp_no')}
+                    inputMode="tel"
+                    placeholder="9876543210"
+                    className={cn(inputCls, 'flex-1', whatsappSameAs && 'bg-secondary/60 cursor-not-allowed')}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox checked={whatsappSameAs === 'phone'} onCheckedChange={(c) => handleWhatsappSameAs('phone', Boolean(c))} />
+                    <span className="text-sm text-foreground">Same as Phone Number</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox checked={whatsappSameAs === 'alternate'} onCheckedChange={(c) => handleWhatsappSameAs('alternate', Boolean(c))} />
+                    <span className="text-sm text-foreground">Same as Alternate Number</span>
+                  </label>
+                </div>
+              </div>
+            </Field>
+          </div>
+
+          <h3 className="mt-8 text-sm font-semibold text-secondary-foreground mb-4">Address</h3>
+          <div className="grid gap-5">
+            <div className="grid md:grid-cols-3 gap-x-6 gap-y-5">
+              <Field label="Country" required>
+                <Select options={COUNTRY_NAMES} value={form.country} onChange={handleCountryChange} placeholder="Select country" />
+              </Field>
+              <Field label="State" required>
+                {form.country === 'India' ? (
+                  <Select options={INDIAN_STATES} value={form.state} onChange={handleStateChange} placeholder="Select state" />
+                ) : (
+                  <input
+                    className={inputCls}
+                    value={form.state}
+                    onChange={(e) => handleStateChange(e.target.value)}
+                    onBlur={(e) => { const n = titleCaseEachWord(e.target.value); if (n !== e.target.value) handleStateChange(n); }}
+                  />
+                )}
+              </Field>
+              <Field label="District" required>
+                {districtList && districtList.length > 0 ? (
+                  <Select options={districtList} value={form.district} onChange={handleDistrictChange} placeholder="Select district" />
+                ) : (
+                  <input
+                    className={inputCls}
+                    value={form.district}
+                    onChange={(e) => handleDistrictChange(e.target.value)}
+                    onBlur={(e) => { const n = titleCaseEachWord(e.target.value); if (n !== e.target.value) handleDistrictChange(n); }}
+                  />
+                )}
+              </Field>
+            </div>
+
+            <Field label="Permanent Address" required>
+              <textarea rows={4} className={inputCls} value={form.address} onChange={(e) => handlePermanentChange(e.target.value)} />
+            </Field>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox checked={sameAsPermanent} onCheckedChange={(c) => handleSameAsPermanent(Boolean(c))} />
+              <span className="text-sm text-foreground">Same as Permanent Address</span>
+            </label>
+
+            <Field label="Correspondence / Native Address" required>
+              <textarea
+                rows={4}
+                disabled={sameAsPermanent}
+                className={cn(inputCls, sameAsPermanent && 'bg-secondary/60 cursor-not-allowed')}
+                value={form.native_address}
+                onChange={update('native_address')}
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* Qualification */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Qualification</h2>
+          <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
+            <Field label="Highest Qualification" required>
+              <Select options={QUALIFICATION_OPTIONS} value={form.highest_qualification} onChange={(v) => setForm((p) => ({ ...p, highest_qualification: v }))} />
+            </Field>
+            <Field label="Specialization">
+              <input className={inputCls} value={form.specialization} onChange={update('specialization')} onBlur={blurTitle('specialization')} />
+            </Field>
+            <Field label="School / College" required>
+              <input className={inputCls} value={form.previous_school} onChange={update('previous_school')} onBlur={blurTitle('previous_school')} />
+            </Field>
+            <Field label="Year of Passing" required>
+              <Select options={YEAR_OPTIONS} value={form.year_of_passing} onChange={(v) => setForm((p) => ({ ...p, year_of_passing: v }))} placeholder="Select year" />
+            </Field>
+          </div>
+
+          <div className="mt-8">
+            <h3 className="text-sm font-semibold text-secondary-foreground mb-1">Education Pathway</h3>
+            <p className="text-sm text-muted-foreground">Add one row per qualification (school, diploma, bachelor's, etc.).</p>
+            <EducationPathwayEditor rows={educationPathway} onChange={setEducationPathway} />
+          </div>
+        </div>
+
+        {/* Employment */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Employment</h2>
+          <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
+            <Field label="Employment Status" required>
+              <Select options={EMPLOYMENT_OPTIONS} value={form.employment_status} onChange={(v) => setForm((p) => ({ ...p, employment_status: v }))} />
+            </Field>
+            <Field label="Current Occupation">
+              <input className={inputCls} value={form.designation} onChange={update('designation')} onBlur={blurTitle('designation')} />
+            </Field>
+            <Field label="Experience">
+              <input className={inputCls} value={form.experience_years} onChange={update('experience_years')} />
+            </Field>
+            <Field label="Teaching Experience">
+              <input className={inputCls} value={form.teaching_experience} onChange={update('teaching_experience')} onBlur={blurTitle('teaching_experience')} />
+            </Field>
+          </div>
+        </div>
+
+        {/* Documents */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Documents</h2>
+          <p className="text-sm text-muted-foreground mb-5">
+            {requiredDocs.length > 0
+              ? 'Upload each document required for your course. PDF / JPG / PNG; up to 10 MB each.'
+              : 'Upload supporting documents (ID proof, qualification certificates, photo). PDF / JPG / PNG; up to 10 MB each.'}
           </p>
-          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/40 p-3">
+          {requiredDocs.length > 0 ? (
+            <PerDocumentUploads token={token} requiredDocs={requiredDocs} documents={documents} setDocuments={setDocuments} studentName={form.full_name} />
+          ) : (
+            <DocumentUploads token={token} documents={documents} setDocuments={setDocuments} />
+          )}
+        </div>
+
+        {/* Declarations */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Declarations</h2>
+          <p className="text-sm text-muted-foreground mb-5">Please read and tick each point to confirm. All boxes must be ticked before you can submit.</p>
+          <div className="rounded-xl border border-border bg-secondary/30 p-5 space-y-4">
             {DECLARATION_LINES.map((line, idx) => (
-              <label key={idx} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-white">
+              <label key={idx} className="flex gap-3 items-start cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={declarations[idx]}
-                  onChange={(e) =>
-                    setDeclarations((prev) => prev.map((v, i) => (i === idx ? e.target.checked : v)))
-                  }
-                  className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer rounded border-slate-300 accent-student-primary"
+                  checked={declarations[idx] ?? false}
+                  onChange={(e) => setDeclarations((prev) => prev.map((v, i) => (i === idx ? e.target.checked : v)))}
+                  className="mt-1 h-4 w-4 rounded border-input accent-[var(--primary)]"
                 />
-                <span className="text-xs leading-relaxed text-slate-700">{line}</span>
+                <span className="text-sm text-info leading-relaxed">{line}</span>
               </label>
             ))}
           </div>
+        </div>
 
-          <h2 className="pt-4 text-sm font-semibold text-slate-700">Signature</h2>
-          <p className="text-xs text-slate-500">
-            Sign in the box below to confirm that all the information provided is true and complete.
-          </p>
+        {/* Signature + actions */}
+        <div className={cardCls}>
+          <h2 className={sectionTitle}>Signature</h2>
+          <p className="text-sm text-muted-foreground mb-4">Sign in the box below to confirm that all the information provided is true and complete.</p>
           <SignaturePad value={signature} onChange={setSignature} />
 
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => { void handleSaveDraft(); }} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Draft'}
-            </Button>
-            <Button
-              onClick={() => { void handleSubmit(); }}
-              disabled={submitting || declarations.some((v) => !v)}
-              className="bg-student-primary hover:bg-student-primary/90"
+          <div className="mt-8 flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => { void handleSaveDraft(); }}
+              disabled={saving}
+              className="rounded-lg border border-border bg-card px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)] disabled:opacity-60"
             >
-              {submitting ? 'Submitting...' : 'Submit Application'}
-            </Button>
+              {saving ? 'Saving…' : 'Save Draft'}
+            </button>
+            <button
+              type="button"
+              disabled={submitting || declarations.some((v) => !v) || !signature.trim()}
+              onClick={() => { void handleSubmit(); }}
+              className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-[var(--cn-shadow-soft)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Submitting…' : 'Submit Application'}
+            </button>
           </div>
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
 
@@ -687,163 +970,71 @@ function EducationPathwayEditor({
   const removeRow = (idx: number) => onChange(rows.filter((_, i) => i !== idx));
 
   return (
-    <div className="space-y-2">
-      {rows.length === 0 ? (
-        <p className="text-xs italic text-slate-400">No entries yet — add your first qualification below.</p>
-      ) : null}
-      {rows.map((r, idx) => (
-        <div key={idx} className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <FieldText label="Qualification" value={r.qualification} onChange={(e) => updateRow(idx, { qualification: e.target.value })} titleCase />
-            <FieldText label="Specialization" value={r.specialization} onChange={(e) => updateRow(idx, { specialization: e.target.value })} titleCase />
-            <FieldText label="Institution" value={r.institution} onChange={(e) => updateRow(idx, { institution: e.target.value })} titleCase />
-            <FieldText label="Board / University" value={r.board} onChange={(e) => updateRow(idx, { board: e.target.value })} titleCase />
-            <FieldText label="Year Passed" value={r.year_passed} onChange={(e) => updateRow(idx, { year_passed: e.target.value })} />
-            <FieldText label="Marks / Grade" value={r.marks} onChange={(e) => updateRow(idx, { marks: e.target.value })} />
-          </div>
-          <div className="mt-2 flex justify-end">
-            <Button type="button" variant="ghost" size="sm" onClick={() => removeRow(idx)}>
-              Remove row
-            </Button>
-          </div>
-        </div>
-      ))}
-      <Button type="button" variant="outline" size="sm" onClick={addRow}>
-        + Add Qualification Row
-      </Button>
-    </div>
-  );
-}
+    <div>
+      {rows.length === 0 && <p className="mt-2 text-sm italic text-info">No entries yet — add your first qualification below.</p>}
 
-function FieldText({ label, value, type = 'text', onChange, titleCase }: { label: string; value: string; type?: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; titleCase?: boolean }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Input
-        type={type}
-        value={value}
-        onChange={onChange}
-        onBlur={titleCase ? (e) => {
-          const next = titleCaseEachWord(e.target.value);
-          if (next !== e.target.value) {
-            // Synthesize a change event so the existing onChange handler updates the form state.
-            const synthetic = { ...e, target: { ...e.target, value: next } } as React.ChangeEvent<HTMLInputElement>;
-            onChange(synthetic);
-          }
-        } : undefined}
-      />
-    </div>
-  );
-}
-
-function FieldSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={onChange}>
-        {options.map((o) => (
-          <option key={o} value={o}>{o || 'Select'}</option>
+      <div className="mt-3 space-y-4">
+        {rows.map((r, i) => (
+          <div key={i} className="rounded-xl border border-border bg-secondary/30 p-4 md:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-secondary-foreground">Qualification {i + 1}</p>
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="text-xs font-semibold text-destructive hover:text-destructive/80 transition"
+              >
+                Remove
+              </button>
+            </div>
+            <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
+              <Field label="Qualification">
+                <input
+                  className={inputCls}
+                  value={r.qualification}
+                  onChange={(e) => updateRow(i, { qualification: e.target.value })}
+                  onBlur={(e) => { const n = titleCaseEachWord(e.target.value); if (n !== e.target.value) updateRow(i, { qualification: n }); }}
+                />
+              </Field>
+              <Field label="Specialization">
+                <input className={inputCls} value={r.specialization} onChange={(e) => updateRow(i, { specialization: e.target.value })} />
+              </Field>
+              <Field label="Institution">
+                <input
+                  className={inputCls}
+                  value={r.institution}
+                  onChange={(e) => updateRow(i, { institution: e.target.value })}
+                  onBlur={(e) => { const n = titleCaseEachWord(e.target.value); if (n !== e.target.value) updateRow(i, { institution: n }); }}
+                />
+              </Field>
+              <Field label="Board / University">
+                <input className={inputCls} value={r.board} onChange={(e) => updateRow(i, { board: e.target.value })} />
+              </Field>
+              <Field label="Year Passed">
+                <Select options={YEAR_OPTIONS} value={r.year_passed} onChange={(v) => updateRow(i, { year_passed: v })} placeholder="Select year" />
+              </Field>
+              <Field label="Marks / Grade">
+                <input className={inputCls} value={r.marks} onChange={(e) => updateRow(i, { marks: e.target.value })} />
+              </Field>
+            </div>
+          </div>
         ))}
-      </select>
-    </div>
-  );
-}
-
-function FieldTextArea({ label, value, onChange }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <textarea className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={onChange} />
-    </div>
-  );
-}
-
-// Naji UAT 2026-05-31 — read-only display field (Course, Offering, Email,
-// Phone, Age). Renders as a disabled-looking box, not an editable input.
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <div className="flex h-10 w-full items-center rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
-        {value}
       </div>
+
+      <button
+        type="button"
+        onClick={addRow}
+        className="mt-4 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)]"
+      >
+        + Add Qualification
+      </button>
     </div>
   );
-}
-
-// Naji UAT 2026-05-31 — Date of Birth shown + accepted as dd/mm/yyyy while
-// the form stores the canonical ISO yyyy-mm-dd internally.
-function FieldDmyDate({ label, value, onChange }: { label: string; value: string; onChange: (iso: string) => void }) {
-  const [text, setText] = useState(isoToDmy(value));
-  useEffect(() => { setText(isoToDmy(value)); }, [value]);
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Input
-        type="text"
-        inputMode="numeric"
-        placeholder="dd/mm/yyyy"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          const iso = dmyToIso(e.target.value);
-          if (iso) onChange(iso);
-        }}
-      />
-    </div>
-  );
-}
-
-// Naji UAT 2026-05-31 — State input. Dropdown of Indian states when Country
-// is India; free-text otherwise.
-function StateField({ country, value, onChange }: { country: string; value: string; onChange: (state: string) => void }) {
-  if (country === 'India') {
-    return (
-      <FieldSelect
-        label="State *"
-        value={value}
-        options={['', ...INDIAN_STATES]}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-  return <FieldText label="State *" value={value} onChange={(e) => onChange(e.target.value)} titleCase />;
-}
-
-// Naji UAT 2026-05-31 — District input. Dropdown sourced from the selected
-// Indian state when available; free-text fallback otherwise (non-India, or
-// a state with no district list).
-function DistrictField({ country, state, value, onChange }: { country: string; state: string; value: string; onChange: (district: string) => void }) {
-  const districts = country === 'India' ? getDistrictsForState(state) : null;
-  if (districts && districts.length > 0) {
-    return (
-      <FieldSelect
-        label="District *"
-        value={value}
-        options={['', ...districts]}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-  return <FieldText label="District *" value={value} onChange={(e) => onChange(e.target.value)} titleCase />;
-}
-
-interface UploadedDoc {
-  name: string;
-  url: string;
-  key: string;
-  size: number;
-  contentType: string;
-  // Naji UAT 2026-05-31 — when the course defines required documents, each
-  // upload is tagged with its slot so the admin can see which doc is which
-  // and the form can enforce mandatory slots.
-  document_type_id?: number;
-  label?: string;
 }
 
 /**
  * SignaturePad — finger / mouse draw, captured as a PNG data URL.
- * Stored as `signature_data` on the application.
+ * Stored as `signature_data` on the application. Canvas logic unchanged from
+ * the prior implementation; only the wrapper chrome was restyled to the design.
  */
 function SignaturePad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -932,13 +1123,13 @@ function SignaturePad({ value, onChange }: { value: string; onChange: (v: string
   };
 
   return (
-    <div className="space-y-2">
-      <div className="rounded-md border border-slate-200 bg-white">
+    <div className="space-y-3">
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
         <canvas
           ref={canvasRef}
-          width={560}
-          height={160}
-          className="block w-full touch-none"
+          width={600}
+          height={192}
+          className="block w-full h-48 touch-none cursor-crosshair"
           onPointerDown={handleStart}
           onPointerMove={handleMove}
           onPointerUp={handleEnd}
@@ -947,20 +1138,24 @@ function SignaturePad({ value, onChange }: { value: string; onChange: (v: string
         />
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">{value ? 'Signature captured.' : 'Sign anywhere in the box above.'}</p>
-        <Button type="button" variant="outline" size="sm" onClick={handleClear}>
+        <p className="text-sm text-muted-foreground">{value ? 'Signature captured.' : 'Sign anywhere in the box above.'}</p>
+        <button
+          type="button"
+          onClick={handleClear}
+          className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)]"
+        >
           Clear
-        </Button>
+        </button>
       </div>
     </div>
   );
 }
 
 /**
- * DocumentUploads — multi-file upload via the public token-scoped
- * upload endpoint. Files go straight to the storage provider (DO Spaces
- * in prod) and come back as { key, url } pairs which submit() persists
- * onto the application.
+ * DocumentUploads — generic multi-file uploader (fallback when the course
+ * does not define required documents). Files go straight to the storage
+ * provider via the public token-scoped upload endpoint. Logic unchanged;
+ * only restyled to the design.
  */
 function DocumentUploads({
   token,
@@ -1021,7 +1216,7 @@ function DocumentUploads({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <input
         ref={inputRef}
         type="file"
@@ -1030,46 +1225,68 @@ function DocumentUploads({
         className="hidden"
         onChange={(e) => { void handleFiles(e.target.files); }}
       />
-      <Button type="button" variant="outline" onClick={handlePick} disabled={uploading}>
-        {uploading ? 'Uploading...' : 'Choose Files'}
-      </Button>
-      {documents.length > 0 ? (
-        <ul className="space-y-1.5 text-sm">
+      <button
+        type="button"
+        onClick={handlePick}
+        disabled={uploading}
+        className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)] disabled:opacity-60"
+      >
+        {uploading ? 'Uploading…' : 'Choose Files'}
+      </button>
+      {documents.length > 0 && (
+        <div className="space-y-3">
           {documents.map((doc, idx) => (
-            <li key={`${doc.key}-${idx}`} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+            <div key={`${doc.key}-${idx}`} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-secondary/30 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-slate-700">{doc.name}</p>
-                <p className="text-xs text-slate-500">{(doc.size / 1024).toFixed(1)} KB</p>
+                <p className="truncate text-sm font-semibold text-secondary-foreground">{doc.name}</p>
+                <p className="text-xs text-muted-foreground">{(doc.size / 1024).toFixed(1)} KB</p>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => handleRemove(idx)}>Remove</Button>
-            </li>
+              <button
+                type="button"
+                onClick={() => handleRemove(idx)}
+                className="text-xs font-semibold text-destructive hover:text-destructive/80 transition"
+              >
+                Remove
+              </button>
+            </div>
           ))}
-        </ul>
-      ) : null}
+        </div>
+      )}
     </div>
   );
 }
 
-// Naji UAT 2026-05-31 — one upload box per document the course requires
+// Naji UAT 2026-05-31 — one upload row per document the course requires
 // (course_required_documents, surfaced by the /apply loader). Each upload is
 // tagged with its document_type_id so the admin sees which file is which and
 // the submit step can enforce the mandatory slots. Uploading again replaces
 // that slot's file. Uses the same public /apply/:token/upload endpoint.
+// Naji 2026-07-10 — restyled per-row (Upload/Replace/View), and image picks
+// now go through the PhotoCropper before the (unchanged) upload call.
 function PerDocumentUploads({
   token,
   requiredDocs,
   documents,
   setDocuments,
+  studentName,
 }: {
   token: string;
   requiredDocs: RequiredDocument[];
   documents: UploadedDoc[];
   setDocuments: (next: UploadedDoc[]) => void;
+  studentName: string;
 }) {
   const [busyTypeId, setBusyTypeId] = useState<number | null>(null);
+  const [rawImage, setRawImage] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [activeDoc, setActiveDoc] = useState<RequiredDocument | null>(null);
+  const [viewDoc, setViewDoc] = useState<UploadedDoc | null>(null);
+  const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
-  const uploadFor = async (doc: RequiredDocument, file: File | null) => {
-    if (!file) return;
+  const slug = (label: string) =>
+    label.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'document';
+
+  const doUpload = async (doc: RequiredDocument, file: File) => {
     if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} is larger than 10 MB.`); return; }
     setBusyTypeId(doc.document_type_id);
     try {
@@ -1099,51 +1316,114 @@ function PerDocumentUploads({
     }
   };
 
-  const removeFor = (typeId: number) => setDocuments(documents.filter((x) => x.document_type_id !== typeId));
+  const onPick = (doc: RequiredDocument, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} is larger than 10 MB.`); return; }
+    if (file.type === 'image/jpeg' || file.type === 'image/png') {
+      const reader = new FileReader();
+      reader.onload = () => { setActiveDoc(doc); setRawImage(reader.result as string); setCropOpen(true); };
+      reader.readAsDataURL(file);
+    } else {
+      void doUpload(doc, file);
+    }
+  };
+
+  const onCropConfirm = async (dataUrl: string) => {
+    setCropOpen(false);
+    const doc = activeDoc;
+    setRawImage(null);
+    setActiveDoc(null);
+    if (doc) {
+      const file = await dataUrlToFile(dataUrl, `${slug(doc.label)}-${slug(studentName || 'student')}.jpg`);
+      await doUpload(doc, file);
+    }
+  };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {requiredDocs.map((d) => {
         const uploaded = documents.find((x) => x.document_type_id === d.document_type_id);
         const busy = busyTypeId === d.document_type_id;
         return (
-          <div key={d.document_type_id || d.label} className="rounded-md border border-slate-200 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-700">
-                  {d.label}{d.is_mandatory ? ' *' : <span className="font-normal text-slate-400"> (optional)</span>}
-                </p>
-                {uploaded ? (
-                  <p className="truncate text-xs text-emerald-600">Uploaded: {uploaded.name}</p>
-                ) : (
-                  <p className="text-xs text-slate-400">PDF / JPG / PNG, up to 10 MB</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {uploaded ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => removeFor(d.document_type_id)}>Remove</Button>
-                ) : null}
-                <label className={`inline-flex cursor-pointer items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm hover:bg-slate-50 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                  {busy ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}
-                  <input
-                    type="file"
-                    accept=".pdf,image/png,image/jpeg,image/jpg"
-                    className="hidden"
-                    disabled={busy}
-                    onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void uploadFor(d, f); }}
-                  />
-                </label>
-              </div>
+          <div key={d.document_type_id || d.label} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-secondary/30 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-secondary-foreground">
+                {d.label}{d.is_mandatory ? req : <span className="font-normal text-muted-foreground"> (optional)</span>}
+              </p>
+              {uploaded ? (
+                <p className="text-xs text-primary truncate">{uploaded.name || 'Uploaded'}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">PDF / JPG / PNG, up to 10 MB</p>
+              )}
+            </div>
+            <input
+              ref={(el) => { inputRefs.current[d.document_type_id] = el; }}
+              type="file"
+              accept="image/jpeg,image/png,application/pdf"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => onPick(d, e)}
+            />
+            <div className="shrink-0 flex items-center gap-2">
+              {uploaded && (
+                <button
+                  type="button"
+                  onClick={() => setViewDoc(uploaded)}
+                  aria-label={`View ${d.label}`}
+                  className="rounded-lg border border-border bg-card p-2 text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)]"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => inputRefs.current[d.document_type_id]?.click()}
+                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)] disabled:opacity-60"
+              >
+                {busy ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}
+              </button>
             </div>
           </div>
         );
       })}
+
+      <PhotoCropper
+        imageSrc={rawImage}
+        open={cropOpen}
+        onCancel={() => { setCropOpen(false); setRawImage(null); setActiveDoc(null); }}
+        onConfirm={(c) => { void onCropConfirm(c); }}
+      />
+
+      <Dialog open={!!viewDoc} onOpenChange={(o) => !o && setViewDoc(null)}>
+        <DialogContent className="counsellor-theme w-[calc(100vw-2rem)] max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle>{viewDoc?.label || 'Document'}</DialogTitle>
+          </DialogHeader>
+          {viewDoc && (
+            viewDoc.contentType === 'application/pdf' ? (
+              <iframe
+                src={viewDoc.url}
+                title={viewDoc.label || 'Document'}
+                className="w-full h-[70vh] rounded-lg border border-border bg-secondary"
+              />
+            ) : (
+              <img src={viewDoc.url} alt={viewDoc.label || 'Document'} className="max-w-full max-h-[70vh] mx-auto rounded-lg" />
+            )
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// Naji 2026-05-09 — single-image profile photo uploader. Uses the
-// same /apply/:token/upload endpoint as documents. Public so no auth.
+// Naji 2026-05-09 — single-image profile photo uploader. Uses the same
+// /apply/:token/upload endpoint as documents. Naji 2026-07-10 — the picked
+// image now goes through the PhotoCropper (zoom + rotation) and the cropped
+// JPEG blob is uploaded via the SAME multipart endpoint, so form.photo_url
+// still holds a storage-backed URL (never a raw base64 string).
 function PhotoUploader({
   token,
   value,
@@ -1154,96 +1434,83 @@ function PhotoUploader({
   onChange: (url: string) => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [rawPhoto, setRawPhoto] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFile = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Photo must be under 5 MB.');
-      return;
-    }
+  const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error('Photo must be under 5 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setRawPhoto(reader.result as string); setCropOpen(true); };
+    reader.readAsDataURL(file);
+  };
+
+  const uploadCropped = async (dataUrl: string) => {
+    setCropOpen(false);
     setUploading(true);
     try {
+      const file = await dataUrlToFile(dataUrl, 'profile-photo.jpg');
       const fd = new FormData();
       fd.append('file', file);
       const res = await fetch(`${API_BASE}/apply/${encodeURIComponent(token)}/upload`, { method: 'POST', body: fd });
       const json = (await res.json()) as { status: number; message?: string; data?: Record<string, unknown> };
-      if (json.status !== 1) {
-        toast.error(json.message ?? 'Photo upload failed.');
-        return;
-      }
+      if (json.status !== 1) { toast.error(json.message ?? 'Photo upload failed.'); return; }
       const url = typeof json.data?.url === 'string' ? json.data.url : '';
       if (url) onChange(url);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = '';
     }
   };
 
   return (
-    <div className="flex items-center gap-4">
-      {value ? (
-        <img src={value} alt="Profile" className="size-24 rounded-xl border border-slate-200 object-cover" />
-      ) : (
-        <div className="flex size-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400">No photo</div>
-      )}
-      <div className="space-y-1">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/jpg"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void handleFile(f);
-          }}
-        />
-        <Button type="button" variant="outline" onClick={() => inputRef.current?.click()} disabled={uploading}>
-          {uploading ? 'Uploading…' : value ? 'Change Photo' : 'Upload Photo'}
-        </Button>
-        <p className="text-xs text-slate-500">JPG / PNG, max 5 MB.</p>
+    <div>
+      <p className={labelCls}>Profile Photo{req}</p>
+      <div className="flex flex-col items-center gap-4 md:flex-row md:items-start">
+        <div className="w-28 h-28 rounded-lg border-2 border-dashed border-border bg-secondary/40 flex items-center justify-center text-xs text-muted-foreground overflow-hidden">
+          {value ? (
+            <img src={value} alt="Profile" className="w-full h-full object-cover" />
+          ) : uploading ? (
+            'Uploading…'
+          ) : (
+            'No photo'
+          )}
+        </div>
+        <div className="flex flex-col items-center md:items-start">
+          <input ref={inputRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={handlePick} />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)] disabled:opacity-60"
+            >
+              {value ? 'Change Photo' : 'Upload Photo'}
+            </button>
+            {rawPhoto && (
+              <button
+                type="button"
+                onClick={() => setCropOpen(true)}
+                disabled={uploading}
+                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition shadow-[var(--cn-shadow-soft)] disabled:opacity-60"
+              >
+                Crop &amp; Adjust
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">JPG / PNG, max 5 MB.</p>
+        </div>
       </div>
+      <PhotoCropper
+        imageSrc={rawPhoto}
+        open={cropOpen}
+        onCancel={() => setCropOpen(false)}
+        onConfirm={(c) => { void uploadCropped(c); }}
+      />
     </div>
-  );
-}
-
-// Naji 2026-05-09 — country code + number side-by-side, mirrors the
-// admin Add Application phone input.
-function PhoneFieldGroup({
-  label,
-  code,
-  onCodeChange,
-  number,
-  onNumberChange,
-}: {
-  label: string;
-  code: string;
-  onCodeChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  number: string;
-  onNumberChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="mb-1 block text-slate-600">{label}</span>
-      <div className="flex gap-2">
-        <input
-          value={code}
-          onChange={(e) => {
-            const ev = { ...e, target: { ...e.target, value: e.target.value.replace(/\D/g, '').slice(0, 4) } } as React.ChangeEvent<HTMLInputElement>;
-            onCodeChange(ev);
-          }}
-          placeholder="91"
-          className="w-16 rounded-md border border-slate-200 px-3 py-2 text-sm text-center"
-        />
-        <input
-          value={number}
-          onChange={onNumberChange}
-          inputMode="tel"
-          placeholder="9876543210"
-          className="flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm"
-        />
-      </div>
-    </label>
   );
 }
