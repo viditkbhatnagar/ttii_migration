@@ -1795,11 +1795,29 @@ export class OperationsService {
       };
     }
 
+    // Issue login credentials (a unique random password) and email them, matching
+    // the admin Approve fan-out — a converted student must receive their own
+    // sign-in details, not a shared hardcoded password (Naji 2026-07-09). Runs
+    // before the transaction; the email send inside issueAndEmailCredentials is
+    // best-effort and never throws.
+    const applicationEmail = toNullableString(application.user_email) ?? toNullableString(application.email) ?? '';
+    let issuedHashedPassword: string | null = null;
+    if (applicationEmail) {
+      const { issueAndEmailCredentials } = await import('../auth/credentials-issuer.js');
+      const creds = await issueAndEmailCredentials({
+        name: toStringValue(application.name) || applicationEmail,
+        email: applicationEmail,
+        roleLabel: 'Student',
+      });
+      issuedHashedPassword = creds.hashedPassword;
+    }
+
     const created = await this.prisma.$transaction(async (tx) => {
       const studentCode = await this.nextStudentCode(tx);
       const now = new Date();
-      const hashedPassword = await hashPassword('Temp@1234');
-      const applicationEmail = toNullableString(application.user_email) ?? toNullableString(application.email) ?? '';
+      // Use the issued (emailed) password hash; fall back to a default only for
+      // the rare application with no email on file.
+      const hashedPassword = issuedHashedPassword ?? await hashPassword('Temp@1234');
       const courseIdNum = application.course_id;
       const enrolDate = toDateOnly(now);
 
@@ -1883,6 +1901,15 @@ export class OperationsService {
       } catch (err) {
         console.error('[convertApplication] payment materialization failed:', err instanceof Error ? err.message : err);
       }
+    }
+
+    // Enrolment-confirmed email + audit trail (mirror the admin Approve fan-out).
+    // Best-effort: a notification failure must never fail the conversion itself.
+    try {
+      await this.recordEvent(toIntId(applicationId), 'converted', 'Lead converted to enrolled student', actorUserId, { student_id: created.studentUserId });
+      await this.notifyApplicationEvent(toIntId(applicationId), 'enrolment_confirmed');
+    } catch (err) {
+      console.error('[convertApplication] enrolment notification failed:', err instanceof Error ? err.message : err);
     }
 
     return {
