@@ -539,25 +539,39 @@ export class CommerceService {
 
     // Identify the payer in Razorpay (Naji 2026-07-09) — carry the student's
     // name + TTS code + course so the order is attributable, not just a number.
+    // The Razorpay ORDER has no customer field, and order notes surface only in a
+    // separate panel — so the payment's Email/Contact (which otherwise fall back
+    // to "void@razorpay.com") can ONLY be set from the client-side Checkout
+    // prefill. We therefore also RETURN the payer identity so the web + mobile
+    // checkout can prefill name/email/contact (Naji 2026-07-10).
     const payer = userIntId
-      ? await this.prisma.users.findFirst({ where: { id: userIntId }, select: { name: true, student_id: true } })
+      ? await this.prisma.users.findFirst({
+          where: { id: userIntId },
+          select: { name: true, student_id: true, user_email: true, phone: true, whatsapp: true },
+        })
       : null;
+    // user_email is the real inbox; users.email sometimes holds a phone (project
+    // gotcha), so do NOT fall back to it for the email prefill.
+    const payerEmail = (payer?.user_email ?? '').trim();
+    const payerContact = (payer?.phone ?? payer?.whatsapp ?? '').trim();
 
     const amountMinor = Math.round(toDbNumber(course.sale_price) * 100);
     const receipt = input.receipt.trim() === '' ? `receipt_${Date.now()}` : input.receipt.trim();
     const currency = input.currency.trim() === '' ? 'INR' : input.currency.trim().toUpperCase();
 
+    const orderNotes: Record<string, string> = {
+      user_id: String(userId),
+      course_id: String(input.courseId),
+      ...(payer?.name ? { student_name: payer.name } : {}),
+      ...(payer?.student_id ? { student_id: String(payer.student_id) } : {}),
+      ...(course.title ? { course: course.title } : {}),
+    };
+
     const createdOrder = await this.paymentGateway.createOrder({
       amountMinor,
       currency,
       receipt,
-      notes: {
-        user_id: String(userId),
-        course_id: String(input.courseId),
-        ...(payer?.name ? { student_name: payer.name } : {}),
-        ...(payer?.student_id ? { student_id: String(payer.student_id) } : {}),
-        ...(course.title ? { course: course.title } : {}),
-      },
+      notes: orderNotes,
     });
 
     const now = new Date();
@@ -581,6 +595,14 @@ export class CommerceService {
       amount: createdOrder.amountMinor,
       currency: createdOrder.currency,
       key: env.PAYMENT_RAZORPAY_KEY_ID ?? '',
+      // Payer identity for the client to prefill Razorpay Checkout so the payment
+      // shows the student (not void@razorpay.com), plus the attribution notes to
+      // attach to the payment. The web checkout consumes these; the Flutter app
+      // must do the same in its razorpay_flutter options.
+      prefill_name: payer?.name ?? '',
+      prefill_email: payerEmail,
+      prefill_contact: payerContact,
+      notes: orderNotes,
     };
   }
 

@@ -220,6 +220,20 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         return;
       }
 
+      // Prefill the student's identity so the Razorpay payment shows WHO paid
+      // (name/email/phone) instead of void@razorpay.com, and attach the
+      // attribution notes. The server returns these on the order.
+      const prefill: { name?: string; email?: string; contact?: string } = {};
+      const prefillName = asString(order.prefill_name) || holderName;
+      const prefillEmail = asString(order.prefill_email);
+      const prefillContact = asString(order.prefill_contact);
+      if (prefillName) prefill.name = prefillName;
+      if (prefillEmail) prefill.email = prefillEmail;
+      if (prefillContact) prefill.contact = prefillContact;
+      const notes = order.notes && typeof order.notes === 'object'
+        ? (order.notes as Record<string, string>)
+        : undefined;
+
       const result = await openRazorpayCheckout({
         orderId,
         amount,
@@ -227,7 +241,8 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
         keyId: key,
         name: "Teachers' Training Institute of India",
         description: courseTitle,
-        ...(holderName ? { prefill: { name: holderName } } : {}),
+        ...(Object.keys(prefill).length > 0 ? { prefill } : {}),
+        ...(notes ? { notes } : {}),
       });
 
       if (result.status === 'cancelled') {
