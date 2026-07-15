@@ -10760,8 +10760,17 @@ export class OperationsService {
     const applicantRef = toStringValue(app.application_id) || `APP-${id}`;
     const payerRef = studentCode || applicantRef;
     const studentName = app.name ?? 'Student';
-    const feeLabel = input.mode === 'full' ? 'Course fee' : 'Registration fee';
-    const description = `${studentName} (${payerRef}) — ${courseTitle} — ${feeLabel}`.slice(0, 250);
+    // The specific instalment this link charges, for the Razorpay description +
+    // notes — so Naji can tell "Registration Fee" vs "Reg Fee Balance" vs a course
+    // instalment at a glance instead of a bare "installment" (Naji 2026-07-10).
+    // This method always charges the due-now / index-0 row; match the charged
+    // amount to a schedule row, else fall back to the first row's label.
+    const chargedLabel = input.mode === 'full'
+      ? 'Course fee (full payment)'
+      : (input.installments?.find((r) => r.amountMinor === amountMinor)?.label
+        || input.installments?.[0]?.label
+        || 'Registration fee');
+    const description = `${studentName} (${payerRef}) — ${courseTitle} — ${chargedLabel}`.slice(0, 250);
 
     let link;
     try {
@@ -10780,7 +10789,9 @@ export class OperationsService {
           ...(studentCode ? { student_id: studentCode } : {}),
           ...(app.phone ? { phone: app.phone } : {}),
           ...(courseTitle ? { course: courseTitle } : {}),
-          mode: input.mode,
+          // What this specific payment covers (Naji 2026-07-10) — e.g.
+          // "Registration Fee — Due Now", "Course Fee Installment 1 of 5".
+          installment: chargedLabel,
         },
         expireBy,
       });
