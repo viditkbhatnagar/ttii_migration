@@ -3680,6 +3680,44 @@ export class ContentService {
             updated_at: now,
           })),
         });
+
+        // Copy the lesson-file quiz questions too. These live in the `quiz`
+        // table (lesson_file_id) — a DIFFERENT store from the content_asset
+        // quizzes (quiz_question.asset_id) copied below. Without this a cloned
+        // lesson's quiz row exists but previews "No questions added to this quiz
+        // yet" in the target course (Ishfaq 2026-07-15). createMany doesn't
+        // return ids, so map each new row back to its source via the
+        // master_lesson_file_id we just wrote.
+        const srcQuizzes = await tx.quiz.findMany({
+          where: { lesson_file_id: { in: files.map((f) => f.id) }, deleted_at: null },
+          orderBy: { id: 'asc' },
+        });
+        if (srcQuizzes.length > 0) {
+          const newFiles = await tx.lesson_files.findMany({
+            where: { lesson_id: newLesson.id, deleted_at: null },
+            select: { id: true, master_lesson_file_id: true },
+          });
+          const newIdBySrc = new Map<number, number>();
+          for (const nf of newFiles) {
+            if (nf.master_lesson_file_id != null) newIdBySrc.set(nf.master_lesson_file_id, nf.id);
+          }
+          const quizRows = srcQuizzes.flatMap((q) => {
+            const newFileId = newIdBySrc.get(q.lesson_file_id);
+            return newFileId === undefined ? [] : [{
+              lesson_file_id: newFileId,
+              master_quiz_id: q.id,
+              question: q.question,
+              question_type: q.question_type,
+              answer_id: q.answer_id,
+              answer_ids: q.answer_ids,
+              answers: q.answers,
+              created_by: actor,
+              created_at: now,
+              updated_at: now,
+            }];
+          });
+          if (quizRows.length > 0) await tx.quiz.createMany({ data: quizRows });
+        }
       }
 
       for (const a of assets) {
@@ -3832,6 +3870,31 @@ export class ContentService {
         updated_at: now,
       },
     });
+
+    // Copy the lesson-file quiz questions too. These live in the `quiz` table
+    // (lesson_file_id) — a DIFFERENT store from content_asset quizzes
+    // (quiz_question.asset_id). Without this the copied quiz row exists but
+    // previews "No questions added to this quiz yet" (Ishfaq 2026-07-15).
+    const srcQuizzes = await this.prisma.quiz.findMany({
+      where: { lesson_file_id: src.id, deleted_at: null },
+      orderBy: { id: 'asc' },
+    });
+    if (srcQuizzes.length > 0) {
+      await this.prisma.quiz.createMany({
+        data: srcQuizzes.map((q) => ({
+          lesson_file_id: created.id,
+          master_quiz_id: q.id,
+          question: q.question,
+          question_type: q.question_type,
+          answer_id: q.answer_id,
+          answer_ids: q.answer_ids,
+          answers: q.answers,
+          created_by: actor,
+          created_at: now,
+          updated_at: now,
+        })),
+      });
+    }
     return { id: created.id };
   }
 
