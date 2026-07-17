@@ -166,6 +166,9 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
 
   // ── Content add/edit dialog ─────────────────────────────────────────
   const [contentDialog, setContentDialog] = useState<{ lesson: LessonNode; asset: Record<string, unknown> | null } | null>(null);
+  // Articles have no file to open — their body is HTML in `summary` — so "View"
+  // opens it in a dialog instead of a new tab (Risha 2026-07-15).
+  const [articleItem, setArticleItem] = useState<Record<string, unknown> | null>(null);
 
   const deleteContent = async (asset: Record<string, unknown>) => {
     const ok = await confirm({
@@ -295,6 +298,9 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                         const Icon = meta.icon;
                         const qc = Number(item.question_count ?? 0);
                         const fileUrl = asString(item.attachment) || asString(item.video_url) || asString(item.audio_file);
+                        // An article carries no attachment/video/audio — its body is
+                        // HTML in `summary`, so it gets a dialog preview instead.
+                        const articleBody = asString(item.asset_type) === 'article' ? asString(item.summary).trim() : '';
                         // Lesson Builder rows are READ-ONLY here: this page's
                         // dialog writes content_asset only, so editing/deleting
                         // them from here would hit the wrong table.
@@ -320,6 +326,8 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                             </div>
                             {fileUrl ? (
                               <IconButton label="View content" onClick={() => window.open(fileUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="size-4" /></IconButton>
+                            ) : articleBody ? (
+                              <IconButton label="View article" onClick={() => setArticleItem(item)}><ExternalLink className="size-4" /></IconButton>
                             ) : null}
                             {isLessonItem ? (
                               <IconButton
@@ -352,6 +360,18 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
         <ExternalLink aria-hidden="true" className="size-3" />
         Quiz questions and full asset editing live in Courses → Content Library
       </p>
+
+      {/* Article preview — articles store their body as HTML in `summary` rather
+          than as a file, so there is no URL to open in a tab (Risha 2026-07-15). */}
+      <Dialog open={articleItem !== null} onOpenChange={(o) => { if (!o) setArticleItem(null); }}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader><DialogTitle>{asString(articleItem?.title) || 'Article'}</DialogTitle></DialogHeader>
+          <div
+            className="prose prose-sm max-w-none text-slate-800"
+            dangerouslySetInnerHTML={{ __html: asString(articleItem?.summary) || '<em>This article has no content.</em>' }}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Lesson dialog */}
       <Dialog open={lessonDialogOpen} onOpenChange={(o) => { if (!o) setLessonDialogOpen(false); }}>
