@@ -30,6 +30,18 @@ function typeMeta(t: string) {
   return TYPE_META[t] ?? { icon: FileQuestion, tint: 'bg-slate-100 text-slate-600', label: t || 'Item' };
 }
 
+// A lesson's content list merges two tables — content_asset (Content Library,
+// `library:` prefix) and lesson_files (Lesson Builder, `lesson:` prefix) —
+// whose ids are independent auto-increment sequences and therefore collide.
+// Always key/look rows up by `item_key`; the bare `id` is only safe within one
+// source. (Fallback to `id` keeps the page alive against an older API.)
+function itemKey(item: Record<string, unknown>): string {
+  return asString(item.item_key) || asString(item.id);
+}
+
+const LIBRARY_PREFIX = 'library:';
+const LESSON_PREFIX = 'lesson:';
+
 interface LessonNode {
   id: string;
   title: string;
@@ -57,6 +69,8 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
     const s = (data?.subject as Record<string, unknown> | undefined) ?? {};
     return {
       id: asString(s.id) || subjectId,
+      // Needed to build the Lesson Builder deep link for lesson_files items.
+      courseId: asString(s.course_id),
       title: asString(s.title),
       code: asString(s.subject_code),
       type: asString(s.subject_type),
@@ -122,7 +136,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
     const ok = await confirm({
       title: `Delete lesson "${l.title}"?`,
       description: n > 0
-        ? `This lesson has ${n} content item${n === 1 ? '' : 's'}. The lesson will be removed; the content stays in the Content Library.`
+        ? `This lesson has ${n} content item${n === 1 ? '' : 's'}. The lesson will be removed; the content itself is not deleted.`
         : 'This cannot be undone.',
       confirmText: 'Delete',
       variant: 'destructive',
@@ -170,10 +184,17 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
     }
   };
 
-  const reorderContent = useCallback((lessonId: string, nextIds: string[]) => {
+  // The dropped list interleaves both sources, but each source owns a SEPARATE
+  // order column in a separate table (content_asset.sort_order vs
+  // lesson_files.order). Partition by key prefix and write each list to its own
+  // table — never send a lesson_files id to the content_asset endpoint.
+  const reorderContent = useCallback((lessonId: string, nextKeys: string[]) => {
     void (async () => {
+      const libraryIds = nextKeys.filter((k) => k.startsWith(LIBRARY_PREFIX)).map((k) => k.slice(LIBRARY_PREFIX.length));
+      const lessonFileIds = nextKeys.filter((k) => k.startsWith(LESSON_PREFIX)).map((k) => k.slice(LESSON_PREFIX.length));
       try {
-        await api.reorderLessonContent(session.token, lessonId, nextIds);
+        if (libraryIds.length) await api.reorderLessonContent(session.token, lessonId, libraryIds);
+        if (lessonFileIds.length) await api.reorderLessonFiles(session.token, lessonId, lessonFileIds);
         toast.success('Content reordered');
         reload();
       } catch (err) {
@@ -220,7 +241,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
           </Button>
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder · content added here also appears in the Content Library
+          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder · content added here also appears in the Content Library · items marked “Lesson Builder” were added in the course’s Lesson Builder and are edited there
         </p>
       </div>
 
@@ -263,17 +284,21 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                 ) : (
                   <div className="p-3">
                     <SortableList
-                      ids={lesson.content.map((c) => asString(c.id))}
-                      onReorder={(ids) => reorderContent(lesson.id, ids)}
+                      ids={lesson.content.map((c) => itemKey(c))}
+                      onReorder={(keys) => reorderContent(lesson.id, keys)}
                       className="space-y-1.5"
                     >
                       {(cid, cHandle) => {
-                        const item = lesson.content.find((c) => asString(c.id) === cid);
+                        const item = lesson.content.find((c) => itemKey(c) === cid);
                         if (!item) return null;
                         const meta = typeMeta(asString(item.asset_type));
                         const Icon = meta.icon;
                         const qc = Number(item.question_count ?? 0);
                         const fileUrl = asString(item.attachment) || asString(item.video_url) || asString(item.audio_file);
+                        // Lesson Builder rows are READ-ONLY here: this page's
+                        // dialog writes content_asset only, so editing/deleting
+                        // them from here would hit the wrong table.
+                        const isLessonItem = asString(item.source) === 'lesson';
                         return (
                           <div className="flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
                             {cHandle}
@@ -282,15 +307,35 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium text-slate-800">{asString(item.title) || 'Untitled'}</p>
-                              <p className="text-[11px] text-slate-400">
-                                {meta.label}{asString(item.asset_type) === 'quiz' ? ` · ${qc} question${qc === 1 ? '' : 's'}` : ''}
+                              <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                                <span>
+                                  {meta.label}{asString(item.asset_type) === 'quiz' ? ` · ${qc} question${qc === 1 ? '' : 's'}` : ''}
+                                </span>
+                                {isLessonItem ? (
+                                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                    Lesson Builder
+                                  </span>
+                                ) : null}
                               </p>
                             </div>
                             {fileUrl ? (
                               <IconButton label="View content" onClick={() => window.open(fileUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="size-4" /></IconButton>
                             ) : null}
-                            <IconButton label="Edit content" onClick={() => setContentDialog({ lesson, asset: item })}><Pencil className="size-4" /></IconButton>
-                            <IconButton label="Delete content" onClick={() => void deleteContent(item)} danger><Trash2 className="size-4" /></IconButton>
+                            {isLessonItem ? (
+                              <IconButton
+                                label="Edit in Lesson Builder"
+                                onClick={() => onNavigate(
+                                  `/admin/course_new/builder?course_id=${encodeURIComponent(subject.courseId)}&subject_id=${encodeURIComponent(subject.id)}`,
+                                )}
+                              >
+                                <Pencil className="size-4" />
+                              </IconButton>
+                            ) : (
+                              <>
+                                <IconButton label="Edit content" onClick={() => setContentDialog({ lesson, asset: item })}><Pencil className="size-4" /></IconButton>
+                                <IconButton label="Delete content" onClick={() => void deleteContent(item)} danger><Trash2 className="size-4" /></IconButton>
+                              </>
+                            )}
                           </div>
                         );
                       }}

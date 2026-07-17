@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, content_asset, quiz_question } from '@prisma/client';
+import type { Prisma, PrismaClient, content_asset, lesson_files, quiz_question } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 
 // Legacy lesson_files content was uploaded by the old PHP LMS and lives at
@@ -119,6 +119,12 @@ function serializeAsset(
   const { question_count, questions, created_by_name } = extras;
   const out: Record<string, unknown> = {
     id: String(row.id),
+    // `id` stays the bare content_asset id — existing callers pass it straight
+    // back to the asset endpoints. `item_key` is the collision-proof key for
+    // UIs that render content_asset and lesson_files rows in ONE list: the two
+    // tables have independent auto-increment sequences, so ids overlap.
+    item_key: `library:${row.id}`,
+    source: 'library',
     content_id: `CA-${String(row.id).padStart(5, '0')}`,
     title: row.title,
     summary: rewriteHtmlAssetUrls(row.summary),
@@ -147,6 +153,57 @@ function serializeAsset(
   };
   if (question_count !== undefined) out.question_count = question_count;
   if (questions !== undefined) out.questions = questions;
+  return out;
+}
+
+/** Map a lesson_files row onto the Subject Detail page's item `asset_type`
+ * vocabulary (video | article | document | quiz | audio).
+ *
+ * `attachment_type` is read FIRST on purpose: on every legacy row written by
+ * the old PHP LMS `lesson_type` is literally the string "other", so a
+ * lesson_type-first ladder collapses the whole subject into generic Items.
+ * `attachment_type` carries the real kind (pdf / article / quiz / ...).
+ * Anything unrecognised (pdf, doc, ppt, …) falls through to "document",
+ * which is the page's PPT/Word/PDF bucket. */
+function lessonFileAssetType(f: lesson_files): string {
+  const at = (f.attachment_type ?? '').trim().toLowerCase();
+  const lt = (f.lesson_type ?? '').trim().toLowerCase();
+  if (at === 'quiz' || lt === 'quiz') return 'quiz';
+  if (at === 'video' || lt === 'video') return 'video';
+  if (at === 'audio' || lt === 'audio') return 'audio';
+  if (at === 'article' || lt === 'article') return 'article';
+  return 'document';
+}
+
+/** Serialize a lesson_files row into the SAME item shape the Subject Detail
+ * page reads from serializeAsset, so both content systems render in one list.
+ *
+ * Read-only projection: `editable_here: false` marks it as owned by the Lesson
+ * Builder (the only writer for lesson_files). lesson_files stores BARE STORAGE
+ * PATHS, not URLs, so the media columns go through toFileUrl. */
+function serializeLessonFileItem(f: lesson_files, questionCount?: number): Record<string, unknown> {
+  const assetType = lessonFileAssetType(f);
+  const out: Record<string, unknown> = {
+    id: String(f.id),
+    item_key: `lesson:${f.id}`,
+    source: 'lesson',
+    editable_here: false,
+    content_id: `LF-${String(f.id).padStart(5, '0')}`,
+    title: f.title ?? '',
+    summary: rewriteHtmlAssetUrls(f.summary),
+    asset_type: assetType,
+    lesson_id: f.lesson_id,
+    sort_order: f.order,
+    duration: f.duration ?? '',
+    language: '',
+    video_url: toFileUrl(f.video_url),
+    attachment: toFileUrl(f.attachment),
+    audio_file: toFileUrl(f.audio_file),
+    thumbnail: toFileUrl(f.thumbnail),
+    created_at: f.created_at,
+    updated_at: f.updated_at,
+  };
+  if (assetType === 'quiz') out.question_count = questionCount ?? 0;
   return out;
 }
 
@@ -339,13 +396,20 @@ export class ContentAssetService {
   async deleteAsset(actorUserId: string, assetId: string): Promise<void> {
     const id = toIntId(assetId);
     if (!id) throw new Error('Invalid asset id');
-    await this.prisma.content_asset.update({
-      where: { id },
+    // Scoped updateMany rather than update({ where: { id } }): content_asset.id
+    // and lesson_files.id are INDEPENDENT auto-increment sequences that
+    // collide. Now that the Subject Detail page renders rows from both tables,
+    // a stray lesson_files id arriving here would otherwise silently
+    // soft-delete an unrelated Content Library asset. A miss now no-ops and
+    // surfaces as an error instead of destroying the wrong row.
+    const res = await this.prisma.content_asset.updateMany({
+      where: { id, deleted_at: null },
       data: {
         deleted_at: new Date(),
         deleted_by: toNullableIntId(actorUserId),
       },
     });
+    if (res.count === 0) throw new Error('Content asset not found');
   }
 
   // Content Library assets linked to a lesson via content_asset.lesson_id,
@@ -484,6 +548,45 @@ export class ContentAssetService {
       : [];
     const countMap = new Map(counts.map((c) => [c.asset_id, c._count?.id ?? 0] as const));
 
+    // Risha 2026-07-17 — content added through the OLD LMS lives in
+    // `lesson_files`, never in `content_asset`. This page read content_asset
+    // ONLY, so those subjects showed "0 items / No content yet" even though
+    // students see the content fine (the student player reads lesson_files).
+    // Fix is a READ-side merge, not a data migration: the Lesson Builder is
+    // still the live writer for lesson_files, so copying rows into
+    // content_asset would duplicate them inside buildLessonData and diverge
+    // on every later edit.
+    const files = lessonIds.length
+      ? await this.prisma.lesson_files.findMany({
+          where: { lesson_id: { in: lessonIds }, deleted_at: null },
+          orderBy: [{ order: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+
+    // Quiz question counts for lesson-file quizzes come from `quiz` (keyed
+    // lesson_file_id) — NOT quiz_question (keyed asset_id). The two content
+    // systems keep their questions in two different tables; reading the wrong
+    // one is what produced the "No questions added to this quiz yet" bug
+    // fixed in 87070d0e.
+    const fileQuizIds = files.filter((f) => lessonFileAssetType(f) === 'quiz').map((f) => f.id);
+    const fileCounts = fileQuizIds.length
+      ? await this.prisma.quiz.groupBy({
+          by: ['lesson_file_id'],
+          where: { lesson_file_id: { in: fileQuizIds }, deleted_at: null },
+          _count: { id: true },
+        })
+      : [];
+    const fileCountMap = new Map(fileCounts.map((c) => [c.lesson_file_id, c._count?.id ?? 0] as const));
+
+    const filesByLesson = new Map<number, Record<string, unknown>[]>();
+    for (const f of files) {
+      const list = filesByLesson.get(f.lesson_id) ?? [];
+      // serializeLessonFileItem only surfaces question_count for quizzes, so a
+      // count for a non-quiz row is simply ignored.
+      list.push(serializeLessonFileItem(f, fileCountMap.get(f.id)));
+      filesByLesson.set(f.lesson_id, list);
+    }
+
     const assetsByLesson = new Map<number, Record<string, unknown>[]>();
     for (const a of assets) {
       // FK link wins; otherwise resolve the legacy text lesson_tag to a lesson.
@@ -514,7 +617,9 @@ export class ContentAssetService {
         summary: l.summary ?? '',
         order: l.order ?? 0,
         free: l.free ?? 'off',
-        content: assetsByLesson.get(l.id) ?? [],
+        // Library block first, then the lesson block, so subjects that only
+        // ever had Content Library items render byte-identically to before.
+        content: [...(assetsByLesson.get(l.id) ?? []), ...(filesByLesson.get(l.id) ?? [])],
       })),
     };
   }

@@ -130,11 +130,22 @@ function parseQuizCsv(text: string): QuizQuestion[] {
   return out;
 }
 
+/** Read a query param off the current URL. SSR/test-safe. */
+function readQueryParam(name: string): string {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get(name)?.trim() ?? '';
+}
+
 export default function AddLessonPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
-  // Step 1: Course & Subject selection
-  const [selectedCourseId, setSelectedCourseId] = useState('');
-  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  // Step 1: Course & Subject selection.
+  // Seeded from ?course_id=&subject_id= so deep links land on a pre-selected
+  // builder instead of an empty one — the Subject Detail page's "Edit in Lesson
+  // Builder" action and the Lessons list's Open action both rely on this.
+  // (navigateTo pushes the full href, so window.location.search is live here;
+  // the router keys pages by pathname only, so this initializer runs on entry.)
+  const [selectedCourseId, setSelectedCourseId] = useState(() => readQueryParam('course_id'));
+  const [selectedSubjectId, setSelectedSubjectId] = useState(() => readQueryParam('subject_id'));
 
   // Step 3: File management view
   const [selectedLessonId, setSelectedLessonId] = useState('');
