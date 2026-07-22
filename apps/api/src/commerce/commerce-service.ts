@@ -7,6 +7,10 @@ import { createIntegrationRegistry } from '../integrations/registry.js';
 
 const EASEBUZZ_PAYMENT_URL = 'https://project.trogon.info/easebuzz/index.php';
 
+// Razorpay rejects orders below ₹1 (100 paise) with
+// "Order amount less than minimum amount allowed".
+const RAZORPAY_MIN_ORDER_MINOR = 100;
+
 function toIntId(id: string | number | null | undefined): number {
   if (typeof id === 'number') return id;
   if (!id) return 0;
@@ -291,6 +295,41 @@ export class CommerceService {
       ORDER BY due_date ASC, id ASC`;
   }
 
+  /**
+   * Next unpaid/overdue installment for (user, course) from the authoritative
+   * student_payments ledger — the same table the Payments UI + get_installments
+   * read. Oldest-due first (NULLIF ordering matches getStudentFeeInstallments),
+   * so overdue installments are charged before upcoming ones. Returns the row id
+   * (to mark paid on completion) and the amount in minor units. $queryRaw +
+   * NULLIF because legacy rows store '0000-00-00' dates Prisma cannot hydrate.
+   */
+  private async getNextPayableInstallment(
+    userIntId: number,
+    courseIntId: number,
+  ): Promise<{ id: number; amountMinor: number } | null> {
+    if (!userIntId || !courseIntId) {
+      return null;
+    }
+
+    const rows = await this.prisma.$queryRaw<Array<{ id: number; amount: number | null }>>`
+      SELECT id, amount
+      FROM student_payments
+      WHERE user_id = ${userIntId}
+        AND course_id = ${courseIntId}
+        AND deleted_at IS NULL
+        AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')
+        AND NULLIF(paid_date, '0000-00-00') IS NULL
+        AND amount IS NOT NULL AND amount >= 1
+      ORDER BY NULLIF(due_date, '0000-00-00') ASC, id ASC
+      LIMIT 1`;
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return { id: row.id, amountMinor: Math.round(toDbNumber(row.amount) * 100) };
+  }
+
   private async ensureEnrolment(
     tx: TxClient,
     userId: string,
@@ -555,7 +594,29 @@ export class CommerceService {
     const payerEmail = (payer?.user_email ?? '').trim();
     const payerContact = (payer?.phone ?? payer?.whatsapp ?? '').trim();
 
-    const amountMinor = Math.round(toDbNumber(course.sale_price) * 100);
+    const salePriceMinor = Math.round(toDbNumber(course.sale_price) * 100);
+    let amountMinor = salePriceMinor;
+    let targetInstallmentId: number | null = null;
+
+    // Full-payment courses price off course.sale_price (UNCHANGED path).
+    // Installment-based courses carry sale_price ~0 — their charge is the NEXT
+    // unpaid installment from the student's ledger, resolved SERVER-SIDE (we
+    // never trust a client-supplied amount). This is the fix for the Razorpay
+    // "amount less than minimum" 400 (sale_price 0 => 0 paise).
+    if (salePriceMinor < RAZORPAY_MIN_ORDER_MINOR) {
+      const nextInstallment = await this.getNextPayableInstallment(userIntId, courseIntId);
+      if (!nextInstallment) {
+        throw new Error('No pending installment found to pay for this course.');
+      }
+      amountMinor = nextInstallment.amountMinor;
+      targetInstallmentId = nextInstallment.id;
+    }
+
+    if (amountMinor < RAZORPAY_MIN_ORDER_MINOR) {
+      // Fail with a clear message instead of a raw gateway 400 when a plan is
+      // misconfigured (e.g. a ₹0 installment).
+      throw new Error('Payable amount is below the ₹1 minimum. Please contact support to review your fee plan.');
+    }
     const receipt = input.receipt.trim() === '' ? `receipt_${Date.now()}` : input.receipt.trim();
     const currency = input.currency.trim() === '' ? 'INR' : input.currency.trim().toUpperCase();
 
@@ -583,7 +644,9 @@ export class CommerceService {
         user_id: userIntId,
         course_id: courseIntId,
         order_status: 'pending',
-        notes: JSON.stringify(createdOrder.providerPayload?.notes ?? createdOrder.providerPayload ?? {}),
+        notes: targetInstallmentId !== null
+          ? JSON.stringify({ sp_id: targetInstallmentId })
+          : JSON.stringify(createdOrder.providerPayload?.notes ?? createdOrder.providerPayload ?? {}),
         created_by: userIntId,
         created_at: now,
         datetime: now,
@@ -652,6 +715,20 @@ export class CommerceService {
       throw new Error('Payment signature verification failed');
     }
 
+    // This order may have been created to pay a specific installment (persisted
+    // by createOrder as {"sp_id":<student_payments.id>}). Full-payment orders
+    // carry no sp_id and leave the ledger untouched, exactly as today.
+    let targetInstallmentId: number | null = null;
+    try {
+      const parsedNotes = JSON.parse(orderDetails.notes ?? '') as { sp_id?: unknown };
+      const spId = Number(parsedNotes?.sp_id);
+      if (Number.isInteger(spId) && spId > 0) {
+        targetInstallmentId = spId;
+      }
+    } catch {
+      // Non-JSON / legacy notes (e.g. {"status":"created"}) — no installment link.
+    }
+
     const completed = await this.prisma.$transaction(async (tx) => {
       const duplicatePayment = await tx.payment_info.count({
         where: {
@@ -703,6 +780,23 @@ export class CommerceService {
 
       if (updatedOrder.count <= 0) {
         return false;
+      }
+
+      if (targetInstallmentId !== null) {
+        // Mark exactly the installment this order was created to pay. Scoped by
+        // (id, user, course) so it can only touch the caller's own row, and
+        // guarded on not-already-paid so a re-fire — or an admin having marked
+        // it meanwhile — can't double-apply. Raw SQL: student_payments carries
+        // legacy zero-dates and NULL/mixed-case status.
+        await tx.$executeRaw`
+          UPDATE student_payments
+          SET status = 'Paid', paid_date = ${toDateOnlyString(now)}, payment_mode = 'Online',
+              updated_by = ${userIntId}, updated_at = ${now}
+          WHERE id = ${targetInstallmentId}
+            AND user_id = ${userIntId}
+            AND course_id = ${courseIntId}
+            AND deleted_at IS NULL
+            AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')`;
       }
 
       await this.ensureEnrolment(tx, userId, input.courseId, null, false);
