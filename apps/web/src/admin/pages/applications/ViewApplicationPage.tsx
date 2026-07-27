@@ -290,12 +290,24 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     }
     setSubmitting(true);
     try {
-      await api.updateApplicationStatus(session.token, applicationId, 'rejected', rejectReason.trim());
-      setRejectDialogOpen(false);
-      setRejectReason('');
-      reload();
+      // Naji UAT 2026-07-27 — this used updateApplicationStatus, which writes
+      // only the `status` enum. Every screen (this badge, the pipeline stepper,
+      // the Applications tab counts, the dashboards) reads `stage`, so a
+      // rejected application sat on "Approval Waiting" forever. rejectApplication
+      // is the real stage-machine transition: stage='rejected' + rejected_at +
+      // rejected_by + reason + timeline event + notification.
+      const res = await api.rejectApplication(session.token, applicationId, rejectReason.trim());
+      const msg = typeof res.message === 'string' ? res.message : 'Application rejected.';
+      if (res.status === 1) {
+        toast.success(msg);
+        setRejectDialogOpen(false);
+        setRejectReason('');
+        reload();
+      } else {
+        toast.error(msg);
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update status');
+      toast.error(err instanceof Error ? err.message : 'Failed to reject application');
     } finally {
       setSubmitting(false);
     }

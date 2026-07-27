@@ -103,6 +103,31 @@ function rowsToCsv(headers: string[], rows: Array<Record<string, unknown>>): str
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * Map a UI status verb onto the stored `applications_status` enum.
+ *
+ * UAT 2026-07-27 — the Approve button posts `status: 'approved'`, but the enum
+ * only has pending | converted | rejected (schema.prisma:2506). Prisma threw
+ * PrismaClientValidationError on every such call, so "Mark Approved" returned a
+ * 500 and had in fact NEVER worked. 'approved' is the UI's word for the state
+ * the enum calls 'converted' (adminApproveApplication already stores
+ * status:'converted' when it enrols the student), so accept it as an alias and
+ * reject anything unrecognised with a readable message rather than a raw crash.
+ */
+function normaliseApplicationStatus(status: string): $Enums.applications_status | null {
+  switch (status.trim().toLowerCase()) {
+    case 'pending':
+      return 'pending';
+    case 'approved':
+    case 'converted':
+      return 'converted';
+    case 'rejected':
+      return 'rejected';
+    default:
+      return null;
+  }
+}
+
 function escapeHtmlText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -8099,16 +8124,23 @@ export class OperationsService {
     const now = new Date();
     const centreId = await this.resolveActorCentreId(actorUserId);
     const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
-    // Same `reject_reason` → `rejection_reason` fix as updateApplicationStatus
-    // (Naji UAT 2026-07-27) — the associate portal's Reject hit the identical
-    // PrismaClientValidationError. Typed so the compiler guards it.
+    // Same fixes as updateApplicationStatus (UAT 2026-07-27): correct column
+    // name, a validated/normalised status so 'approved' no longer 500s, and
+    // `stage` written alongside `status` so a rejection is not left halfway.
+    const normalised = normaliseApplicationStatus(status);
+    if (!normalised) {
+      return { status: 0, message: `Unsupported status "${status}". Expected pending, approved/converted or rejected.` };
+    }
     const data: Prisma.applicationsUpdateManyMutationInput = {
-      status: status as $Enums.applications_status,
+      status: normalised,
       updated_by: toIntId(actorUserId),
       updated_at: now,
     };
-    if (status === 'rejected' && rejectReason) {
-      data.rejection_reason = rejectReason;
+    if (normalised === 'rejected') {
+      data.stage = 'rejected';
+      data.rejected_at = now;
+      data.rejected_by = toIntId(actorUserId);
+      if (rejectReason) data.rejection_reason = rejectReason;
     }
     const result = await this.prisma.applications.updateMany({
       where: { id: toIntId(id), deleted_at: null, OR: ownershipOr },
@@ -12101,13 +12133,25 @@ export class OperationsService {
     //
     // `data` is now properly typed instead of Record<string, unknown> + a cast,
     // so the compiler catches this class of typo instead of shipping it.
+    const normalised = normaliseApplicationStatus(status);
+    if (!normalised) {
+      return { status: 0, message: `Unsupported status "${status}". Expected pending, approved/converted or rejected.` };
+    }
     const data: Prisma.applicationsUpdateManyMutationInput = {
-      status: status as $Enums.applications_status,
+      status: normalised,
       updated_by: toIntId(actorUserId),
       updated_at: now,
     };
-    if (status === 'rejected' && rejectReason) {
-      data.rejection_reason = rejectReason;
+    // Keep `stage` consistent for any non-UI caller of this endpoint. The
+    // Reject buttons now go through rejectApplication() (which also records the
+    // timeline event and notifies), but this endpoint previously wrote `status`
+    // WITHOUT `stage`, leaving applications half-rejected — visible everywhere
+    // because every dashboard and pipeline counter keys off `stage`.
+    if (normalised === 'rejected') {
+      data.stage = 'rejected';
+      data.rejected_at = now;
+      data.rejected_by = toIntId(actorUserId);
+      if (rejectReason) data.rejection_reason = rejectReason;
     }
     const scope = await this.applicationOwnerScope(actorUserId);
     const result = await this.prisma.applications.updateMany({
@@ -12984,6 +13028,11 @@ export class OperationsService {
       // status_label is the badge-friendly version for the View page.
       status: user.status != null ? String(user.status) : null,
       status_label: user.status === 1 ? 'Active' : user.status === 0 ? 'Inactive' : user.status === 2 ? 'Graduated' : user.status === 3 ? 'Dropped' : null,
+      // Risha UAT 2026-07-27 — the Students LIST treats disabled_at as the
+      // authority for Active/Inactive but the detail page never received it,
+      // so a disabled student still read "Active" on their own page. Return it
+      // so both screens agree.
+      disabled_at: user.disabled_at ?? null,
       // Qualification fields live on applications OR user_details (legacy).
       highest_qualification: user.highest_qualification ?? application?.highest_qualification ?? userDetails?.highest_qualification ?? null,
       institution_name: application?.previous_school ?? userDetails?.previous_school ?? null,

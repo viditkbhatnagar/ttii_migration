@@ -279,12 +279,21 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     }
     setSubmitting(true);
     try {
-      await admin.updateApplicationStatus(session.token, applicationId, 'rejected', rejectReason.trim());
-      setRejectDialogOpen(false);
-      setRejectReason('');
-      reload();
+      // Naji UAT 2026-07-27 — same fix as the admin page: updateApplicationStatus
+      // never wrote `stage`, so Reject left the application on its current
+      // stage. rejectApplication performs the real transition.
+      const res = await admin.rejectApplication(session.token, applicationId, rejectReason.trim());
+      const msg = typeof res.message === 'string' ? res.message : 'Application rejected.';
+      if (res.status === 1) {
+        toast.success(msg);
+        setRejectDialogOpen(false);
+        setRejectReason('');
+        reload();
+      } else {
+        toast.error(msg);
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update status');
+      toast.error(err instanceof Error ? err.message : 'Failed to reject application');
     } finally {
       setSubmitting(false);
     }

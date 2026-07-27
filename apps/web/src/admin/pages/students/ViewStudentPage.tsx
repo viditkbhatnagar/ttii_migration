@@ -267,6 +267,33 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
   }, [data]);
 
   const enrolments = useMemo(() => toRecords(data?.enrolments), [data]);
+
+  // Risha UAT 2026-07-27 — "students who have completed still show Active".
+  // The two badges measure different things and were being read as if they
+  // contradicted each other:
+  //   • users.status / disabled_at  → whether the LOGIN is enabled
+  //   • enrol.enrollment_status     → whether the COURSE is finished
+  // Nothing syncs them, and nothing should: auth-service.ts:296 auto-flips
+  // users.status 0→1 on every login, so it cannot hold academic state.
+  // Fix is presentation-only — label the account badge honestly and show the
+  // course status next to it so the page answers the question directly.
+  const accountStatusLabel = useMemo(() => {
+    if (!student) return 'Active';
+    if (student.disabled_at) return 'Inactive'; // matches the Students list (StudentsPage)
+    return asString(student.status_label) || asString(student.status) || 'Active';
+  }, [student]);
+
+  // Course status rolled up from the student's own enrolments. Only shown when
+  // they actually have some; purely derived, never written back to users.
+  const courseStatusLabel = useMemo(() => {
+    if (enrolments.length === 0) return '';
+    const statuses = enrolments.map((e) => (asString(e.status) || asString(e.enrollment_status) || 'Active').toLowerCase());
+    const done = (s: string) => s === 'completed' || s === 'graduated';
+    if (statuses.every(done)) return 'Completed';
+    if (statuses.every((s) => s === 'dropout')) return 'Dropout';
+    if (statuses.some(done)) return 'Partly completed';
+    return 'Active';
+  }, [enrolments]);
   const payments = useMemo(() => toRecords(data?.payments), [data]);
   const studentFees = useMemo(() => toRecords(data?.studentFees), [data]);
   const videoProgress = useMemo(() => toRecords(data?.videoProgress), [data]);
@@ -805,14 +832,17 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   {asString(student.name).charAt(0).toUpperCase() || '?'}
                 </div>
               )}
-              {asString(student.status_label).toLowerCase() === 'active' || asString(student.status) === '1' ? (
+              {accountStatusLabel.toLowerCase() === 'active' ? (
                 <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white bg-emerald-500" aria-label="Active" />
               ) : null}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-2xl font-semibold text-gray-900">{asString(student.name) || 'Unnamed Student'}</h2>
-                <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
+                <AdminStatusBadge status={accountStatusLabel} />
+                {courseStatusLabel && courseStatusLabel !== 'Active' ? (
+                  <AdminStatusBadge status={courseStatusLabel} />
+                ) : null}
                 {enrolments[0]?.course_title ? (
                   <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">
                     {asString(enrolments[0].course_title)}
@@ -912,12 +942,27 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
                   <InfoRow label="Father's Name" value={asString(student.father_name) || '-'} />
                   <InfoRow label="Mother's Name" value={asString(student.mother_name) || '-'} />
                   <InfoRow label="Guardian's Name" value={asString(student.guardian_name) || '-'} />
+                  {/* Risha UAT 2026-07-27 — relabelled from a bare "Status",
+                      which read as though it should say "Completed" once the
+                      course was finished. It only ever describes login access. */}
                   <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
-                    <span className="text-sm font-medium text-gray-500">Status</span>
+                    <span className="text-sm font-medium text-gray-500">Account Status</span>
                     <span className="col-span-2">
-                      <AdminStatusBadge status={asString(student.status_label) || asString(student.status) || 'active'} />
+                      <AdminStatusBadge status={accountStatusLabel} />
+                      <span className="ml-2 text-xs text-gray-400">Login access — not course progress</span>
                     </span>
                   </div>
+                  {courseStatusLabel ? (
+                    <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
+                      <span className="text-sm font-medium text-gray-500">Course Status</span>
+                      <span className="col-span-2">
+                        <AdminStatusBadge status={courseStatusLabel} />
+                        <span className="ml-2 text-xs text-gray-400">
+                          {enrolments.length === 1 ? 'From the enrolment' : `Across ${enrolments.length} enrolments`}
+                        </span>
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -1496,7 +1541,19 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
           the tab opens. The legacy table view is kept as a fallback
           when the rail is collapsed (xl: layout). */}
       {activeTab === 1 && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_1fr]">
+        /* Risha UAT 2026-07-27 — the Assignment table's right-hand columns
+           (Submitted / Marks / Feedback) were unreachable. `1fr` means
+           minmax(auto,1fr), so this track could not shrink below its
+           min-content width. One long tutor remark (328 chars, and every
+           table cell is whitespace-nowrap) inflated the pane to ~3000px, so
+           the inner overflow-x-auto wrappers were themselves wider than the
+           viewport and never produced a scrollbar — the overflow landed on
+           the shell's overflow-x-hidden main element and was silently
+           clipped. minmax(0,1fr) + min-w-0 lets the existing scrollers work.
+           Fixes all five drill-down tables (Quiz / Live Class / Assignment /
+           Examination / Payments) at once. Same family as the documented
+           min-h-0 gotcha. */
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
           {/* Left rail: enrolled courses */}
           <Card className="self-start">
             <CardHeader className="pb-2">
@@ -1560,8 +1617,10 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
             </CardContent>
           </Card>
 
-          {/* Right pane: drill-down for the selected enrolment */}
-          <div className="space-y-4">
+          {/* Right pane: drill-down for the selected enrolment.
+              min-w-0 is required (with the minmax(0,1fr) track above) so the
+              tables inside can actually scroll instead of stretching the pane. */}
+          <div className="min-w-0 space-y-4">
             {selectedEnrollment === null ? (
               <Card>
                 <CardContent className="py-16 text-center text-sm text-gray-400">
