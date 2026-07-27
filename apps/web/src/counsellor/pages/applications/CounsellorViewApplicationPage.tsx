@@ -587,6 +587,30 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     if (st === 'approved' || st === 'pending_approval') return false;
     return i === 0 ? canRecordPayment : rowStatus(i - 1) === 'approved';
   };
+  // Naji UAT 2026-07-27 — the Send/Resend Link button is rendered on every
+  // unpaid row but goes permanently disabled the moment the registration is
+  // settled (canSendPayLink requires stage lead|payment_pending), with no
+  // explanation — so it reads as "the option is missing".
+  //
+  // Online links for instalment 2+ are genuinely NOT built yet:
+  // generatePaymentLink has no instalment-index parameter and always charges
+  // registration_fee_minor, and it refuses outright once the index-0 ledger
+  // entry is approved (operations-service.ts:10721-10727). Enabling the button
+  // without that path would re-charge the registration fee, so until it exists
+  // we say WHY the button is off and point at the route that does work.
+  const sendLinkDisabledReason = (i: number): string | undefined => {
+    if (sendingPayLink) return undefined;
+    if (savedPlan?.mode !== 'installment') {
+      return 'Payment links are only available on an instalment plan.';
+    }
+    if (!canSendPayLink) {
+      return stage === 'enrolled'
+        ? 'Online payment links currently cover the registration fee only. This student is enrolled, so they can pay this instalment themselves from the student portal (Payments → Pay Now). Use Record Payment to capture an offline payment.'
+        : 'Online payment links currently cover the registration fee only. Use Record Payment to capture this instalment (bank transfer / UPI / cash).';
+    }
+    if (!rowActionable(i)) return 'Complete and get the previous instalment approved first.';
+    return undefined;
+  };
   const openRecordForRow = (i: number, incAmount: number): void => {
     setActiveInstalmentIndex(i);
     setRecordRowAmount(incAmount > 0 ? incAmount : null);
@@ -905,6 +929,7 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                                 }
                                 const actionable = rowActionable(i);
                                 const locked = !actionable && st !== 'pending_approval';
+                                const linkReason = sendLinkDisabledReason(i);
                                 return (
                                   <div className="flex items-center justify-end gap-2">
                                     {st === 'pending_approval' ? (
@@ -926,15 +951,21 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                                     >
                                       <Wallet className="h-3.5 w-3.5" /> {st === 'rejected' ? 'Re-record' : 'Record Payment'}
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      className="h-7 gap-1.5"
-                                      disabled={!actionable || !canSendPayLink || sendingPayLink}
-                                      onClick={() => void handleSendPayLink()}
-                                    >
-                                      <Send className="h-3.5 w-3.5" />
-                                      {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Link')}
-                                    </Button>
+                                    {/* Wrapped in a span so the explanation still
+                                        shows on hover — a disabled <button> does
+                                        not fire mouse events, so its own title
+                                        attribute never surfaces. */}
+                                    <span title={linkReason} className="inline-flex">
+                                      <Button
+                                        size="sm"
+                                        className="h-7 gap-1.5"
+                                        disabled={!actionable || !canSendPayLink || sendingPayLink}
+                                        onClick={() => void handleSendPayLink()}
+                                      >
+                                        <Send className="h-3.5 w-3.5" />
+                                        {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Link')}
+                                      </Button>
+                                    </span>
                                   </div>
                                 );
                               })()}
