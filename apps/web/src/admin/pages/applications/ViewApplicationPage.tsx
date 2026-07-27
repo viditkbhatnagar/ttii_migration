@@ -589,8 +589,13 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-gray-600">Stage:</span>
               <AdminStatusBadge status={asString(app.stage) || currentStatus} />
-              {asString(app.reject_reason) && (
-                <span className="text-sm text-red-600">Reason: {asString(app.reject_reason)}</span>
+              {/* Naji UAT 2026-07-27 — the column is `rejection_reason`; this
+                  read `reject_reason` (which never existed), so a rejection
+                  reason was never displayed. Keep the old key as a fallback. */}
+              {(asString(app.rejection_reason) || asString(app.reject_reason)) && (
+                <span className="text-sm text-red-600">
+                  Reason: {asString(app.rejection_reason) || asString(app.reject_reason)}
+                </span>
               )}
             </div>
             <div className="flex flex-wrap gap-2">

@@ -8099,17 +8099,20 @@ export class OperationsService {
     const now = new Date();
     const centreId = await this.resolveActorCentreId(actorUserId);
     const ownershipOr = this.associateOwnershipOr(actorUserId, centreId);
-    const data: Record<string, unknown> = {
+    // Same `reject_reason` → `rejection_reason` fix as updateApplicationStatus
+    // (Naji UAT 2026-07-27) — the associate portal's Reject hit the identical
+    // PrismaClientValidationError. Typed so the compiler guards it.
+    const data: Prisma.applicationsUpdateManyMutationInput = {
       status: status as $Enums.applications_status,
       updated_by: toIntId(actorUserId),
       updated_at: now,
     };
     if (status === 'rejected' && rejectReason) {
-      data.reject_reason = rejectReason;
+      data.rejection_reason = rejectReason;
     }
     const result = await this.prisma.applications.updateMany({
       where: { id: toIntId(id), deleted_at: null, OR: ownershipOr },
-      data: data as Prisma.applicationsUpdateManyMutationInput,
+      data,
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
     return { status: 1, message: `Application ${status} successfully.` };
@@ -12088,19 +12091,28 @@ export class OperationsService {
     if (!id) return { status: 0, message: 'Application ID is required.' };
     if (!status) return { status: 0, message: 'Status is required.' };
     const now = new Date();
-    // NOTE: `reject_reason` is set by legacy code but the column does not exist on
-    // the `applications` model in the current Prisma schema. We keep the write for
-    // parity with historical behavior (it is silently dropped by Prisma when the
-    // column is absent); the `Record<string, unknown>` typing sidesteps the fact
-    // that reject_reason isn't in applicationsUpdateManyMutationInput.
-    const data: Record<string, unknown> = { status: status as $Enums.applications_status, updated_by: toIntId(actorUserId), updated_at: now };
+    // Naji UAT 2026-07-27 — this wrote `reject_reason`, which is NOT a column on
+    // `applications`; the real one is `rejection_reason` (schema.prisma:128).
+    // The previous comment here assumed Prisma silently drops unknown keys — it
+    // does not, it throws PrismaClientValidationError, so EVERY reject that
+    // carried a reason failed with "Unknown argument `reject_reason`" (admin,
+    // counsellor and associate portals all funnel through here). Approve was
+    // unaffected because it never enters this branch.
+    //
+    // `data` is now properly typed instead of Record<string, unknown> + a cast,
+    // so the compiler catches this class of typo instead of shipping it.
+    const data: Prisma.applicationsUpdateManyMutationInput = {
+      status: status as $Enums.applications_status,
+      updated_by: toIntId(actorUserId),
+      updated_at: now,
+    };
     if (status === 'rejected' && rejectReason) {
-      data.reject_reason = rejectReason;
+      data.rejection_reason = rejectReason;
     }
     const scope = await this.applicationOwnerScope(actorUserId);
     const result = await this.prisma.applications.updateMany({
       where: { id: toIntId(id), deleted_at: null, ...scope },
-      data: data as Prisma.applicationsUpdateManyMutationInput,
+      data,
     });
     if (result.count === 0) return { status: 0, message: 'Application not found.' };
     return { status: 1, message: `Application ${status} successfully.` };

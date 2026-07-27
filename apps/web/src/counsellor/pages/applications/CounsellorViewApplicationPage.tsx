@@ -697,8 +697,13 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                 </span>
               ) : null}
             </div>
-            {asString(app.reject_reason) ? (
-              <p className="mt-2 text-xs font-medium text-destructive">Reason: {asString(app.reject_reason)}</p>
+            {/* Naji UAT 2026-07-27 — column is `rejection_reason`; the old
+                `reject_reason` key never existed so this never rendered.
+                Fallback kept for safety. */}
+            {(asString(app.rejection_reason) || asString(app.reject_reason)) ? (
+              <p className="mt-2 text-xs font-medium text-destructive">
+                Reason: {asString(app.rejection_reason) || asString(app.reject_reason)}
+              </p>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
