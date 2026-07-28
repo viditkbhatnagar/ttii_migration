@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ClassTimeInput } from '@/components/ui/class-time-input';
 import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
 import {
@@ -180,20 +181,16 @@ export default function CentreLiveClassPage({ api, session }: CentrePageProps) {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="live-from">From Time</Label>
-                <Input
-                  id="live-from"
-                  type="time"
+                <ClassTimeInput
                   value={form.fromTime}
-                  onChange={(e) => setForm({ ...form, fromTime: e.target.value })}
+                  onChange={(v) => setForm({ ...form, fromTime: v })}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="live-to">To Time</Label>
-                <Input
-                  id="live-to"
-                  type="time"
+                <ClassTimeInput
                   value={form.toTime}
-                  onChange={(e) => setForm({ ...form, toTime: e.target.value })}
+                  onChange={(v) => setForm({ ...form, toTime: v })}
                 />
               </div>
             </div>

@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ClassTimeInput } from '@/components/ui/class-time-input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { titleCaseOnBlur } from '@/lib/text-format';
@@ -343,11 +344,11 @@ export function AddLiveSessionModal({
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">From Time *</Label>
-                    <Input type="time" value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
+                    <ClassTimeInput value={fromTime} onChange={setFromTime} />
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">To Time *</Label>
-                    <Input type="time" value={toTime} onChange={(e) => setToTime(e.target.value)} />
+                    <ClassTimeInput value={toTime} onChange={setToTime} />
                   </div>
                   <label className="flex items-end gap-2 text-xs">
                     <input type="checkbox" checked={isRepetitive} onChange={(e) => setIsRepetitive(e.target.checked)} className="size-4" />
@@ -371,11 +372,11 @@ export function AddLiveSessionModal({
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">From Time *</Label>
-                    <Input type="time" value={scheduleFrom} onChange={(e) => setScheduleFrom(e.target.value)} />
+                    <ClassTimeInput value={scheduleFrom} onChange={setScheduleFrom} />
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">To Time *</Label>
-                    <Input type="time" value={scheduleTo} onChange={(e) => setScheduleTo(e.target.value)} />
+                    <ClassTimeInput value={scheduleTo} onChange={setScheduleTo} />
                   </div>
                 </div>
                 <div>
@@ -433,10 +434,10 @@ export function AddLiveSessionModal({
                                 <td className="px-2 py-1.5">{formatSessionDate(e.date)}</td>
                                 <td className="px-2 py-1.5">{day}</td>
                                 <td className="px-2 py-1.5">
-                                  <Input type="time" value={e.fromTime} onChange={(ev) => updateEntry(idx, { fromTime: ev.target.value })} className="h-7 w-24 text-xs" />
+                                  <ClassTimeInput value={e.fromTime} onChange={(v) => updateEntry(idx, { fromTime: v })} className="h-7 w-24 text-xs" />
                                 </td>
                                 <td className="px-2 py-1.5">
-                                  <Input type="time" value={e.toTime} onChange={(ev) => updateEntry(idx, { toTime: ev.target.value })} className="h-7 w-24 text-xs" />
+                                  <ClassTimeInput value={e.toTime} onChange={(v) => updateEntry(idx, { toTime: v })} className="h-7 w-24 text-xs" />
                                 </td>
                                 <td className="px-2 py-1.5">
                                   <Input value={e.title} onChange={(ev) => updateEntry(idx, { title: ev.target.value })} onBlur={titleCaseOnBlur((value) => updateEntry(idx, { title: value }))} className="h-7 text-xs" />

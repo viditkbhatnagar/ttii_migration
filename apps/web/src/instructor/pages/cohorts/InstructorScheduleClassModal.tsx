@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ClassTimeInput } from '@/components/ui/class-time-input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -389,11 +390,11 @@ export function InstructorScheduleClassModal({
               )}
               <div className="grid gap-1.5">
                 <Label className="text-xs">From Time *</Label>
-                <Input type="time" value={fromTime} onChange={(e) => setFromTime(e.target.value)} />
+                <ClassTimeInput value={fromTime} onChange={setFromTime} />
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-xs">To Time *</Label>
-                <Input type="time" value={toTime} onChange={(e) => setToTime(e.target.value)} />
+                <ClassTimeInput value={toTime} onChange={setToTime} />
               </div>
             </div>
 
@@ -457,16 +458,14 @@ export function InstructorScheduleClassModal({
                       className="h-8 text-xs"
                     />
                     <Input value={s.day} readOnly className="h-8 bg-muted/40 text-xs" />
-                    <Input
-                      type="time"
+                    <ClassTimeInput
                       value={s.fromTime}
-                      onChange={(e) => updateSession(s.id, { fromTime: e.target.value })}
+                      onChange={(v) => updateSession(s.id, { fromTime: v })}
                       className="h-8 text-xs"
                     />
-                    <Input
-                      type="time"
+                    <ClassTimeInput
                       value={s.toTime}
-                      onChange={(e) => updateSession(s.id, { toTime: e.target.value })}
+                      onChange={(v) => updateSession(s.id, { toTime: v })}
                       className="h-8 text-xs"
                     />
                     <Input
