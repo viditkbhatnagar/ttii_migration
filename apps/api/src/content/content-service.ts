@@ -940,7 +940,43 @@ export class ContentService {
     });
     // Null-safe the numeric dims — Flutter types height/width as int, so a
     // null (videos without stored dimensions) crashes the player model.
-    const videoFiles = videoFileRows.map((v) => ({ ...v, height: v.height ?? 0, width: v.width ?? 0 }));
+    //
+    // Mobile UAT 2026-07-27 — ExoPlayer crashed with
+    //   UnrecognizedInputFormatException: None of the available extractors
+    //   could read the stream
+    // on 238 of the 242 video lesson files. Cause: Vimeo returns its HLS
+    // entry FIRST in files[] and labels it `type: "video/mp4"` even though
+    // the link is an .m3u8 *manifest*. The legacy sync cached that verbatim
+    // into vimeo_videolinks, and we returned the rows id-ascending — so
+    // video_files[0] was an HLS manifest advertising itself as MP4. Handed to
+    // a progressive extractor, that is exactly the exception above.
+    //
+    // Fixed server-side (no Vimeo credentials required):
+    //   1. report the honest MIME type for manifests + an explicit is_hls flag
+    //      so a client can never again infer "mp4" from the type field, and
+    //   2. sort real progressive MP4s ahead of manifests — the relative order
+    //      of the progressive renditions is preserved, so the quality a client
+    //      already picks does not change. Only the manifest moves to the end.
+    const isHlsLink = (u: string): boolean => /\.m3u8(\?|$)/i.test(u);
+    const videoFiles = videoFileRows
+      .map((v) => {
+        const link = toStringValue(v.link);
+        const hls = isHlsLink(link);
+        return {
+          ...v,
+          height: v.height ?? 0,
+          width: v.width ?? 0,
+          type: hls ? 'application/vnd.apple.mpegurl' : toStringValue(v.type) || 'video/mp4',
+          is_hls: hls ? 1 : 0,
+        };
+      })
+      // Stable partition: progressive first, manifests last.
+      .sort((a, b) => a.is_hls - b.is_hls);
+
+    // A single unambiguous URL the mobile player can use with no inspection —
+    // the first direct progressive MP4, or '' when this lesson only has a
+    // manifest. Additive: existing fields keep their current meaning.
+    const playableUrl = toStringValue(videoFiles.find((v) => v.is_hls === 0)?.link ?? '');
 
     const downloadUrl = toNullableString(file.download_url);
     const attachmentType = toStringValue(file.attachment_type);
@@ -967,6 +1003,11 @@ export class ContentService {
       audio_url: this.toFileUrl(file.audio_file),
       video_url_id: '',
       video_files: videoFiles,
+      // Mobile UAT 2026-07-27 — hand the app one field it can pass straight to
+      // video_player/ExoPlayer. NB `video_url` above is the legacy column and
+      // is a vimeo.com *watch page* on 109 rows (empty on 243), so it is not
+      // safe to play; use this instead.
+      playable_url: playableUrl,
       quiz_link:
         attachmentType === 'quiz'
           ? `${this.appBaseUrl}/exam/practice_web_view_new/${userId}/${courseId}?lesson_file_id=${fileId}&question_no=${quizCount}`
