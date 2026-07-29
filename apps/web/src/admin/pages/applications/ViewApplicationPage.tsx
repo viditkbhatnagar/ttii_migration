@@ -313,6 +313,29 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
     }
   }, [api, session.token, applicationId, rejectReason, reload]);
 
+  // Naji 2026-07-29 — rejecting was a one-way door. A lead rejected for
+  // "registration fee not completed" landed on stage='rejected', which disables
+  // Send/Resend Link, so nobody could ever ask them to pay. Reopen restores the
+  // stage the application was rejected from.
+  const handleReopen = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
+    try {
+      const res = await api.reopenApplication(session.token, applicationId);
+      const msg = typeof res.message === 'string' ? res.message : 'Application reopened.';
+      if (res.status === 1) {
+        toast.success(msg);
+        reload();
+      } else {
+        toast.error(msg);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reopen application');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [api, session.token, applicationId, reload]);
+
   const handleDelete = useCallback(async () => {
     if (!applicationId) return;
     if (!(await confirm({
@@ -611,6 +634,17 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {stage === 'rejected' ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={submitting}
+                  onClick={() => { void handleReopen(); }}
+                  title="Puts the application back on the pipeline so a payment link can be sent again."
+                >
+                  Reopen Application
+                </Button>
+              ) : null}
               {canReassign ? (
                 <Button size="sm" variant="outline" onClick={openReassign}>
                   Reassign

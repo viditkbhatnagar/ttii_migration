@@ -2709,6 +2709,14 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/applications/reject', authToken, { id, reason });
   }
 
+  /**
+   * Undo a rejection. Omit `stage` to let the server restore the stage the
+   * application was rejected from (or derive a safe one for older rejections).
+   */
+  async reopenApplication(authToken: string, id: string, stage?: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/reopen', authToken, { id, stage: stage ?? '' });
+  }
+
   async generatePaymentLink(
     authToken: string,
     input: {

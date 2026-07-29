@@ -14,6 +14,7 @@ import {
   Phone,
   Plus,
   Receipt,
+  RotateCcw,
   Send,
   Trash2,
   User,
@@ -298,6 +299,29 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
       setSubmitting(false);
     }
   }, [admin, session.token, applicationId, rejectReason, reload]);
+
+  // Naji 2026-07-29 — rejecting was a one-way door. A lead rejected for
+  // "registration fee not completed" landed on stage='rejected', which disables
+  // Send/Resend Link, so the counsellor could never ask them to pay. Reopen
+  // restores the stage the application was rejected from.
+  const handleReopen = useCallback(async () => {
+    if (!applicationId) return;
+    setSubmitting(true);
+    try {
+      const res = await admin.reopenApplication(session.token, applicationId);
+      const msg = typeof res.message === 'string' ? res.message : 'Application reopened.';
+      if (res.status === 1) {
+        toast.success(msg);
+        reload();
+      } else {
+        toast.error(msg);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reopen application');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [admin, session.token, applicationId, reload]);
 
   const handleApprove = useCallback(() => {
     if (!applicationId) return;
@@ -713,6 +737,22 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
               <p className="mt-2 text-xs font-medium text-destructive">
                 Reason: {asString(app.rejection_reason) || asString(app.reject_reason)}
               </p>
+            ) : null}
+            {stage === 'rejected' ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={submitting}
+                  onClick={() => { void handleReopen(); }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Reopen Application
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  Puts it back on the pipeline so you can send a payment link again.
+                </span>
+              </div>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -128,6 +128,21 @@ function normaliseApplicationStatus(status: string): $Enums.applications_status 
   }
 }
 
+/**
+ * Stages a rejected application may be reopened into. Excludes 'rejected'
+ * itself (a no-op) and anything not on the counsellor pipeline, so a caller
+ * cannot park an application in an arbitrary stage via the reopen endpoint.
+ */
+const REOPENABLE_STAGES = new Set([
+  'lead',
+  'payment_pending',
+  'paid',
+  'form_pending',
+  'form_submitted',
+  'approval_waiting',
+  'enrolled',
+]);
+
 function escapeHtmlText(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -11831,6 +11846,15 @@ export class OperationsService {
     const id = toIntId(applicationId);
     const actor = toNullableIntId(actorUserId);
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    // Capture the stage we are rejecting FROM, so reopenApplication can put the
+    // application back exactly where it was (Naji 2026-07-29 — rejecting for
+    // "registration fee not paid" used to be a one-way door: stage='rejected'
+    // disables Send/Resend Link, so the applicant could never be asked to pay).
+    const before = await this.prisma.applications.findFirst({
+      where: { id },
+      select: { stage: true },
+    });
+    const previousStage = toStringValue(before?.stage) || null;
     const now = new Date();
     await this.prisma.applications.update({
       where: { id },
@@ -11844,9 +11868,95 @@ export class OperationsService {
         updated_by: actor,
       },
     });
-    await this.recordEvent(id, 'rejected', `Application rejected${reason ? ` — ${reason}` : ''}`, actorUserId, { reason });
+    await this.recordEvent(
+      id,
+      'rejected',
+      `Application rejected${reason ? ` — ${reason}` : ''}`,
+      actorUserId,
+      { reason, previous_stage: previousStage },
+    );
     await this.notifyApplicationEvent(id, 'rejected');
     return { status: 1, message: 'Application rejected.' };
+  }
+
+  /**
+   * Stage a rejected application should return to when reopened. Prefers the
+   * stage recorded on the rejection event; for applications rejected before
+   * that metadata existed, derives a safe stage from what we can still see.
+   * Never returns 'rejected' (that would be a no-op reopen).
+   */
+  private async resolveReopenStage(id: number): Promise<string> {
+    const rejectEvent = await this.prisma.application_events.findFirst({
+      where: { application_id: id, event_type: 'rejected' },
+      orderBy: { id: 'desc' },
+      select: { metadata: true },
+    });
+    if (rejectEvent?.metadata) {
+      try {
+        const meta = JSON.parse(rejectEvent.metadata) as { previous_stage?: unknown };
+        const recorded = toStringValue(meta.previous_stage);
+        if (recorded && recorded !== 'rejected') return recorded;
+      } catch {
+        // Malformed metadata — fall through to derivation.
+      }
+    }
+
+    const app = await this.prisma.applications.findFirst({
+      where: { id },
+      select: { is_converted: true, payment_status: true, payment_link_url: true, payment_plan: true },
+    });
+    if (!app) return 'lead';
+    if (toInteger(app.is_converted) === 1) return 'enrolled';
+    // An outstanding plan means money is still owed, so payment_pending is both
+    // accurate and the stage where Send/Resend Link is available again.
+    if (app.payment_plan || toStringValue(app.payment_link_url)) return 'payment_pending';
+    if (toStringValue(app.payment_status) === 'paid') return 'paid';
+    return 'lead';
+  }
+
+  /**
+   * Undo a rejection. Clears the rejection fields and returns the application
+   * to an active stage so the normal pipeline actions (notably Send/Resend
+   * payment link) work again.
+   */
+  async reopenApplication(
+    actorUserId: string,
+    applicationId: string,
+    targetStage?: string,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: { stage: true },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (toStringValue(app.stage) !== 'rejected') {
+      return { status: 0, message: 'Only a rejected application can be reopened.' };
+    }
+
+    const requested = toStringValue(targetStage);
+    const stage = requested && REOPENABLE_STAGES.has(requested)
+      ? requested
+      : await this.resolveReopenStage(id);
+
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        stage,
+        status: stage === 'enrolled' ? 'converted' : 'pending',
+        rejected_at: null,
+        rejected_by: null,
+        rejection_reason: null,
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+    await this.recordEvent(id, 'reopened', `Application reopened — moved back to ${stage}`, actorUserId, { stage });
+    return { status: 1, message: 'Application reopened.', data: { stage } };
   }
 
   async createApplication(actorUserId: string, input: AdminApplicationInput): Promise<Record<string, unknown>> {

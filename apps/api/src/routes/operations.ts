@@ -4133,6 +4133,19 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Undo a rejection. Same guard as /reject — whoever can reject can reopen.
+  app.post('/admin/applications/reopen', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.reopenApplication(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toStringValue(payload.stage),
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/applications/add', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
