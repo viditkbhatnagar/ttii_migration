@@ -4133,6 +4133,21 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Online payment link for instalment 2+ (registration fee balance onward).
+  // Same ownership guard as the registration link.
+  app.post('/admin/applications/instalment_payment_link', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.generateInstalmentPaymentLink(
+        requestUserId(request),
+        toStringValue(payload.id),
+        toInteger(payload.instalment_index),
+        toInteger(payload.expires_in_days) || 7,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   // Undo a rejection. Same guard as /reject — whoever can reject can reopen.
   app.post('/admin/applications/reopen', { preHandler: [requireAuth, requireAdminRole, requireAppOwnership(appIdFromBody)] }, async (request, reply) => {
     try {

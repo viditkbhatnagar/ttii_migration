@@ -11007,6 +11007,174 @@ export class OperationsService {
     };
   }
 
+  /**
+   * Naji 2026-07-29 — online payment link for instalment 2+ (the "Registration
+   * Fee Balance" row and beyond). generatePaymentLink only ever charges the
+   * index-0 registration amount and refuses once that row is settled, so there
+   * was no way to collect the balance online.
+   *
+   * Deliberately a SEPARATE method rather than a flag on generatePaymentLink:
+   * that one rewrites the whole plan and resets payment_status to 'sent', which
+   * would wipe the index-0 "Paid" state (a registration paid online has no
+   * explicit ledger row — readInstalmentLedger synthesises it from
+   * payment_status='paid'). This method never touches the schedule, the stage
+   * or payment_status; it only issues a link and tags it with the row it covers.
+   *
+   * Scoped to PRE-ENROLMENT on purpose. Once a student is enrolled the student
+   * portal's own Pay Now derives the next unpaid instalment itself, so allowing
+   * a second counsellor-issued link alongside it is a double-charge window.
+   */
+  async generateInstalmentPaymentLink(
+    actorUserId: string,
+    applicationId: string,
+    instalmentIndex: number,
+    expiresInDays = 7,
+  ): Promise<Record<string, unknown>> {
+    const id = toIntId(applicationId);
+    const actor = toNullableIntId(actorUserId);
+    if (!id || !actor) return { status: 0, message: 'Invalid input.' };
+    const index = Math.trunc(instalmentIndex);
+    if (!Number.isFinite(index) || index <= 0) {
+      return { status: 0, message: 'Use the registration payment link for the first instalment.' };
+    }
+
+    const app = await this.prisma.applications.findFirst({
+      where: { id, deleted_at: null },
+      select: {
+        id: true, application_id: true, name: true, user_email: true, phone: true,
+        payment_plan: true, payment_status: true, student_id: true, course_id: true,
+        stage: true, is_converted: true,
+      },
+    });
+    if (!app) return { status: 0, message: 'Application not found.' };
+    if (!app.user_email) return { status: 0, message: 'Application has no email.' };
+    if (app.stage === 'rejected') {
+      return { status: 0, message: 'This application is rejected. Reopen it before sending a payment link.' };
+    }
+    if (app.stage === 'enrolled' || app.is_converted === 1) {
+      return {
+        status: 0,
+        message: 'This student is enrolled — they pay instalments themselves from the student portal (Payments → Pay Now). Use Record Payment to capture an offline payment.',
+      };
+    }
+
+    let planObj: Record<string, unknown> = {};
+    if (app.payment_plan) {
+      try { planObj = JSON.parse(app.payment_plan) as Record<string, unknown>; } catch { planObj = {}; }
+    }
+    if (toStringValue(planObj.mode) !== 'installment') {
+      return { status: 0, message: 'Payment links per instalment are only available on an instalment plan.' };
+    }
+    const rows = Array.isArray(planObj.installments) ? (planObj.installments as Record<string, unknown>[]) : [];
+    const row = rows[index];
+    if (!row) return { status: 0, message: 'That instalment does not exist on the plan.' };
+
+    const amountMinor = Math.round(Number(row.amountMinor ?? row.amount_minor ?? 0));
+    if (!Number.isFinite(amountMinor) || amountMinor <= 0) {
+      return { status: 0, message: 'Payable amount must be > 0.' };
+    }
+
+    // Same strict one-by-one gate the UI shows and markApplicationPaidManual
+    // enforces — a row is only payable once the one above it is approved.
+    const ledger = readInstalmentLedger(planObj, app.payment_status ?? undefined);
+    const prev = ledger.find((e) => e.index === index - 1);
+    if (!prev || prev.status !== 'approved') {
+      return { status: 0, message: 'The previous instalment must be paid and approved before this one can be collected.' };
+    }
+    const currentForIndex = ledger.find((e) => e.index === index);
+    if (currentForIndex && currentForIndex.status !== 'rejected') {
+      return {
+        status: 0,
+        message: currentForIndex.status === 'approved'
+          ? 'This instalment is already paid.'
+          : 'This instalment already has a payment awaiting Finance approval.',
+      };
+    }
+
+    const { createIntegrationRegistry } = await import('../integrations/registry.js');
+    const registry = createIntegrationRegistry();
+    if (typeof registry.payment.createPaymentLink !== 'function') {
+      return { status: 0, message: 'Active payment provider does not support payment links.' };
+    }
+
+    const courseTitle = app.course_id
+      ? (await this.prisma.course.findFirst({ where: { id: app.course_id }, select: { title: true } }))?.title ?? ''
+      : '';
+    const studentCode = app.student_id
+      ? toStringValue((await this.prisma.users.findFirst({ where: { id: app.student_id }, select: { student_id: true } }))?.student_id)
+      : '';
+    const applicantRef = toStringValue(app.application_id) || `APP-${id}`;
+    const studentName = app.name ?? 'Student';
+    const label = toStringValue(row.label) || `Instalment ${index + 1}`;
+    const expireBy = Math.floor(Date.now() / 1000) + expiresInDays * 86400;
+
+    let link;
+    try {
+      link = await registry.payment.createPaymentLink({
+        amountMinor,
+        currency: 'INR',
+        description: `${studentName} (${studentCode || applicantRef}) — ${courseTitle} — ${label}`.slice(0, 250),
+        customer: {
+          name: studentName,
+          email: app.user_email,
+          ...(app.phone ? { phone: app.phone } : {}),
+        },
+        notes: {
+          application_ref: applicantRef,
+          student_name: studentName,
+          ...(studentCode ? { student_id: studentCode } : {}),
+          ...(app.phone ? { phone: app.phone } : {}),
+          ...(courseTitle ? { course: courseTitle } : {}),
+          installment: label,
+          // The row this link settles. handleRazorpayWebhook reads this back to
+          // mark the RIGHT instalment paid — without it a paid link just flips
+          // payment_status and the balance row stays unpaid forever.
+          instalment_index: String(index),
+        },
+        expireBy,
+      });
+    } catch (err) {
+      return { status: 0, message: err instanceof Error ? err.message : 'Razorpay request failed.' };
+    }
+
+    // Record which row each issued link covers, keyed by link id. The webhook
+    // prefers the note, but a link issued for row N overwrites
+    // applications.payment_link_id, so this keeps older outstanding links
+    // attributable instead of silently dropping their payment.
+    const priorTargets = (planObj.link_targets && typeof planObj.link_targets === 'object')
+      ? planObj.link_targets as Record<string, unknown>
+      : {};
+    planObj.link_targets = { ...priorTargets, [link.paymentLinkId]: index };
+
+    const now = new Date();
+    await this.prisma.applications.update({
+      where: { id },
+      data: {
+        // NOTE: stage and payment_status are intentionally untouched.
+        payment_plan: JSON.stringify(planObj),
+        payment_link_url: link.shortUrl,
+        payment_link_id: link.paymentLinkId,
+        payment_link_expires_at: new Date(expireBy * 1000),
+        updated_at: now,
+        updated_by: actor,
+      },
+    });
+
+    await this.recordEvent(
+      id,
+      'instalment_link_sent',
+      `Payment link sent for ${label} (₹${(amountMinor / 100).toLocaleString('en-IN')})`,
+      actorUserId,
+      { instalment_index: index, amount_minor: amountMinor, link_id: link.paymentLinkId },
+    );
+
+    return {
+      status: 1,
+      message: `Payment link generated for ${label}.`,
+      data: { payment_link_url: link.shortUrl, payment_link_id: link.paymentLinkId, instalment_index: index },
+    };
+  }
+
   // Naji 2026-05-08 — save the payment plan WITHOUT sending the link.
   // Used by the Save / Save & Close buttons in the Generate Payment Link
   // dialog so a counsellor can capture a draft plan and revisit it later
@@ -11457,6 +11625,67 @@ export class OperationsService {
     return { status: 1, message: 'Payment rejected.' };
   }
 
+  /**
+   * Mark instalment `index` paid from a settled Razorpay link. Writes an
+   * APPROVED ledger entry (the money is already in — there is nothing for
+   * Finance to verify, unlike a manually recorded payment).
+   *
+   * Spreads readInstalmentLedger's output rather than the raw array on purpose:
+   * a registration paid online has no explicit row, it is synthesised from
+   * payment_status='paid'. Writing only the new entry would drop that synthetic
+   * index-0 approval and make the registration look unpaid again.
+   */
+  private async settleInstalmentFromLink(
+    applicationId: number,
+    index: number,
+    linkId: string,
+    planJson: string | null,
+    paymentStatus: string | null,
+  ): Promise<void> {
+    let planObj: Record<string, unknown> = {};
+    if (planJson) {
+      try { planObj = JSON.parse(planJson) as Record<string, unknown>; } catch { planObj = {}; }
+    }
+    const ledger = readInstalmentLedger(planObj, paymentStatus ?? undefined);
+    const already = ledger.find((e) => e.index === index);
+    if (already && already.status === 'approved') return; // idempotent: webhooks retry
+
+    const rows = Array.isArray(planObj.installments) ? (planObj.installments as Record<string, unknown>[]) : [];
+    const amountMinor = rows[index]
+      ? Math.round(Number(rows[index]?.amountMinor ?? rows[index]?.amount_minor ?? 0)) || null
+      : null;
+    const now = new Date();
+    const entry: InstalmentLedgerEntry = {
+      index,
+      mode: 'razorpay',
+      reference: linkId,
+      receipt_url: '',
+      note: 'Paid online via payment link',
+      amount_minor: amountMinor,
+      // IST calendar day, not the server's UTC one — a payment made between
+      // midnight and 05:30 IST would otherwise be dated to the previous day.
+      paid_date: now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+      marked_at: now.toISOString(),
+      marked_by: null,
+      status: 'approved',
+      decided_at: now.toISOString(),
+    };
+    planObj.instalment_payments = [...ledger.filter((e) => e.index !== index), entry]
+      .sort((a, b) => a.index - b.index);
+
+    await this.prisma.applications.update({
+      where: { id: applicationId },
+      data: { payment_plan: JSON.stringify(planObj), updated_at: now },
+    });
+    await this.recordEvent(
+      applicationId,
+      'instalment_paid_razorpay',
+      `Instalment ${index + 1} paid via Razorpay`,
+      null,
+      { instalment_index: index, link_id: linkId, amount_minor: amountMinor },
+    );
+  }
+
   // Razorpay webhook handler — `payment_link.paid` flips paid + advances
   // to stage='paid'. Returns just status 1/0; route does signature verification.
   async handleRazorpayWebhook(eventName: string, payload: Record<string, unknown>): Promise<void> {
@@ -11466,11 +11695,47 @@ export class OperationsService {
     if (!link) return;
     const linkId = typeof link.id === 'string' ? link.id : '';
     if (!linkId) return;
-    const app = await this.prisma.applications.findFirst({
+    const notes = (link.notes && typeof link.notes === 'object')
+      ? link.notes as Record<string, unknown>
+      : {};
+    let app = await this.prisma.applications.findFirst({
       where: { payment_link_id: linkId, deleted_at: null },
-      select: { id: true, stage: true, is_converted: true },
+      select: { id: true, stage: true, is_converted: true, payment_plan: true, payment_status: true },
     });
+    // Issuing a link for a later instalment overwrites payment_link_id, so a
+    // student paying an EARLIER link would no longer match on it. Fall back to
+    // the application reference carried in the link's notes rather than
+    // silently dropping a real payment (Naji 2026-07-29).
+    if (!app) {
+      const ref = toStringValue(notes.application_ref);
+      if (!ref) return;
+      app = await this.prisma.applications.findFirst({
+        where: { application_id: ref, deleted_at: null },
+        select: { id: true, stage: true, is_converted: true, payment_plan: true, payment_status: true },
+      });
+    }
     if (!app) return;
+
+    // Which instalment did this link cover? Prefer the note written at issue
+    // time; fall back to the plan's link_targets map for links whose notes were
+    // stripped. Absent both, this is a legacy/registration link → index 0.
+    let paidIndex = 0;
+    const noteIndex = Number(toStringValue(notes.instalment_index));
+    if (Number.isFinite(noteIndex) && noteIndex > 0) {
+      paidIndex = Math.trunc(noteIndex);
+    } else if (app.payment_plan) {
+      try {
+        const parsed = JSON.parse(app.payment_plan) as Record<string, unknown>;
+        const targets = parsed.link_targets as Record<string, unknown> | undefined;
+        const mapped = Number(targets?.[linkId]);
+        if (Number.isFinite(mapped) && mapped > 0) paidIndex = Math.trunc(mapped);
+      } catch { /* fall through to index 0 */ }
+    }
+
+    if (paidIndex > 0) {
+      await this.settleInstalmentFromLink(app.id, paidIndex, linkId, app.payment_plan, app.payment_status);
+      return;
+    }
     // Don't regress an already-enrolled student's stage (or re-fire the enrolment
     // notification) when they pay a link generated from the Student page
     // Generate/Edit Payment Plan flow (Naji 2026-07-05). Leads are unaffected.

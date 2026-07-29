@@ -2710,6 +2710,24 @@ export class AdminPortalApi {
   }
 
   /**
+   * Online payment link for instalment 2+ (the Registration Fee Balance row
+   * onward). The registration row itself still goes through
+   * generatePaymentLink, which owns the plan + stage transition.
+   */
+  async generateInstalmentPaymentLink(
+    authToken: string,
+    id: string,
+    instalmentIndex: number,
+    expiresInDays = 7,
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/applications/instalment_payment_link', authToken, {
+      id,
+      instalment_index: instalmentIndex,
+      expires_in_days: expiresInDays,
+    });
+  }
+
+  /**
    * Undo a rejection. Omit `stage` to let the server restore the stage the
    * application was rejected from (or derive a safe one for older rejections).
    */

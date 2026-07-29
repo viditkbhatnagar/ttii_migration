@@ -95,6 +95,9 @@ type SavedPlan = {
     note?: string;
     marked_at?: string;
   };
+  // Razorpay link id -> the instalment index it settles. Written when a link is
+  // issued for instalment 2+, so we can label the button Send vs Resend per row.
+  link_targets?: Record<string, number>;
   // Per-instalment payment ledger (strict one-by-one). index 0 = registration.
   instalment_payments?: Array<{
     index?: number;
@@ -513,6 +516,31 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
   // Razorpay link for the first installment. Plain fn (defined after the early
   // returns) — not a hook.
   const canSendPayLink = savedPlan?.mode === 'installment' && (stage === 'lead' || stage === 'payment_pending');
+  // Instalment 2+ (Registration Fee Balance onward) has its own link endpoint
+  // (Naji 2026-07-29). Available on any pre-enrolment stage — an enrolled
+  // student pays from the student portal, and issuing a link alongside that
+  // would be a double-charge window.
+  const canSendInstalmentLink = savedPlan?.mode === 'installment'
+    && stage !== 'enrolled'
+    && stage !== 'rejected';
+  const sendInstalmentLink = async (index: number) => {
+    if (!applicationId) return;
+    setSendingPayLink(true);
+    try {
+      const res = await admin.generateInstalmentPaymentLink(session.token, applicationId, index);
+      const msg = typeof res.message === 'string' ? res.message : 'Payment link sent.';
+      if (res.status === 1) {
+        toast.success(msg);
+        reload();
+      } else {
+        toast.error(msg);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send payment link.');
+    } finally {
+      setSendingPayLink(false);
+    }
+  };
   const handleSendPayLink = async () => {
     if (!applicationId || !savedPlan) return;
     setSendingPayLink(true);
@@ -620,26 +648,30 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
     if (st === 'approved' || st === 'pending_approval') return false;
     return i === 0 ? canRecordPayment : rowStatus(i - 1) === 'approved';
   };
-  // Naji UAT 2026-07-27 — the Send/Resend Link button is rendered on every
-  // unpaid row but goes permanently disabled the moment the registration is
-  // settled (canSendPayLink requires stage lead|payment_pending), with no
-  // explanation — so it reads as "the option is missing".
-  //
-  // Online links for instalment 2+ are genuinely NOT built yet:
-  // generatePaymentLink has no instalment-index parameter and always charges
-  // registration_fee_minor, and it refuses outright once the index-0 ledger
-  // entry is approved (operations-service.ts:10721-10727). Enabling the button
-  // without that path would re-charge the registration fee, so until it exists
-  // we say WHY the button is off and point at the route that does work.
+  // Row 0 (registration) uses generatePaymentLink, which owns the plan + stage
+  // transition. Rows 1+ use generateInstalmentPaymentLink (Naji 2026-07-29),
+  // which charges just that row and tags the link with its index so the webhook
+  // marks the right instalment paid. Explain any disabled button rather than
+  // leaving it looking like the option is missing (Naji UAT 2026-07-27).
+  const rowLinkAllowed = (i: number): boolean => (i === 0 ? canSendPayLink : canSendInstalmentLink);
+  // "Resend" only when a link has actually been issued for THIS row — row 0 uses
+  // the application-level link, later rows consult link_targets.
+  const rowHasLink = (i: number): boolean => (i === 0
+    ? paymentLinkUrl !== ''
+    : Object.values(savedPlan?.link_targets ?? {}).some((v) => Number(v) === i));
   const sendLinkDisabledReason = (i: number): string | undefined => {
     if (sendingPayLink) return undefined;
     if (savedPlan?.mode !== 'installment') {
       return 'Payment links are only available on an instalment plan.';
     }
-    if (!canSendPayLink) {
-      return stage === 'enrolled'
-        ? 'Online payment links currently cover the registration fee only. This student is enrolled, so they can pay this instalment themselves from the student portal (Payments → Pay Now). Use Record Payment to capture an offline payment.'
-        : 'Online payment links currently cover the registration fee only. Use Record Payment to capture this instalment (bank transfer / UPI / cash).';
+    if (!rowLinkAllowed(i)) {
+      if (stage === 'rejected') {
+        return 'This application is rejected. Use Reopen Application first, then send the link.';
+      }
+      if (stage === 'enrolled') {
+        return 'This student is enrolled, so they can pay this instalment themselves from the student portal (Payments → Pay Now). Use Record Payment to capture an offline payment.';
+      }
+      return 'Online payment links are only available on an instalment plan before enrolment.';
     }
     if (!rowActionable(i)) return 'Complete and get the previous instalment approved first.';
     return undefined;
@@ -1013,11 +1045,11 @@ export default function CounsellorViewApplicationPage({ api, session, onNavigate
                                       <Button
                                         size="sm"
                                         className="h-7 gap-1.5"
-                                        disabled={!actionable || !canSendPayLink || sendingPayLink}
-                                        onClick={() => void handleSendPayLink()}
+                                        disabled={!actionable || !rowLinkAllowed(i) || sendingPayLink}
+                                        onClick={() => void (i === 0 ? handleSendPayLink() : sendInstalmentLink(i))}
                                       >
                                         <Send className="h-3.5 w-3.5" />
-                                        {sendingPayLink ? 'Sending…' : (paymentLinkUrl ? 'Resend Link' : 'Send Link')}
+                                        {sendingPayLink ? 'Sending…' : (rowHasLink(i) ? 'Resend Link' : 'Send Link')}
                                       </Button>
                                     </span>
                                   </div>
