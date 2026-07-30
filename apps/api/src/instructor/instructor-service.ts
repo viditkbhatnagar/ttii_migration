@@ -1,7 +1,48 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { AnnouncementService } from '../operations/announcement-service.js';
+
+/**
+ * Parse `assignment_submission.assignment_files` into absolute, linkable URLs.
+ *
+ * The column holds a JSON-encoded array — assessment-service writes it with
+ * JSON.stringify(files), and the three admin readers in operations-service
+ * JSON.parse it (Naji UAT 2026-05-18). The faculty portal instead split the raw
+ * string on commas, which for a single file yielded the literal
+ * `["https://…pdf"]` and for two files split the JSON down the middle. Rendered
+ * into <a href>, a value like that is not absolute, so the browser resolved it
+ * against the current path and the SPA router answered "Page Not Found:
+ * /instructor/[%22https…%22]" — Agile Mary, 2026-07-29, could not open any
+ * submitted assignment.
+ *
+ * Legacy rows may hold a bare path or a comma/newline-separated list, so keep
+ * that as the fallback. Every entry goes through toLegacyFileUrl so relative
+ * legacy paths come back absolute and can never hijack the router.
+ */
+function parseSubmissionFiles(raw: string | null | undefined): string[] {
+  const value = (raw ?? '').trim();
+  if (!value) return [];
+
+  if (value.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => toLegacyFileUrl(typeof entry === 'string' ? entry : String(entry)))
+          .filter((url) => url !== '');
+      }
+    } catch {
+      // Malformed JSON — fall through to the legacy split.
+    }
+  }
+
+  return value
+    .split(/[,\n]/)
+    .map((f) => toLegacyFileUrl(f.trim()))
+    .filter((url) => url !== '');
+}
 
 export interface InstructorProfile {
   id: number;
@@ -1328,13 +1369,7 @@ export class InstructorService {
 
     const submissionRows: InstructorSubmissionRow[] = submissions.map((s) => {
       const user = s.user_id ? userMap.get(s.user_id) : null;
-      const filesRaw = s.assignment_files ?? '';
-      const files = filesRaw
-        ? filesRaw
-            .split(/[,\n]/)
-            .map((f) => f.trim())
-            .filter(Boolean)
-        : [];
+      const files = parseSubmissionFiles(s.assignment_files);
       return {
         id: s.id,
         userId: s.user_id ?? null,
@@ -1416,13 +1451,7 @@ export class InstructorService {
         })
       : null;
 
-    const filesRaw = updated.assignment_files ?? '';
-    const files = filesRaw
-      ? filesRaw
-          .split(/[,\n]/)
-          .map((f) => f.trim())
-          .filter(Boolean)
-      : [];
+    const files = parseSubmissionFiles(updated.assignment_files);
 
     return {
       id: updated.id,
