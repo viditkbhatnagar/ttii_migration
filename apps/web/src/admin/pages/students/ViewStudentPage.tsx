@@ -294,7 +294,6 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
     if (statuses.some(done)) return 'Partly completed';
     return 'Active';
   }, [enrolments]);
-  const payments = useMemo(() => toRecords(data?.payments), [data]);
   const studentFees = useMemo(() => toRecords(data?.studentFees), [data]);
   const videoProgress = useMemo(() => toRecords(data?.videoProgress), [data]);
   const materialProgress = useMemo(() => toRecords(data?.materialProgress), [data]);
@@ -1096,15 +1095,23 @@ export default function ViewStudentPage({ api, session, onNavigate }: AdminPageP
               detail={`${studentFees.length} enrolment${studentFees.length === 1 ? '' : 's'}`}
               tone="info"
             />
+            {/* Majida 2026-07-31 — Paid read `payments` (payment_info), which is
+                ONLINE payments only, so a student who had paid ₹16,999 across
+                cash + online showed "₹3,000 · 1 payment". Per-enrolment
+                paid_amount is the same source as the rows below (settled
+                student_payments), so the card now agrees with the table.
+                Pending sums each enrolment's own pending rather than
+                subtracting totals, so a free course carrying a stray payment
+                cannot eat into another course's outstanding balance. */}
             <MetricCard
               label="Paid"
-              value={`₹${payments.reduce((sum, p) => sum + asNumber(p.amount_paid), 0).toLocaleString('en-IN')}`}
-              detail={`${payments.length} payment${payments.length === 1 ? '' : 's'}`}
+              value={`₹${studentFees.reduce((sum, f) => sum + asNumber(f.paid_amount), 0).toLocaleString('en-IN')}`}
+              detail="Across all enrolments"
               tone="success"
             />
             <MetricCard
               label="Pending"
-              value={`₹${Math.max(0, studentFees.reduce((sum, f) => sum + asNumber(f.total_fee), 0) - payments.reduce((sum, p) => sum + asNumber(p.amount_paid), 0)).toLocaleString('en-IN')}`}
+              value={`₹${studentFees.reduce((sum, f) => sum + asNumber(f.pending_amount), 0).toLocaleString('en-IN')}`}
               detail="Across all enrolments"
               tone={studentFees.length > 0 ? 'warning' : 'neutral'}
             />

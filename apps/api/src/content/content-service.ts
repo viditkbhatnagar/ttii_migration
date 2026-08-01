@@ -2281,6 +2281,8 @@ export class ContentService {
       select: {
         id: true,
         course_id: true,
+        title: true,
+        subject_id: true,
       },
     });
 
@@ -2352,6 +2354,30 @@ export class ContentService {
       const row = kind === 'v' ? videosById.get(id) : topLevelById.get(id);
       if (row) ordered.push(row);
     }
+
+    // Majida 2026-07-31 — "PPTs are uploaded against each subject under course,
+    // but not visible to student". buildLessonData (/course/get_lessons) already
+    // appends Content Library assets, but the student player's lesson timeline
+    // renders from THIS endpoint (/lesson_file/index), which only ever read
+    // lesson_files. So lesson 143 returned its 2 articles + 1 quiz and dropped
+    // Chapters 1-3 (content_asset documents) entirely. Append them here too, in
+    // the same shape and order, so both entry points agree.
+    const assetFiles = await this.getContentAssetFilesForLesson(
+      lessonId,
+      toStringValue(lesson.title),
+      await this.getSubjectTitleById(lesson.subject_id),
+    );
+    for (const asset of assetFiles) {
+      // Match the grouped-index contract: every top-level row carries a
+      // sub_title, and related_files must be an array (Flutter parses it as a
+      // List and a null crashes it).
+      asset.sub_title = capitalize(
+        toStringValue(asset.attachment_type) || toStringValue(asset.lesson_type) || 'file',
+      );
+      asset.related_files = [];
+      ordered.push(asset);
+    }
+
     return ordered;
   }
 

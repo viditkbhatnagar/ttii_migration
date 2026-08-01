@@ -1011,17 +1011,29 @@ export class CommerceService {
       // the value is still awaited (and any error re-thrown) at use-site.
       void cleanInstallmentsPromise.catch(() => undefined);
       const installments = await this.getStudentFeeInstallments(userId, String(courseId));
-      const totalFee = toDbNumber(course.total_amount);
+      const courseTotal = toDbNumber(course.total_amount);
       const discount = toDbNumber(enrolRow.discount_perc);
-      const discountedPrice = totalFee - (totalFee * (discount / 100));
+      const discountedPrice = courseTotal - (courseTotal * (discount / 100));
 
       let amountPaid = 0;
       let hasPendingOverdue = false;
+      // Majida 2026-07-31 — "Course fee changed to 38000 but not reflected in
+      // the course". Total came from course.total_amount (a COURSE-level price)
+      // while Paid came from this student's own schedule, so the two halves of
+      // the card disagreed the moment a student got a bespoke fee — an added
+      // certificate combination, a discount, or any edited plan. Fameena's
+      // schedule summed to 38,000 while course.total_amount was still 30,000.
+      // The student's own student_payments rows are authoritative when they
+      // exist; course.total_amount stays the fallback for students with no
+      // schedule yet.
+      let scheduleTotal = 0;
 
       for (const installment of installments) {
         const status = toStringValue(installment.status);
         const amount = toDbNumber(installment.amount);
         const dueDate = toDateString(installment.due_date);
+
+        scheduleTotal += amount;
 
         if (status === 'Paid') {
           amountPaid += amount;
@@ -1032,7 +1044,10 @@ export class CommerceService {
         }
       }
 
-      const balance = totalFee - amountPaid;
+      const totalFee = scheduleTotal > 0 ? scheduleTotal : discountedPrice;
+      // Clamped: a free course carrying a stray payment must not report a
+      // negative balance (course 23 in Fameena's case).
+      const balance = Math.max(0, totalFee - amountPaid);
       const paymentPercentage = totalFee > 0 ? Math.round(((amountPaid / totalFee) * 100) * 100) / 100 : 0;
       let status = 'completed';
       if (balance > 0) {
@@ -1049,7 +1064,7 @@ export class CommerceService {
         id: userRecord?.id ?? '',
         title: toStringValue(course.title),
         enroled_on: toStringValue(enrolRow.created_at),
-        total_fee: discountedPrice,
+        total_fee: totalFee,
         installments: cleanInstallments,
         amount_paid: amountPaid,
         balance,

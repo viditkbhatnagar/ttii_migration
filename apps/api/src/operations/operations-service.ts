@@ -12869,10 +12869,55 @@ export class OperationsService {
       if (!Number.isFinite(amt) || amt <= 0) continue;
       paidByCourse.set(courseId, (paidByCourse.get(courseId) ?? 0) + amt);
     }
+    // Majida 2026-07-31 — "Actual paid 14000 / LMS reflects 17000". The loop
+    // above already counts every settled schedule row, and the LMS online
+    // payment flow writes BOTH a payment_info row AND a paid student_payments
+    // row for the same rupees. Adding payment_info unconditionally therefore
+    // double-counted every online payment: Fameena's Rs.3,000 registration
+    // (payment_info 19 / student_payments 568, both course 18, both 31 Jul)
+    // turned 14,000 into 17,000.
+    //
+    // Honour what the comment above always claimed — payment_info is a FALLBACK
+    // for online payments with no matching schedule row. Match on course +
+    // amount + the same calendar day, consuming each schedule row at most once
+    // so two genuinely separate payments of the same amount still both count.
+    // reference_number is null across production, so it cannot be the key.
+    const dayOf = (v: unknown): string => {
+      if (v == null) return '';
+      if (v instanceof Date) return Number.isNaN(v.getTime()) ? '' : v.toISOString().slice(0, 10);
+      if (typeof v !== 'string' && typeof v !== 'number') return '';
+      const s = String(v).trim();
+      if (s === '' || s.startsWith('0000-00-00')) return '';
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? s.slice(0, 10) : d.toISOString().slice(0, 10);
+    };
+    const unmatchedSettled = studentPaymentSchedule
+      .filter((sp) => {
+        const status = String(sp.status ?? '').trim().toLowerCase();
+        const paidDateStr = sp.paid_date == null ? '' : String(sp.paid_date).trim();
+        const hasPaidDate = paidDateStr !== '' && !paidDateStr.startsWith('0000-00-00');
+        return status === 'paid' || hasPaidDate;
+      })
+      .map((sp) => ({
+        courseId: Number(sp.course_id ?? 0),
+        amount: Number(sp.amount ?? 0),
+        day: dayOf(sp.paid_date),
+        consumed: false,
+      }));
+
     for (const p of payments) {
       if (p.course_id == null) continue;
       const amt = Number(p.amount_paid ?? 0);
       if (!Number.isFinite(amt) || amt <= 0) continue;
+      const day = dayOf(p.payment_date);
+      const match = unmatchedSettled.find(
+        (s) => !s.consumed && s.courseId === p.course_id && s.amount === amt && s.day === day,
+      );
+      if (match) {
+        // Already counted from the schedule — skip, don't double-bill the total.
+        match.consumed = true;
+        continue;
+      }
       paidByCourse.set(p.course_id, (paidByCourse.get(p.course_id) ?? 0) + amt);
     }
 
