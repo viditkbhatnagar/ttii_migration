@@ -894,6 +894,30 @@ export class StudentPortalApi {
     }
   }
 
+  /**
+   * The permanent practice exam, or null when none is configured. Unlimited
+   * retakes — the server skips allocation, window and already-submitted gates
+   * for a practice exam, so each visit starts a fresh attempt.
+   */
+  async loadPracticeExam(authToken: string): Promise<{
+    id: string;
+    title: string;
+    description: string;
+    duration: string;
+    totalQuestions: number;
+  } | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/exams/practice', authToken);
+    const data = asRecord(payload.data);
+    if (!data || asString(data.id) === '') return null;
+    return {
+      id: asString(data.id),
+      title: asString(data.title),
+      description: asString(data.description),
+      duration: asString(data.duration),
+      totalQuestions: asNumber(data.total_questions),
+    };
+  }
+
   async startExamAttempt(authToken: string, examId: string): Promise<string> {
     const payload = await this.post<Record<string, unknown>>('/exams/exam_save_start', authToken, {
       exam_id: examId,

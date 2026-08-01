@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClipboardList,
   FileText,
@@ -264,6 +264,21 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
   const [examCourseFilter, setExamCourseFilter] = useState('all');
   const [examSubjectFilter, setExamSubjectFilter] = useState('all');
   const [detailItem, setDetailItem] = useState<Record<string, unknown> | null>(null);
+  // Permanent practice exam (Naji 2026-08-01) — unlimited retakes, open to every
+  // student, no allocation needed. Loaded separately from the graded-exam
+  // buckets so a missing/unconfigured practice exam can never break this page:
+  // on any failure it stays null and the card simply doesn't render.
+  const [practice, setPractice] = useState<{
+    id: string; title: string; description: string; duration: string; totalQuestions: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.loadPracticeExam(session.token)
+      .then((p) => { if (!cancelled) setPractice(p); })
+      .catch(() => { if (!cancelled) setPractice(null); });
+    return () => { cancelled = true; };
+  }, [api, session.token]);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadAssessments(session.token),
@@ -488,6 +503,47 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Permanent practice exam (Naji 2026-08-01) — sits ABOVE the graded
+              buckets and is deliberately styled apart from them, so nobody
+              mistakes a practice run for a real examination. Unlimited attempts;
+              nothing here is graded or recorded against the student. */}
+          {practice ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-indigo-300 bg-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+                  <PlayCircle className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-indigo-900">{practice.title || 'Practice Exam'}</p>
+                  <p className="mt-0.5 text-xs text-indigo-700/80">
+                    {practice.description
+                      || 'Get familiar with the exam screen before your real examination. Not graded — take it as many times as you like.'}
+                  </p>
+                  <p className="mt-1 text-[11px] font-medium text-indigo-700/70">
+                    {practice.totalQuestions} question{practice.totalQuestions === 1 ? '' : 's'}
+                    {practice.duration ? ` · ${practice.duration} min` : ''} · Unlimited attempts
+                  </p>
+                </div>
+              </div>
+              <Button
+                className="shrink-0 bg-indigo-600 text-white hover:bg-indigo-700"
+                onClick={() => setActiveExam({
+                  examId: practice.id,
+                  title: practice.title || 'Practice Exam',
+                  meta: {
+                    course: 'Practice',
+                    subject: 'Not graded',
+                    startLabel: practice.duration ? `${practice.duration} min` : '',
+                    studentName: currentUser?.name ?? '',
+                    enrollmentNo: currentUser?.studentId ?? '',
+                  },
+                })}
+              >
+                Start Practice Exam
+              </Button>
+            </div>
+          ) : null}
+
           {/* 4 status stat cards (EduPulse) doubling as bucket selector. */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {examStatCards.map((card) => (

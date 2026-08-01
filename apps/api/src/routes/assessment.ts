@@ -155,6 +155,17 @@ export function registerAssessmentRoutes(
   // Naji UAT 2026-06-01 — native in-portal exam taking. Returns the exam's
   // questions (no answer keys) for an eligible student and starts/resumes the
   // attempt. The service result already carries { status, message?, data? }.
+  // The permanent practice exam for the student Exams tab. Returns
+  // { status: 1, data: null } when none is configured so the button hides.
+  app.get('/exams/practice', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const data = await assessmentService.getPracticeExam(requestUserId(request));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendAssessmentError(reply, error);
+    }
+  });
+
   app.post('/exams/exam_take', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

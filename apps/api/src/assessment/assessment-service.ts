@@ -903,6 +903,7 @@ export class AssessmentService {
       select: {
         id: true, title: true, duration: true, mark: true,
         from_date: true, from_time: true, to_date: true, status: true,
+        is_practice: true,
       },
     });
     if (!exam) {
@@ -912,28 +913,44 @@ export class AssessmentService {
       return { status: 0, message: 'This exam is not open yet.' };
     }
 
-    const allocated = await this.prisma.exam_student_allocations.count({
-      where: { exam_id: examIdInt, user_id: userIdInt },
-    });
-    if (allocated === 0) {
-      return { status: 0, message: 'You are not assigned to this exam.' };
-    }
+    // Naji 2026-08-01 — a permanent practice section. `exam.is_practice` has
+    // existed in the schema (and the wizard has written it) since May, but
+    // nothing ever READ it, so a practice exam behaved exactly like a real one:
+    // allocation-gated, window-gated, and one attempt only. That makes practice
+    // useless — a student gets a single run and can never repeat it.
+    //
+    // For a practice exam we therefore skip all three gates:
+    //   - no allocation: it is open to every enrolled student, permanently
+    //   - no date window: "permanent" means always available
+    //   - no already-submitted block: retakes are the entire point. The resume
+    //     query below only matches an UNSUBMITTED attempt, so once a run is
+    //     submitted the next visit naturally starts a fresh attempt.
+    const isPractice = toInteger(exam.is_practice) === 1;
 
-    const nowMs = Date.now();
-    const start = combineDateAndTime(exam.from_date, exam.from_time);
-    const end = endOfDay(exam.to_date);
-    if (start && nowMs < start.getTime()) {
-      return { status: 0, message: 'This exam has not started yet.' };
-    }
-    if (end && nowMs > end.getTime()) {
-      return { status: 0, message: 'This exam has closed.' };
-    }
+    if (!isPractice) {
+      const allocated = await this.prisma.exam_student_allocations.count({
+        where: { exam_id: examIdInt, user_id: userIdInt },
+      });
+      if (allocated === 0) {
+        return { status: 0, message: 'You are not assigned to this exam.' };
+      }
 
-    const submitted = await this.prisma.exam_attempt.count({
-      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
-    });
-    if (submitted > 0) {
-      return { status: 0, message: 'You have already submitted this exam.' };
+      const nowMs = Date.now();
+      const start = combineDateAndTime(exam.from_date, exam.from_time);
+      const end = endOfDay(exam.to_date);
+      if (start && nowMs < start.getTime()) {
+        return { status: 0, message: 'This exam has not started yet.' };
+      }
+      if (end && nowMs > end.getTime()) {
+        return { status: 0, message: 'This exam has closed.' };
+      }
+
+      const submitted = await this.prisma.exam_attempt.count({
+        where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+      });
+      if (submitted > 0) {
+        return { status: 0, message: 'You have already submitted this exam.' };
+      }
     }
 
     // Resume an in-progress attempt (preserving its locked order). If the
@@ -984,6 +1001,44 @@ export class AssessmentService {
         questions,
       },
     };
+  }
+
+  /**
+   * The permanent practice exam offered to every student on the Exams tab
+   * (Naji 2026-08-01). Returns the newest published exam flagged is_practice=1
+   * that actually has questions — an empty practice exam would drop the student
+   * into a blank player. Null when none is configured, so the button hides
+   * rather than erroring.
+   *
+   * Deliberately NOT allocation-scoped: practice is open to every student, and
+   * that is what makes it "permanent" rather than something admins must assign
+   * per cohort each time.
+   */
+  async getPracticeExam(userId: string): Promise<Record<string, unknown> | null> {
+    if (!toNullableIntId(userId)) return null;
+
+    const exams = await this.prisma.exam.findMany({
+      where: { is_practice: 1, status: 'published', deleted_at: null },
+      orderBy: { id: 'desc' },
+      select: { id: true, title: true, duration: true, mark: true, description: true },
+    });
+    if (exams.length === 0) return null;
+
+    for (const exam of exams) {
+      const questionCount = await this.prisma.exam_questions.count({
+        where: { exam_id: exam.id, deleted_at: null },
+      });
+      if (questionCount === 0) continue;
+      return {
+        id: idString(exam.id),
+        title: toStringValue(exam.title),
+        description: toStringValue(exam.description),
+        duration: toStringValue(exam.duration),
+        mark: exam.mark ?? 0,
+        total_questions: questionCount,
+      };
+    }
+    return null;
   }
 
   /**
