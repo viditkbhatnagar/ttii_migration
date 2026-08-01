@@ -154,6 +154,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerCronJobs(app, {
     prisma: getPrismaClient(),
     storage: integrations.storage,
+    email: integrations.email,
     teamsCreds: {
       clientId: env.EMAIL_MSGRAPH_CLIENT_ID,
       clientSecret: env.EMAIL_MSGRAPH_CLIENT_SECRET,

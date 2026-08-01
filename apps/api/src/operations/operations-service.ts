@@ -5286,21 +5286,44 @@ export class OperationsService {
             where: { id: { in: userIds }, deleted_at: null },
             select: { id: true, name: true, user_email: true, email: true },
           });
-          const exam = await this.prisma.exam.findFirst({ where: { id }, select: { title: true, exam_code: true } });
+          // Naji 2026-08-01 — swapped from the old purple renderBrandedEmail to
+          // the Lovable "Examination Schedule Published" design, and now carries
+          // the actual schedule (subject / date / time) instead of a bare
+          // "you have been allocated" line.
+          const exam = await this.prisma.exam.findFirst({
+            where: { id },
+            select: { title: true, exam_code: true, from_date: true, from_time: true, course_id: true },
+          });
+          const courseTitle = exam?.course_id
+            ? toStringValue((await this.prisma.course.findFirst({ where: { id: exam.course_id }, select: { title: true } }))?.title)
+            : '';
           const { createIntegrationRegistry } = await import('../integrations/registry.js');
-          const { renderBrandedEmail } = await import('../integrations/email-template.js');
+          const { renderExamPublishedEmail, EXAM_EMAIL_SUBJECTS } = await import('../integrations/exam-emails.js');
+          const { examStartInstant } = await import('../jobs/exam-reminders.js');
           const registry = createIntegrationRegistry();
+
+          const start = examStartInstant(exam?.from_date ?? null, exam?.from_time ?? null);
+          const schedule = start
+            ? [{
+                subject: toStringValue(exam?.title),
+                dateLabel: start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+                  + ` (${start.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Kolkata' })})`,
+                timeLabel: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+              }]
+            : [];
+
           for (const s of students) {
             const to = s.user_email ?? s.email ?? '';
             if (!to) continue;
             try {
               await registry.email.sendEmail({
                 to,
-                subject: `New exam scheduled — ${exam?.title ?? 'TTII'}`,
-                html: renderBrandedEmail({
-                  heading: 'New Exam Scheduled',
-                  bodyHtml: `<p>Hi ${escapeHtmlText(s.name ?? 'there')},</p><p>You have been allocated to <strong>${escapeHtmlText(exam?.title ?? '')}</strong>${exam?.exam_code ? ` (${escapeHtmlText(exam.exam_code)})` : ''}. Please log in to your portal to view the schedule and instructions.</p>`,
-                  cta: { label: 'Open My Exams', href: 'https://learn.teachersindia.in/exams' },
+                subject: EXAM_EMAIL_SUBJECTS.published(toStringValue(exam?.title) || 'TTII'),
+                html: renderExamPublishedEmail({
+                  studentFirstName: toStringValue(s.name).trim().split(/\s+/)[0] ?? '',
+                  examName: toStringValue(exam?.title),
+                  courseName: courseTitle,
+                  schedule,
                 }),
               });
             } catch { /* best-effort */ }

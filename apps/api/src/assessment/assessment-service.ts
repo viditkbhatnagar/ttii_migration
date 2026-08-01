@@ -1255,7 +1255,69 @@ export class AssessmentService {
     };
 
     await this.finalizeExamAttempt(idString(attempt.id), userId, summary);
+    await this.sendExamSubmittedEmail(examId, userId, startedAt, now, summary.timeTaken);
     return summary;
+  }
+
+  /**
+   * "Exam Submitted Successfully" receipt (Naji 2026-08-01). Best-effort: a mail
+   * failure must never make a successful submission look failed to the student,
+   * so everything here is inside a catch.
+   *
+   * Practice exams are skipped — unlimited retakes, not graded, so a receipt per
+   * attempt would just be spam.
+   */
+  private async sendExamSubmittedEmail(
+    examId: number | null,
+    userId: string,
+    startedAt: Date | null,
+    submittedAt: Date,
+    timeTaken: string,
+  ): Promise<void> {
+    try {
+      if (!examId) return;
+      const exam = await this.prisma.exam.findFirst({
+        where: { id: examId },
+        select: { title: true, is_practice: true },
+      });
+      if (!exam || toInteger(exam.is_practice) === 1) return;
+
+      const user = await this.prisma.users.findFirst({
+        where: { id: toNullableIntId(userId) ?? -1 },
+        select: { name: true, user_email: true, email: true },
+      });
+      const to = (user?.user_email ?? user?.email ?? '').trim();
+      if (!to || !to.includes('@')) return;
+
+      const IST = 'Asia/Kolkata';
+      const dLabel = (d: Date | null): string => (d
+        ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST })
+        : '');
+      const tLabel = (d: Date | null): string => (d
+        ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST })
+        : '');
+
+      const { createIntegrationRegistry } = await import('../integrations/registry.js');
+      const { renderExamSubmittedEmail, EXAM_EMAIL_SUBJECTS } = await import('../integrations/exam-emails.js');
+      const registry = createIntegrationRegistry();
+      const subjectName = toStringValue(exam.title) || 'your exam';
+
+      await registry.email.sendEmail({
+        to,
+        subject: EXAM_EMAIL_SUBJECTS.submitted(subjectName),
+        html: renderExamSubmittedEmail({
+          studentFirstName: toStringValue(user?.name).trim().split(/\s+/)[0] ?? '',
+          examName: toStringValue(exam.title),
+          subjectName,
+          examDateLabel: dLabel(submittedAt),
+          startTimeLabel: tLabel(startedAt),
+          submissionTimeLabel: tLabel(submittedAt),
+          timeTakenLabel: timeTaken,
+        }),
+      });
+    } catch {
+      /* best-effort — never fail a submission because of email */
+    }
   }
 
   async startQuizAttempt(userId: string, input: StartQuizAttemptInput): Promise<{ attemptId: string; questionNo: number }> {

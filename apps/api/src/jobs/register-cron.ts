@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 
-import type { StorageProvider } from '../integrations/contracts.js';
+import type { EmailProvider, StorageProvider } from '../integrations/contracts.js';
 import { syncPendingTeamsArtifacts } from './teams-artifacts-sync.js';
+import { sendDueExamReminders } from './exam-reminders.js';
 
 export interface CronJobsDeps {
   prisma: PrismaClient;
@@ -12,10 +13,73 @@ export interface CronJobsDeps {
     clientSecret: string | undefined;
     tenantId: string | undefined;
   };
+  /** Email provider for the exam reminder sweep. */
+  email?: EmailProvider;
   /** Interval between runs (ms). Default 5 minutes. */
   intervalMs?: number;
   /** Delay before the first run after app ready (ms). Default 30 seconds. */
   startupDelayMs?: number;
+}
+
+/**
+ * Exam 24h/1h reminder sweep. Independent of the Teams credentials so it runs
+ * on every deployment. Idempotency lives in `exam_reminders`, not in this timer.
+ */
+function registerExamReminderCron(app: FastifyInstance, deps: CronJobsDeps): void {
+  if (!deps.email) {
+    app.log.info({ job: 'exam-reminders' }, 'Cron skipped — no email provider configured');
+    return;
+  }
+  const email = deps.email;
+  const intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const startupDelayMs = deps.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
+
+  let interval: NodeJS.Timeout | null = null;
+  let initialTimeout: NodeJS.Timeout | null = null;
+  let running = false;
+
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await sendDueExamReminders({
+        prisma: deps.prisma,
+        email,
+        logger: {
+          info: (event, fields) => app.log.info({ job: 'exam-reminders', event, ...fields }),
+          warn: (event, fields) => app.log.warn({ job: 'exam-reminders', event, ...fields }),
+          error: (event, fields) => app.log.error({ job: 'exam-reminders', event, ...fields }),
+        },
+      });
+      if (result.sent > 0 || result.failed > 0) {
+        app.log.info({ job: 'exam-reminders', ...result }, 'Exam reminders sweep complete');
+      }
+    } catch (err) {
+      app.log.error(
+        { job: 'exam-reminders', err: err instanceof Error ? err.message : String(err) },
+        'Exam reminders sweep threw unhandled error',
+      );
+    } finally {
+      running = false;
+    }
+  };
+
+  app.addHook('onReady', (done) => {
+    initialTimeout = setTimeout(() => {
+      void tick();
+      interval = setInterval(() => { void tick(); }, intervalMs);
+    }, startupDelayMs);
+    app.log.info({ job: 'exam-reminders', intervalMs, startupDelayMs }, 'Exam reminders cron armed');
+    done();
+  });
+
+  app.addHook('onClose', (_instance, done) => {
+    if (initialTimeout) clearTimeout(initialTimeout);
+    if (interval) clearInterval(interval);
+    initialTimeout = null;
+    interval = null;
+    done();
+  });
 }
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
@@ -31,6 +95,11 @@ const DEFAULT_STARTUP_DELAY_MS = 30 * 1000;
  * dev/CI.
  */
 export function registerCronJobs(app: FastifyInstance, deps: CronJobsDeps): void {
+  // Exam reminders are registered FIRST and unconditionally. The Teams sync
+  // below bails out when M365 credentials are absent, and it used to `return`
+  // from this whole function — so any job added after it silently never ran.
+  registerExamReminderCron(app, deps);
+
   if (!deps.teamsCreds.clientId || !deps.teamsCreds.clientSecret || !deps.teamsCreds.tenantId) {
     app.log.info({ job: 'teams-artifacts-sync' }, 'Cron skipped — Teams M365 credentials not configured');
     return;

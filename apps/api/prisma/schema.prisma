@@ -1052,6 +1052,22 @@ model exam_student_allocations {
 
 /// Naji 2026-05-09 — re-examination scheduling for students who
 /// missed an allocated exam.
+/// Naji 2026-08-01 — one row per (exam, student, reminder) actually SENT, so the
+/// exam-reminder cron never double-mails across ticks, restarts or deploys.
+/// Mirrors the shape of live_class_reminders. reminder_type is '24h' | '1h'
+/// (plain VarChar rather than an enum so adding a window later needs no DDL).
+model exam_reminders {
+  id            Int       @id @default(autoincrement()) @db.UnsignedInt
+  exam_id       Int
+  user_id       Int
+  reminder_type String    @db.VarChar(16)
+  sent_at       DateTime  @db.DateTime(0)
+  created_at    DateTime? @default(now()) @db.DateTime(0)
+
+  @@unique([exam_id, user_id, reminder_type], map: "uniq_exam_reminder")
+  @@index([exam_id], map: "idx_exam_reminders_exam")
+}
+
 model exam_re_examinations {
   id              Int       @id @default(autoincrement()) @db.UnsignedInt
   exam_id         Int
