@@ -2321,6 +2321,11 @@ export class ContentService {
       } else {
         const fileData = await this.buildLessonFileData(lessonFile as unknown as Record<string, unknown>, lessonId, userId, courseId);
         fileData.sub_title = capitalize(attachmentType || lessonType || 'file');
+        // Videos carry related_files; top-level articles/quizzes never set it,
+        // so the key was absent for them. Flutter parses this as a List, and a
+        // missing key reads as null — the documented crash mode. Always an
+        // array (Naji/Ansaba convention), same as the video branch above.
+        fileData.related_files = [];
         topLevelNonVideos.push(fileData);
         fileOrder.push(`n:${fileId}`);
       }
