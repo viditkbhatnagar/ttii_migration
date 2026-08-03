@@ -598,18 +598,27 @@ export class CommerceService {
     let amountMinor = salePriceMinor;
     let targetInstallmentId: number | null = null;
 
-    // Full-payment courses price off course.sale_price (UNCHANGED path).
-    // Installment-based courses carry sale_price ~0 — their charge is the NEXT
-    // unpaid installment from the student's ledger, resolved SERVER-SIDE (we
-    // never trust a client-supplied amount). This is the fix for the Razorpay
-    // "amount less than minimum" 400 (sale_price 0 => 0 paise).
-    if (salePriceMinor < RAZORPAY_MIN_ORDER_MINOR) {
-      const nextInstallment = await this.getNextPayableInstallment(userIntId, courseIntId);
-      if (!nextInstallment) {
-        throw new Error('No pending installment found to pay for this course.');
-      }
+    // The student's own instalment schedule ALWAYS wins over course.sale_price.
+    //
+    // Risha 2026-08-03 — a student owing a Rs.4,000 instalment on "Diploma in
+    // Montessori Teacher Training" was sent to Razorpay for Rs.25,000: the
+    // course carries sale_price=25000, and this used to consult the schedule
+    // ONLY when sale_price fell below the Rs.1 minimum. So every instalment
+    // student on a course that also has a sale_price was billed the whole
+    // course fee — 75 students on course 16 alone. The portal showed
+    // "Pay Rs.4,000" (from the schedule) while the order said Rs.25,000, which
+    // is why it was invisible until a UPI app displayed the real amount.
+    //
+    // Resolved SERVER-SIDE; a client-supplied amount is never trusted.
+    // course.sale_price now applies only to genuine full-payment courses —
+    // i.e. where the student has no instalment schedule at all.
+    const nextInstallment = await this.getNextPayableInstallment(userIntId, courseIntId);
+    if (nextInstallment) {
       amountMinor = nextInstallment.amountMinor;
       targetInstallmentId = nextInstallment.id;
+    } else if (salePriceMinor < RAZORPAY_MIN_ORDER_MINOR) {
+      // No schedule AND no usable sale price — nothing legitimate to charge.
+      throw new Error('No pending installment found to pay for this course.');
     }
 
     if (amountMinor < RAZORPAY_MIN_ORDER_MINOR) {
