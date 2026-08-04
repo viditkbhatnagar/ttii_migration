@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DmyDatePicker } from '@/components/ui/dmy-date-picker';
 import { dmyToIso, formatDmyInput, isoToDmy } from '@/lib/dmy-date';
 
 // dd/mm/yyyy date entry that stores the canonical ISO yyyy-mm-dd internally.
@@ -25,6 +26,12 @@ interface DmyDateInputProps {
   id?: string | undefined;
   className?: string | undefined;
   placeholder?: string | undefined;
+  /** Hide the calendar button (rare — e.g. a very cramped inline cell). */
+  hidePicker?: boolean | undefined;
+  /** Earliest selectable year in the picker. Defaults to 100 years back. */
+  minYear?: number | undefined;
+  /** Latest selectable year in the picker. Defaults to the current year. */
+  maxYear?: number | undefined;
 }
 
 /**
@@ -33,12 +40,16 @@ interface DmyDateInputProps {
  * stacked label + input pair. onChange only fires once a full valid dd/mm/yyyy
  * has been typed, so a partially-typed value leaves the stored ISO untouched.
  */
-export function DmyDateInput({ value, onChange, required, id, className, placeholder = 'dd/mm/yyyy' }: DmyDateInputProps) {
+export function DmyDateInput({
+  value, onChange, required, id, className, placeholder = 'dd/mm/yyyy',
+  hidePicker, minYear, maxYear,
+}: DmyDateInputProps) {
   const [text, setText] = useState(isoToDmy(value));
   useEffect(() => {
     setText(isoToDmy(value));
   }, [value]);
-  return (
+
+  const input = (
     <Input
       id={id}
       type="text"
@@ -63,6 +74,23 @@ export function DmyDateInput({ value, onChange, required, id, className, placeho
         }
       }}
     />
+  );
+
+  if (hidePicker) return input;
+
+  // Naji 2026-08-03 — calendar picker alongside the typed field, not instead of
+  // it: typing a known DOB is faster than navigating a calendar, and the mask
+  // now works on mobile. The picker is for anyone who would rather tap.
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">{input}</div>
+      <DmyDatePicker
+        value={value}
+        onChange={onChange}
+        {...(minYear === undefined ? {} : { minYear })}
+        {...(maxYear === undefined ? {} : { maxYear })}
+      />
+    </div>
   );
 }
 

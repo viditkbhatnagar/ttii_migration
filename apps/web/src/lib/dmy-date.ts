@@ -34,3 +34,29 @@ export function formatDmyInput(raw: string): string {
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 }
+
+// --- calendar maths for the picker (components/ui/dmy-date-picker.tsx) ---
+// All of it works on local parts and never round-trips a date through a UTC
+// string, so nothing can shift a day (the documented project gotcha).
+
+/** Split 'yyyy-mm-dd' into parts. Month is 0-based. Null when malformed. */
+export function parseIsoParts(iso: string): { y: number; m: number; d: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]) - 1, d: Number(m[3]) };
+}
+
+/** Build 'yyyy-mm-dd' from local parts. Month is 0-based. */
+export function partsToIso(y: number, m: number, d: number): string {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** Day count of a 0-based month, leap years included. */
+export function daysInMonth(y: number, m: number): number {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+/** Weekday index (0=Sunday) of the 1st of a 0-based month. */
+export function firstWeekday(y: number, m: number): number {
+  return new Date(y, m, 1).getDay();
+}
