@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { dmyToIso, formatDmyInput, isoToDmy } from '@/lib/dmy-date';
 
 // dd/mm/yyyy date entry that stores the canonical ISO yyyy-mm-dd internally.
 // A native <input type="date"> renders in the browser locale (which can't be
@@ -12,17 +13,6 @@ import { Label } from '@/components/ui/label';
 // so the other DOB surfaces — Edit Student, Student Profile, Counsellors,
 // Associates, SSO complete-profile — can reuse it while keeping their own
 // labels/styling.)
-
-function isoToDmy(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
-}
-
-function dmyToIso(dmy: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dmy.trim());
-  if (!m) return '';
-  return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
-}
 
 interface DmyDateInputProps {
   /** Canonical ISO yyyy-mm-dd (or '' when empty). */
@@ -53,14 +43,24 @@ export function DmyDateInput({ value, onChange, required, id, className, placeho
       id={id}
       type="text"
       inputMode="numeric"
+      autoComplete="bday"
+      maxLength={10}
       placeholder={placeholder}
       value={text}
       required={required}
       className={className}
       onChange={(e) => {
-        setText(e.target.value);
-        const iso = dmyToIso(e.target.value);
-        if (iso) onChange(iso);
+        // Students only ever type digits; the slashes are inserted for them.
+        const masked = formatDmyInput(e.target.value);
+        setText(masked);
+        const iso = dmyToIso(masked);
+        if (iso) {
+          onChange(iso);
+        } else if (masked === '') {
+          // Clearing the field must clear the stored date too — otherwise the
+          // form still holds the previous DOB while the box looks empty.
+          onChange('');
+        }
       }}
     />
   );
