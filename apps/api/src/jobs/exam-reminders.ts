@@ -13,7 +13,8 @@
 // already did.
 //
 // Practice exams are excluded: they are permanent and unallocated, so a
-// "your exam starts in an hour" mail would be nonsense.
+// "your exam starts in an hour" mail would be nonsense. Parent exams are
+// excluded too — the sitting a student attends is the child row.
 
 import type { PrismaClient } from '@prisma/client';
 
@@ -120,7 +121,7 @@ export async function sendDueExamReminders(deps: ExamReminderDeps): Promise<Exam
   // Only exams starting in the next ~25h can possibly be due for either
   // reminder — keeps the scan small however many exams exist.
   const horizonEnd = new Date(now.getTime() + 25 * 60 * 60 * 1000);
-  const exams = await deps.prisma.exam.findMany({
+  const candidates = await deps.prisma.exam.findMany({
     where: {
       deleted_at: null,
       status: 'published',
@@ -132,6 +133,14 @@ export async function sendDueExamReminders(deps: ExamReminderDeps): Promise<Exam
       from_date: true, from_time: true, course_id: true,
     },
   });
+
+  // Risha UAT 2026-08-06 — a wizard exam whose subject-wise sittings were
+  // materialised stays published, keeps its Step 1 umbrella date/time and keeps
+  // its allocations, so it matches the scan above. Only the CHILD rows are real
+  // sittings; reminding from the parent mails a sitting that does not exist, at
+  // a start time nobody sits, on top of the correct per-subject reminders.
+  const parentIds = await findParentExamIds(deps.prisma, candidates.map((e) => e.id));
+  const exams = parentIds.size === 0 ? candidates : candidates.filter((e) => !parentIds.has(e.id));
 
   for (const exam of exams) {
     if (exam.notify_email === 0) { result.skipped += 1; continue; }
@@ -212,6 +221,27 @@ export async function sendDueExamReminders(deps: ExamReminderDeps): Promise<Exam
   }
 
   return result;
+}
+
+/**
+ * The ids, out of the given list, that are PARENT exams: a wizard row whose
+ * sittings were materialised as child exam rows. A parent is a template, never
+ * a sitting. Batched into one query over the whole candidate set rather than a
+ * probe per exam, so the sweep stays two queries wide however many exams match.
+ */
+async function findParentExamIds(prisma: PrismaClient, examIds: number[]): Promise<Set<number>> {
+  const parentIds = new Set<number>();
+  if (examIds.length === 0) return parentIds;
+  const childRows = await prisma.exam.findMany({
+    where: { parent_exam_id: { in: examIds }, deleted_at: null },
+    select: { parent_exam_id: true },
+  });
+  for (const row of childRows) {
+    if (row.parent_exam_id !== null && row.parent_exam_id !== undefined) {
+      parentIds.add(row.parent_exam_id);
+    }
+  }
+  return parentIds;
 }
 
 /** exam has no subject_id — derive it through exam_questions -> question_bank. */

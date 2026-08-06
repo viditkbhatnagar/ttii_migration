@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
+import { asString, asNumber, asBoolean, dateOnly } from '../../shared/utils/admin-data-utils.js';
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
@@ -48,13 +48,24 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
   const allExams = useMemo(() => data?.exams ?? [], [data]);
   const summary = data?.summary ?? { total: 0, upcoming: 0, expired: 0, practice: 0 };
 
-  const now = new Date().toISOString().slice(0, 10);
+  // Risha UAT 2026-08-06 — local (IST) today, not `toISOString()`. The UTC
+  // day is still yesterday between 00:00 and 05:30 IST, which flipped an exam
+  // starting today into the Upcoming tab every morning.
+  const now = dateOnly();
 
   const filteredExams = useMemo(() => {
     if (activeTab === 'all') return allExams;
     if (activeTab === 'practice') return allExams.filter((e) => asNumber(e.is_practice) === 1);
-    if (activeTab === 'upcoming') return allExams.filter((e) => asString(e.from_date).slice(0, 10) > now);
-    if (activeTab === 'expired') return allExams.filter((e) => asString(e.to_date).slice(0, 10) < now);
+    // from_date / to_date arrive as ISO datetimes (Prisma @db.Date → UTC
+    // midnight), so slicing the first 10 chars still yields the stored day.
+    // An UNSCHEDULED exam has no date at all, and '' sorts before every real
+    // date — which silently filed every dateless draft under Expired.
+    if (activeTab === 'upcoming') {
+      return allExams.filter((e) => { const from = asString(e.from_date).slice(0, 10); return from !== '' && from > now; });
+    }
+    if (activeTab === 'expired') {
+      return allExams.filter((e) => { const to = asString(e.to_date).slice(0, 10); return to !== '' && to < now; });
+    }
     return allExams;
   }, [allExams, activeTab, now]);
 
@@ -70,11 +81,36 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
     { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
     { key: 'batch_title', label: 'Batch', sortable: true, render: (v) => asString(v) || '-' },
     {
-      key: 'description',
+      // Risha UAT 2026-08-06 — this column read `description`, a DIFFERENT
+      // column from the `instructions` the wizard's Step 6 writes, so every
+      // wizard-built exam showed a dash here while old seeded rows had text.
+      key: 'instructions',
       label: 'Instruction',
       render: (v) => {
         const text = asString(v).replace(/<[^>]*>/g, ''); // strip HTML
         return text.length > 60 ? text.slice(0, 60) + '...' : text || '-';
+      },
+    },
+    {
+      // Risha UAT 2026-08-06 — a wizard exam stays `draft` until Step 6
+      // publishes it, and only a published exam is takeable. Without this
+      // column the admin had no way to tell why students could not see it.
+      key: 'status',
+      label: 'Status',
+      sortable: true,
+      render: (v) => <AdminStatusBadge status={asString(v) || 'draft'} />,
+    },
+    {
+      // Risha UAT 2026-08-06 — Step 2 schedules one row per subject and
+      // publishing materialises one child exam per row. The list shows the
+      // parent only, so this is where an admin sees that "Test Exam" is
+      // really five separate sittings.
+      key: 'sitting_count',
+      label: 'Sittings',
+      sortable: true,
+      render: (v) => {
+        const count = asNumber(v);
+        return count > 0 ? String(count) : 'Single';
       },
     },
     {
@@ -93,7 +129,10 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
     {
       key: 'publish_result',
       label: 'Result',
-      render: (v) => <AdminStatusBadge status={asNumber(v) === 1 ? 'Published' : 'Unpublished'} />,
+      // Risha UAT 2026-08-06 — `exam.publish_result` is a Prisma Boolean, so it
+      // arrives as JSON `true`; asNumber(true) is 0, which pinned this badge to
+      // "Unpublished" even right after Publish Result succeeded.
+      render: (v) => <AdminStatusBadge status={asBoolean(v) ? 'Published' : 'Unpublished'} />,
     },
   ], [onNavigate]);
 

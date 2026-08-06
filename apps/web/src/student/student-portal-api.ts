@@ -968,7 +968,11 @@ export class StudentPortalApi {
       .filter((entry): entry is Record<string, unknown> => entry !== null)
       .map((q) => ({
         questionId: asString(q.question_id),
-        qType: asNumber(q.q_type) || 1,
+        // Risha UAT 2026-08-06 — q_type 0 is MCQ and 1 is Descriptive, so the
+        // old `|| 1` turned every MCQ (a falsy 0) into Descriptive and the
+        // player's type badge was permanently wrong. Only an explicit 1 is
+        // descriptive; everything else is an MCQ.
+        qType: asNumber(q.q_type) === 1 ? 1 : 0,
         question: asString(q.question),
         options: asArray(q.options).map((o) => asString(o)),
       }));

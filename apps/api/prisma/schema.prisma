@@ -936,6 +936,15 @@ model exam {
   description         String?   @db.Text
   course_id           Int?
   batch_id            Int?
+  // Risha UAT 2026-08-06 — subject-wise sittings. The wizard exam is the
+  // PARENT (a template holding the courses, the question pool and the
+  // allocation); publishing materialises one CHILD exam per exam_subjects
+  // row, each with its own date/time/duration/marks and its own slice of
+  // the questions. Students only ever see children — a parent is hidden
+  // from every student-facing read. Both columns are NULL on a child-less
+  // (single-sitting) exam and on the parent's own row.
+  parent_exam_id      Int?
+  exam_subject_id     Int?      @db.UnsignedInt
   is_practice         Int       @default(0)
   is_paid_test_series Int?      @default(0)
   duration            String?   @db.VarChar(20)
@@ -971,6 +980,11 @@ model exam {
   created_at          DateTime? @db.DateTime(0)
   updated_at          DateTime? @db.DateTime(0)
   deleted_at          DateTime? @db.DateTime(0)
+
+  @@index([parent_exam_id], map: "idx_exam_parent_exam")
+  // NOT "idx_exam_subject" — the legacy schema already uses that name for an
+  // index on a since-dropped exam.subject_id column.
+  @@index([exam_subject_id], map: "idx_exam_subject_link")
 }
 
 /// Pivot — exam ↔ many courses. Naji 2026-05-09 the new exam wizard
@@ -1144,7 +1158,10 @@ model exam_attempt {
   correct       Int?
   incorrect     Int?
   skip          Int?
-  score         Int?
+  // Risha UAT 2026-08-06 — was INT, which rejected the half-marks the
+  // wizard's Step 4 offers (step="0.5"): a 2.5 total made the student's
+  // submit throw. FLOAT matches exam_questions.mark, which is already Float.
+  score         Float?    @db.Float
   submit_status Boolean?
   created_by    Int?
   updated_by    Int?

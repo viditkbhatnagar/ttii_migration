@@ -22,6 +22,14 @@
 // Only fields the backend actually provides are shown — pass marks, per-question
 // marks and auto-save do not exist server-side, so they are deliberately omitted
 // rather than faked.
+//
+// Risha UAT 2026-08-06 — two grading defects fixed here:
+//   • the submit payload sent a 1-BASED option index while every writer of
+//     question_bank.correct_answers stores 0-based, so a student who answered
+//     everything correctly scored zero (and took the negative mark on each);
+//   • descriptive questions (q_type 1, no options) rendered nothing to answer,
+//     so they were always recorded as skipped even though the admin wizard
+//     configures them and exam_descriptive_grades exists to mark them.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -93,6 +101,9 @@ type Phase =
       questions: ExamQuestion[];
       current: number;
       answers: Map<string, number | null>;
+      /** Risha UAT 2026-08-06 — descriptive (q_type 1) answers, kept beside the
+       * MCQ index map so the existing option flow is untouched. */
+      textAnswers: Map<string, string>;
       visited: Set<string>;
       flagged: Set<string>;
       startedAt: number;
@@ -148,6 +159,50 @@ function parseDurationMin(raw: string): number {
   if (parts.length === 3) return a * 60 + b + Math.round(c / 60);
   if (parts.length === 2) return a * 60 + b;
   return a || 0;
+}
+
+// Risha UAT 2026-08-06 — q_type 0 = MCQ, 1 = Descriptive. We branch on qType
+// exactly as the server does when it scores the attempt (assessment-service.ts
+// treats q_type 1 as descriptive and files the answer for manual grading
+// instead of string-matching it), so the two sides always agree on what a
+// question IS. This used to test `options.length === 0` because
+// student-portal-api.ts coerced the field with `asNumber(q.q_type) || 1` and a
+// genuine MCQ (0, falsy) came through as descriptive; that coercion now yields
+// an authoritative 0 or 1, so the workaround is gone. Disagreeing was visible
+// to the student both ways: a descriptive question carrying stale leftover
+// options offered clickable choices whose pick was then filed as an ungraded
+// essay, and an MCQ whose options failed to parse offered a textarea whose
+// prose was compared against an option index and marked wrong.
+function isDescriptiveQuestion(q: ExamQuestion): boolean {
+  return q.qType === 1;
+}
+
+// The genuinely broken case: a question the server will grade by option index,
+// but whose options did not reach the client. There is nothing to click, and a
+// textarea would be no help — free text can only ever compare unequal to an
+// option index, so it would be graded wrong AND take the negative mark, where
+// leaving it alone merely scores zero. So we explain it and let the student
+// move on rather than leaving a blank card they cannot act on.
+function isUnanswerableMcq(q: ExamQuestion): boolean {
+  return !isDescriptiveQuestion(q) && q.options.length === 0;
+}
+
+// A question counts as ANSWERED when an MCQ option is selected or a descriptive
+// answer holds non-whitespace text. Used by the counters, the palette and the
+// submit confirmation so descriptive work is never reported as "Not Answered".
+function isQuestionAnswered(
+  q: ExamQuestion,
+  answers: Map<string, number | null>,
+  textAnswers: Map<string, string>,
+): boolean {
+  if (isDescriptiveQuestion(q)) return (textAnswers.get(q.questionId) ?? '').trim().length > 0;
+  const selected = answers.get(q.questionId);
+  return selected !== undefined && selected !== null;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed === '' ? 0 : trimmed.split(/\s+/).length;
 }
 
 export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, meta, proctored = true, onClose }: Props) {
@@ -305,6 +360,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         questions: p.questions,
         current: 0,
         answers: new Map(),
+        textAnswers: new Map(),
         visited: new Set(firstId !== undefined ? [firstId] : []),
         flagged: new Set(),
         startedAt: Date.now(),
@@ -333,6 +389,15 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     });
   };
 
+  const setTextAnswer = (qid: string, text: string) => {
+    setPhase((p) => {
+      if (p.kind !== 'in_progress') return p;
+      const next = new Map(p.textAnswers);
+      next.set(qid, text);
+      return { ...p, textAnswers: next };
+    });
+  };
+
   const toggleFlag = (qid: string) => {
     setPhase((p) => {
       if (p.kind !== 'in_progress') return p;
@@ -348,7 +413,9 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       if (p.kind !== 'in_progress') return p;
       const next = new Map(p.answers);
       next.delete(qid);
-      return { ...p, answers: next };
+      const nextText = new Map(p.textAnswers);
+      nextText.delete(qid);
+      return { ...p, answers: next, textAnswers: nextText };
     });
   };
 
@@ -361,16 +428,31 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     submittingRef.current = true;
     proctorActiveRef.current = false;
     const snapshot = phase;
-    // answer is the 1-based option index, matching question_bank.correct_answers.
+    // Risha UAT 2026-08-06 — MCQ answers ship the 0-BASED option index. Every
+    // writer of question_bank.correct_answers stores the 0-based index into
+    // `options`: the CSV importer maps letter A to 0 (operations-service.ts
+    // bulkAddQuestions, "indexes into options"), and QuestionBankPage /
+    // ViewSubjectQuestionsPage both persist the render index. The server grades
+    // by exact string equality, so the old `selected + 1` marked every correct
+    // MCQ wrong and applied the negative mark on top of it.
+    // Descriptive answers ship the raw text — the server stores it in
+    // exam_answer.answer_submitted for manual grading.
     const userAnswers = snapshot.questions.map((q) => {
+      if (isDescriptiveQuestion(q)) {
+        const text = (snapshot.textAnswers.get(q.questionId) ?? '').trim();
+        return {
+          question_id: q.questionId,
+          answer: text === '' ? [] : [text],
+        };
+      }
       const selected = snapshot.answers.has(q.questionId) ? snapshot.answers.get(q.questionId) ?? null : null;
       return {
         question_id: q.questionId,
-        answer: selected !== null ? [String(selected + 1)] : [],
+        answer: selected !== null ? [String(selected)] : [],
       };
     });
     const answeredCount = snapshot.questions.filter(
-      (q) => snapshot.answers.has(q.questionId) && snapshot.answers.get(q.questionId) !== null,
+      (q) => isQuestionAnswered(q, snapshot.answers, snapshot.textAnswers),
     ).length;
     try {
       await api.submitExamAttempt(authToken, snapshot.attemptId, userAnswers);
@@ -560,18 +642,28 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const currentIdx = inProgress?.current ?? 0;
   const currentQ = questions[currentIdx];
   const total = questions.length;
+  // Risha UAT 2026-08-06 — answered-ness now covers descriptive text as well as
+  // a picked MCQ option, so a typed essay no longer reads as "Not Answered".
   const answeredCount = inProgress
-    ? questions.filter((q) => inProgress.answers.has(q.questionId) && inProgress.answers.get(q.questionId) !== null).length
+    ? questions.filter((q) => isQuestionAnswered(q, inProgress.answers, inProgress.textAnswers)).length
     : 0;
   const flaggedCount = inProgress?.flagged.size ?? 0;
   const visitedNotAnswered = inProgress
-    ? questions.filter((q) => inProgress.visited.has(q.questionId) && (!inProgress.answers.has(q.questionId) || inProgress.answers.get(q.questionId) === null)).length
+    ? questions.filter((q) => inProgress.visited.has(q.questionId) && !isQuestionAnswered(q, inProgress.answers, inProgress.textAnswers)).length
     : 0;
   const notVisitedCount = inProgress ? questions.filter((q) => !inProgress.visited.has(q.questionId)).length : 0;
   const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
   const examTitle = inProgress?.title ?? submittedPhase?.title ?? initialTitle;
   const topSubtitle = [meta?.course, meta?.subject].filter(Boolean).join(' · ') || headerLabel || '';
   const currentFlagged = currentQ ? Boolean(inProgress?.flagged.has(currentQ.questionId)) : false;
+  const currentIsDescriptive = currentQ ? isDescriptiveQuestion(currentQ) : false;
+  const currentIsUnanswerable = currentQ ? isUnanswerableMcq(currentQ) : false;
+  const currentText = currentQ ? inProgress?.textAnswers.get(currentQ.questionId) ?? '' : '';
+  // "Clear Response" stays enabled for anything the student has actually put in
+  // — an option pick (even a cleared one) or any descriptive keystroke.
+  const currentHasResponse = currentQ && inProgress
+    ? (currentIsDescriptive ? currentText !== '' : inProgress.answers.has(currentQ.questionId))
+    : false;
 
   return (
     <div className="-m-4 min-h-[calc(100vh-4rem)] bg-student-bg sm:-m-6">
@@ -653,7 +745,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                       Question {currentIdx + 1} of {total}
                     </span>
                     <span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
-                      {currentQ.qType === 1 ? 'MCQ · Single Answer' : 'MCQ'}
+                      {currentIsDescriptive ? 'Descriptive' : 'MCQ · Single Answer'}
                     </span>
                   </div>
 
@@ -662,6 +754,38 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                     dangerouslySetInnerHTML={{ __html: currentQ.question }}
                   />
 
+                  {currentIsDescriptive ? (
+                    <div className="mt-5">
+                      <label
+                        htmlFor="formal-exam-descriptive-answer"
+                        className="block text-xs font-semibold uppercase tracking-wider text-student-muted"
+                      >
+                        Your answer
+                      </label>
+                      <textarea
+                        id="formal-exam-descriptive-answer"
+                        key={currentQ.questionId}
+                        value={currentText}
+                        onChange={(e) => { if (inProgress) setTextAnswer(currentQ.questionId, e.target.value); }}
+                        readOnly={!inProgress}
+                        rows={10}
+                        placeholder="Type your answer here…"
+                        className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-slate-50/40 p-4 text-sm leading-relaxed text-student-text outline-none transition placeholder:text-slate-400 focus:border-student-primary focus:bg-white focus:ring-2 focus:ring-student-primary/20"
+                      />
+                      <p className="mt-1.5 text-xs text-student-muted">
+                        {countWords(currentText)} {countWords(currentText) === 1 ? 'word' : 'words'}
+                      </p>
+                    </div>
+                  ) : currentIsUnanswerable ? (
+                    <div className="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-900">
+                      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                      <span>
+                        The answer choices for this question could not be loaded, so there is nothing
+                        to select. Move on to the next question and report this to your institute —
+                        leaving it unanswered scores zero, but carries no negative mark.
+                      </span>
+                    </div>
+                  ) : (
                   <div className="mt-5 space-y-3">
                     {currentQ.options.map((opt, idx) => {
                       const answered = inProgress?.answers.has(currentQ.questionId) ? inProgress.answers.get(currentQ.questionId) : null;
@@ -687,6 +811,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                       );
                     })}
                   </div>
+                  )}
 
                   <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-5">
                     <Button variant="outline" onClick={goPrev} disabled={currentIdx === 0} className="rounded-xl">
@@ -696,7 +821,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                       <Button
                         variant="ghost"
                         onClick={() => clearResponse(currentQ.questionId)}
-                        disabled={!inProgress?.answers.has(currentQ.questionId)}
+                        disabled={!currentHasResponse}
                         className="rounded-xl text-slate-500 hover:text-slate-700"
                       >
                         <Eraser aria-hidden="true" className="mr-1.5 size-4" /> Clear Response
@@ -732,7 +857,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                 <div className="grid grid-cols-6 gap-2">
                   {questions.map((q, idx) => {
                     const isCurrent = idx === currentIdx;
-                    const isAnswered = inProgress?.answers.has(q.questionId) && inProgress.answers.get(q.questionId) !== null;
+                    const isAnswered = inProgress ? isQuestionAnswered(q, inProgress.answers, inProgress.textAnswers) : false;
                     const isFlagged = inProgress?.flagged.has(q.questionId);
                     const isVisited = inProgress?.visited.has(q.questionId);
                     let cls = 'bg-slate-100 text-slate-600 hover:bg-slate-200';

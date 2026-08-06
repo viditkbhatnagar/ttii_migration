@@ -44,6 +44,16 @@ function timeStringToDate(value: string): Date {
   return new Date(seconds * 1000);
 }
 
+// Answer status codes used across this file:
+//   1 = correct, 2 = incorrect, 3 = skipped,
+//   4 = answered descriptive question awaiting manual grading
+//       (Risha UAT 2026-08-06 — see submitExamAttempt).
+// exam_answer.answer_status is a NULLABLE BOOLEAN, so "not auto-scored" can
+// only be expressed as NULL — the same value a skip carries. Status 4 must map
+// to NULL and never to `false`: `false` is the incorrect marker and would make
+// every pending descriptive answer read as wrong in the evaluation module. The
+// two NULL cases are told apart by answer_submitted — a pending descriptive
+// answer has the student's text, a skip has an empty array.
 function examStatusToBool(status: number): boolean | null {
   if (status === 1) return true;
   if (status === 2) return false;
@@ -148,29 +158,105 @@ function formatDateMonth(value: unknown): string {
   return `${formatTwoDigits(parsed.getDate())} ${month} ${parsed.getFullYear()}`;
 }
 
+/**
+ * Normalise anything that can hold a wall-clock time into "HH:MM:SS".
+ *
+ * Prisma maps a MySQL `@db.Time(0)` column to a JS Date anchored at the UNIX
+ * epoch in UTC — 19:30 comes back as `1970-01-01T19:30:00.000Z` — so the time
+ * of day has to be read with the UTC getters. The local getters shift it by the
+ * process timezone, and stringifying the Date yields a 24-character timestamp
+ * that is not a time at all. Two separate call sites in this file fell into
+ * exactly that trap (see combineDateAndTime and format12HourTime below), which
+ * is why every time value now goes through this one helper.
+ *
+ * Also tolerates a full ISO string (extracts the time part), "HH:MM" and
+ * "HH:MM:SS". Returns null when there is no usable time.
+ */
+function toTimeOfDayString(value: unknown): string | null {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    return `${formatTwoDigits(value.getUTCHours())}:${formatTwoDigits(value.getUTCMinutes())}:${formatTwoDigits(value.getUTCSeconds())}`;
+  }
+
+  const raw = toNullableString(value);
+  if (!raw) {
+    return null;
+  }
+
+  // Anchored at the start ("19:30", "19:30:00") or straight after the date
+  // separator of a full timestamp ("1970-01-01T19:30:00.000Z", and the
+  // space-separated MySQL form). A date with no time part matches nothing.
+  const parts = /(?:^|[T ])(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(raw.trim());
+  if (!parts) {
+    return null;
+  }
+
+  const hours = Number.parseInt(parts[1] ?? '', 10);
+  const minutes = Number.parseInt(parts[2] ?? '', 10);
+  const seconds = parts[3] === undefined ? 0 : Number.parseInt(parts[3], 10);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  if (hours > 23 || minutes > 59 || seconds > 59) {
+    return null;
+  }
+
+  return `${formatTwoDigits(hours)}:${formatTwoDigits(minutes)}:${formatTwoDigits(seconds)}`;
+}
+
 function combineDateAndTime(dateValue: unknown, timeValue: unknown): Date | null {
   let date = toNullableString(dateValue);
   if (dateValue instanceof Date) {
     date = dateValue.toISOString().slice(0, 10);
+  } else if (date) {
+    // A stringified date can arrive as a full timestamp; keep the calendar part.
+    date = /^(\d{4}-\d{2}-\d{2})/.exec(date)?.[1] ?? date;
   }
 
   if (!date) {
     return null;
   }
 
-  const time = toNullableString(timeValue) ?? '00:00:00';
-  const isoParsed = new Date(`${date}T${time}`);
-  if (!Number.isNaN(isoParsed.getTime())) {
-    return isoParsed;
-  }
+  // Risha UAT 2026-08-06 — the time argument used to go through
+  // toNullableString, which stringifies the Date Prisma returns for a
+  // @db.Time column into a full ISO timestamp. That built
+  // "2026-08-10T1970-01-01T19:30:00.000Z" -> Invalid Date -> null, so every
+  // caller behaved as if the exam had no start time: the "upcoming" state was
+  // unreachable, start_datetime shipped empty, and the "has not started yet"
+  // gate never fired (an allocated student could sit a future exam today).
+  const time = toTimeOfDayString(timeValue) ?? '00:00:00';
 
-  const fallback = new Date(`${date} ${time}`);
-  if (Number.isNaN(fallback.getTime())) {
+  // ...and the recombination must be pinned to IST. `from_date`/`from_time`
+  // hold an IST WALL CLOCK (the admin typed 7:30 PM meaning 7:30 PM in Kochi),
+  // but production runs UTC, so `new Date("2026-08-10T19:30:00")` — no offset —
+  // would be parsed as 19:30 UTC, i.e. 1 AM IST the NEXT day. That 5h30m skew
+  // matters now in a way it never did before: while this helper returned null
+  // the window gate was dead code, so activating it with a skew would have
+  // locked students out for the whole of their real 19:30–20:45 sitting and
+  // opened it at 01:00 AM instead. jobs/exam-reminders.ts::examStartInstant
+  // already does this conversion for the reminder emails — same arithmetic.
+  const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const timeParts = /^(\d{2}):(\d{2}):(\d{2})$/.exec(time);
+  if (!dateParts || !timeParts) {
     return null;
   }
-
-  return fallback;
+  const utcMs = Date.UTC(
+    Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]),
+    Number(timeParts[1]), Number(timeParts[2]), Number(timeParts[3]),
+  );
+  if (Number.isNaN(utcMs)) {
+    return null;
+  }
+  return new Date(utcMs - IST_OFFSET_MS);
 }
+
+// IST is UTC+5:30. Exam date/time columns store an IST wall clock; the server
+// runs UTC. Mirrors jobs/exam-reminders.ts.
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
 // End of the given calendar day (23:59:59). Exam `to_date` is a DATE column
 // with no time, so an exam is open through the end of its closing day.
@@ -179,12 +265,14 @@ function endOfDay(dateValue: unknown): Date | null {
 }
 
 function format12HourTime(value: unknown): string {
-  const raw = toNullableString(value);
-  if (!raw) {
+  // Risha UAT 2026-08-06 — this used to take the LAST 8 characters of the
+  // stringified value, which on the ISO timestamp a @db.Time Date produces
+  // ("1970-01-01T19:30:00.000Z") sliced ":00.000Z" and rendered nothing.
+  const timeOnly = toTimeOfDayString(value);
+  if (!timeOnly) {
     return '';
   }
 
-  const timeOnly = raw.length > 8 ? raw.slice(-8) : raw;
   const parsed = new Date(`1970-01-01T${timeOnly}`);
   if (Number.isNaN(parsed.getTime())) {
     return '';
@@ -369,12 +457,31 @@ export interface SubmitAssignmentInput {
   answerFiles?: unknown;
 }
 
+/** The exam columns the eligibility gate checks and its callers then render. */
+interface ExamAttemptGateRow {
+  id: number;
+  title: string | null;
+  duration: string | null;
+  mark: number | null;
+  from_date: Date | null;
+  from_time: Date | null;
+  to_date: Date | null;
+  status: string | null;
+  is_practice: number;
+  shuffle_questions: boolean;
+}
+
 interface ScoredAttemptSummary {
   correct: number;
   incorrect: number;
   skip: number;
   score: number;
   timeTaken: string;
+  // Risha UAT 2026-08-06 — answered descriptive questions, which are never
+  // auto-scored. Optional because only the formal-exam path produces them
+  // (quiz and practice attempts are MCQ-only), and because the exam_attempt
+  // table has no column for it — it is a response-shape detail, not state.
+  pendingReview?: number;
 }
 
 export class AssessmentService {
@@ -558,6 +665,19 @@ export class AssessmentService {
       is_submitted: isSubmitted ? 1 : 0,
       start_datetime: start ? start.toISOString() : '',
       end_datetime: end ? end.toISOString() : '',
+      // Risha UAT 2026-08-06 — the student card's WINDOW column used to derive
+      // its label from start_datetime/end_datetime, which for a single-day
+      // sitting rendered the useless "10/08/2026 – 10/08/2026" (end_datetime is
+      // end-of-CLOSING-DAY, not the exam's own finish time). What a student
+      // actually needs is the sitting's clock window, so send it pre-formatted
+      // in IST — the values in from_time/to_time are already an IST wall clock,
+      // so no conversion is involved and no client can get the zone wrong.
+      window_label: (() => {
+        const fromLabel = format12HourTime(exam.from_time);
+        const toLabel = format12HourTime(exam.to_time);
+        if (fromLabel && toLabel) return `${fromLabel} – ${toLabel}`;
+        return fromLabel || '';
+      })(),
       exam_link: `${this.appBaseUrl}/exam/exam_web_view/${examId}/${userId}`,
     };
   }
@@ -579,20 +699,52 @@ export class AssessmentService {
       };
     }
 
+    // Risha UAT 2026-08-06 — an exam may reach this student either through its
+    // own course_id or through the exam_courses pivot. A child exam built from
+    // a subject that two courses share can only carry ONE course_id, so
+    // matching on that column alone hid the sitting from every student of the
+    // other course. Safe to widen: the allocation check in toExamData/the
+    // eligibility gate still decides who may actually sit it.
+    const courseIdInt = toNullableIntId(resolvedCourseId);
+    const pivotRows = await this.prisma.exam_courses.findMany({
+      where: { course_id: courseIdInt ?? 0 },
+      select: { exam_id: true },
+    });
+    const pivotExamIds = [...new Set(pivotRows.map((row) => row.exam_id))];
+
+    const courseMatch: Record<string, unknown>[] = [{ course_id: courseIdInt }];
+    if (pivotExamIds.length > 0) {
+      courseMatch.push({ id: { in: pivotExamIds } });
+    }
+
     const whereClause: Record<string, unknown> = {
-      course_id: toNullableIntId(resolvedCourseId),
+      OR: courseMatch,
       deleted_at: null,
     };
 
+    // Risha UAT 2026-08-06 — these two filters used to set
+    // `whereClause.subject_id` / `.lesson_id`, but the exam table has neither
+    // column, so any student who actually used the Subject filter got a Prisma
+    // validation error instead of a list. Subject now resolves properly: a
+    // subject-wise sitting carries exam_subject_id, which points at the
+    // exam_subjects row holding the real subject_id.
     if (filter.subjectId) {
-      whereClause.subject_id = toNullableIntId(filter.subjectId);
+      const subjectIdInt = toNullableIntId(filter.subjectId);
+      const subjectRows = subjectIdInt
+        ? await this.prisma.exam_subjects.findMany({
+            where: { subject_id: subjectIdInt },
+            select: { id: true },
+          })
+        : [];
+      whereClause.exam_subject_id = { in: subjectRows.map((r) => r.id) };
     }
 
-    if (filter.lessonId) {
-      whereClause.lesson_id = toNullableIntId(filter.lessonId);
-    }
+    // `lessonId` has no equivalent on the exam table at all — an exam is
+    // scoped to a course and its subjects, never to a single lesson. Ignored
+    // rather than crashing; the caller still gets the course's exams.
+    void filter.lessonId;
 
-    const exams = await this.prisma.exam.findMany({
+    const candidateExams = await this.prisma.exam.findMany({
       where: whereClause,
       orderBy: [
         { from_date: 'asc' },
@@ -600,24 +752,63 @@ export class AssessmentService {
       ],
     });
 
+    // Risha UAT 2026-08-06 — a wizard exam scheduled subject-wise is only a
+    // PARENT: it holds the pooled questions and the allocation, and publishing
+    // materialises one child exam per subject sitting. Showing the parent gave
+    // the student a single umbrella card with every subject's duration and
+    // marks summed (5835 minutes / 167 marks). Students see children only.
+    const parentExamIds = await this.findParentExamIds(candidateExams.map((exam) => exam.id));
+    const exams = parentExamIds.size === 0
+      ? candidateExams
+      : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
+
     const examData = await Promise.all(
       exams.map((exam) => this.toExamData(exam as unknown as Record<string, unknown>, userId)),
     );
 
-    // Exams are course-scoped (the exam table has no subject link), so the
-    // course name is constant for this list — resolve it once and stamp every
-    // exam with it so the student cards can show "exam · course".
+    // The list is scoped to one course of this student's, so the course name is
+    // constant across it — resolve it once and stamp every exam with it so the
+    // student cards can show "exam · course".
     const courseRow = await this.prisma.course.findFirst({
-      where: { id: toNullableIntId(resolvedCourseId) ?? 0 },
+      where: { id: courseIdInt ?? 0 },
       select: { title: true },
     });
     const courseTitle = toStringValue(courseRow?.title);
+
+    // Risha UAT 2026-08-06 — a child exam already knows its subject: it was
+    // materialised FROM an exam_subjects row, so read the title straight off
+    // that row. The question-derived fallback below stays for legacy and
+    // single-sitting exams, but for a child it is both unreliable (it guesses
+    // from whichever question happens to come first) and wasted work.
+    const examSubjectRowIds = [
+      ...new Set(
+        exams
+          .map((e) => e.exam_subject_id)
+          .filter((id): id is number => id !== null && id !== undefined),
+      ),
+    ];
+    const scheduledSubjectRows = examSubjectRowIds.length > 0
+      ? await this.prisma.exam_subjects.findMany({
+          where: { id: { in: examSubjectRowIds } },
+          select: { id: true, subject_title: true },
+        })
+      : [];
+    const scheduledSubjectTitle = new Map(
+      scheduledSubjectRows.map((row) => [row.id, toStringValue(row.subject_title).trim()]),
+    );
+    const directSubjectTitleFor = (examSubjectId: number | null): string => {
+      if (examSubjectId === null || examSubjectId === undefined) return '';
+      return scheduledSubjectTitle.get(examSubjectId) ?? '';
+    };
 
     // Per-exam subject. The exam table has no subject column, but each exam's
     // questions come from the subject-tagged question_bank, so derive a primary
     // subject for the exam from its questions (batched — 3 queries, not N+1).
     // This powers the subject filter on the student Exams page.
-    const examIds = exams.map((e) => e.id).filter((id): id is number => id !== null && id !== undefined);
+    const examIds = exams
+      .filter((e) => directSubjectTitleFor(e.exam_subject_id) === '')
+      .map((e) => e.id)
+      .filter((id): id is number => id !== null && id !== undefined);
     const examSubjectTitle = new Map<number, string>();
     if (examIds.length > 0) {
       const eqRows = await this.prisma.exam_questions.findMany({
@@ -668,7 +859,7 @@ export class AssessmentService {
       const enriched = {
         ...examInfo,
         course_title: courseTitle,
-        subject_title: examSubjectTitle.get(exam.id) ?? '',
+        subject_title: directSubjectTitleFor(exam.exam_subject_id) || (examSubjectTitle.get(exam.id) ?? ''),
       };
       const examDateTime = combineDateAndTime(exam.from_date, exam.from_time);
       if (examDateTime && examDateTime.getTime() > now) {
@@ -684,6 +875,33 @@ export class AssessmentService {
     };
   }
 
+  /**
+   * Risha UAT 2026-08-06 — the ids, out of the given list, that are PARENT
+   * exams: a wizard exam whose subject-wise sittings were materialised as
+   * child exam rows. Parents are templates, never sittings, so no
+   * student-facing read may show one. Batched into a single query: the caller
+   * passes every candidate id at once rather than probing per exam.
+   */
+  private async findParentExamIds(examIds: number[]): Promise<Set<number>> {
+    const parentIds = new Set<number>();
+    if (examIds.length === 0) {
+      return parentIds;
+    }
+
+    const childRows = await this.prisma.exam.findMany({
+      where: { parent_exam_id: { in: examIds }, deleted_at: null },
+      select: { parent_exam_id: true },
+    });
+
+    for (const row of childRows) {
+      if (row.parent_exam_id !== null && row.parent_exam_id !== undefined) {
+        parentIds.add(row.parent_exam_id);
+      }
+    }
+
+    return parentIds;
+  }
+
   async getExamCalendar(userId: string, courseId?: string): Promise<Record<string, unknown>> {
     const user = await this.getUserById(userId);
     const resolvedCourseId = courseId || toStringValue(user?.course_id);
@@ -692,7 +910,7 @@ export class AssessmentService {
       return this.getEmptyExamCalendar();
     }
 
-    const exams = await this.prisma.exam.findMany({
+    const candidateExams = await this.prisma.exam.findMany({
       where: {
         course_id: toNullableIntId(resolvedCourseId),
         deleted_at: null,
@@ -706,6 +924,14 @@ export class AssessmentService {
         { id: 'asc' },
       ],
     });
+
+    // Parents carry the wizard's own (umbrella) dates, which are not sittings —
+    // marking those days on the student's calendar invents exams that do not
+    // exist. Only the materialised children are real sittings.
+    const parentExamIds = await this.findParentExamIds(candidateExams.map((exam) => exam.id));
+    const exams = parentExamIds.size === 0
+      ? candidateExams
+      : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
 
     if (exams.length === 0) {
       return this.getEmptyExamCalendar();
@@ -808,24 +1034,116 @@ export class AssessmentService {
     };
   }
 
+  /**
+   * Risha UAT 2026-08-06 — the single eligibility gate for sitting a formal
+   * exam. It used to live inline in getExamForTaking only, so the legacy
+   * POST /exams/exam_save_start path (the mobile app) could start an attempt on
+   * an exam the student was never allocated, before it opened, or a second time
+   * after submitting. Both entry points now go through here.
+   *
+   * Returns the exam row on success so the caller does not re-fetch it.
+   */
+  private async resolveExamForAttempt(
+    userIdInt: number,
+    examIdInt: number,
+  ): Promise<{ ok: true; exam: ExamAttemptGateRow } | { ok: false; message: string }> {
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examIdInt, deleted_at: null },
+      select: {
+        id: true, title: true, duration: true, mark: true,
+        from_date: true, from_time: true, to_date: true, status: true,
+        is_practice: true, shuffle_questions: true,
+      },
+    });
+    if (!exam) {
+      return { ok: false, message: 'Exam not found.' };
+    }
+    if (toStringValue(exam.status) !== 'published') {
+      return { ok: false, message: 'This exam is not open yet.' };
+    }
+
+    // A parent is a template, not a sitting: its duration and marks are the sum
+    // of every subject and its window spans them all. The student must open the
+    // child exam for the subject they are sitting.
+    const parentIds = await this.findParentExamIds([exam.id]);
+    if (parentIds.has(exam.id)) {
+      return { ok: false, message: 'This exam is scheduled subject-wise. Please open the subject you want to sit.' };
+    }
+
+    // Naji 2026-08-01 — a permanent practice section. `exam.is_practice` has
+    // existed in the schema (and the wizard has written it) since May, but
+    // nothing ever READ it, so a practice exam behaved exactly like a real one:
+    // allocation-gated, window-gated, and one attempt only. That makes practice
+    // useless — a student gets a single run and can never repeat it.
+    //
+    // For a practice exam we therefore skip all three gates:
+    //   - no allocation: it is open to every enrolled student, permanently
+    //   - no date window: "permanent" means always available
+    //   - no already-submitted block: retakes are the entire point. The resume
+    //     query in getExamForTaking only matches an UNSUBMITTED attempt, so once
+    //     a run is submitted the next visit naturally starts a fresh attempt.
+    if (toInteger(exam.is_practice) === 1) {
+      return { ok: true, exam };
+    }
+
+    const allocated = await this.prisma.exam_student_allocations.count({
+      where: { exam_id: examIdInt, user_id: userIdInt },
+    });
+    if (allocated === 0) {
+      return { ok: false, message: 'You are not assigned to this exam.' };
+    }
+
+    const nowMs = Date.now();
+    const start = combineDateAndTime(exam.from_date, exam.from_time);
+    const end = endOfDay(exam.to_date);
+    if (start && nowMs < start.getTime()) {
+      return { ok: false, message: 'This exam has not started yet.' };
+    }
+    if (end && nowMs > end.getTime()) {
+      return { ok: false, message: 'This exam has closed.' };
+    }
+
+    const submitted = await this.prisma.exam_attempt.count({
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+    });
+    if (submitted > 0) {
+      return { ok: false, message: 'You have already submitted this exam.' };
+    }
+
+    return { ok: true, exam };
+  }
+
   async startExamAttempt(userId: string, input: StartExamAttemptInput): Promise<{ attemptId: string; questionNo: number }> {
-    if (!input.examId || !userId) {
+    const userIdInt = toNullableIntId(userId);
+    const examIdInt = toNullableIntId(input.examId);
+    if (!examIdInt || !userIdInt) {
       return { attemptId: '', questionNo: 0 };
     }
 
-    // Risha UAT 2026-05-27 — when exam.shuffle_questions is ON, randomize
-    // the question order per student. The order is then locked into
-    // exam_attempt.question_id as a JSON array, so resuming preserves
-    // the same shuffled sequence for the same student.
-    const examIdInt = toNullableIntId(input.examId);
-    const examRow = examIdInt
-      ? await this.prisma.exam.findFirst({
-          where: { id: examIdInt, deleted_at: null },
-          select: { shuffle_questions: true },
-        })
-      : null;
-    const shuffle = examRow?.shuffle_questions === true;
+    // A rejected gate returns the same empty shape this method already returns
+    // for an unknown exam, so the mobile app degrades the way it always has.
+    const gate = await this.resolveExamForAttempt(userIdInt, examIdInt);
+    if (!gate.ok) {
+      return { attemptId: '', questionNo: 0 };
+    }
 
+    return this.createExamAttempt(userId, examIdInt, gate.exam.shuffle_questions === true);
+  }
+
+  /**
+   * Issue a fresh exam_attempt for an already-eligible student. Callers own the
+   * gate (see resolveExamForAttempt).
+   *
+   * Risha UAT 2026-05-27 — when exam.shuffle_questions is ON, randomize the
+   * question order per student. The order is then locked into
+   * exam_attempt.question_id as a JSON array, so resuming preserves the same
+   * shuffled sequence for the same student.
+   */
+  private async createExamAttempt(
+    userId: string,
+    examIdInt: number,
+    shuffle: boolean,
+  ): Promise<{ attemptId: string; questionNo: number }> {
     const questions = await this.prisma.exam_questions.findMany({
       where: {
         exam_id: examIdInt,
@@ -864,7 +1182,7 @@ export class AssessmentService {
     const created = await this.prisma.exam_attempt.create({
       data: {
         user_id: toNullableIntId(userId),
-        exam_id: toNullableIntId(input.examId),
+        exam_id: examIdInt,
         question_no: questionIds.length,
         question_id: JSON.stringify(questionIds),
         start_time: now,
@@ -898,60 +1216,11 @@ export class AssessmentService {
       return { status: 0, message: 'Invalid request.' };
     }
 
-    const exam = await this.prisma.exam.findFirst({
-      where: { id: examIdInt, deleted_at: null },
-      select: {
-        id: true, title: true, duration: true, mark: true,
-        from_date: true, from_time: true, to_date: true, status: true,
-        is_practice: true,
-      },
-    });
-    if (!exam) {
-      return { status: 0, message: 'Exam not found.' };
+    const gate = await this.resolveExamForAttempt(userIdInt, examIdInt);
+    if (!gate.ok) {
+      return { status: 0, message: gate.message };
     }
-    if (toStringValue(exam.status) !== 'published') {
-      return { status: 0, message: 'This exam is not open yet.' };
-    }
-
-    // Naji 2026-08-01 — a permanent practice section. `exam.is_practice` has
-    // existed in the schema (and the wizard has written it) since May, but
-    // nothing ever READ it, so a practice exam behaved exactly like a real one:
-    // allocation-gated, window-gated, and one attempt only. That makes practice
-    // useless — a student gets a single run and can never repeat it.
-    //
-    // For a practice exam we therefore skip all three gates:
-    //   - no allocation: it is open to every enrolled student, permanently
-    //   - no date window: "permanent" means always available
-    //   - no already-submitted block: retakes are the entire point. The resume
-    //     query below only matches an UNSUBMITTED attempt, so once a run is
-    //     submitted the next visit naturally starts a fresh attempt.
-    const isPractice = toInteger(exam.is_practice) === 1;
-
-    if (!isPractice) {
-      const allocated = await this.prisma.exam_student_allocations.count({
-        where: { exam_id: examIdInt, user_id: userIdInt },
-      });
-      if (allocated === 0) {
-        return { status: 0, message: 'You are not assigned to this exam.' };
-      }
-
-      const nowMs = Date.now();
-      const start = combineDateAndTime(exam.from_date, exam.from_time);
-      const end = endOfDay(exam.to_date);
-      if (start && nowMs < start.getTime()) {
-        return { status: 0, message: 'This exam has not started yet.' };
-      }
-      if (end && nowMs > end.getTime()) {
-        return { status: 0, message: 'This exam has closed.' };
-      }
-
-      const submitted = await this.prisma.exam_attempt.count({
-        where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
-      });
-      if (submitted > 0) {
-        return { status: 0, message: 'You have already submitted this exam.' };
-      }
-    }
+    const exam = gate.exam;
 
     // Resume an in-progress attempt (preserving its locked order). If the
     // resumed attempt's locked questions no longer resolve to live
@@ -974,7 +1243,9 @@ export class AssessmentService {
     }
 
     if (!attempt) {
-      const started = await this.startExamAttempt(userId, { examId });
+      // The gate above already passed, so create the attempt directly rather
+      // than re-running it through the public startExamAttempt.
+      const started = await this.createExamAttempt(userId, examIdInt, exam.shuffle_questions === true);
       if (started.attemptId) {
         attempt = await this.prisma.exam_attempt.findFirst({
           where: { id: toIntId(started.attemptId) },
@@ -1079,8 +1350,12 @@ export class AssessmentService {
           }
         }
         return {
+          // Risha UAT 2026-08-06 — q_type 0 = MCQ, 1 = Descriptive. This used
+          // to default an unresolvable (or untagged) row to 1, i.e. it turned
+          // an ordinary multiple-choice question into a descriptive one the
+          // player renders with no options. MCQ is the correct default.
           question_id: qid,
-          q_type: row?.q_type ?? 1,
+          q_type: row?.q_type ?? 0,
           question: toStringValue(row?.title),
           options,
         };
@@ -1136,6 +1411,21 @@ export class AssessmentService {
       .filter((id) => id !== '');
     const questionIdInts = toIntArray(questionIds);
 
+    // Risha UAT 2026-08-06 — the exam's own negative-marking configuration.
+    // `have_minus_mark`/`minus_mark` have always existed but were read nowhere,
+    // so scoring applied a hard-coded -1 to every wrong answer no admin ever
+    // asked for (and the wizard defaults a question to +1 mark, so that penalty
+    // was 100% of the question). Loaded here with the fields the submission
+    // receipt needs, so this stays one round trip, not two.
+    const examRow = examId !== null && examId !== undefined
+      ? await this.prisma.exam.findFirst({
+          where: { id: examId },
+          select: { title: true, is_practice: true, have_minus_mark: true, minus_mark: true },
+        })
+      : null;
+    const examHasNegativeMarking = toInteger(examRow?.have_minus_mark) !== 0;
+    const examNegativeMark = Math.max(0, toDbNumber(examRow?.minus_mark));
+
     const userAnswerMap = parseAnswerMap(input.userAnswers);
 
     // Fetch exam_questions and question_bank separately (no JOIN in MongoDB)
@@ -1166,7 +1456,8 @@ export class AssessmentService {
       }));
     }
 
-    // Fetch correct answers from question_bank
+    // Fetch correct answers from question_bank. q_type comes along because a
+    // descriptive question must never be auto-scored (see the loop below).
     const qbIds = toIntArray(examQuestions.map((eq) => eq.question_id));
     const questionBankRows = qbIds.length > 0
       ? await this.prisma.question_bank.findMany({
@@ -1177,13 +1468,17 @@ export class AssessmentService {
           select: {
             id: true,
             correct_answers: true,
+            q_type: true,
           },
         })
       : [];
 
     const qbMap = new Map<string, string | null>();
+    const qbTypeMap = new Map<string, number>();
     for (const qb of questionBankRows) {
       qbMap.set(idString(qb.id), qb.correct_answers);
+      // q_type 0 = MCQ, 1 = Descriptive; an untagged legacy row is an MCQ.
+      qbTypeMap.set(idString(qb.id), toInteger(qb.q_type));
     }
 
     // Delete old answers for this attempt
@@ -1194,12 +1489,19 @@ export class AssessmentService {
     let correct = 0;
     let incorrect = 0;
     let skip = 0;
+    let pendingReview = 0;
     let score = 0;
 
     const now = new Date();
 
     for (const eqRow of examQuestions) {
       const questionId = eqRow.question_id;
+      // Risha UAT 2026-08-06 — a descriptive answer is free text: there is no
+      // key to compare it against, so string-matching it against
+      // question_bank.correct_answers scored every one of them wrong (and, with
+      // the old hard-coded penalty, took a mark off for writing an answer). It
+      // goes to the admin evaluation module (exam_descriptive_grades) instead.
+      const isDescriptive = (qbTypeMap.get(questionId) ?? 0) === 1;
       const rawCorrect = toNormalizedStringArray(qbMap.get(questionId));
       const normalizedCorrect = sortedCopy(rawCorrect);
 
@@ -1212,18 +1514,36 @@ export class AssessmentService {
       if (hasAnswer) {
         const answerArray = toNormalizedStringArray(rawUserAnswer);
         if (answerArray.length > 0) {
-          submittedAnswers = sortedCopy(answerArray);
-          status = arraysEqual(submittedAnswers, normalizedCorrect) ? 1 : 2;
+          // Descriptive text keeps the student's own order; only option ids
+          // are sorted, so that a multi-select answer compares set-wise.
+          submittedAnswers = isDescriptive ? answerArray : sortedCopy(answerArray);
+          if (isDescriptive) {
+            status = 4;
+          } else {
+            status = arraysEqual(submittedAnswers, normalizedCorrect) ? 1 : 2;
+          }
         }
       }
 
       if (status === 1) {
         correct += 1;
-        score += toDbNumber(eqRow.mark) || 4;
+        // A stored 0 is a deliberate 0-mark question and must score 0. Only a
+        // NULL mark — a legacy row the wizard never wrote — falls back to 4.
+        score += eqRow.mark === null || eqRow.mark === undefined ? 4 : toDbNumber(eqRow.mark);
       } else if (status === 2) {
         incorrect += 1;
-        const negativeMark = toDbNumber(eqRow.negative_mark);
-        score -= negativeMark > 0 ? negativeMark : 1;
+        // Penalty precedence: the question's own negative_mark, then the exam's
+        // configured minus_mark, then NO penalty. Never an invented -1.
+        const questionNegativeMark = toDbNumber(eqRow.negative_mark);
+        if (questionNegativeMark > 0) {
+          score -= questionNegativeMark;
+        } else if (examHasNegativeMarking) {
+          score -= examNegativeMark;
+        }
+      } else if (status === 4) {
+        // Awaiting manual grading — not correct, not incorrect, no penalty, and
+        // no marks until a faculty member grades it.
+        pendingReview += 1;
       } else {
         skip += 1;
       }
@@ -1250,12 +1570,16 @@ export class AssessmentService {
       correct,
       incorrect,
       skip,
+      // exam_attempt.score is FLOAT (Risha UAT 2026-08-06), so the fractional
+      // total is stored exactly — no rounding to an integer. The 2-decimal
+      // clamp only trims IEEE-754 artefacts from summing 0.5-step marks.
       score: Math.round(score * 100) / 100,
       timeTaken: formatDurationFromSeconds(elapsedSeconds),
+      pendingReview,
     };
 
     await this.finalizeExamAttempt(idString(attempt.id), userId, summary);
-    await this.sendExamSubmittedEmail(examId, userId, startedAt, now, summary.timeTaken);
+    await this.sendExamSubmittedEmail(examRow, userId, startedAt, now, summary.timeTaken);
     return summary;
   }
 
@@ -1268,18 +1592,15 @@ export class AssessmentService {
    * attempt would just be spam.
    */
   private async sendExamSubmittedEmail(
-    examId: number | null,
+    // The caller already loaded the exam for its negative-marking config, so it
+    // is passed in rather than re-fetched (Risha UAT 2026-08-06).
+    exam: { title: string | null; is_practice: number } | null,
     userId: string,
     startedAt: Date | null,
     submittedAt: Date,
     timeTaken: string,
   ): Promise<void> {
     try {
-      if (!examId) return;
-      const exam = await this.prisma.exam.findFirst({
-        where: { id: examId },
-        select: { title: true, is_practice: true },
-      });
       if (!exam || toInteger(exam.is_practice) === 1) return;
 
       const user = await this.prisma.users.findFirst({

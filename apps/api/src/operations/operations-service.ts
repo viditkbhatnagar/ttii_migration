@@ -3191,6 +3191,17 @@ export class OperationsService {
       }),
     ]);
 
+    // Risha UAT 2026-08-06 — a published subject-wise exam keeps the wizard row
+    // as a PARENT whose window spans every sitting, so the calendar drew a
+    // phantom 10–14 Aug exam on top of the five real sittings. Drop any exam
+    // that has live children; single-sitting exams are unaffected.
+    const examIds = exams.map((e) => e.id);
+    const sittings = examIds.length > 0
+      ? await this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { parent_exam_id: true } })
+      : [];
+    const parentsWithSittings = new Set(sittings.map((s) => s.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
+    const calendarExams = exams.filter((e) => !parentsWithSittings.has(e.id));
+
     const combined: SqlRow[] = [
       ...liveClasses.map(lc => ({
         id: lc.id,
@@ -3200,7 +3211,7 @@ export class OperationsService {
         from_time: lc.fromTime,
         to_time: lc.toTime,
       })),
-      ...exams.map(e => ({
+      ...calendarExams.map(e => ({
         id: e.id,
         title: e.title,
         event_date: e.from_date,
@@ -4136,35 +4147,68 @@ export class OperationsService {
     const where: Record<string, unknown> = { deleted_at: null };
     if (filters.courseId) where.course_id = toIntId(filters.courseId);
     if (filters.batchId) where.batch_id = toIntId(filters.batchId);
+    // Risha UAT 2026-08-06 — publishing a subject-wise exam materialises one
+    // CHILD row per scheduled subject. The admin created ONE exam, so only
+    // parents (and single-sitting exams) belong in this list; the sittings are
+    // summarised as sitting_count instead of six near-identical rows.
+    where.parent_exam_id = null;
 
     const examRows = await this.prisma.exam.findMany({ where: where as Prisma.examWhereInput, orderBy: { id: 'desc' } });
 
     const examIds = examRows.map(e => e.id);
     const courseIds = [...new Set(examRows.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
     const batchIds = [...new Set(examRows.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
+    const examSubjectIds = [...new Set(examRows.map(e => e.exam_subject_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, batches, questionCounts, attemptCounts] = await Promise.all([
+    const [courses, batches, questionCounts, childRows, subjectRows] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
       examIds.length > 0 ? this.prisma.exam_questions.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, deleted_at: null }, _count: { id: true } }) : [],
-      examIds.length > 0 ? this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, submit_status: true, deleted_at: null }, _count: { id: true } }) : [],
+      examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { id: true, parent_exam_id: true } }) : [],
+      examSubjectIds.length > 0 ? this.prisma.exam_subjects.findMany({ where: { id: { in: examSubjectIds } }, select: { id: true, subject_title: true } }) : [],
     ]);
+
+    const childIdsByParent = new Map<number, number[]>();
+    for (const c of childRows) {
+      if (c.parent_exam_id === null || c.parent_exam_id === undefined) continue;
+      const arr = childIdsByParent.get(c.parent_exam_id) ?? [];
+      arr.push(c.id);
+      childIdsByParent.set(c.parent_exam_id, arr);
+    }
+    // Attempts of a subject-wise exam land on its children, so roll them up —
+    // otherwise every published subject-wise exam reads "0 attempts" here.
+    const attemptScopeIds = [...examIds, ...childRows.map((c) => c.id)];
+    const attemptCounts = attemptScopeIds.length > 0
+      ? await this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: attemptScopeIds }, submit_status: true, deleted_at: null }, _count: { id: true } })
+      : [];
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
     const batchMap = new Map(batches.map(b => [b.id, b]));
+    const subjectTitleMap = new Map(subjectRows.map((s) => [s.id, s.subject_title]));
     const qCountMap = new Map(questionCounts.map((qc) => [qc.exam_id, qc._count?.id ?? 0]));
     const aCountMap = new Map(attemptCounts.map((ac) => [ac.exam_id, ac._count?.id ?? 0]));
 
-    const exams = examRows.map(e => ({
-      ...e,
-      course_title: e.course_id ? courseMap.get(e.course_id)?.title ?? null : null,
-      subject_title: null,
-      batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
-      question_count: qCountMap.get(e.id) ?? 0,
-      attempt_count: aCountMap.get(e.id) ?? 0,
-    })) as unknown as SqlRow[];
+    const exams = examRows.map(e => {
+      const childIds = childIdsByParent.get(e.id) ?? [];
+      return {
+        ...e,
+        course_title: e.course_id ? courseMap.get(e.course_id)?.title ?? null : null,
+        subject_title: e.exam_subject_id ? subjectTitleMap.get(e.exam_subject_id) ?? null : null,
+        batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
+        question_count: qCountMap.get(e.id) ?? 0,
+        attempt_count: childIds.reduce((sum, cid) => sum + (aCountMap.get(cid) ?? 0), aCountMap.get(e.id) ?? 0),
+        sitting_count: childIds.length,
+      };
+    }) as unknown as SqlRow[];
 
-    const now = new Date().toISOString().slice(0, 10);
+    // Risha UAT 2026-08-06 — these counts feed the stat cards above the Exams
+    // table and must agree with the rows each tab actually lists. Two bugs made
+    // them disagree: `toISOString()` is UTC, so between 00:00 and 05:30 IST
+    // "today" was still yesterday and an exam starting today counted as
+    // Upcoming; and a draft with no dates yields "" which sorts before every
+    // date, so `"" < now` filed every dateless draft under Expired.
+    const today = new Date();
+    const now = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     let upcoming = 0;
     let expired = 0;
     let practice = 0;
@@ -4173,8 +4217,8 @@ export class OperationsService {
       if (toInteger(exam.is_practice) === 1) practice++;
       const toDate = toStringValue(exam.to_date).slice(0, 10);
       const fromDate = toStringValue(exam.from_date).slice(0, 10);
-      if (fromDate > now) upcoming++;
-      else if (toDate < now) expired++;
+      if (fromDate !== '' && fromDate > now) upcoming++;
+      else if (toDate !== '' && toDate < now) expired++;
     }
 
     return { exams, summary: { total: exams.length, upcoming, expired, practice } };
@@ -4245,7 +4289,10 @@ export class OperationsService {
       // First picked course goes into the legacy single-course column so
       // existing list/edit pages keep working until they migrate.
       course_id: courseIdsInt[0] ?? null,
-      status: 'draft',
+      // Risha UAT 2026-08-06 — `status` deliberately lives on the CREATE branch
+      // only. It used to sit in this shared object, so re-saving Step 1 of an
+      // already-published exam (a rename, say) silently flipped it back to
+      // draft and pulled it out of every allocated student's portal.
       // Risha UAT 2026-05-27 — only persist when the admin explicitly
       // sent a value; otherwise leave the existing setting untouched.
       ...(input.shuffleQuestions !== undefined ? { shuffle_questions: input.shuffleQuestions } : {}),
@@ -4265,6 +4312,7 @@ export class OperationsService {
       const created = await this.prisma.exam.create({
         data: {
           ...data,
+          status: 'draft',
           exam_code: examCode,
           created_at: now,
           created_by: actor,
@@ -4306,9 +4354,10 @@ export class OperationsService {
     if (!examIdInt) return { status: 0, message: 'Invalid exam id.' };
     const row = await this.prisma.exam.findFirst({ where: { id: examIdInt, deleted_at: null } });
     if (!row) return { status: 0, message: 'Exam not found.' };
-    const [courseLinks, offeringLinks] = await Promise.all([
+    const [courseLinks, offeringLinks, childCount] = await Promise.all([
       this.prisma.exam_courses.findMany({ where: { exam_id: examIdInt }, select: { course_id: true } }),
       this.prisma.exam_offerings.findMany({ where: { exam_id: examIdInt }, select: { offering_id: true } }),
+      this.prisma.exam.count({ where: { parent_exam_id: examIdInt, deleted_at: null } }),
     ]);
     return {
       status: 1,
@@ -4326,6 +4375,14 @@ export class OperationsService {
         // Risha UAT 2026-05-27 — surface the shuffle setting so the
         // Edit Exam form can pre-fill the toggle.
         shuffle_questions: row.shuffle_questions,
+        // Risha UAT 2026-08-06 — the Publish step never loaded these back, so
+        // re-publishing sent instructions: undefined and NULLED the saved text.
+        // It also had no way to tell an admin the exam is already live.
+        instructions: row.instructions,
+        notify_email: row.notify_email ?? 1,
+        notify_inapp: row.notify_inapp ?? 1,
+        is_published: row.status === 'published',
+        child_count: childCount,
         course_ids: courseLinks.map((c) => c.course_id),
         offering_ids: offeringLinks.map((o) => o.offering_id),
       },
@@ -4335,11 +4392,17 @@ export class OperationsService {
   // Naji 2026-05-09 — Re-Examination overview + reschedule.
   // List exams with allocated students who don't have an attempt.
   async listReExaminationOverview(): Promise<Record<string, unknown>[]> {
-    const exams = await this.prisma.exam.findMany({
+    const published = await this.prisma.exam.findMany({
       where: { deleted_at: null, status: 'published' },
-      select: { id: true, exam_code: true, title: true, from_date: true },
+      select: { id: true, exam_code: true, title: true, from_date: true, parent_exam_id: true },
       orderBy: { id: 'desc' },
     });
+    if (published.length === 0) return [];
+    // Risha UAT 2026-08-06 — attempts sit on the CHILD sittings, so a parent
+    // (which keeps a copy of the allocation) would report every student as
+    // having missed the exam. List the sittings; child-less exams are unchanged.
+    const parentIds = new Set(published.map((e) => e.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
+    const exams = published.filter((e) => !parentIds.has(e.id));
     if (exams.length === 0) return [];
     const examIds = exams.map((e) => e.id);
     const [allocs, attempts] = await Promise.all([
@@ -4440,19 +4503,30 @@ export class OperationsService {
   // Naji 2026-05-09 — Evaluation drill-down (Exams → Subjects → Students)
   // + manual descriptive grading + exam-wise result publishing.
   async listEvaluationExams(): Promise<Record<string, unknown>[]> {
-    const exams = await this.prisma.exam.findMany({
+    const published = await this.prisma.exam.findMany({
       where: { deleted_at: null, status: 'published' },
-      select: { id: true, exam_code: true, title: true, from_date: true, result_published_at: true },
+      select: { id: true, exam_code: true, title: true, from_date: true, result_published_at: true, parent_exam_id: true },
       orderBy: { id: 'desc' },
     });
-    if (exams.length === 0) return [];
-    const examIds = exams.map((e) => e.id);
+    if (published.length === 0) return [];
+    // Risha UAT 2026-08-06 — attempts belong to the CHILD sittings now, so a
+    // parent row would drill into an allocation list with zero attempts. Drop
+    // any exam that has live children and list the sittings themselves; a
+    // single-sitting (child-less) exam is unaffected.
+    const parentIds = new Set(published.map((e) => e.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
+    const publishedIds = published.map((e) => e.id);
     const [allocs, attempts] = await Promise.all([
-      this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds } }, _count: { user_id: true } }),
-      this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds } }, _count: { id: true } }),
+      this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: publishedIds } }, _count: { user_id: true } }),
+      this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: publishedIds }, deleted_at: null }, _count: { id: true } }),
     ]);
     const allocByExam = new Map(allocs.map((a) => [a.exam_id, a._count.user_id]));
     const attemptByExam = new Map(attempts.map((a) => [a.exam_id ?? 0, a._count.id]));
+    // ...but an exam attempted BEFORE sittings existed carries its attempts on
+    // the parent id itself. Hiding those too would drop their results out of
+    // Evaluation entirely, so a parent stays listed while it has attempts of
+    // its own — hence the counts are read first and the filter applied after.
+    const exams = published.filter((e) => !parentIds.has(e.id) || (attemptByExam.get(e.id) ?? 0) > 0);
+    if (exams.length === 0) return [];
     return exams.map((e) => ({
       exam_id: e.id,
       exam_code: e.exam_code,
@@ -4468,7 +4542,22 @@ export class OperationsService {
   async listEvaluationSubjects(examId: string): Promise<Record<string, unknown>[]> {
     const id = toNullableIntId(examId);
     if (!id) return [];
-    const subjects = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+
+    // Risha UAT 2026-08-06 — exam_subjects rows hang off the PARENT (the wizard
+    // row), but Exam Evaluation now drills into the CHILD sittings, because that
+    // is where the attempts live. Looking the schedule up by the child's own id
+    // therefore found nothing and the subject list came back empty. Resolve a
+    // child to the single schedule row it was built from; a parent or a plain
+    // single-sitting exam still reads its own rows.
+    const self = await this.prisma.exam.findFirst({
+      where: { id, deleted_at: null },
+      select: { parent_exam_id: true, exam_subject_id: true },
+    });
+    const scheduleWhere = self?.parent_exam_id && self.exam_subject_id
+      ? { exam_id: self.parent_exam_id, id: self.exam_subject_id }
+      : { exam_id: id };
+
+    const subjects = await this.prisma.exam_subjects.findMany({ where: scheduleWhere, orderBy: [{ position: 'asc' }, { id: 'asc' }] });
     if (subjects.length === 0) return [];
     // Count components for each subject (gives a rough "how much manual evaluation").
     const components = await this.prisma.exam_subject_components.findMany({ where: { exam_subject_id: { in: subjects.map((s) => s.id) } } });
@@ -4502,7 +4591,11 @@ export class OperationsService {
     if (userIds.length === 0) return [];
     const [users, attempts] = await Promise.all([
       this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, user_email: true, email: true, student_id: true } }),
-      this.prisma.exam_attempt.findMany({ where: { exam_id: id, user_id: { in: userIds } }, select: { id: true, user_id: true, score: true, correct: true, incorrect: true, skip: true, submit_status: true } }),
+      // Risha UAT 2026-08-06 — grantReExam soft-deletes the old attempt, but
+      // this read had no deleted_at filter: the discarded row came back and,
+      // because the map below is last-write-wins, could mask the student's
+      // real re-attempt. Filter it out and take the newest live attempt.
+      this.prisma.exam_attempt.findMany({ where: { exam_id: id, user_id: { in: userIds }, deleted_at: null }, orderBy: { id: 'asc' }, select: { id: true, user_id: true, score: true, correct: true, incorrect: true, skip: true, submit_status: true } }),
     ]);
     const userMap = new Map(users.map((u) => [u.id, u]));
     const attemptByUser = new Map(attempts.map((t) => [t.user_id ?? 0, t]));
@@ -4994,26 +5087,68 @@ export class OperationsService {
     const id = toNullableIntId(examId);
     if (!id) return { status: 0, message: 'Invalid exam id.' };
     void actorUserId;
-    // Replace strategy — delete existing rows then insert the submitted set.
-    await this.prisma.exam_subjects.deleteMany({ where: { exam_id: id } });
-    if (rows.length > 0) {
-      await this.prisma.exam_subjects.createMany({
-        data: rows.map((r, idx) => ({
-          exam_id: id,
-          subject_id: r.subjectId ?? null,
-          subject_title: r.subjectTitle.trim(),
-          course_ids: r.courseIds || null,
-          exam_date: r.examDate ? new Date(r.examDate) : null,
-          start_time: r.startTime ? new Date(`1970-01-01T${r.startTime}:00`) : null,
-          end_time: r.endTime ? new Date(`1970-01-01T${r.endTime}:00`) : null,
-          duration_minutes: r.durationMinutes ?? null,
-          total_marks: r.totalMarks ?? null,
-          pass_marks: r.passMarks ?? null,
-          position: idx,
-        })),
-      });
+    // Risha UAT 2026-08-06 — reconcile instead of delete-then-recreate. The old
+    // strategy handed every subject a brand-new autoincrement id on each save,
+    // and exam_subject_components keys on that id with no FK — so Step 3's
+    // question counts were orphaned on every Step 2 re-save and the wizard fell
+    // back to its 10-question default ("gave 70, editing shows 10 again").
+    const existing = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { id: true } });
+    const existingIds = new Set(existing.map((r) => r.id));
+    const keptIds = new Set<number>();
+    const now = new Date();
+
+    for (let idx = 0; idx < rows.length; idx += 1) {
+      const r = rows[idx];
+      if (!r) continue;
+      const data = {
+        subject_id: r.subjectId ?? null,
+        subject_title: r.subjectTitle.trim(),
+        course_ids: r.courseIds || null,
+        exam_date: r.examDate ? new Date(r.examDate) : null,
+        start_time: r.startTime ? new Date(`1970-01-01T${r.startTime}:00`) : null,
+        end_time: r.endTime ? new Date(`1970-01-01T${r.endTime}:00`) : null,
+        duration_minutes: r.durationMinutes ?? null,
+        total_marks: r.totalMarks ?? null,
+        pass_marks: r.passMarks ?? null,
+        position: idx,
+      };
+      // Only honour an id that already belongs to THIS exam — a submitted id
+      // must never re-parent another exam's schedule row.
+      const reuseId = r.id !== null && r.id !== undefined && existingIds.has(r.id) ? r.id : null;
+      if (reuseId !== null) {
+        await this.prisma.exam_subjects.update({ where: { id: reuseId }, data: { ...data, updated_at: now } });
+        keptIds.add(reuseId);
+      } else {
+        const created = await this.prisma.exam_subjects.create({ data: { exam_id: id, ...data } });
+        keptIds.add(created.id);
+      }
     }
+
+    const removedIds = [...existingIds].filter((sid) => !keptIds.has(sid));
+    if (removedIds.length > 0) {
+      // No FK on exam_subject_components — drop the dependants by hand.
+      await this.prisma.exam_subject_components.deleteMany({ where: { exam_subject_id: { in: removedIds } } });
+      await this.prisma.exam_subjects.deleteMany({ where: { id: { in: removedIds } } });
+    }
+    await this.pruneOrphanExamComponents();
     return { status: 1, message: 'Schedule saved.' };
+  }
+
+  // Risha UAT 2026-08-06 — exam_subject_components has no FK to exam_subjects,
+  // so every historical delete-then-recreate of a schedule left its Step 3 rows
+  // behind forever. A component whose parent schedule row no longer exists can
+  // never be read again, so sweeping them is safe regardless of which exam they
+  // came from (the table carries no exam_id to scope by).
+  private async pruneOrphanExamComponents(): Promise<void> {
+    const used = await this.prisma.exam_subject_components.groupBy({ by: ['exam_subject_id'] });
+    const usedIds = used.map((u) => u.exam_subject_id);
+    if (usedIds.length === 0) return;
+    const live = await this.prisma.exam_subjects.findMany({ where: { id: { in: usedIds } }, select: { id: true } });
+    const liveIds = new Set(live.map((s) => s.id));
+    const orphanIds = usedIds.filter((sid) => !liveIds.has(sid));
+    if (orphanIds.length > 0) {
+      await this.prisma.exam_subject_components.deleteMany({ where: { exam_subject_id: { in: orphanIds } } });
+    }
   }
 
   // Naji 2026-05-09 — Step 3: per-subject components (MCQ / Descriptive).
@@ -5072,7 +5207,54 @@ export class OperationsService {
           })),
       });
     }
+    // Risha UAT 2026-08-06 — clear any component left stranded by an earlier
+    // schedule save, so Step 4's plan can never read a dead subject's counts.
+    await this.pruneOrphanExamComponents();
     return { status: 1, message: 'Components saved.' };
+  }
+
+  // Risha UAT 2026-08-06 — Step 4 used to ask the admin to pick questions with
+  // no sight of what Step 3 configured, so a 70-question subject was assigned
+  // by memory. This returns the per-subject target the components step set.
+  async getExamQuestionPlan(examId: string): Promise<Record<string, unknown>[]> {
+    const id = toNullableIntId(examId);
+    if (!id) return [];
+    const subjects = await this.prisma.exam_subjects.findMany({
+      where: { exam_id: id },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: { id: true, subject_id: true, subject_title: true, total_marks: true },
+    });
+    if (subjects.length === 0) return [];
+    const components = await this.prisma.exam_subject_components.findMany({
+      where: { exam_subject_id: { in: subjects.map((s) => s.id) } },
+      orderBy: { id: 'asc' },
+    });
+    const bySubject = new Map<number, typeof components>();
+    for (const c of components) {
+      const arr = bySubject.get(c.exam_subject_id) ?? [];
+      arr.push(c);
+      bySubject.set(c.exam_subject_id, arr);
+    }
+    return subjects.map((s) => {
+      const comps = bySubject.get(s.id) ?? [];
+      const mcqComps = comps.filter((c) => c.component_type === 'mcq');
+      const mcqTarget = mcqComps.reduce((acc, c) => acc + (c.num_questions ?? 0), 0);
+      const descriptiveTarget = comps
+        .filter((c) => c.component_type === 'descriptive')
+        .reduce((acc, c) => acc + (c.num_questions ?? 0), 0);
+      const firstMcq = mcqComps[0];
+      return {
+        exam_subject_id: s.id,
+        subject_id: s.subject_id,
+        subject_title: s.subject_title,
+        mcq_target: mcqTarget,
+        descriptive_target: descriptiveTarget,
+        total_target: mcqTarget + descriptiveTarget,
+        total_marks: s.total_marks ?? 0,
+        mcq_marks_each: firstMcq && firstMcq.marks_each !== null ? Number(firstMcq.marks_each) : 0,
+        mcq_negative_marks: firstMcq && firstMcq.negative_marks !== null ? Number(firstMcq.negative_marks) : 0,
+      };
+    });
   }
 
   // Naji 2026-06-09 — Question assignment (the missing wizard step). The
@@ -5094,8 +5276,20 @@ export class OperationsService {
       if (ex?.course_id) courseIds = [ex.course_id];
     }
     if (courseIds.length === 0) return [];
-    const scheduled = await this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { subject_id: true } });
+    const scheduled = await this.prisma.exam_subjects.findMany({
+      where: { exam_id: id },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: { id: true, subject_id: true },
+    });
     const scheduledSubjects = new Set(scheduled.map((s) => s.subject_id).filter((x): x is number => x !== null && x !== undefined));
+    // Risha UAT 2026-08-06 — each candidate now names the sitting it would be
+    // materialised into, so Step 4 can group the picker per subject and check
+    // the counts against the Step 3 plan.
+    const scheduleIdBySubject = new Map<number, number>();
+    for (const s of scheduled) {
+      if (s.subject_id === null || s.subject_id === undefined) continue;
+      if (!scheduleIdBySubject.has(s.subject_id)) scheduleIdBySubject.set(s.subject_id, s.id);
+    }
     const questions = await this.prisma.question_bank.findMany({
       where: { deleted_at: null, course_id: { in: courseIds } },
       select: { id: true, title: true, q_type: true, subject_id: true, course_id: true, number_of_options: true },
@@ -5114,6 +5308,7 @@ export class OperationsService {
       q_type: q.q_type,
       number_of_options: q.number_of_options,
       in_scheduled_subject: q.subject_id !== null && q.subject_id !== undefined && scheduledSubjects.has(q.subject_id),
+      exam_subject_id: q.subject_id !== null && q.subject_id !== undefined ? scheduleIdBySubject.get(q.subject_id) ?? null : null,
     }));
   }
 
@@ -5136,7 +5331,7 @@ export class OperationsService {
   async saveExamQuestions(
     actorUserId: string,
     examId: string,
-    questions: Array<{ questionId: number; mark: number }>,
+    questions: Array<{ questionId: number; mark: number; negativeMark?: number | undefined }>,
   ): Promise<Record<string, unknown>> {
     const id = toNullableIntId(examId);
     if (!id) return { status: 0, message: 'Invalid exam id.' };
@@ -5158,6 +5353,10 @@ export class OperationsService {
           question_id: q.questionId,
           question_no: idx + 1,
           mark: Number.isFinite(q.mark) ? q.mark : 0,
+          // Risha UAT 2026-08-06 — the column existed but was never written, so
+          // the scorer fell back to a hard-coded -1 penalty the admin had not
+          // configured. NULL still means "no penalty was set for this question".
+          negative_mark: q.negativeMark !== undefined && Number.isFinite(q.negativeMark) ? q.negativeMark : null,
           created_by: actor,
           created_at: now,
           updated_at: now,
@@ -5229,6 +5428,21 @@ export class OperationsService {
         skipDuplicates: true,
       });
     }
+    // Risha UAT 2026-08-06 — each sitting holds its own copy of the allocation
+    // (publish fans it out), and the student only ever sees the sittings. So
+    // editing Step 5 on a published exam changed nothing at all for the exams
+    // students actually sit until this mirrored the new list onto the children
+    // too — same fan-out saveExamInstructions does, one batched write per child.
+    const children = await this.prisma.exam.findMany({ where: { parent_exam_id: id, deleted_at: null }, select: { id: true } });
+    for (const child of children) {
+      await this.prisma.exam_student_allocations.deleteMany({ where: { exam_id: child.id } });
+      if (userIds.length > 0) {
+        await this.prisma.exam_student_allocations.createMany({
+          data: userIds.map((user_id) => ({ exam_id: child.id, user_id })),
+          skipDuplicates: true,
+        });
+      }
+    }
     return { status: 1, message: 'Allocations saved.' };
   }
 
@@ -5254,33 +5468,286 @@ export class OperationsService {
     return { status: 1, message: 'Template deleted.' };
   }
 
+  // Risha UAT 2026-08-06 — Step 6 could only save by publishing, so an admin
+  // correcting a typo in the instructions of a live exam had to re-publish,
+  // which re-emailed every allocated student. This persists the step on its own.
+  async saveExamInstructions(
+    actorUserId: string,
+    examId: string,
+    input: { instructions: string; notifyEmail: boolean; notifyInapp: boolean },
+  ): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
+    const actor = toNullableIntId(actorUserId);
+    const now = new Date();
+    const data = {
+      instructions: input.instructions,
+      notify_email: input.notifyEmail ? 1 : 0,
+      notify_inapp: input.notifyInapp ? 1 : 0,
+      updated_at: now,
+      updated_by: actor,
+    };
+    const updated = await this.prisma.exam.updateMany({ where: { id, deleted_at: null }, data });
+    if (updated.count === 0) return { status: 0, message: 'Exam not found.' };
+    // Children render their own copy of the instructions — keep a published
+    // set consistent instead of leaving the sittings on the old text.
+    await this.prisma.exam.updateMany({ where: { parent_exam_id: id, deleted_at: null }, data });
+    return { status: 1, message: 'Instructions saved.' };
+  }
+
+  // Risha UAT 2026-08-06 — publishing now MATERIALISES the schedule. The wizard
+  // row becomes the PARENT (courses + question pool + allocation); one CHILD
+  // exam is written per exam_subjects row, each carrying its own date, time,
+  // duration, marks and slice of the questions. Before this, the five subjects
+  // Risha scheduled across 10–14 Aug collapsed into one student card of 5835
+  // minutes / 167 marks. An exam with no exam_subjects rows publishes exactly
+  // as it always did — a single sitting, no children.
   async publishExam(
     actorUserId: string,
     examId: string,
-    input: { instructions?: string | undefined; notifyEmail: boolean; notifyInapp: boolean },
+    input: { instructions?: string | undefined; notifyEmail: boolean; notifyInapp: boolean; resendNotification?: boolean | undefined },
   ): Promise<Record<string, unknown>> {
     const id = toNullableIntId(examId);
     const actor = toNullableIntId(actorUserId);
     if (!id || !actor) return { status: 0, message: 'Invalid input.' };
     const now = new Date();
-    await this.prisma.exam.updateMany({
-      where: { id, deleted_at: null },
-      data: {
-        instructions: input.instructions ?? null,
-        notify_email: input.notifyEmail ? 1 : 0,
-        notify_inapp: input.notifyInapp ? 1 : 0,
-        status: 'published',
-        published_at: now,
-        published_by: actor,
-        updated_at: now,
-        updated_by: actor,
-      },
+
+    const parent = await this.prisma.exam.findFirst({ where: { id, deleted_at: null } });
+    if (!parent) return { status: 0, message: 'Exam not found.' };
+
+    const schedule = await this.prisma.exam_subjects.findMany({
+      where: { exam_id: id },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
     });
+
+    // A sitting with no date or no time is unsittable and unwindowed — refuse
+    // the whole publish and name the rows rather than ship a half-built set.
+    const incomplete = schedule.filter((s) => !s.exam_date || !s.start_time || !s.end_time);
+    if (incomplete.length > 0) {
+      const names = incomplete.map((s) => s.subject_title || `Subject ${s.id}`).join(', ');
+      return { status: 0, message: `Add a date and time for these subjects in Step 2 before publishing: ${names}.` };
+    }
+
+    const firstPublish = !parent.published_at;
+    // An absent `instructions` must leave the stored text alone — the Publish
+    // step never loaded it back, so re-publishing used to NULL it.
+    const effectiveInstructions = input.instructions !== undefined ? input.instructions : parent.instructions;
+
+    const existingChildren = await this.prisma.exam.findMany({
+      where: { parent_exam_id: id, deleted_at: null },
+      select: { id: true, title: true, exam_subject_id: true },
+    });
+    const childBySubjectRow = new Map<number, number>();
+    for (const c of existingChildren) {
+      if (c.exam_subject_id === null || c.exam_subject_id === undefined) continue;
+      childBySubjectRow.set(c.exam_subject_id, c.id);
+    }
+    // A child with attempts is an in-flight or already-graded sitting — never
+    // re-slice its questions underneath a student.
+    const existingChildIds = existingChildren.map((c) => c.id);
+    const attemptGroups = existingChildIds.length > 0
+      ? await this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: existingChildIds }, deleted_at: null }, _count: { id: true } })
+      : [];
+    const attemptedChildIds = new Set(
+      attemptGroups.filter((a) => (a._count?.id ?? 0) > 0).map((a) => a.exam_id).filter((x): x is number => x !== null && x !== undefined),
+    );
+
+    const parentAllocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
+    const parentQuestions = await this.prisma.exam_questions.findMany({
+      where: { exam_id: id, deleted_at: null },
+      orderBy: [{ question_no: 'asc' }, { id: 'asc' }],
+      select: { question_id: true, mark: true, negative_mark: true },
+    });
+    const parentQuestionIds = parentQuestions.map((q) => q.question_id).filter((x): x is number => x !== null && x !== undefined);
+    const bankRows = parentQuestionIds.length > 0
+      ? await this.prisma.question_bank.findMany({ where: { id: { in: parentQuestionIds } }, select: { id: true, subject_id: true, course_id: true } })
+      : [];
+    const bankMap = new Map(bankRows.map((b) => [b.id, b]));
+    const baseCode = parent.exam_code && parent.exam_code.trim() ? parent.exam_code.trim() : `EX${parent.id}`;
+
+    // Writes are ordered children-first, parent-publish-last, and wrapped so a
+    // mid-way failure leaves the exam unpublished rather than half-published.
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const materialised: number[] = [];
+      const questionsLocked: string[] = [];
+      const staleKept: string[] = [];
+      const placedQuestionIds = new Set<number>();
+
+      for (let idx = 0; idx < schedule.length; idx += 1) {
+        const row = schedule[idx];
+        if (!row) continue;
+        const courseIdList = (row.course_ids ?? '')
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        const childCourseIds = courseIdList.length > 0
+          ? courseIdList
+          : (parent.course_id !== null && parent.course_id !== undefined ? [parent.course_id] : []);
+
+        // This sitting's questions: the parent pool sliced by subject, or — for
+        // the "whole course" row a lesson-wise course produces (subject_id
+        // NULL) — by the courses named on the schedule row.
+        const sliced = parentQuestions.filter((q) => {
+          const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
+          if (!bank) return false;
+          if (row.subject_id !== null && row.subject_id !== undefined) return bank.subject_id === row.subject_id;
+          return bank.course_id !== null && bank.course_id !== undefined && courseIdList.includes(bank.course_id);
+        });
+
+        for (const q of sliced) {
+          if (q.question_id !== null && q.question_id !== undefined) placedQuestionIds.add(q.question_id);
+        }
+
+        const existingChildId = childBySubjectRow.get(row.id) ?? null;
+        const locked = existingChildId !== null && attemptedChildIds.has(existingChildId);
+        const markValue = row.total_marks !== null && row.total_marks !== undefined
+          ? row.total_marks
+          // A locked child keeps the total that matches the questions it was
+          // sat with; otherwise the slice defines it.
+          : (locked ? null : sliced.reduce((sum, q) => sum + toDbNumber(q.mark), 0));
+
+        const childData = {
+          title: `${toStringValue(parent.title)} — ${row.subject_title}`.trim().slice(0, 200),
+          // Suffix comes from the exam_subjects row id, not the loop position:
+          // positions shift when a subject is removed, so a re-publish gave the
+          // surviving sittings numbers already worn by others (and the update
+          // branch never renumbered at all, so the clash stuck). The row id is
+          // stable across re-saves and unique, so two sittings of one exam can
+          // never collide — including a sitting kept for its attempts after its
+          // schedule row was deleted.
+          exam_code: `${baseCode}-S${row.id}`.slice(0, 50),
+          description: parent.description,
+          course_id: childCourseIds[0] ?? null,
+          parent_exam_id: parent.id,
+          exam_subject_id: row.id,
+          from_date: row.exam_date,
+          to_date: row.exam_date,
+          from_time: row.start_time,
+          to_time: row.end_time,
+          duration: row.duration_minutes !== null && row.duration_minutes !== undefined ? String(row.duration_minutes) : parent.duration,
+          ...(markValue !== null ? { mark: markValue } : {}),
+          shuffle_questions: parent.shuffle_questions,
+          have_minus_mark: parent.have_minus_mark,
+          minus_mark: parent.minus_mark,
+          // A sitting is always a real exam — the practice exam has no
+          // exam_subjects rows and so never reaches this branch.
+          is_practice: 0,
+          status: 'published',
+          instructions: effectiveInstructions,
+          notify_email: input.notifyEmail ? 1 : 0,
+          notify_inapp: input.notifyInapp ? 1 : 0,
+          published_at: now,
+          published_by: actor,
+          updated_at: now,
+          updated_by: actor,
+        };
+
+        let childId: number;
+        if (existingChildId !== null) {
+          // Matching on (parent, exam_subject_id) is what makes re-publishing
+          // idempotent instead of duplicating the whole set.
+          await tx.exam.update({ where: { id: existingChildId }, data: childData });
+          childId = existingChildId;
+        } else {
+          const created = await tx.exam.create({
+            data: {
+              ...childData,
+              created_at: now,
+              created_by: actor,
+            },
+          });
+          childId = created.id;
+        }
+        materialised.push(childId);
+
+        // Every course that shares this subject links to the sitting, so their
+        // students all see it.
+        await tx.exam_courses.deleteMany({ where: { exam_id: childId } });
+        if (childCourseIds.length > 0) {
+          await tx.exam_courses.createMany({
+            data: childCourseIds.map((course_id) => ({ exam_id: childId, course_id })),
+            skipDuplicates: true,
+          });
+        }
+
+        // The admin explicitly picked these students in Step 5 — copy them
+        // across as-is rather than silently re-filtering per sitting.
+        await tx.exam_student_allocations.deleteMany({ where: { exam_id: childId } });
+        if (parentAllocs.length > 0) {
+          await tx.exam_student_allocations.createMany({
+            data: parentAllocs.map((a) => ({ exam_id: childId, user_id: a.user_id })),
+            skipDuplicates: true,
+          });
+        }
+
+        if (locked) {
+          questionsLocked.push(row.subject_title);
+        } else {
+          await tx.exam_questions.deleteMany({ where: { exam_id: childId } });
+          if (sliced.length > 0) {
+            await tx.exam_questions.createMany({
+              data: sliced.map((q, qIdx) => ({
+                exam_id: childId,
+                question_id: q.question_id,
+                question_no: qIdx + 1,
+                mark: q.mark,
+                negative_mark: q.negative_mark,
+                created_by: actor,
+                created_at: now,
+                updated_at: now,
+              })),
+            });
+          }
+        }
+      }
+
+      // Sittings whose schedule row was removed: retire them, unless a student
+      // already sat one — those stay so the attempt keeps its exam.
+      const keptIds = new Set(materialised);
+      for (const c of existingChildren) {
+        if (keptIds.has(c.id)) continue;
+        if (attemptedChildIds.has(c.id)) {
+          staleKept.push(toStringValue(c.title));
+          // It keeps living alongside the renumbered sittings, so pull its code
+          // onto the same stable scheme — a legacy positional code (-S2) would
+          // otherwise be handed out again to whichever sitting now sits second.
+          if (c.exam_subject_id !== null && c.exam_subject_id !== undefined) {
+            await tx.exam.updateMany({ where: { id: c.id }, data: { exam_code: `${baseCode}-S${c.exam_subject_id}`.slice(0, 50) } });
+          }
+          continue;
+        }
+        await tx.exam.updateMany({ where: { id: c.id }, data: { deleted_at: now, deleted_by: actor, updated_at: now } });
+      }
+
+      await tx.exam.updateMany({
+        where: { id, deleted_at: null },
+        data: {
+          ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
+          notify_email: input.notifyEmail ? 1 : 0,
+          notify_inapp: input.notifyInapp ? 1 : 0,
+          status: 'published',
+          published_at: now,
+          published_by: actor,
+          updated_at: now,
+          updated_by: actor,
+        },
+      });
+
+      // A question whose subject is not on the Step 2 schedule lands in no
+      // sitting at all — say so instead of dropping it silently.
+      const unplaced = schedule.length > 0
+        ? parentQuestionIds.filter((qid) => !placedQuestionIds.has(qid)).length
+        : 0;
+      return { materialised, questionsLocked, staleKept, unplaced };
+    }, { timeout: 30000, maxWait: 15000 });
+
     // Notify allocated students (best-effort — failures don't block publish).
-    if (input.notifyEmail) {
+    // Only on the FIRST publish, or when the admin explicitly asks to resend:
+    // re-publishing to fix a typo used to re-email the whole cohort.
+    const shouldNotify = input.notifyEmail && (firstPublish || input.resendNotification === true);
+    if (shouldNotify) {
       try {
-        const allocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
-        const userIds = allocs.map((a) => a.user_id);
+        const userIds = parentAllocs.map((a) => a.user_id);
         if (userIds.length > 0) {
           const students = await this.prisma.users.findMany({
             where: { id: { in: userIds }, deleted_at: null },
@@ -5290,27 +5757,30 @@ export class OperationsService {
           // the Lovable "Examination Schedule Published" design, and now carries
           // the actual schedule (subject / date / time) instead of a bare
           // "you have been allocated" line.
-          const exam = await this.prisma.exam.findFirst({
-            where: { id },
-            select: { title: true, exam_code: true, from_date: true, from_time: true, course_id: true },
-          });
-          const courseTitle = exam?.course_id
-            ? toStringValue((await this.prisma.course.findFirst({ where: { id: exam.course_id }, select: { title: true } }))?.title)
+          const courseTitle = parent.course_id
+            ? toStringValue((await this.prisma.course.findFirst({ where: { id: parent.course_id }, select: { title: true } }))?.title)
             : '';
           const { createIntegrationRegistry } = await import('../integrations/registry.js');
           const { renderExamPublishedEmail, EXAM_EMAIL_SUBJECTS } = await import('../integrations/exam-emails.js');
           const { examStartInstant } = await import('../jobs/exam-reminders.js');
           const registry = createIntegrationRegistry();
 
-          const start = examStartInstant(exam?.from_date ?? null, exam?.from_time ?? null);
-          const schedule = start
-            ? [{
-                subject: toStringValue(exam?.title),
-                dateLabel: start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
-                  + ` (${start.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Kolkata' })})`,
-                timeLabel: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
-              }]
-            : [];
+          const formatRow = (subject: string, date: Date | null, time: Date | null) => {
+            const start = examStartInstant(date, time);
+            if (!start) return null;
+            return {
+              subject,
+              dateLabel: start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+                + ` (${start.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Kolkata' })})`,
+              timeLabel: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+            };
+          };
+          // Risha UAT 2026-08-06 — list the individual sittings, since those are
+          // what the student actually sits; the umbrella window is meaningless
+          // once the schedule spans five days.
+          const scheduleRows = schedule.length > 0
+            ? schedule.map((s) => formatRow(s.subject_title, s.exam_date, s.start_time)).filter((r): r is NonNullable<typeof r> => r !== null)
+            : [formatRow(toStringValue(parent.title), parent.from_date, parent.from_time)].filter((r): r is NonNullable<typeof r> => r !== null);
 
           for (const s of students) {
             const to = s.user_email ?? s.email ?? '';
@@ -5318,12 +5788,12 @@ export class OperationsService {
             try {
               await registry.email.sendEmail({
                 to,
-                subject: EXAM_EMAIL_SUBJECTS.published(toStringValue(exam?.title) || 'TTII'),
+                subject: EXAM_EMAIL_SUBJECTS.published(toStringValue(parent.title) || 'TTII'),
                 html: renderExamPublishedEmail({
                   studentFirstName: toStringValue(s.name).trim().split(/\s+/)[0] ?? '',
-                  examName: toStringValue(exam?.title),
+                  examName: toStringValue(parent.title),
                   courseName: courseTitle,
-                  schedule,
+                  schedule: scheduleRows,
                 }),
               });
             } catch { /* best-effort */ }
@@ -5331,7 +5801,26 @@ export class OperationsService {
         }
       } catch { /* email send phase failure doesn't block publish */ }
     }
-    return { status: 1, message: 'Exam published.' };
+
+    const childCount = outcome.materialised.length;
+    const parts: string[] = [
+      childCount > 0
+        ? `Exam published with ${childCount} subject sitting${childCount === 1 ? '' : 's'}.`
+        : 'Exam published.',
+    ];
+    if (outcome.questionsLocked.length > 0) {
+      parts.push(`Questions were left as they are for ${outcome.questionsLocked.join(', ')} — students have already attempted those sittings.`);
+    }
+    if (outcome.staleKept.length > 0) {
+      parts.push(`Kept ${outcome.staleKept.join(', ')} even though the subject was removed from Step 2 — there are attempts on record.`);
+    }
+    if (outcome.unplaced > 0) {
+      parts.push(`${outcome.unplaced} assigned question${outcome.unplaced === 1 ? '' : 's'} went into no sitting — their subject is not on the Step 2 schedule.`);
+    }
+    if (!shouldNotify && input.notifyEmail) {
+      parts.push('No emails were sent (the exam was already published) — tick "Resend notification" to email students again.');
+    }
+    return { status: 1, message: parts.join(' '), data: { children: childCount } };
   }
 
   async addExam(actorUserId: string, input: ExamInput): Promise<Record<string, unknown>> {
@@ -5413,10 +5902,51 @@ export class OperationsService {
     return { status: 1, message: 'Exam updated successfully.' };
   }
 
+  // Risha UAT 2026-08-06 — a published subject-wise exam owns one CHILD row per
+  // sitting, and the Exams table lists parents only. Soft-deleting the parent on
+  // its own therefore left every sitting live and still allocated — students
+  // could sit all five, and no admin surface remained to remove them. The delete
+  // has to take the whole set. Attempts are the one thing publish never
+  // destroys, so hold to that here too and refuse instead: a soft-deleted exam
+  // drops out of Evaluation as well, and there is no restore anywhere in the UI.
   async deleteExam(actorUserId: string, examId: string): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(examId);
+    if (!id) return { status: 0, message: 'Invalid exam id.' };
     const now = new Date();
-    await this.prisma.exam.updateMany({ where: { id: toIntId(examId), deleted_at: null }, data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now } });
-    return { status: 1, message: 'Exam deleted successfully.' };
+
+    const children = await this.prisma.exam.findMany({ where: { parent_exam_id: id, deleted_at: null }, select: { id: true } });
+    const scopeIds = [id, ...children.map((c) => c.id)];
+    // Guard on SUBMITTED attempts only. A soft-deleted exam disappears from Exam
+    // Evaluation and there is no restore path anywhere in the app, so deleting
+    // one that students have actually sat would strand their results. An
+    // abandoned or in-progress attempt carries no result worth protecting and
+    // must not block an admin clearing out a test exam.
+    const attemptGroups = await this.prisma.exam_attempt.groupBy({
+      by: ['exam_id'],
+      where: { exam_id: { in: scopeIds }, deleted_at: null, submit_status: true },
+      _count: { id: true },
+    });
+    const attempted = attemptGroups.filter((a) => (a._count?.id ?? 0) > 0).length;
+    if (attempted > 0) {
+      return {
+        status: 0,
+        message: children.length > 0
+          ? `This exam cannot be deleted — students have already submitted ${attempted} of its subject sittings, and their results would no longer be reachable.`
+          : 'This exam cannot be deleted — students have already submitted it, and their results would no longer be reachable.',
+      };
+    }
+
+    const deleted = await this.prisma.exam.updateMany({
+      where: { OR: [{ id }, { parent_exam_id: id }], deleted_at: null },
+      data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
+    });
+    if (deleted.count === 0) return { status: 0, message: 'Exam not found.' };
+    return {
+      status: 1,
+      message: children.length > 0
+        ? `Exam deleted successfully, along with ${children.length} subject sitting${children.length === 1 ? '' : 's'}.`
+        : 'Exam deleted successfully.',
+    };
   }
 
   async publishExamResult(actorUserId: string, examId: string): Promise<Record<string, unknown>> {

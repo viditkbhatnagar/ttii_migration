@@ -1323,7 +1323,14 @@ export class AdminPortalApi {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/questions', authToken, { exam_id: examId });
     return toRecords(payload.data);
   }
-  async saveExamQuestions(authToken: string, examId: string, questions: Array<{ question_id: number; mark: number }>): Promise<Record<string, unknown>> {
+  // Risha UAT 2026-08-06 — how many MCQ / descriptive questions each sitting
+  // still owes, straight off the Step 3 components. Step 4 used to assume a
+  // flat 10 per subject, which made a saved 70-question setup look lost.
+  async getExamQuestionPlan(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam/draft/question-plan', authToken, { exam_id: examId });
+    return toRecords(payload.data);
+  }
+  async saveExamQuestions(authToken: string, examId: string, questions: Array<{ question_id: number; mark: number; negative_mark?: number }>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/draft/questions/save', authToken, { exam_id: examId, questions });
   }
 
@@ -1351,16 +1358,33 @@ export class AdminPortalApi {
   async deleteExamInstructionTemplate(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/instruction-templates/delete', authToken, { id });
   }
+  // Risha UAT 2026-08-06 — Step 6 can save its instructions without going
+  // through publish, which re-emailed every allocated student.
+  async saveExamInstructions(
+    authToken: string,
+    examId: string,
+    input: { instructions: string; notify_email?: boolean; notify_inapp?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam/draft/instructions/save', authToken, {
+      exam_id: examId,
+      instructions: input.instructions,
+      notify_email: input.notify_email ?? true,
+      notify_inapp: input.notify_inapp ?? true,
+    });
+  }
   async publishExam(
     authToken: string,
     examId: string,
-    input: { instructions?: string; notify_email?: boolean; notify_inapp?: boolean },
+    input: { instructions?: string; notify_email?: boolean; notify_inapp?: boolean; resend_notification?: boolean },
   ): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/draft/publish', authToken, {
       exam_id: examId,
-      instructions: input.instructions ?? '',
+      // Omitted instructions mean "keep whatever is stored" — sending '' on a
+      // re-publish used to blank the saved text.
+      ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
       notify_email: input.notify_email ?? true,
       notify_inapp: input.notify_inapp ?? true,
+      resend_notification: input.resend_notification ?? false,
     });
   }
 

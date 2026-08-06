@@ -16,6 +16,14 @@ const LESSON_FILE_QUIZ_ID = 1104;
 
 const EXAM_EXPIRED_ID = 1201;
 const EXAM_UPCOMING_ID = 1202;
+// Risha UAT 2026-08-06 — the scoring test used to start its attempt on the
+// EXPIRED exam. That only worked because the start path had no gates at all:
+// it never checked that the exam was published, that the student was allocated
+// to it, or that the window was open. Those gates are now enforced on the
+// legacy /exams/exam_save_start route too, so scoring needs an exam that is
+// genuinely takeable. This one is open today and allocated to the fixture
+// student; EXAM_EXPIRED_ID stays expired for the listing assertions.
+const EXAM_OPEN_ID = 1203;
 
 const QUESTION_BANK_ID_ONE = 1301;
 const QUESTION_BANK_ID_TWO = 1302;
@@ -174,7 +182,36 @@ async function seedAssessmentFixture(
         ${LESSON_ID},
         ${'1'},
         ${new Date().toISOString()}
+      ),
+      (
+        ${EXAM_OPEN_ID},
+        ${'Open Exam'},
+        ${'Currently sittable assessment'},
+        20,
+        ${'01:00'},
+        ${dayOffset(0)},
+        ${dayOffset(0)},
+        ${'00:00:01'},
+        ${'23:59:59'},
+        ${COURSE_ID},
+        ${SUBJECT_ID},
+        ${LESSON_ID},
+        ${'0'},
+        ${new Date().toISOString()}
       )
+  `);
+
+  // The open exam must be published and allocated for the start gate to let the
+  // fixture student in. Ordered by from_date, it sorts AFTER the expired exam
+  // and BEFORE the upcoming one, so expired_exams[0] / upcoming_exams[0] in the
+  // listing test keep pointing at the exams they always did.
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE exam SET status = ${'published'} WHERE id = ${EXAM_OPEN_ID}
+  `);
+
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO exam_student_allocations (exam_id, user_id)
+    VALUES (${EXAM_OPEN_ID}, ${learner.id})
   `);
 
   await prisma.$executeRaw(Prisma.sql`
@@ -191,7 +228,10 @@ async function seedAssessmentFixture(
       (${EXAM_EXPIRED_ID}, ${QUESTION_BANK_ID_ONE}, 1, 4, 1, ${new Date().toISOString()}),
       (${EXAM_EXPIRED_ID}, ${QUESTION_BANK_ID_TWO}, 2, 2, 0.5, ${new Date().toISOString()}),
       (${EXAM_EXPIRED_ID}, ${QUESTION_BANK_ID_THREE}, 3, 1, 1, ${new Date().toISOString()}),
-      (${EXAM_UPCOMING_ID}, ${QUESTION_BANK_ID_ONE}, 1, 4, 1, ${new Date().toISOString()})
+      (${EXAM_UPCOMING_ID}, ${QUESTION_BANK_ID_ONE}, 1, 4, 1, ${new Date().toISOString()}),
+      (${EXAM_OPEN_ID}, ${QUESTION_BANK_ID_ONE}, 1, 4, 1, ${new Date().toISOString()}),
+      (${EXAM_OPEN_ID}, ${QUESTION_BANK_ID_TWO}, 2, 2, 0.5, ${new Date().toISOString()}),
+      (${EXAM_OPEN_ID}, ${QUESTION_BANK_ID_THREE}, 3, 1, 1, ${new Date().toISOString()})
   `);
 
   await prisma.$executeRaw(Prisma.sql`
@@ -340,7 +380,7 @@ describe('Phase 07 assessment parity contracts', () => {
       url: '/api/exams/exam_save_start',
       payload: {
         auth_token: fixture.authToken,
-        exam_id: EXAM_EXPIRED_ID,
+        exam_id: EXAM_OPEN_ID,
       },
     });
 
@@ -386,6 +426,43 @@ describe('Phase 07 assessment parity contracts', () => {
     `);
 
     expect(answerRows.map((row) => row.answer_status)).toEqual([1, 2, 3]);
+  });
+
+  // Risha UAT 2026-08-06 — regression guard for the exam-integrity gates.
+  // /exams/exam_save_start (the legacy + mobile entry point) used to create an
+  // attempt for ANY exam id with no checks at all, so a student could sit an
+  // exam they were never allocated to, one that was still a draft, or one whose
+  // window had closed. Compounding it, the window check on the web path was
+  // itself dead: combineDateAndTime could not read a Prisma @db.Time value and
+  // returned null, which made the "has not started yet" branch unreachable.
+  it('refuses to start an exam outside its window or without an allocation', async () => {
+    const fixture = await seedAssessmentFixture(app);
+
+    // Expired: window closed, still a draft, and no allocation row.
+    const expired = await app.inject({
+      method: 'POST',
+      url: '/api/exams/exam_save_start',
+      payload: { auth_token: fixture.authToken, exam_id: EXAM_EXPIRED_ID },
+    });
+    expect(expired.statusCode).toBe(200);
+    expect(parseJsonBody<{ attempt_id: number }>(expired.body).attempt_id).toBe(0);
+
+    // Upcoming: starts tomorrow, so it must not be sittable today.
+    const upcoming = await app.inject({
+      method: 'POST',
+      url: '/api/exams/exam_save_start',
+      payload: { auth_token: fixture.authToken, exam_id: EXAM_UPCOMING_ID },
+    });
+    expect(upcoming.statusCode).toBe(200);
+    expect(parseJsonBody<{ attempt_id: number }>(upcoming.body).attempt_id).toBe(0);
+
+    // Neither rejection may leave an attempt row behind.
+    const strayAttempts = await prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+      SELECT COUNT(*) AS total
+      FROM exam_attempt
+      WHERE exam_id IN (${EXAM_EXPIRED_ID}, ${EXAM_UPCOMING_ID})
+    `);
+    expect(Number(strayAttempts[0]?.total ?? 0)).toBe(0);
   });
 
   it('scores quiz and practice attempts with their legacy formulas', async () => {

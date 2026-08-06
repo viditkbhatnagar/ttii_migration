@@ -105,6 +105,13 @@ function toStringValue(value: unknown): string {
   return value.trim();
 }
 
+// Checkbox-style flags arrive as JSON booleans from the portals but as "1" /
+// "0" / "true" / "false" from form-encoded callers, where Boolean("0") is
+// true — which silently turned every "don't notify" into "notify".
+function toPayloadFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
 // Full Add/Edit Application payload → AdminApplicationInput. Mirrors the inline
 // mapping in the /admin/applications/edit handler verbatim so the associate
 // Edit Application route (/centre/associate/applications/edit) hands the exact
@@ -2269,13 +2276,31 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Risha UAT 2026-08-06 — Step 4 now reports how many MCQ / descriptive
+  // questions each sitting still owes, taken from the Step 3 components. The
+  // wizard used to show a hard-coded default of 10 per subject, which read as
+  // "the 70 questions I saved are gone".
+  app.get('/admin/exam/draft/question-plan', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await operationsService.getExamQuestionPlan(toStringValue(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/exam/draft/questions/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const rowsRaw = Array.isArray(payload.questions) ? payload.questions : [];
       const questions = rowsRaw
         .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
-        .map((r) => ({ questionId: toInteger(r.question_id), mark: toNumber(r.mark) }))
+        // Risha UAT 2026-08-06 — negative_mark rides along per question so the
+        // scorer stops applying a hard-coded -1 penalty the admin never set.
+        .map((r) => ({
+          questionId: toInteger(r.question_id),
+          mark: toNumber(r.mark),
+          ...(r.negative_mark === undefined || r.negative_mark === null ? {} : { negativeMark: toNumber(r.negative_mark) }),
+        }))
         .filter((v) => v.questionId > 0);
       const result = await operationsService.saveExamQuestions(requestUserId(request), toStringValue(payload.exam_id), questions);
       reply.code(200).send(result);
@@ -2334,13 +2359,41 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Risha UAT 2026-08-06 — Step 6 can now persist instructions + notification
+  // preferences on their own. Editing the instructions used to mean publishing
+  // again, which re-emailed every allocated student.
+  app.post('/admin/exam/draft/instructions/save', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.saveExamInstructions(requestUserId(request), toStringValue(payload.exam_id), {
+        instructions: toStringValue(payload.instructions),
+        notifyEmail: payload.notify_email === undefined ? true : toPayloadFlag(payload.notify_email),
+        notifyInapp: payload.notify_inapp === undefined ? true : toPayloadFlag(payload.notify_inapp),
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/exam/draft/publish', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.publishExam(requestUserId(request), toStringValue(payload.exam_id), {
-        instructions: toStringValue(payload.instructions) || undefined,
-        notifyEmail: payload.notify_email === undefined ? true : Boolean(payload.notify_email),
-        notifyInapp: payload.notify_inapp === undefined ? true : Boolean(payload.notify_inapp),
+        // Risha UAT 2026-08-06 — an ABSENT instructions field means "leave the
+        // stored text alone" (re-publishing used to blank it, because the
+        // Publish step never loaded what was already saved). A field that is
+        // PRESENT but empty is a deliberate clear and must be honoured — the
+        // Publish step only sends the key at all when the admin edited the box.
+        // `|| undefined` used to collapse those two cases together, which made
+        // clearing the instructions a silent no-op.
+        ...(payload.instructions === undefined
+          ? {}
+          : { instructions: toStringValue(payload.instructions) }),
+        notifyEmail: payload.notify_email === undefined ? true : toPayloadFlag(payload.notify_email),
+        notifyInapp: payload.notify_inapp === undefined ? true : toPayloadFlag(payload.notify_inapp),
+        // Emails go out on the first publish only; re-publishing a scheduling
+        // correction must not spam every allocated student again unless the
+        // admin explicitly ticks "notify again".
+        resendNotification: toPayloadFlag(payload.resend_notification),
       });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }

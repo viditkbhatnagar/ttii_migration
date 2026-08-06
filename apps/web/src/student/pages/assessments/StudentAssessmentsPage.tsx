@@ -158,12 +158,16 @@ function toExamView(raw: Record<string, unknown>): ExamView {
     subject: asString(raw.subject_title),
     state: asString(raw.state),
     dateLabel: asString(raw.date) ? asString(raw.date) : start ? formatDate(start) : '',
+    // Prefer the sitting's own clock window ("07:30 PM – 08:45 PM") that the API
+    // now sends pre-formatted in IST. The date-range fallback is kept for legacy
+    // exams that have no to_time, where all we can honestly show is the span.
     windowLabel:
-      start && end
+      asString(raw.window_label)
+      || (start && end
         ? `${formatDate(start)} – ${formatDate(end)}`
         : start
           ? `From ${formatDate(start)}`
-          : '',
+          : ''),
     durationLabel: duration ? `${duration} min` : '',
     marksLabel: totalMark ? `${totalMark} marks` : '',
     questionCount,
@@ -171,11 +175,25 @@ function toExamView(raw: Record<string, unknown>): ExamView {
   };
 }
 
-// Pull a clean "HH:MM" start label straight from the ISO/space-separated
-// start_datetime string (avoids new Date() timezone shifts on a naive value).
+// Start time of the sitting, rendered in IST.
+//
+// Risha UAT 2026-08-06 — this used to regex "HH:MM" straight out of the
+// start_datetime string, on the assumption that the value was a naive local
+// wall clock. It is not: the API sends a real UTC instant, so the regex pulled
+// the UTC hour and a 7:30 PM exam announced itself as 14:00. Format the instant
+// in Asia/Kolkata instead. (The old regex was harmless only because the same
+// date bug meant start_datetime always shipped empty.)
 function examStartLabel(raw: Record<string, unknown>): string {
-  const m = asString(raw.start_datetime).match(/[T\s](\d{2}:\d{2})/);
-  return m?.[1] ?? '';
+  const iso = asString(raw.start_datetime);
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  return at.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 // Build the FormalExamPlayer meta from the list row + the logged-in student,
