@@ -486,8 +486,15 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
 
       {/* View Account modal — full installment schedule for a course */}
       <Dialog open={viewAccount !== null} onOpenChange={(open) => { if (!open) setViewAccount(null); }}>
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg!">
-          <DialogHeader className="border-b border-slate-200 p-5 sm:p-6">
+        {/* Risha UAT 2026-08-06 — mobile-safe modal box (same class of bug as the
+            assignment modal). The schedule list was capped in vh while the modal
+            itself had no cap, so header + 60vh + footer overflowed the phone
+            screen and the Close / Pay row fell below the fold. Now: modal-maxh
+            on the box, the list is the only scroll region, and the modal is
+            top-anchored on phones because position:fixed centring resolves
+            against the toolbar-less viewport. */}
+        <DialogContent className="top-2 flex modal-maxh translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-lg!">
+          <DialogHeader className="shrink-0 border-b border-slate-200 p-5 sm:p-6">
             <DialogTitle className="text-lg font-bold text-student-text">{viewAccount?.title ?? 'Account'}</DialogTitle>
             {viewAccount ? (
               <p className="mt-0.5 text-sm text-student-muted">
@@ -497,7 +504,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
             ) : null}
           </DialogHeader>
           {viewAccount ? (
-            <div className="max-h-[60vh] overflow-y-auto p-5 sm:p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
               {viewAccount.installments.length === 0 ? (
                 <p className="py-6 text-center text-sm text-student-muted">No installment schedule on file.</p>
               ) : (
@@ -534,7 +541,7 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
               )}
             </div>
           ) : null}
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 p-4">
             <Button variant="outline" onClick={() => setViewAccount(null)}>Close</Button>
             {viewAccount && viewAccount.balance > 0 ? (
               <Button
@@ -560,9 +567,15 @@ export default function StudentPaymentsPage({ api, session }: StudentPageProps) 
       >
         {/* max-h + overflow so the tall payment content scrolls on mobile
             instead of the top (amount/title) being clipped off-screen with no
-            way to reach it. dvh = real mobile viewport. Ishfaq 2026-07-01. */}
+            way to reach it. dvh = real mobile viewport. Ishfaq 2026-07-01.
+            Risha UAT 2026-08-06 — max-h-[90dvh] is a single declaration, so a
+            webview without dvh got NO cap and the Pay button sat below the fold
+            with nothing to scroll; modal-maxh carries a real @supports fallback.
+            Top-anchored on phones (position:fixed centres against the viewport
+            measured with the toolbars hidden, which pushes a centred modal
+            down behind the address bar). */}
         <DialogContent
-          className="max-h-[90dvh] overflow-y-auto p-6 sm:max-w-[960px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto p-6 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[960px]"
           style={{ width: 'min(960px, calc(100vw - 2rem))', maxWidth: 'min(960px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>

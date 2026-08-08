@@ -727,8 +727,16 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
       <Dialog open={detailItem !== null} onOpenChange={(open) => { if (!open) setDetailItem(null); }}>
         {/* [&>*]:min-w-0 — DialogContent is display:grid; without it the grid
             item floors at its child's min-content width and the modal overflows
-            the viewport on mobile (title/cards/footer clipped). Naji 2026-07-03. */}
-        <DialogContent className="gap-0 overflow-hidden p-0 [&>*]:min-w-0 sm:max-w-6xl!">
+            the viewport on mobile (title/cards/footer clipped). Naji 2026-07-03.
+
+            Risha UAT 2026-08-06 — top-2/translate-y-0 on phones. DialogContent is
+            position:fixed, so its top:50% centring resolves against the LAYOUT
+            viewport (browser toolbars HIDDEN) while the modal is capped in
+            dvh/vh (toolbars SHOWN): a centred modal therefore sits ~half the
+            toolbar height too low and its last footer row — the purple Submit —
+            lands behind the address bar. Anchoring to the top removes the
+            mismatch; sm: restores the centred desktop look. */}
+        <DialogContent className="top-2 translate-y-0 gap-0 overflow-hidden p-0 [&>*]:min-w-0 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-6xl!">
           <DialogHeader className="sr-only">
             <DialogTitle>{detailItem ? asString(detailItem.title) || 'Assignment' : 'Assignment'}</DialogTitle>
           </DialogHeader>
@@ -876,9 +884,11 @@ function AssignmentDetail({
   const scoreValue = `${gradeScore}/${totalMarks}`;
 
   return (
-    // modal-maxh = 85vh fallback + 85dvh (app.css). A bare max-h-[85dvh] is
-    // ignored by webviews without dvh support, leaving the modal unbounded so the
-    // body never scrolls and the attachments/footer are clipped on mobile.
+    // modal-maxh = 78vh, refined to 85dvh via @supports (app.css). A bare
+    // max-h-[85dvh] is ignored by webviews without dvh support, leaving the modal
+    // unbounded so the body never scrolls and the attachments/footer are clipped
+    // on mobile — and the plain `max-height:85vh; max-height:85dvh` pair does NOT
+    // survive minification, which is why the fallback moved into @supports.
     <div className="flex modal-maxh flex-col">
       {/* Header */}
       <div className="flex shrink-0 items-start gap-4 border-b border-slate-200 p-5 sm:p-6">
@@ -1017,11 +1027,18 @@ function AssignmentDetail({
                   {file ? file.name : 'Drag & drop your file here'}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-400">PDF, DOCX, PPTX up to 25MB</p>
+                {/* sr-only, not `hidden` — a display:none input is not rendered
+                    and some in-app webviews (WhatsApp/Instagram, where students
+                    open these links) refuse to open the picker for it, so
+                    "Browse Files" did nothing and Submit stayed disabled with no
+                    way to attach anything. tabIndex -1 keeps the invisible input
+                    out of the tab order. Risha UAT 2026-08-06. */}
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".pdf,.doc,.docx,.ppt,.pptx"
-                  className="hidden"
+                  className="sr-only"
+                  tabIndex={-1}
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
                 <Button
@@ -1090,19 +1107,37 @@ function AssignmentDetail({
       {/* Footer — shrink-0 so the action buttons (Submit Assignment) are always
           visible; only the body scrolls. The container uses dvh (not vh) so the
           modal fits the real mobile viewport and the footer isn't pushed behind
-          the browser address bar in portrait (Risha 2026-06-29). */}
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 p-4">
-        <Button variant="outline" onClick={onClose} disabled={busy !== null}>
+          the browser address bar in portrait (Risha 2026-06-29).
+
+          Risha UAT 2026-08-06 — on a phone the three buttons no longer WRAP with
+          Submit alone on a second row. At 360px "Close + Save Draft + Submit
+          Assignment" does not fit one line, so Submit was pushed to the bottom
+          row, i.e. the very last thing in the modal and the first casualty of
+          any bottom clipping. Mobile now uses a 2-col grid with Submit spanning
+          the FIRST row (order-1); if anything is ever cut off it is Close (which
+          the corner X and the overlay also do) and not the primary action. */}
+      <div className="grid shrink-0 grid-cols-2 items-center gap-2 border-t border-slate-200 p-4 sm:flex sm:flex-wrap sm:justify-end">
+        <Button
+          variant="outline"
+          onClick={onClose}
+          disabled={busy !== null}
+          className={canSubmit ? 'order-2 w-full sm:order-none sm:w-auto' : 'col-span-2 w-full sm:w-auto'}
+        >
           Close
         </Button>
         {canSubmit ? (
           <>
-            <Button variant="outline" onClick={() => void saveDraft()} disabled={busy !== null}>
+            <Button
+              variant="outline"
+              onClick={() => void saveDraft()}
+              disabled={busy !== null}
+              className="order-3 w-full sm:order-none sm:w-auto"
+            >
               {busy === 'draft' ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : null}
               Save Draft
             </Button>
             <Button
-              className="bg-student-primary text-white hover:bg-student-primary/90"
+              className="order-1 col-span-2 w-full bg-student-primary text-white hover:bg-student-primary/90 sm:order-none sm:col-span-1 sm:w-auto"
               onClick={() => void submit()}
               disabled={busy !== null || !file}
             >

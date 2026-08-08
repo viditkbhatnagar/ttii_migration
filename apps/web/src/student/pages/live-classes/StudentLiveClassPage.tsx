@@ -295,8 +295,12 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
 
       {/* Recording player */}
       <Dialog open={recording !== null} onOpenChange={(open) => { if (!open) setRecording(null); }}>
+        {/* Risha UAT 2026-08-06 — modal-maxh (real @supports vh fallback) instead
+            of a bare dvh cap that dvh-less webviews ignore, leaving the player
+            unbounded and unscrollable; top-anchored on phones so the centred
+            box is not pushed down behind the browser toolbars. */}
         <DialogContent
-          className="max-h-[90dvh] overflow-y-auto p-4 sm:max-w-[820px] sm:p-6"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto p-4 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[820px] sm:p-6"
           style={{ width: 'min(820px, calc(100vw - 2rem))', maxWidth: 'min(820px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>

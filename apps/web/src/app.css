@@ -316,10 +316,25 @@
    overflow-hidden clips the footer + attachments with NO scroll. vh bounds the
    modal everywhere; dvh refines it where supported. Use this instead of a bare
    max-h-[85dvh] on any modal whose body must scroll on mobile. (Risha 2026-07-07
-   students could not see the uploaded assignment on mobile.) */
+   students could not see the uploaded assignment on mobile.)
+
+   Risha UAT 2026-08-06 — the fallback must live in @supports, NOT as the classic
+   two-declaration pair (max-height:85vh; max-height:85dvh). Lightning CSS
+   minifies the bundle against Tailwind v4 browser targets, all of which support
+   dvh, so it deleted the vh line: the SHIPPED rule was `.modal-maxh{max-height:
+   85dvh}` and dvh-less webviews were left with no cap at all — the exact
+   unbounded-modal bug the fallback was added to prevent (Submit Assignment
+   ended up below the fold with nothing to scroll). @supports survives
+   minification. 78vh (not 85) because vh measures the LARGE viewport — the one
+   with the browser toolbars hidden — so 85vh is taller than what the student
+   can actually see. */
 .modal-maxh {
-  max-height: 85vh;
-  max-height: 85dvh;
+  max-height: 78vh;
+}
+@supports (max-height: 1dvh) {
+  .modal-maxh {
+    max-height: 85dvh;
+  }
 }
 
 .faculty-portal,

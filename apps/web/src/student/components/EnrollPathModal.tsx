@@ -87,8 +87,16 @@ export function EnrollPathModal({
 
   return (
     <Dialog open={course !== null} onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-3xl!">
-        <DialogHeader className="border-b border-slate-200 p-5 sm:p-6">
+      {/* Risha UAT 2026-08-06 — same mobile trap as the assignment modal: this
+          had NO height cap and overflow-hidden, so on a phone the two stacked
+          path cards made the modal taller than the screen and the centred
+          overflow was clipped at both ends with nothing to scroll — "Request
+          Enrollment" was unreachable. modal-maxh bounds it (vh fallback via
+          @supports in app.css), the card list is the only scroll region, and
+          top-2/translate-y-0 keeps the footer clear of the browser toolbars on
+          phones (position:fixed centres against the toolbar-less viewport). */}
+      <DialogContent className="top-2 flex modal-maxh translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:top-[50%] sm:translate-y-[-50%] sm:max-w-3xl!">
+        <DialogHeader className="shrink-0 border-b border-slate-200 p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-student-primary-light text-student-primary">
               <GraduationCap aria-hidden="true" className="size-6" />
@@ -103,7 +111,7 @@ export function EnrollPathModal({
           </div>
         </DialogHeader>
 
-        <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
+        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-5 sm:grid-cols-2 sm:p-6">
           {PATHS.map((path) => {
             const Icon = path.icon;
             const active = selected === path.key;
@@ -142,7 +150,7 @@ export function EnrollPathModal({
           })}
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="text-sm">
             <span className="text-student-muted">Programme fee: </span>
             {isFree ? (

@@ -915,8 +915,13 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
 
       {/* Proctoring warning */}
       <Dialog open={proctorWarning !== null} onOpenChange={(o) => { if (!o) setProctorWarning(null); }}>
+        {/* Risha UAT 2026-08-06 — mobile-safe modal box on every exam dialog:
+            modal-maxh bounds the box (a bare dvh cap is ignored by dvh-less
+            webviews, and no cap at all means no scroll) and top-2/translate-y-0
+            keeps the action row clear of the browser toolbars, which the fixed
+            top:50% centring cannot account for. */}
         <DialogContent
-          className="sm:max-w-[480px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[480px]"
           style={{ width: 'min(480px, calc(100vw - 2rem))', maxWidth: 'min(480px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
@@ -939,7 +944,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       {/* Submit confirmation */}
       <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
         <DialogContent
-          className="sm:max-w-[560px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[560px]"
           style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
@@ -970,7 +975,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         onOpenChange={(o) => { setResultOpen(o); if (!o) onClose(); }}
       >
         <DialogContent
-          className="sm:max-w-[640px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[640px]"
           style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>

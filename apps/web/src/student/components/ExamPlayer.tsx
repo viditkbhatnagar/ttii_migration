@@ -427,8 +427,13 @@ export function ExamPlayer({
 
       {/* Submit confirmation modal */}
       <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
+        {/* Risha UAT 2026-08-06 — mobile-safe modal box: modal-maxh bounds it (so
+            a tall confirm panel scrolls instead of overflowing a short screen,
+            e.g. a phone held in landscape) and top-2/translate-y-0 keeps it clear
+            of the browser toolbars, which the fixed top:50% centring cannot
+            account for. Confirm & Submit must never sit below the fold. */}
         <DialogContent
-          className="sm:max-w-[560px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[560px]"
           style={{ width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(560px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
@@ -461,7 +466,7 @@ export function ExamPlayer({
         }}
       >
         <DialogContent
-          className="sm:max-w-[640px]"
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[640px]"
           style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
         >
           <DialogHeader>
