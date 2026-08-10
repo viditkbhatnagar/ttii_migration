@@ -5,6 +5,10 @@ import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
+// Type-only — the runtime modules stay lazily imported so MSAL is never loaded
+// on non-Teams paths.
+import type { TeamsHostCandidate, TeamsHostSelection, TeamsMeetingAttempt } from '../integrations/teams-scheduling.js';
+import type { TeamsMeetingService } from '../integrations/teams-meeting-service.js';
 
 type SqlRow = Record<string, unknown>;
 
@@ -2593,18 +2597,29 @@ export class OperationsService {
     return rows as unknown as SqlRow[];
   }
 
-  /** Auto-pick the first active Teams host with no live_class conflict across
-   * every entry in the scheduling request. Returns { host: null, reason } when
-   * the entire pool is busy for at least one entry's slot. Conflict check uses
-   * the primary date + time window of each entry; repeat-date occurrences are
-   * not yet considered (TODO when scheduler supports recurrence natively).
+  /** Auto-pick every active Teams host with no live_class conflict across all
+   * entries in the scheduling request, best candidate first. Returns
+   * { candidates: [], reason } when the entire pool is busy for at least one
+   * entry's slot. Conflict check uses the primary date + time window of each
+   * entry; repeat-date occurrences are not yet considered (TODO when scheduler
+   * supports recurrence natively).
    */
-  private async pickAvailableTeamsHost(
-    entries: LiveClassEntryInput[],
-  ): Promise<{ host: { teams_email: string } | null; reason?: string }> {
+  private async pickAvailableTeamsHost(entries: LiveClassEntryInput[]): Promise<TeamsHostSelection> {
     // Shared with the instructor scheduling flow (Naji/Risha 2026-07-06).
     const { pickAvailableTeamsHost } = await import('../integrations/teams-scheduling.js');
     return pickAvailableTeamsHost(this.prisma, entries);
+  }
+
+  /** Create the meeting on the first candidate Graph accepts, failing over on a
+   * host-level rejection. Shared with the instructor flow (Naji 2026-08-10). */
+  private async createTeamsMeetingOnFirstWorkingHost(
+    service: Pick<TeamsMeetingService, 'createMeeting'>,
+    candidates: readonly TeamsHostCandidate[],
+    input: { subject: string; startDateTime: string; endDateTime: string },
+    now: Date,
+  ): Promise<TeamsMeetingAttempt> {
+    const { createTeamsMeetingOnFirstWorkingHost } = await import('../integrations/teams-scheduling.js');
+    return createTeamsMeetingOnFirstWorkingHost(this.prisma, service, candidates, input, now);
   }
 
   async addTeamsMeetingHost(
@@ -2809,13 +2824,19 @@ export class OperationsService {
     const platform = input.platform ?? 'zoom';
 
     // For Teams: auto-assign a free host from the pool. Per product decision
-    // (Naji 2026-04-30): no manual override — system picks the first available
-    // active host whose calendar has no overlapping live_class in the requested
+    // (Naji 2026-04-30): no manual override — system picks an available active
+    // host whose calendar has no overlapping live_class in the requested
     // window. If none free, hard-block with a clear warning.
-    let teamsHostEmail: string | null = null;
+    // Naji 2026-08-10 — we now keep the whole ordered candidate list, not just
+    // the winner, so a host-level Graph rejection falls over to the next
+    // account instead of dropping the class on the floor. The list shrinks as
+    // accounts hard-fail during the batch; `lastTeamsFailure` carries the reason
+    // forward for the batch-level message once it empties.
+    let teamsCandidates: readonly TeamsHostCandidate[] = [];
+    let lastTeamsFailure = '';
     if (platform === 'teams') {
       const assignment = await this.pickAvailableTeamsHost(input.entries);
-      if (!assignment.host) {
+      if (assignment.candidates.length === 0) {
         return {
           success: false,
           message:
@@ -2823,7 +2844,7 @@ export class OperationsService {
             'No faculty Teams account is free for the selected time slot. Pick a different time or add another host under Integrations → Teams Meeting Hosts.',
         };
       }
-      teamsHostEmail = assignment.host.teams_email;
+      teamsCandidates = assignment.candidates;
     }
 
     if (platform === 'manual' || platform === 'other') {
@@ -2841,43 +2862,66 @@ export class OperationsService {
       };
     }
 
-    for (const entry of input.entries) {
+    // Naji 2026-08-10 — index-aware so an exhausted Teams host pool can account
+    // for the sessions it skips instead of under-reporting the failure count.
+    for (const [index, entry] of input.entries.entries()) {
       try {
         // Per-entry platform-specific meeting resolution
         let joinUrl: string | null = null;
         let externalMeetingId: string | null = null;
         let hostEmail: string | null = null;
 
-        if (platform === 'teams' && teamsService && teamsHostEmail) {
+        if (platform === 'teams' && teamsService) {
+          if (teamsCandidates.length === 0) {
+            // Naji 2026-08-10 — every candidate has already rejected an earlier
+            // entry in THIS batch (seconds ago), so the next 3 Graph calls per
+            // remaining session would fail identically. A 12-session cohort used
+            // to burn 36 round-trips and 36 last_error writes to produce 12
+            // copies of one error string. Stop once, say so once.
+            const remaining = input.entries.length - index;
+            failedCount += remaining;
+            errors.push(
+              `Teams meeting creation failed: every available host account rejected this cohort's sessions, so the remaining ${remaining} session(s) were skipped rather than re-tried against the same accounts. Last error: ${lastTeamsFailure}`,
+            );
+            break;
+          }
           // Build ISO start/end from date + times (treat times as local; Graph accepts a Z suffix — we use UTC naively).
           const dateOnly = entry.date; // YYYY-MM-DD
           const start = new Date(`${dateOnly}T${entry.fromTime.length === 5 ? entry.fromTime + ':00' : entry.fromTime}Z`);
           const end = new Date(`${dateOnly}T${entry.toTime.length === 5 ? entry.toTime + ':00' : entry.toTime}Z`);
-          try {
-            const meeting = await teamsService.createMeeting({
-              hostEmail: teamsHostEmail,
-              subject: entry.title,
-              startDateTime: start.toISOString(),
-              endDateTime: end.toISOString(),
-            });
-            joinUrl = meeting.joinUrl;
-            externalMeetingId = meeting.meetingId;
-            hostEmail = teamsHostEmail;
-            // Best-effort: mark host as policy-verified on first successful meeting
-            await this.prisma.teams_meeting_hosts.updateMany({
-              where: { teams_email: teamsHostEmail },
-              data: { policy_verified_at: now, last_error: null },
-            });
-          } catch (err) {
+          // Marks the winning host policy-verified and clears its last_error;
+          // records (and, for a mailbox that does not exist, deactivates) any
+          // host that fails.
+          const attempt = await this.createTeamsMeetingOnFirstWorkingHost(
+            teamsService,
+            teamsCandidates,
+            { subject: entry.title, startDateTime: start.toISOString(), endDateTime: end.toISOString() },
+            now,
+          );
+          // Whatever the outcome, an account that rejected this session
+          // host-level is out for the rest of the batch.
+          if (attempt.hardFailedHosts.length > 0) {
+            const dead = new Set(attempt.hardFailedHosts);
+            teamsCandidates = teamsCandidates.filter((c) => !dead.has(c.teamsEmail));
+          }
+          if (!attempt.ok) {
             failedCount += 1;
-            const msg = err instanceof Error ? err.message : String(err);
-            errors.push(`Teams meeting creation failed for "${entry.title}": ${msg}`);
-            // Persist the error against the host row so admins see why
-            await this.prisma.teams_meeting_hosts.updateMany({
-              where: { teams_email: teamsHostEmail },
-              data: { last_error: msg.substring(0, 1000) },
-            });
+            lastTeamsFailure = attempt.message;
+            errors.push(`Teams meeting creation failed for "${entry.title}": ${attempt.message}`);
             continue;
+          }
+          joinUrl = attempt.meeting.joinUrl;
+          externalMeetingId = attempt.meeting.meetingId;
+          hostEmail = attempt.hostEmail;
+          // Keep the rest of the batch on the account that just worked — every
+          // candidate was conflict-checked against all entries, so this is safe.
+          // Pruning the broken ones is the filter above; this only reorders.
+          if (teamsCandidates[0]?.teamsEmail !== attempt.hostEmail) {
+            const winner = attempt.hostEmail;
+            teamsCandidates = [
+              ...teamsCandidates.filter((c) => c.teamsEmail === winner),
+              ...teamsCandidates.filter((c) => c.teamsEmail !== winner),
+            ];
           }
         } else if (platform === 'manual' || platform === 'other') {
           joinUrl = input.manualJoinUrl ?? null;

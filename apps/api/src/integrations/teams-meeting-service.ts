@@ -26,8 +26,9 @@ export interface CreateTeamsMeetingResult {
 export class TeamsMeetingError extends Error {
   public readonly code:
     | 'policy_missing'          // 403 — trainer not covered by Cloud Communications Access Policy
-    | 'unauthorized'            // 401 — app creds wrong or permission not granted
-    | 'user_not_found'          // 404 — host email not in tenant
+    | 'unauthorized'            // 401, or a 403 the body shows is app-level (Authorization_RequestDenied) — OUR app registration, never the host
+    | 'host_unknown'            // 404 from the AAD user lookup — the mailbox does not exist in the tenant. Permanent.
+    | 'user_not_found'          // 404 from POST /onlineMeetings AFTER the mailbox resolved — missing Teams licence or CsApplicationAccessPolicy still propagating. Transient.
     | 'not_ready'               // 404 on recordings/attendance — Teams hasn't finished processing the meeting
     | 'network'                 // fetch / connectivity
     | 'unknown';                // everything else
@@ -147,7 +148,12 @@ export class TeamsMeetingService {
     }
 
     if (response.status === 404) {
-      throw new TeamsMeetingError('user_not_found', `User ${upn} not found in the M365 tenant.`, 404);
+      // Naji UAT 2026-08-10 — 'host_unknown', NOT 'user_not_found'. This 404 is
+      // AAD saying the mailbox does not exist, which no amount of waiting fixes,
+      // so the scheduler is allowed to deactivate the row. The other 404 (from
+      // the onlineMeetings POST, below) looks identical to a caller but is a
+      // licence/policy propagation delay — see classifyError().
+      throw new TeamsMeetingError('host_unknown', `User ${upn} not found in the M365 tenant.`, 404);
     }
     if (response.status === 401 || response.status === 403) {
       throw new TeamsMeetingError('unauthorized', `Graph user lookup rejected (${response.status}) — check app permissions (User.Read.All).`, response.status);
@@ -447,13 +453,27 @@ export class TeamsMeetingService {
 
   private classifyError(status: number, body: string): TeamsMeetingError['code'] {
     if (status === 401) return 'unauthorized';
+    // A 404 HERE is not "no such mailbox" — resolveObjectId already proved the
+    // account exists (it returned the objectId we just POSTed to). Graph answers
+    // 404 while a Teams licence or a freshly granted CsApplicationAccessPolicy
+    // is still propagating, which clears on its own within the hour.
     if (status === 404) return 'user_not_found';
     if (status === 403) {
-      // Graph returns 403 with an 'Forbidden' / policy hint when the trainer
-      // isn't covered by an ApplicationAccessPolicy.
       const lc = body.toLowerCase();
-      if (lc.includes('policy') || lc.includes('forbidden')) return 'policy_missing';
-      return 'policy_missing';
+      // Naji UAT 2026-08-10 — every 403 used to be blamed on the host. Graph
+      // also answers 403 Authorization_RequestDenied when OUR app registration
+      // loses the OnlineMeetings.ReadWrite.All grant; that is app-level, so
+      // failing over would burn the whole pool and stamp last_error on trainers
+      // who did nothing wrong. Check the app-level shape first.
+      if (lc.includes('authorization_requestdenied') || lc.includes('insufficient privileges')) return 'unauthorized';
+      // Host-level: Graph names the policy, or returns code 'Forbidden' with an
+      // "on behalf of this user" message, when the trainer isn't covered by an
+      // ApplicationAccessPolicy.
+      if (lc.includes('policy') || lc.includes('forbidden') || lc.includes('on behalf of')) return 'policy_missing';
+      // Unrecognised 403: assume app-level. Stopping once and telling the admin
+      // to check consent is cheap; walking four accounts on a tenant-wide fault
+      // is what this fix exists to stop.
+      return 'unauthorized';
     }
     return 'unknown';
   }

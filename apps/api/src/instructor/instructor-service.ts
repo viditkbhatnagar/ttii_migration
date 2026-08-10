@@ -887,18 +887,19 @@ export class InstructorService {
 
     // Auto-create the Teams meeting under a free org host (shared allowlist +
     // conflict check with admin/centre). The instructor is not the organiser.
-    const { pickAvailableTeamsHost, createTeamsMeetingServiceFromEnv } = await import(
-      '../integrations/teams-scheduling.js'
-    );
+    // Naji 2026-08-10 — this path had the same one-shot weakness as the admin
+    // flow: one host, one attempt, and a host-level Graph rejection lost the
+    // session entirely. It now walks the same ordered candidate list.
+    const { pickAvailableTeamsHost, createTeamsMeetingOnFirstWorkingHost, createTeamsMeetingServiceFromEnv } =
+      await import('../integrations/teams-scheduling.js');
     const assignment = await pickAvailableTeamsHost(this.prisma, [{ date, fromTime, toTime }]);
-    if (!assignment.host) {
+    if (assignment.candidates.length === 0) {
       return {
         ok: false,
         code: 'invalid',
         message: assignment.reason ?? 'No faculty Teams account is free for the selected time slot.',
       };
     }
-    const teamsHostEmail = assignment.host.teams_email;
 
     const teamsService = await createTeamsMeetingServiceFromEnv();
     if (!teamsService) {
@@ -914,29 +915,19 @@ export class InstructorService {
     const toIso = (t: string): string =>
       new Date(`${date}T${t.length === 5 ? `${t}:00` : t}Z`).toISOString();
 
-    let joinUrl: string;
-    let externalMeetingId: string | null;
-    try {
-      const meeting = await teamsService.createMeeting({
-        hostEmail: teamsHostEmail,
-        subject: title,
-        startDateTime: toIso(fromTime),
-        endDateTime: toIso(toTime),
-      });
-      joinUrl = meeting.joinUrl;
-      externalMeetingId = meeting.meetingId;
-      await this.prisma.teams_meeting_hosts.updateMany({
-        where: { teams_email: teamsHostEmail },
-        data: { policy_verified_at: new Date(), last_error: null },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await this.prisma.teams_meeting_hosts.updateMany({
-        where: { teams_email: teamsHostEmail },
-        data: { last_error: msg.substring(0, 1000) },
-      });
-      return { ok: false, code: 'invalid', message: `Could not create the Teams meeting: ${msg}` };
+    // Stamps policy_verified_at + clears last_error on the winner, records the
+    // error against (and deactivates) any host Graph says does not exist.
+    const attempt = await createTeamsMeetingOnFirstWorkingHost(this.prisma, teamsService, assignment.candidates, {
+      subject: title,
+      startDateTime: toIso(fromTime),
+      endDateTime: toIso(toTime),
+    });
+    if (!attempt.ok) {
+      return { ok: false, code: 'invalid', message: `Could not create the Teams meeting: ${attempt.message}` };
     }
+    const teamsHostEmail = attempt.hostEmail;
+    const joinUrl = attempt.meeting.joinUrl;
+    const externalMeetingId = attempt.meeting.meetingId;
 
     const now = new Date();
     const created = await this.prisma.live_class.create({
