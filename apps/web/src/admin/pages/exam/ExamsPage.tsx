@@ -108,9 +108,26 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
       key: 'sitting_count',
       label: 'Sittings',
       sortable: true,
-      render: (v) => {
-        const count = asNumber(v);
-        return count > 0 ? String(count) : 'Single';
+      // Risha UAT 2026-08-08 — "why is the new exam showing sitting to 1 by
+      // default? This will appear as a single exam then right?" Sittings are
+      // only created when the exam is PUBLISHED, so a draft with five subjects
+      // already scheduled read "Single" and looked like the split had failed.
+      // A draft now reports what publishing WILL produce.
+      render: (v, row) => {
+        const live = asNumber(v);
+        if (live > 0) return String(live);
+        // >= 1, not > 1: a one-subject exam publishes into one sitting, and
+        // reading "Single" now then "1" after publishing is the same confusion
+        // in miniature.
+        const scheduled = asNumber(row?.scheduled_sitting_count);
+        if (scheduled >= 1) {
+          return (
+            <span className="text-slate-600">
+              {scheduled} <span className="text-xs text-slate-400">on publish</span>
+            </span>
+          );
+        }
+        return 'Single';
       },
     },
     {

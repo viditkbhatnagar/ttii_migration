@@ -771,6 +771,14 @@ export class InstructorService {
     };
   }
 
+  /**
+   * Naji UAT 2026-08-08 — DELIBERATELY NOT gated by the 10-minute join window
+   * that engagement-service applies to students. The trainer has to be able to
+   * get in early to share a screen, load slides and check audio; locking them
+   * out of their own class would be far worse than the accidental early start
+   * the student gate guards against. Every row here is already scoped to
+   * cohorts.instructor_id, so only the class's own trainer sees its join URL.
+   */
   async listLiveClasses(
     instructorId: number,
     filter: LiveClassFilter = 'all',

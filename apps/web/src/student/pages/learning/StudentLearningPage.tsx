@@ -31,6 +31,11 @@ import {
   User,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
+import {
+  liveClassJoinOpensLabel,
+  liveClassJoinState,
+  liveClassJoinWindowFromStrings,
+} from '@ttii/shared-types';
 import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -2321,6 +2326,16 @@ function LiveClassRow({
   const hasRecording = row.has_recording === true && Boolean(recordingUrl);
   const isPast = status === 'past';
   const isToday = status === 'today';
+  // Naji UAT 2026-08-08 — same 10-minute gate as the Live Classes page. Matters
+  // more here: `status` is DATE-only, so a class that finished this morning
+  // still reads 'today' and used to keep offering Join all day.
+  const joinWindow = liveClassJoinWindowFromStrings(
+    asString(row.date),
+    asString(row.from_time),
+    asString(row.to_time),
+  );
+  const joinState = liveClassJoinState(joinWindow, Date.now());
+  const canJoin = joinUrl !== '' && !isPast && joinState !== 'too_early' && joinState !== 'closed';
 
   return (
     <div className="rounded-lg border border-slate-100 p-3 hover:border-student-primary/40 hover:bg-student-primary/5">
@@ -2353,9 +2368,9 @@ function LiveClassRow({
         ) : null}
         {instructor ? <span className="opacity-80">{instructor}</span> : null}
       </div>
-      {(joinUrl && !isPast) || hasRecording ? (
-        <div className="mt-2 flex items-center gap-2">
-          {joinUrl && !isPast ? (
+      {canJoin || (joinWindow && joinState === 'too_early' && !isPast) || hasRecording ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {canJoin ? (
             <a
               href={joinUrl}
               target="_blank"
@@ -2365,6 +2380,12 @@ function LiveClassRow({
               <Radio aria-hidden="true" className="size-3" />
               Join
             </a>
+          ) : null}
+          {joinWindow && joinState === 'too_early' && !isPast ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-student-muted">
+              <Clock aria-hidden="true" className="size-3" />
+              {liveClassJoinOpensLabel(joinWindow)}
+            </span>
           ) : null}
           {hasRecording ? (
             <button

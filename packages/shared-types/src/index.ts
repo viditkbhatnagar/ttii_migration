@@ -1,3 +1,23 @@
+// Naji UAT 2026-08-08 — the live-class join window is shared by the API and the
+// student portal so the two can never disagree about when a class opens.
+export {
+  IST_OFFSET_MS,
+  LIVE_CLASS_JOIN_LEAD_MINUTES,
+  LIVE_CLASS_JOIN_GRACE_MINUTES,
+  formatIstTimeOfDay,
+  isLiveClassJoinOpen,
+  liveClassJoinOpensLabel,
+  liveClassJoinState,
+  liveClassJoinWindow,
+  liveClassJoinWindowFromColumns,
+  liveClassJoinWindowFromStrings,
+  liveClassScheduleFromColumns,
+  liveClassScheduleFromStrings,
+  type LiveClassJoinState,
+  type LiveClassJoinWindow,
+  type LiveClassScheduleParts,
+} from './live-class-window.js';
+
 export interface ApiHealthPayload {
   status: 'ok';
   service: 'api';

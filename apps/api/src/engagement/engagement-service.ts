@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { isLiveClassJoinOpen, liveClassJoinWindowFromColumns } from '@ttii/shared-types';
 
 import { getPrismaClient } from '../data/prisma-client.js';
 import { env } from '../env.js';
@@ -1340,6 +1341,7 @@ export class EngagementService {
     const instructorMap = new Map(instructors.map((u) => [u.id, u.name]));
 
     const todayMs = new Date().setHours(0, 0, 0, 0);
+    const nowMs = Date.now();
     return liveClasses.map((lc) => {
       const cohort = lc.cohort_id !== null ? cohortById.get(lc.cohort_id) ?? null : null;
       const dateMs = lc.date ? new Date(lc.date).setHours(0, 0, 0, 0) : null;
@@ -1348,6 +1350,17 @@ export class EngagementService {
       else if (dateMs < todayMs) status = 'past';
       else if (dateMs === todayMs) status = 'today';
       const hasRecording = Boolean(lc.recording_url || lc.recording_storage_key || lc.video_url);
+      // Naji UAT 2026-08-08 — students only get the Teams join URL from T-10
+      // until the class ends (+ grace). Opening the link early STARTS the
+      // meeting and auto-records a throwaway artifact over the real session
+      // (5 Aug 2026 incident). Graph has no time-based lobby, so the URL is
+      // withheld here as well as hidden in the UI; every student surface,
+      // web AND the Flutter /live_class/index, reads this one mapper.
+      // Instructors are NOT gated — they come through instructor-service.
+      const joinOpen = isLiveClassJoinOpen(
+        liveClassJoinWindowFromColumns(lc.date, lc.fromTime, lc.toTime),
+        nowMs,
+      );
       return {
         id: lc.id,
         title: toStringValue(lc.title),
@@ -1359,7 +1372,7 @@ export class EngagementService {
         from_time: timeColumnToString(lc.fromTime),
         to_time: timeColumnToString(lc.toTime),
         platform: toStringValue(lc.platform),
-        join_url: toStringValue(lc.join_url),
+        join_url: joinOpen ? toStringValue(lc.join_url) : '',
         zoom_id: toStringValue(lc.zoom_id),
         password: toStringValue(lc.password),
         // Null-safe every field: Flutter models type these as non-nullable

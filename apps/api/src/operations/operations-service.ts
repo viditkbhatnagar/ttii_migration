@@ -4160,12 +4160,19 @@ export class OperationsService {
     const batchIds = [...new Set(examRows.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
     const examSubjectIds = [...new Set(examRows.map(e => e.exam_subject_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, batches, questionCounts, childRows, subjectRows] = await Promise.all([
+    const [courses, batches, questionCounts, childRows, subjectRows, scheduledRows] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
       examIds.length > 0 ? this.prisma.exam_questions.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, deleted_at: null }, _count: { id: true } }) : [],
       examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { id: true, parent_exam_id: true } }) : [],
       examSubjectIds.length > 0 ? this.prisma.exam_subjects.findMany({ where: { id: { in: examSubjectIds } }, select: { id: true, subject_title: true } }) : [],
+      // Risha UAT 2026-08-08 — "why is the new exam showing sitting to 1 by
+      // default? This will appear as a single exam then right?" Sittings only
+      // exist once the exam is PUBLISHED, so a draft that already has five
+      // subjects scheduled in Step 2 counted zero children and read "Single" —
+      // exactly the thing she had just been told was fixed. Carry the scheduled
+      // count too, so a draft can say what it is GOING to publish into.
+      examIds.length > 0 ? this.prisma.exam_subjects.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds } }, _count: { id: true } }) : [],
     ]);
 
     const childIdsByParent = new Map<number, number[]>();
@@ -4187,6 +4194,7 @@ export class OperationsService {
     const subjectTitleMap = new Map(subjectRows.map((s) => [s.id, s.subject_title]));
     const qCountMap = new Map(questionCounts.map((qc) => [qc.exam_id, qc._count?.id ?? 0]));
     const aCountMap = new Map(attemptCounts.map((ac) => [ac.exam_id, ac._count?.id ?? 0]));
+    const scheduledCountMap = new Map(scheduledRows.map((sr) => [sr.exam_id, sr._count?.id ?? 0]));
 
     const exams = examRows.map(e => {
       const childIds = childIdsByParent.get(e.id) ?? [];
@@ -4197,7 +4205,12 @@ export class OperationsService {
         batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
         question_count: qCountMap.get(e.id) ?? 0,
         attempt_count: childIds.reduce((sum, cid) => sum + (aCountMap.get(cid) ?? 0), aCountMap.get(e.id) ?? 0),
+        // Materialised sittings, and what Step 2 has scheduled. They differ
+        // only while the exam is unpublished — that gap is what the column has
+        // to communicate rather than silently calling a 5-subject draft
+        // "Single".
         sitting_count: childIds.length,
+        scheduled_sitting_count: scheduledCountMap.get(e.id) ?? 0,
       };
     }) as unknown as SqlRow[];
 

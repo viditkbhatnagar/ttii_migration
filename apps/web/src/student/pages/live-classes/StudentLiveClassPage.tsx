@@ -10,6 +10,12 @@ import {
   List as ListIcon,
   Search,
 } from 'lucide-react';
+import {
+  liveClassJoinOpensLabel,
+  liveClassJoinState,
+  liveClassJoinWindowFromStrings,
+  type LiveClassJoinWindow,
+} from '@ttii/shared-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StudentLoader as PageLoader } from '@/student/components/StudentLoader';
@@ -137,6 +143,27 @@ export default function StudentLiveClassPage({ api, session, onNavigate }: Stude
   const [subjectFilter, setSubjectFilter] = useState('all');
 
   const rows = useMemo(() => data ?? [], [data]);
+
+  // Naji UAT 2026-08-08 — the API withholds join_url until 10 minutes before a
+  // class, so a page left open across that moment would keep showing a locked
+  // button with no URL behind it. Re-fetch exactly when the soonest still-shut
+  // class opens (capped so a far-off class can neither overflow setTimeout's
+  // 32-bit delay nor hold a multi-day timer).
+  useEffect(() => {
+    const now = Date.now();
+    const nextOpen = rows
+      .map((r) =>
+        liveClassJoinWindowFromStrings(asString(r.date), asString(r.from_time), asString(r.to_time)),
+      )
+      .filter((w): w is LiveClassJoinWindow => w !== null)
+      .map((w) => w.opensAtMs)
+      .filter((ms) => ms > now)
+      .sort((a, b) => a - b)[0];
+    if (nextOpen === undefined) return;
+    const delay = Math.min(nextOpen - now + 1000, 6 * 60 * 60 * 1000);
+    const timer = window.setTimeout(() => reload(), delay);
+    return () => window.clearTimeout(timer);
+  }, [rows, reload]);
 
   const courseOptions = useMemo(
     () => [...new Set(rows.map((r) => asString(r.cohort_title)).filter(Boolean))].sort(),
@@ -339,6 +366,14 @@ function LiveClassCard({
   // CTA label tracks the EduPulse reference (Enrol Now / Enrol Class / View Recording).
   const joinLabel = isOngoing ? 'Enrol Now' : 'Enrol Class';
   const hasRecording = asBoolean(row.has_recording);
+  // Naji UAT 2026-08-08 — nobody in before T-10. Same helper the API gates
+  // join_url with, so the button and the payload can never disagree.
+  const joinWindow = liveClassJoinWindowFromStrings(
+    asString(row.date),
+    asString(row.from_time),
+    asString(row.to_time),
+  );
+  const joinState = liveClassJoinState(joinWindow, Date.now());
 
   return (
     <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -423,6 +458,18 @@ function LiveClassCard({
               Recording not available yet
             </span>
           )
+        ) : joinState === 'too_early' && joinWindow ? (
+          // Disabled, and it says exactly when it unlocks — an early click is
+          // what started the meeting (and its throwaway recording) a day ahead
+          // of the 6 Aug class. Wraps instead of overflowing on a phone.
+          <Button
+            disabled
+            aria-disabled="true"
+            className="h-auto min-h-12 w-full whitespace-normal rounded-xl bg-slate-100 px-3 py-3 text-xs font-semibold leading-snug text-student-muted shadow-none hover:bg-slate-100 disabled:opacity-100"
+          >
+            <Clock aria-hidden="true" className="mr-2 size-4 shrink-0" />
+            {liveClassJoinOpensLabel(joinWindow)}
+          </Button>
         ) : joinUrl ? (
           <Button
             asChild
@@ -433,6 +480,10 @@ function LiveClassCard({
               {joinLabel}
             </a>
           </Button>
+        ) : joinState === 'closed' ? (
+          <span className="block w-full rounded-xl bg-slate-50 py-3.5 text-center text-xs font-medium text-student-muted">
+            This session has ended
+          </span>
         ) : (
           <span className="block w-full rounded-xl bg-slate-50 py-3.5 text-center text-xs font-medium text-student-muted">
             Join link not available yet
