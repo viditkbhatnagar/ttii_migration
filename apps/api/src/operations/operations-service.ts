@@ -7,6 +7,9 @@ import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
 // on non-Teams paths.
+// Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
+// agree on what "2:30 PM" means, so both go through this one IST-aware helper.
+import { liveClassJoinWindowFromStrings } from '@ttii/shared-types';
 import type { TeamsHostCandidate, TeamsHostSelection, TeamsMeetingAttempt } from '../integrations/teams-scheduling.js';
 import type { TeamsMeetingService } from '../integrations/teams-meeting-service.js';
 
@@ -2885,10 +2888,25 @@ export class OperationsService {
             );
             break;
           }
-          // Build ISO start/end from date + times (treat times as local; Graph accepts a Z suffix — we use UTC naively).
-          const dateOnly = entry.date; // YYYY-MM-DD
-          const start = new Date(`${dateOnly}T${entry.fromTime.length === 5 ? entry.fromTime + ':00' : entry.fromTime}Z`);
-          const end = new Date(`${dateOnly}T${entry.toTime.length === 5 ? entry.toTime + ':00' : entry.toTime}Z`);
+          // Naji UAT 2026-08-10 — this used to build the Graph payload as
+          // `${date}T${time}Z`, i.e. it stamped an IST wall clock with a UTC
+          // suffix. A 2:30 PM Kochi class was handed to Microsoft as 14:30 UTC,
+          // so every Teams meeting carried a start time 5h30m late (8:00 PM IST).
+          // It was invisible from the portal — students join through the LMS and
+          // our own join gate computes IST correctly — but the meeting Teams
+          // itself shows was simply the wrong hour. Convert properly, via the
+          // same helper the join gate uses so the two can never disagree.
+          // The helper returns null on a date/time it cannot parse. Refuse the
+          // entry rather than fall back to the old naive construction — booking
+          // a real class at a knowably wrong hour is worse than not booking it.
+          const graphWindow = liveClassJoinWindowFromStrings(entry.date, entry.fromTime, entry.toTime);
+          if (!graphWindow) {
+            failedCount += 1;
+            errors.push(`Could not read the date/time for "${entry.title}" (${entry.date} ${entry.fromTime}-${entry.toTime}), so no Teams meeting was created.`);
+            continue;
+          }
+          const start = new Date(graphWindow.startMs);
+          const end = new Date(graphWindow.endMs);
           // Marks the winning host policy-verified and clears its last_error;
           // records (and, for a mailbox that does not exist, deactivates) any
           // host that fails.

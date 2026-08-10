@@ -1,8 +1,21 @@
+import { describe } from 'vitest';
+
 import { createPrismaClient } from '../../src/data/prisma-client.js';
+import { hasTestDatabase, testDatabaseUrl } from './test-db-url.js';
 
-const databaseUrl = process.env.DATABASE_URL ?? 'file:./prisma/test.db';
+export const prisma = createPrismaClient(testDatabaseUrl);
 
-export const prisma = createPrismaClient(databaseUrl);
+export { hasTestDatabase };
+
+/**
+ * `describe` for suites that need a live database.
+ *
+ * Use this instead of a bare `describe` in any suite that calls
+ * `resetParityTables()` or otherwise queries `prisma`. Without a mysql://
+ * `DATABASE_URL` the whole suite is reported as skipped rather than failing —
+ * see `tests/global-setup.ts` for the one-line note printed per run.
+ */
+export const describeWithDatabase = describe.skipIf(!hasTestDatabase);
 
 const resetTablesInOrder = [
   'zoom_history',

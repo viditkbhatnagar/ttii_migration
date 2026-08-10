@@ -1,7 +1,7 @@
 // @ts-nocheck
  
 // TODO: re-enable after migration — fixtures predate MySQL migration
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, expect, it } from 'vitest';
 
 import { hashPassword } from '../../src/auth/password.js';
 import { buildApp } from '../../src/app.js';
@@ -17,7 +17,7 @@ import type {
   StorageUploadRequest,
   StorageUploadResult,
 } from '../../src/integrations/contracts.js';
-import { prisma, resetParityTables } from '../data/test-db.js';
+import { describeWithDatabase, prisma, resetParityTables } from '../data/test-db.js';
 
 const emailCalls: EmailSendRequest[] = [];
 const otpCalls: OtpDispatchRequest[] = [];
@@ -67,7 +67,7 @@ const integrations: IntegrationRegistry = {
   openai: new MockOpenAiProvider(),
 };
 
-describe('auth integration wiring', () => {
+describeWithDatabase('auth integration wiring', () => {
   const app = buildApp({ integrations });
 
   beforeEach(async () => {

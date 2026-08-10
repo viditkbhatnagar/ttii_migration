@@ -1,13 +1,13 @@
 // @ts-nocheck
  
 // TODO: re-enable after migration — fixtures predate MySQL migration
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, expect, it } from 'vitest';
 
 import { EnrolRepository } from '../../src/data/repositories/enrol.repository.js';
 import { UsersRepository } from '../../src/data/repositories/users.repository.js';
-import { prisma, resetParityTables } from './test-db.js';
+import { describeWithDatabase, prisma, resetParityTables } from './test-db.js';
 
-describe('EnrolRepository parity semantics', () => {
+describeWithDatabase('EnrolRepository parity semantics', () => {
   const usersRepository = new UsersRepository(prisma.users);
   const enrolRepository = new EnrolRepository(prisma.enrol);
 

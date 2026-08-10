@@ -1,12 +1,12 @@
 // @ts-nocheck
  
 // TODO: re-enable after migration — fixtures predate MySQL migration
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, expect, it } from 'vitest';
 
 import { withTransaction } from '../../src/data/transaction.js';
-import { prisma, resetParityTables } from './test-db.js';
+import { describeWithDatabase, prisma, resetParityTables } from './test-db.js';
 
-describe('Transaction parity patterns', () => {
+describeWithDatabase('Transaction parity patterns', () => {
   beforeEach(async () => {
     await resetParityTables();
   });

@@ -1,5 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 
+// Naji UAT 2026-08-10 — one IST-aware source of truth for a class's real
+// instant, shared with the admin scheduler and the student join gate.
+import { liveClassJoinWindowFromStrings } from '@ttii/shared-types';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { AnnouncementService } from '../operations/announcement-service.js';
@@ -910,17 +913,28 @@ export class InstructorService {
       };
     }
 
-    // Build ISO start/end the same way the admin/centre flow does (times treated
-    // as UTC-naive with a Z suffix) so both flows behave identically.
-    const toIso = (t: string): string =>
-      new Date(`${date}T${t.length === 5 ? `${t}:00` : t}Z`).toISOString();
+    // Naji UAT 2026-08-10 — this used to stamp an IST wall clock with a UTC
+    // suffix (`${date}T${time}Z`), so a 2:30 PM class reached Microsoft as
+    // 14:30 UTC and the Teams meeting read 8:00 PM IST. Same helper as the admin
+    // flow and the student join gate, so all three agree on the instant.
+    // Null when the date/time cannot be parsed. Refuse rather than fall back to
+    // the old naive construction — a class booked at a knowably wrong hour is
+    // worse than one not booked.
+    const graphWindow = liveClassJoinWindowFromStrings(date, fromTime, toTime);
+    if (!graphWindow) {
+      return {
+        ok: false,
+        code: 'invalid',
+        message: `Could not read the session date/time (${date} ${fromTime}-${toTime}). Please re-enter them and try again.`,
+      };
+    }
 
     // Stamps policy_verified_at + clears last_error on the winner, records the
     // error against (and deactivates) any host Graph says does not exist.
     const attempt = await createTeamsMeetingOnFirstWorkingHost(this.prisma, teamsService, assignment.candidates, {
       subject: title,
-      startDateTime: toIso(fromTime),
-      endDateTime: toIso(toTime),
+      startDateTime: new Date(graphWindow.startMs).toISOString(),
+      endDateTime: new Date(graphWindow.endMs).toISOString(),
     });
     if (!attempt.ok) {
       return { ok: false, code: 'invalid', message: `Could not create the Teams meeting: ${attempt.message}` };

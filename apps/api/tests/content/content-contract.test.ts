@@ -2,12 +2,12 @@
  
 // TODO: re-enable after migration — fixtures and Fastify inject usage predate MySQL migration
 import { Prisma } from '@prisma/client';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, expect, it } from 'vitest';
 
 import { resetAuthRateLimitersForTests } from '../../src/auth/auth-service.js';
 import { hashPassword } from '../../src/auth/password.js';
 import { buildApp } from '../../src/app.js';
-import { prisma, resetParityTables } from '../data/test-db.js';
+import { describeWithDatabase, prisma, resetParityTables } from '../data/test-db.js';
 
 const COURSE_ID = 101;
 const CATEGORY_ID = 1;
@@ -291,7 +291,7 @@ async function seedContentFixture(app: ReturnType<typeof buildApp>): Promise<{ a
   };
 }
 
-describe('Phase 06 catalog + content parity contracts', () => {
+describeWithDatabase('Phase 06 catalog + content parity contracts', () => {
   const app = buildApp();
 
   beforeEach(async () => {

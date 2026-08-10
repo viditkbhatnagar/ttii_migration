@@ -1,14 +1,14 @@
 // @ts-nocheck
  
 // TODO: re-enable after migration — fixtures and Fastify inject usage predate MySQL migration
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, expect, it } from 'vitest';
 
 import { hashPassword } from '../../src/auth/password.js';
 import { resetAuthRateLimitersForTests } from '../../src/auth/auth-service.js';
 import { buildApp } from '../../src/app.js';
-import { prisma, resetParityTables } from '../data/test-db.js';
+import { describeWithDatabase, prisma, resetParityTables } from '../data/test-db.js';
 
-describe('Phase 04 auth + RBAC + security parity', () => {
+describeWithDatabase('Phase 04 auth + RBAC + security parity', () => {
   const app = buildApp();
 
   beforeEach(async () => {
