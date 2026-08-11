@@ -9,7 +9,7 @@ import { env } from '../env.js';
 // on non-Teams paths.
 // Naji UAT 2026-08-10 — the Graph meeting payload and the student join gate must
 // agree on what "2:30 PM" means, so both go through this one IST-aware helper.
-import { liveClassJoinWindowFromStrings } from '@ttii/shared-types';
+import { liveClassJoinWindowFromStrings, IMPORTED_LIVE_SESSION_PLATFORM } from '@ttii/shared-types';
 import type { TeamsHostCandidate, TeamsHostSelection, TeamsMeetingAttempt } from '../integrations/teams-scheduling.js';
 import type { TeamsMeetingService } from '../integrations/teams-meeting-service.js';
 
@@ -499,6 +499,163 @@ export type AddLiveClassInput = {
   /** For platform === 'manual' | 'other': trainer-supplied join URL. */
   manualJoinUrl?: string | undefined;
 };
+
+// Naji UAT 2026-08-11 — "Link Existing Recorded Session". A new cohort studying
+// a subject that has already been taught should be able to reuse the earlier
+// term's recordings, instead of the trainer re-recording every session or the
+// students having no catch-up material at all.
+//
+// live_class has NO subject_id. The subject is reached through the cohort
+// (cohorts.subject_id), so "every past session of this subject" means "every
+// session of every OTHER cohort that shares this cohort's subject_id".
+export type CohortRecordedSession = {
+  id: number;
+  title: string;
+  /** IST calendar day as 'YYYY-MM-DD'; '' for a legacy row with a NULL date. */
+  date: string;
+  from_time: string;
+  to_time: string;
+  cohort_title: string;
+  /**
+   * Where the media actually lives. BOTH sources are live and are deliberately
+   * never consolidated: Teams meetings sync to DO Spaces and land in
+   * recording_url / recording_storage_key, while legacy course videos sit on
+   * Vimeo in video_url. Subject 26 (Communicative English) has 59 recorded
+   * sessions and every single one of them is video_url — a reader that only
+   * looks at recording_url reports that subject as having nothing to import.
+   */
+  source: 'teams' | 'video';
+  already_imported: boolean;
+};
+
+export type CohortRecordedSessionMonth = {
+  year: number;
+  /** 1-12, not the 0-based JS month. */
+  month: number;
+  /** e.g. 'May 2026'. */
+  label: string;
+  session_count: number;
+  already_imported: number;
+  sessions: CohortRecordedSession[];
+};
+
+/**
+ * How an imported row is marked.
+ *
+ * `platform` is the column every consumer already switches on to answer "how
+ * does anyone get into this session" (admin ViewCohortPage, the student
+ * live-class mapper, the Teams artifacts sync job), and for an imported row the
+ * honest answer is "you don't — there is only a recording". Marking it here
+ * rather than on the otherwise-dead `live_type` column is not cosmetic; two
+ * queries in this codebase select on `platform: 'teams'` and both would misfire
+ * on a copy that kept the source's platform:
+ *   - jobs/teams-artifacts-sync.ts would treat the copy as a live meeting and
+ *     re-fetch (or overwrite) its recording against a Graph meeting it does not
+ *     own;
+ *   - content/certificate-service.ts aggregateStudentCohortAttendance counts
+ *     platform='teams' sessions as the attendance DENOMINATOR, so importing 18
+ *     past sessions would drop every learner in the new cohort to a fraction of
+ *     their real attendance and break certificate eligibility.
+ * Neither can happen with 'recorded'. No DDL either.
+ *
+ * Naji UAT 2026-08-11 — the value itself lives in @ttii/shared-types so the API
+ * writer and the admin reader cannot drift apart again. They already did once:
+ * the API wrote 'recorded' while the admin page tested for 'imported' (on
+ * `live_type`, an Int the import never sets), so the "Linked" badge never
+ * rendered and an imported session was indistinguishable from a real one.
+ */
+export const IMPORTED_SESSION_PLATFORM = IMPORTED_LIVE_SESSION_PLATFORM;
+
+/** Reads as "past/recorded" wherever the raw column surfaces; never 'scheduled'. */
+export const IMPORTED_SESSION_STATUS = 'recorded';
+
+/**
+ * Provenance, and the whole of the idempotency story: `IMP-<source live_class
+ * id>` in session_id is the only thing on the copy that records WHICH past
+ * session it came from, so a second import of the same month is skipped instead
+ * of duplicated (an admin WILL press the button twice). session_id is free-form
+ * (@db.MediumText — the scheduler writes `LS-<timestamp>`) and is surfaced in
+ * the admin list as the session's "ID", so the marker stays legible to a human
+ * reading the row.
+ */
+const IMPORTED_SESSION_ID_PREFIX = 'IMP-';
+const IMPORTED_SESSION_ID_PATTERN = /^IMP-(\d+)$/;
+
+export function importedSourceLiveClassId(sessionId: string | null | undefined): number | null {
+  const match = IMPORTED_SESSION_ID_PATTERN.exec((sessionId ?? '').trim());
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+const MONTH_LABELS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+/**
+ * live_class.date is @db.Date: Prisma hands it back as UTC midnight of the
+ * stored calendar day, and that stored day IS the IST calendar day. Read it
+ * with the UTC getters — the local getters would shift the day (and therefore
+ * the MONTH, on the 1st) on any process not running UTC.
+ *
+ * Do NOT derive the month from the session's UTC start instant instead: a class
+ * on 1 Jun at 00:30 IST starts at 2026-05-31T19:00Z and would be filed in May.
+ */
+export function istCalendarParts(date: Date | null | undefined): { year: number; month: number; day: number } | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+export function istCalendarDateString(date: Date | null | undefined): string {
+  const parts = istCalendarParts(date);
+  if (!parts) return '';
+  return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+/** Prisma anchors a @db.Time at 1970-01-01T<hh:mm:ss>Z — read it with the UTC getters. */
+function liveClassTimeString(value: Date | null | undefined): string {
+  if (!value || Number.isNaN(value.getTime())) return '';
+  const hours = String(value.getUTCHours()).padStart(2, '0');
+  const minutes = String(value.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(value.getUTCSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+/**
+ * A session counts as recorded when EITHER source has media. The `not: null`
+ * Prisma filter is not enough on its own — legacy rows store '' rather than
+ * NULL, and an empty string is not an importable recording.
+ */
+export function hasRecordedMedia(row: {
+  recording_url: string | null;
+  recording_storage_key: string | null;
+  video_url: string | null;
+}): boolean {
+  return (row.recording_url ?? '').trim() !== ''
+    || (row.recording_storage_key ?? '').trim() !== ''
+    || (row.video_url ?? '').trim() !== '';
+}
+
+/**
+ * Naji UAT 2026-08-11 — losing a Serializable race is a NORMAL outcome of the
+ * import, not a bug: two admins pressing "Import all 18" on the same cohort
+ * both gap-lock the cohort's live_class range, and InnoDB rolls one back as the
+ * deadlock/lock-wait victim so the other can commit. Nothing was written by the
+ * loser, so the honest answer is "retry", not a 500 with a Prisma error code in
+ * it. P2034 is Prisma's write-conflict/deadlock code and P2028 is the
+ * transaction-API error a timed-out wait surfaces as; the message checks catch
+ * the same conditions when the driver reports them raw.
+ */
+export function isImportContentionError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === 'P2034' || error.code === 'P2028')) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  return message.includes('deadlock')
+    || message.includes('lock wait timeout')
+    || message.includes('write conflict');
+}
 
 export type ResourceListInput = {
   folderId: string;
@@ -2995,6 +3152,417 @@ export class OperationsService {
     return {
       success: true,
       message: `${successCount} live class(es) added successfully, ${failedCount} failed!`,
+    };
+  }
+
+  /**
+   * Naji UAT 2026-08-11 — step 1 of "Link Existing Recorded Session": what is
+   * there for THIS cohort to import.
+   *
+   * Resolves the cohort's subject, then every recorded session of every other
+   * cohort teaching that subject, grouped by IST year/month with a per-month
+   * count so the admin can take a whole month's batch in one click.
+   *
+   * Read-only. Nothing here touches the source rows — the original cohort keeps
+   * its sessions exactly as they are, which also means an old cohort's students
+   * never lose access to their own recordings.
+   */
+  async listCohortRecordedSessions(cohortId: string): Promise<Record<string, unknown>> {
+    // Every list field is always [] and never null — the shape the UI (and the
+    // Flutter client, which types these as non-nullable Lists) parses.
+    const emptyData = (subjectId: number | null, subjectTitle: string): Record<string, unknown> => ({
+      subject_id: subjectId,
+      subject_title: subjectTitle,
+      months: [] as CohortRecordedSessionMonth[],
+    });
+
+    const cohortIdInt = toNullableIntId(cohortId);
+    if (cohortIdInt === null) {
+      return { status: 0, message: 'Invalid cohort id.', data: emptyData(null, '') };
+    }
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cohortIdInt, deleted_at: null },
+      select: { id: true, title: true, subject_id: true },
+    });
+    if (!cohort) {
+      return { status: 0, message: 'Cohort not found.', data: emptyData(null, '') };
+    }
+
+    // Some cohorts genuinely have subject_id NULL. There is nothing to match
+    // past sessions against, so return an empty month list and a sentence the
+    // UI can render — never a 500 on a data shape that exists in production.
+    if (cohort.subject_id === null) {
+      return {
+        status: 1,
+        message: 'This cohort has no subject set, so there are no past sessions to link. Set a subject on the cohort first.',
+        data: emptyData(null, ''),
+      };
+    }
+
+    const subject = await this.prisma.subject.findFirst({
+      where: { id: cohort.subject_id },
+      select: { id: true, title: true },
+    });
+    const subjectTitle = subject?.title ?? '';
+    const subjectLabel = subjectTitle || 'this subject';
+
+    const sourceCohorts = await this.prisma.cohorts.findMany({
+      where: { subject_id: cohort.subject_id, deleted_at: null, id: { not: cohort.id } },
+      select: { id: true, title: true },
+    });
+    if (sourceCohorts.length === 0) {
+      return {
+        status: 1,
+        message: `No other cohort has taught ${subjectLabel} yet, so there is nothing to link.`,
+        data: emptyData(cohort.subject_id, subjectTitle),
+      };
+    }
+
+    const sourceCohortTitleById = new Map(sourceCohorts.map((c) => [c.id, c.title ?? '']));
+    const sourceCohortIds = sourceCohorts.map((c) => c.id);
+
+    const [candidateRows, ownRows] = await Promise.all([
+      this.prisma.live_class.findMany({
+        where: {
+          cohort_id: { in: sourceCohortIds },
+          deleted_at: null,
+          // BOTH recording sources — see CohortRecordedSession.source. The
+          // non-empty check is hasRecordedMedia below; this OR only narrows the
+          // read.
+          OR: [
+            { recording_url: { not: null } },
+            { recording_storage_key: { not: null } },
+            { video_url: { not: null } },
+          ],
+        },
+        select: {
+          id: true,
+          title: true,
+          session_id: true,
+          cohort_id: true,
+          date: true,
+          fromTime: true,
+          toTime: true,
+          recording_url: true,
+          recording_storage_key: true,
+          video_url: true,
+        },
+        // Oldest first, so a month's sessions read 1 → 18 in the picker. The
+        // month buckets themselves are sorted newest-first at the end.
+        orderBy: [{ date: 'asc' }, { fromTime: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.live_class.findMany({
+        where: { cohort_id: cohort.id, deleted_at: null },
+        select: { session_id: true },
+      }),
+    ]);
+
+    const importedSourceIds = new Set<number>();
+    for (const row of ownRows) {
+      const sourceId = importedSourceLiveClassId(row.session_id);
+      if (sourceId !== null) importedSourceIds.add(sourceId);
+    }
+
+    const monthByKey = new Map<string, CohortRecordedSessionMonth>();
+    let undatedCount = 0;
+    for (const row of candidateRows) {
+      if (!hasRecordedMedia(row)) continue;
+      // Only ever offer a session that was actually CONDUCTED. Once cohort A has
+      // imported from cohort B, A holds a copy carrying the same recording; with
+      // three cohorts of one subject a naive pool would offer B's original and
+      // A's copy of it as two separate sessions, and the target could take both.
+      if (importedSourceLiveClassId(row.session_id) !== null) continue;
+      const parts = istCalendarParts(row.date);
+      if (parts === null) {
+        // A NULL date cannot be filed under a year/month. Counting it and
+        // saying so in the message beats quietly dropping it into whichever
+        // month happens to be current.
+        undatedCount += 1;
+        continue;
+      }
+
+      const key = `${parts.year}-${String(parts.month).padStart(2, '0')}`;
+      let bucket = monthByKey.get(key);
+      if (!bucket) {
+        bucket = {
+          year: parts.year,
+          month: parts.month,
+          label: `${MONTH_LABELS[parts.month - 1] ?? ''} ${parts.year}`.trim(),
+          session_count: 0,
+          already_imported: 0,
+          sessions: [],
+        };
+        monthByKey.set(key, bucket);
+      }
+
+      const alreadyImported = importedSourceIds.has(row.id);
+      const hasTeamsRecording =
+        (row.recording_url ?? '').trim() !== '' || (row.recording_storage_key ?? '').trim() !== '';
+      bucket.sessions.push({
+        id: row.id,
+        title: row.title,
+        date: istCalendarDateString(row.date),
+        from_time: liveClassTimeString(row.fromTime),
+        to_time: liveClassTimeString(row.toTime),
+        cohort_title: row.cohort_id !== null ? sourceCohortTitleById.get(row.cohort_id) ?? '' : '',
+        source: hasTeamsRecording ? 'teams' : 'video',
+        already_imported: alreadyImported,
+      });
+      bucket.session_count += 1;
+      if (alreadyImported) bucket.already_imported += 1;
+    }
+
+    const months = [...monthByKey.values()].sort((a, b) => (b.year - a.year) || (b.month - a.month));
+    const totalSessions = months.reduce((sum, month) => sum + month.session_count, 0);
+
+    const undatedNote = undatedCount > 0
+      ? `${undatedCount} recorded session(s) are not listed because they have no date on record and cannot be grouped by month.`
+      : '';
+
+    let message: string;
+    if (totalSessions > 0) {
+      message = undatedNote || 'success';
+    } else if (undatedNote) {
+      // There ARE recordings — they just cannot be filed under a month. Saying
+      // "nothing recorded yet" here would be a lie the admin cannot act on.
+      message = `No earlier cohort of ${subjectLabel} has a recorded session that can be grouped by month. ${undatedNote}`;
+    } else {
+      message = `No earlier cohort of ${subjectLabel} has a recorded session yet, so there is nothing to link.`;
+    }
+
+    return {
+      status: 1,
+      message,
+      data: {
+        subject_id: cohort.subject_id,
+        subject_title: subjectTitle,
+        months,
+      },
+    };
+  }
+
+  /**
+   * Naji UAT 2026-08-11 — step 2 of "Link Existing Recorded Session": copy the
+   * chosen sessions' RECORDING REFERENCES onto new live_class rows of the target
+   * cohort. No media is moved or re-uploaded and no source row is touched.
+   *
+   * WHY copy rather than point at the old row: recording access is authorised by
+   * cohort membership (engagement-service.getStudentLiveRecordingTarget checks
+   * cohort_students for the row's own cohort_id), so a learner in the NEW cohort
+   * can only reach the recording through a row that belongs to their cohort.
+   *
+   * An import never creates a Teams meeting and never touches the host pool —
+   * there is no meeting to join, so join_url / external_meeting_id / host_email /
+   * zoom_id / password are all NULL, and the row is marked
+   * platform=IMPORTED_SESSION_PLATFORM so no Teams-scoped query can mistake it
+   * for a live one.
+   */
+  async importCohortRecordedSessions(
+    actorUserId: string,
+    cohortId: string,
+    sessionIds: number[],
+  ): Promise<Record<string, unknown>> {
+    const fail = (message: string): Record<string, unknown> => ({
+      status: 0,
+      message,
+      data: { imported: 0, skipped: 0, message },
+    });
+
+    const cohortIdInt = toNullableIntId(cohortId);
+    if (cohortIdInt === null) return fail('Invalid cohort id.');
+
+    // Dedupe up front: the UI posts a whole month's batch and an admin WILL
+    // double-click, so the same id can arrive twice inside one request.
+    const requestedIds = [...new Set(sessionIds.filter((id) => Number.isInteger(id) && id > 0))];
+    if (requestedIds.length === 0) return fail('No sessions selected to link.');
+
+    const cohort = await this.prisma.cohorts.findFirst({
+      where: { id: cohortIdInt, deleted_at: null },
+      select: { id: true, subject_id: true, course_id: true },
+    });
+    if (!cohort) return fail('Cohort not found.');
+    if (cohort.subject_id === null) {
+      return fail('This cohort has no subject set, so there are no past sessions to link.');
+    }
+
+    const sourceCohorts = await this.prisma.cohorts.findMany({
+      where: { subject_id: cohort.subject_id, deleted_at: null, id: { not: cohort.id } },
+      select: { id: true },
+    });
+    if (sourceCohorts.length === 0) {
+      return fail('No other cohort has taught this subject yet, so there is nothing to link.');
+    }
+
+    // Never trust the posted id list. Every id is re-resolved against the same
+    // rule the picker used — a recorded session, of ANOTHER cohort, teaching
+    // THIS cohort's subject, not soft-deleted — so a hand-crafted request cannot
+    // pull an unrelated subject's session (or a session with no recording at
+    // all) into this cohort.
+    //
+    // Read outside the transaction on purpose: these rows belong to the OTHER
+    // cohorts and are never written here, so there is nothing to serialize
+    // against and no reason to widen the lock range to their sessions.
+    const sourceRows = await this.prisma.live_class.findMany({
+      where: {
+        id: { in: requestedIds },
+        cohort_id: { in: sourceCohorts.map((c) => c.id) },
+        deleted_at: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        session_id: true,
+        date: true,
+        fromTime: true,
+        toTime: true,
+        recording_url: true,
+        recording_storage_key: true,
+        recording_duration_seconds: true,
+        video_url: true,
+      },
+    });
+
+    // Same eligibility rule as the picker — every clause of it.
+    //
+    // Naji UAT 2026-08-11 — the date clause is the one the first cut left out,
+    // and it is not cosmetic. listCohortRecordedSessions refuses to bucket a
+    // recorded session with a NULL date (production HAS these; the picker counts
+    // them and says so), but the POST re-validated everything EXCEPT that and
+    // then copied the null through. engagement-service maps a null date to
+    // status 'upcoming' and the join-window helper returns null, so the cohort
+    // gets a permanent phantom class reading "Join link not available yet" that
+    // can never age out — for every enrolled student. Unreachable from the UI,
+    // which is exactly why the server has to be the one enforcing it.
+    const eligibleById = new Map(
+      sourceRows
+        .filter((row) => hasRecordedMedia(row)
+          && importedSourceLiveClassId(row.session_id) === null
+          && istCalendarParts(row.date) !== null)
+        .map((row) => [row.id, row]),
+    );
+
+    const now = new Date();
+    const courseId = String(cohort.course_id ?? '');
+
+    // Naji UAT 2026-08-11 — the already-imported read and the inserts it guards
+    // MUST be one transaction. Two admins with the same LIVE cohort open both
+    // read zero IMP- markers and both loops insert, so a month lands twice: 36
+    // rows where 18 classes ran, visible to every enrolled student in
+    // /student/live_classes and the Flutter bucket, and re-running the import
+    // does NOT clean it up — it only skips.
+    //
+    // Serializable is the fix that needs no DDL: on InnoDB the cohort_id scan
+    // takes next-key/gap locks over the range it read, so the second
+    // transaction cannot insert against a stale read — it waits for the first to
+    // commit and then sees its markers, or it is rolled back as the deadlock
+    // victim (handled below). EVERY query inside uses `tx`; a stray
+    // `this.prisma` call in here would run on its own connection, outside the
+    // transaction, and silently defeat all of it.
+    let outcome: { imported: number; skipped: number; rejected: number };
+    try {
+      outcome = await this.prisma.$transaction(
+        async (tx) => {
+          const ownRows = await tx.live_class.findMany({
+            where: { cohort_id: cohort.id, deleted_at: null },
+            select: { session_id: true },
+          });
+          const importedSourceIds = new Set<number>();
+          for (const row of ownRows) {
+            const sourceId = importedSourceLiveClassId(row.session_id);
+            if (sourceId !== null) importedSourceIds.add(sourceId);
+          }
+
+          let importedCount = 0;
+          let skippedCount = 0;
+          let rejectedCount = 0;
+
+          for (const sessionId of requestedIds) {
+            const source = eligibleById.get(sessionId);
+            if (!source) {
+              rejectedCount += 1;
+              continue;
+            }
+            if (importedSourceIds.has(sessionId)) {
+              skippedCount += 1;
+              continue;
+            }
+
+            await tx.live_class.create({
+              data: {
+                cohort_id: cohort.id,
+                session_id: `${IMPORTED_SESSION_ID_PREFIX}${source.id}`,
+                title: source.title,
+                // The TARGET cohort's course — this is a different offering of
+                // the same subject, so the course link must NOT come from the
+                // source.
+                course_id: courseId,
+                // @db.Date / @db.Time columns copied as Date objects, never via
+                // a 'YYYY-MM-DD' string round-trip (which would re-parse as UTC
+                // midnight and shift the day in IST).
+                date: source.date,
+                fromTime: source.fromTime,
+                toTime: source.toTime,
+                status: IMPORTED_SESSION_STATUS,
+                platform: IMPORTED_SESSION_PLATFORM,
+                is_repetitive: 0,
+                // There is no meeting behind an imported row.
+                join_url: null,
+                external_meeting_id: null,
+                host_email: null,
+                zoom_id: null,
+                password: null,
+                // The recording REFERENCE, both sources. Nothing is copied in
+                // storage.
+                recording_url: source.recording_url,
+                recording_storage_key: source.recording_storage_key,
+                recording_duration_seconds: source.recording_duration_seconds,
+                video_url: source.video_url,
+                created_by: toNullableIntId(actorUserId),
+                updated_by: toNullableIntId(actorUserId),
+                created_at: now,
+                updated_at: now,
+              },
+            });
+
+            importedSourceIds.add(sessionId);
+            importedCount += 1;
+          }
+
+          return { imported: importedCount, skipped: skippedCount, rejected: rejectedCount };
+        },
+        {
+          isolationLevel: 'Serializable',
+          // A month is ~18 sequential inserts and the second admin now queues
+          // behind them, so the Prisma defaults (2s to acquire, 5s to run) would
+          // turn an ordinary wait into a false failure.
+          maxWait: 10_000,
+          timeout: 30_000,
+        },
+      );
+    } catch (error: unknown) {
+      if (isImportContentionError(error)) {
+        return fail('Another import is already running for this cohort. Nothing was linked — please retry in a moment.');
+      }
+      throw error;
+    }
+
+    const { imported, skipped, rejected } = outcome;
+
+    const parts: string[] = [];
+    if (imported > 0) parts.push(`${imported} recorded session(s) linked to this cohort.`);
+    if (skipped > 0) parts.push(`${skipped} were already linked and were left untouched.`);
+    if (rejected > 0) {
+      parts.push(`${rejected} could not be linked — they are not recorded sessions of this cohort's subject.`);
+    }
+    const message = parts.length > 0 ? parts.join(' ') : 'Nothing to link.';
+
+    return {
+      // Nothing imported AND nothing recognised as already-imported means the
+      // whole request was rejected — report that as a failure, not a silent 200.
+      status: imported > 0 || skipped > 0 ? 1 : 0,
+      message,
+      data: { imported, skipped, message },
     };
   }
 

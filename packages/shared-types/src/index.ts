@@ -71,3 +71,10 @@ export interface LegacyAuthMeResponse {
     role_id: number;
   };
 }
+
+// Naji UAT 2026-08-11 — the "Linked" session marker, shared so the API writer
+// and the admin reader cannot drift apart again (they already did once).
+export {
+  IMPORTED_LIVE_SESSION_PLATFORM,
+  isImportedLiveSessionPlatform,
+} from './imported-live-session.js';

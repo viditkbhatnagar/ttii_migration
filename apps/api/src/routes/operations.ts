@@ -4640,6 +4640,35 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
+  // Naji UAT 2026-08-11 — "Link Existing Recorded Session". The class-creation
+  // flow now offers "Create New Live Class" or "Link Existing Recorded Session";
+  // these two back the second option. Same guard as every sibling cohort route.
+  app.get('/admin/cohort/recorded-sessions', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await operationsService.listCohortRecordedSessions(toStringValue(payload.cohort_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/cohort/recorded-sessions/import', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      // Accept both the JSON array the modal posts and the comma-separated
+      // string a form-encoded client would send (mirrors add_learners).
+      const raw = payload.session_ids;
+      const sessionIds = (Array.isArray(raw) ? raw : toStringValue(raw).split(','))
+        .map((value) => toInteger(value))
+        .filter((id) => id > 0);
+      const result = await operationsService.importCohortRecordedSessions(
+        requestUserId(request),
+        toStringValue(payload.cohort_id),
+        sessionIds,
+      );
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
   app.post('/admin/cohorts/update_recording', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

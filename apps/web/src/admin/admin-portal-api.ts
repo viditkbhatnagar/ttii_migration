@@ -1,4 +1,5 @@
 import { type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
+import { isImportedLiveSessionPlatform } from '@ttii/shared-types';
 
 interface LegacyEnvelope<T> {
   data?: T;
@@ -46,6 +47,11 @@ function asNumber(value: unknown): number {
   }
 
   return 0;
+}
+
+// Legacy routes answer booleans as 1/0/'1' at least as often as true/false.
+function asFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
 }
 
 function toRecords(value: unknown): Record<string, unknown>[] {
@@ -289,6 +295,184 @@ export interface AdminCallLogPage {
   perPage: number;
   totalRows: number | null;
   data: AdminCallLog[];
+}
+
+/* ── Link Existing Recorded Session (TTII 2026-08-11) ────────────────────
+   A new cohort studying the same subject reuses last term's recordings
+   instead of the trainer re-recording them. `live_class` has NO subject_id,
+   so the server reaches the history subject-first via cohorts.subject_id.
+
+   `source` exists because there are TWO recording stores and they are
+   deliberately NOT consolidated: Teams meetings sync to DO Spaces
+   (recording_url) while legacy course videos live on Vimeo (video_url).
+   Filtering on recording_url alone would show ZERO importable sessions for
+   Communicative English, whose 59 recorded sessions are all video_url. */
+export type AdminRecordedSessionSource = 'teams' | 'video';
+
+/**
+ * The `platform` value the API writes on a live_class row created by an import.
+ *
+ * The value now lives in @ttii/shared-types and is re-exported here so existing
+ * admin imports keep working. It first shipped declared once per tier and the
+ * two drifted immediately: the API wrote 'recorded' while ViewCohortPage tested
+ * for 'imported' (on `platform` OR `live_type`, an Int the import never sets),
+ * matched neither, and so never rendered the "Linked" badge — an imported
+ * session looked exactly like one the cohort had actually run.
+ *
+ * The value is load-bearing on the server, so do not "fix" it by changing it.
+ * jobs/teams-artifacts-sync and content/certificate-service both select
+ * platform='teams'; a copy that kept the source's platform would be re-swept
+ * against a Graph meeting it does not own AND counted in the certificate
+ * attendance denominator, dropping every learner in the new cohort to a
+ * fraction of their real attendance.
+ */
+export { IMPORTED_LIVE_SESSION_PLATFORM } from '@ttii/shared-types';
+
+/** True for a live_class row that came from "Link Existing Recorded Session"
+ *  rather than from a class this cohort actually ran. */
+export function isImportedLiveSession(session: Record<string, unknown>): boolean {
+  return isImportedLiveSessionPlatform(asString(session.platform));
+}
+
+/**
+ * A `video_url` that is safe to hand straight to window.open, or '' if it is
+ * not. Legacy rows hold anything — a bare path, a note, a Vimeo id — and
+ * window.open resolves a non-absolute string RELATIVE to the current origin, so
+ * the admin gets navigated off admin.teachersindia.in to a 404 instead of being
+ * told the recording is not available. The signed-URL route that used to serve
+ * these validated the scheme server-side; opening the link directly moves that
+ * check here.
+ */
+export function externalRecordingUrl(value: unknown): string {
+  const raw = asString(value);
+  return /^https?:\/\//i.test(raw) ? raw : '';
+}
+
+export interface AdminRecordedSession {
+  id: number;
+  title: string;
+  /** 'YYYY-MM-DD' (or ISO). '' when the source row has a NULL date. */
+  date: string;
+  /** 'HH:MM' IST wall clock, normalised off the @db.Time epoch string. */
+  fromTime: string;
+  toTime: string;
+  /** Cohort the recording was originally made for — the "borrowed from" hint. */
+  cohortTitle: string;
+  source: AdminRecordedSessionSource;
+  alreadyImported: boolean;
+}
+
+export interface AdminRecordedSessionMonth {
+  year: number;
+  /** 1-12. 0 when the server could not bucket the rows (NULL dates). */
+  month: number;
+  label: string;
+  sessionCount: number;
+  alreadyImported: boolean;
+  sessions: AdminRecordedSession[];
+}
+
+export interface AdminRecordedSessionHistory {
+  /** '' means the cohort has NO subject set — a different empty state from
+      "subject set but nothing recorded yet", and a different fix. */
+  subjectId: string;
+  subjectTitle: string;
+  /** What the server left OUT of `months`, in its own words — e.g. "3 recorded
+      session(s) are not listed because they have no date on record". '' when
+      there is nothing to say. Without it the admin sees a month list that is
+      quietly short and no reason why. */
+  notice: string;
+  months: AdminRecordedSessionMonth[];
+}
+
+export interface AdminRecordedSessionImportResult {
+  imported: number;
+  skipped: number;
+  message: string;
+}
+
+const RECORDED_MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+function recordedMonthLabel(year: number, month: number): string {
+  const name = month >= 1 && month <= 12 ? RECORDED_MONTH_NAMES[month - 1] : undefined;
+  if (!name || year <= 0) return 'Undated sessions';
+  return `${name} ${year}`;
+}
+
+// MariaDB TIME arrives from Prisma as "1970-01-01T19:00:00.000Z" — the UTC
+// portion IS the stored IST wall clock, so it is read straight off the string
+// and never re-parsed in the (UTC) process timezone.
+function toClockTime(value: unknown): string {
+  const raw = asString(value);
+  if (raw === '') return '';
+  const iso = raw.match(/T(\d{2}:\d{2})/);
+  if (iso && iso[1]) return iso[1];
+  const plain = raw.match(/^(\d{2}:\d{2})/);
+  if (plain && plain[1]) return plain[1];
+  return '';
+}
+
+function toRecordedSession(raw: Record<string, unknown>): AdminRecordedSession | null {
+  const id = asNumber(raw.id);
+  // A row without a usable id can never be imported — drop it rather than
+  // render a checkbox that would POST id 0.
+  if (id <= 0) return null;
+  return {
+    id,
+    title: asString(raw.title),
+    date: asString(raw.date),
+    fromTime: toClockTime(raw.from_time ?? raw.fromTime),
+    toTime: toClockTime(raw.to_time ?? raw.toTime),
+    cohortTitle: asString(raw.cohort_title),
+    source: asString(raw.source).toLowerCase() === 'teams' ? 'teams' : 'video',
+    alreadyImported: asFlag(raw.already_imported),
+  };
+}
+
+function toRecordedSessionMonth(raw: Record<string, unknown>): AdminRecordedSessionMonth {
+  const sessions = toRecords(raw.sessions)
+    .map((entry) => toRecordedSession(entry))
+    .filter((entry): entry is AdminRecordedSession => entry !== null);
+  const year = asNumber(raw.year);
+  const month = asNumber(raw.month);
+  // Count the rows the admin can actually act on: a header reading
+  // "18 recorded" above 17 checkboxes is worse than a slightly stale count.
+  const sessionCount = sessions.length > 0 ? sessions.length : asNumber(raw.session_count);
+  const alreadyImported = sessions.length > 0
+    ? sessions.every((entry) => entry.alreadyImported)
+    : asFlag(raw.already_imported);
+  return {
+    year,
+    month,
+    label: asString(raw.label) || recordedMonthLabel(year, month),
+    sessionCount,
+    alreadyImported,
+    sessions,
+  };
+}
+
+/* The envelope `message` is the ONLY channel the server has for rows it
+   deliberately did not list, and dropping it (the first cut did) makes that
+   deliberate reporting invisible. 'success' is the envelope's no-op sentinel,
+   never a sentence meant for a human. */
+function recordedSessionNotice(message: unknown): string {
+  const text = asString(message);
+  return text.toLowerCase() === 'success' ? '' : text;
+}
+
+function toRecordedSessionHistory(raw: unknown, message: unknown): AdminRecordedSessionHistory {
+  const notice = recordedSessionNotice(message);
+  const record = asRecord(raw);
+  if (!record) return { subjectId: '', subjectTitle: '', notice, months: [] };
+  return {
+    subjectId: asString(record.subject_id),
+    subjectTitle: asString(record.subject_title),
+    notice,
+    months: toRecords(record.months).map((entry) => toRecordedSessionMonth(entry)),
+  };
 }
 
 export class AdminPortalApi {
@@ -901,6 +1085,47 @@ export class AdminPortalApi {
       teams_host_email: input.teamsHostEmail,
       manual_join_url: input.manualJoinUrl,
     });
+  }
+
+  /**
+   * Past recorded sessions for the SUBJECT this cohort teaches, grouped by
+   * year + month with a per-month count (TTII 2026-08-11 — "Link Existing
+   * Recorded Session"). Grouping is done server-side so the IST/UTC month
+   * boundary is decided once, next to the data: a class on the 1st at 00:30
+   * IST must not fall into the previous month.
+   */
+  async listCohortRecordedSessions(authToken: string, cohortId: string): Promise<AdminRecordedSessionHistory> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/cohort/recorded-sessions', authToken, {
+      cohort_id: cohortId,
+    });
+    // `payload.message` too, not just `payload.data` — see AdminRecordedSessionHistory.notice.
+    return toRecordedSessionHistory(payload.data, payload.message);
+  }
+
+  /**
+   * Copies the RECORDING REFERENCE of the given sessions onto this cohort as
+   * new live_class rows. Media is never moved or re-uploaded and the source
+   * rows are never mutated — the original cohort keeps its sessions exactly
+   * as they are. No Teams meeting is created (there is nothing to join).
+   * Idempotent: sessions already imported come back in `skipped`, so pressing
+   * the button twice is safe.
+   */
+  async importCohortRecordedSessions(
+    authToken: string,
+    cohortId: string,
+    sessionIds: number[],
+  ): Promise<AdminRecordedSessionImportResult> {
+    const payload = await this.post<LegacyEnvelope<Record<string, unknown>>>(
+      '/admin/cohort/recorded-sessions/import',
+      authToken,
+      { cohort_id: cohortId, session_ids: sessionIds },
+    );
+    const data = asRecord(payload.data);
+    return {
+      imported: asNumber(data?.imported),
+      skipped: asNumber(data?.skipped),
+      message: asString(data?.message) || asString(payload.message),
+    };
   }
 
   async deleteCohortLiveSession(authToken: string, sessionId: string): Promise<Record<string, unknown>> {

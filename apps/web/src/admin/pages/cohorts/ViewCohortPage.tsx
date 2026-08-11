@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   BookOpen, Users, Video, ClipboardList, Calendar, Megaphone,
   Trash2, Plus, Search, Pencil, Eye, ExternalLink, Download, Copy,
-  CheckCircle2, FileText, LayoutList, LayoutGrid,
+  CheckCircle2, FileText, LayoutList, LayoutGrid, Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,11 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { AddLiveSessionModal } from '../../shared/components/AddLiveSessionModal.js';
+// TTII 2026-08-11 — both live next to the API client because both are "how to
+// read a live_class row this API returned", and both were wrong here before:
+// the badge tested a marker string the server never writes, and the recording
+// link was opened without a scheme check. Neither belongs in a page component.
+import { isImportedLiveSession, externalRecordingUrl } from '../../admin-portal-api.js';
 import { useConfirm } from '@/components/confirm-dialog';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
@@ -833,6 +838,13 @@ function LiveSessionsTab({
                 const fromTime = format12hTime(formatTimeValue(asString(s.from_time) || asString(s.fromTime)));
                 const toTime = format12hTime(formatTimeValue(asString(s.to_time) || asString(s.toTime)));
                 const recording = asString(s.video_url) || asString(s.recording_url);
+                // Spaces-backed Teams recordings need a signed URL; a legacy
+                // Vimeo/video_url row has no storage key, so minting one just
+                // errors. Imports make video_url rows common here, so pick the
+                // path by which source actually holds the media.
+                const spacesRecording = asString(s.recording_url);
+                const linkedVideo = externalRecordingUrl(s.video_url);
+                const imported = isImportedLiveSession(s);
 
                 return (
                   <div key={id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3">
@@ -843,6 +855,11 @@ function LiveSessionsTab({
                       <p className="truncate text-sm font-semibold text-gray-900">{title}</p>
                       <p className="truncate text-xs text-gray-500">{date} · {fromTime} - {toTime}</p>
                     </div>
+                    {imported && (
+                      <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700" title="Recording linked from an earlier cohort">
+                        <Link2 className="size-3" /> Linked
+                      </span>
+                    )}
                     <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
                       <CheckCircle2 className="size-3" /> Uploaded
                     </span>
@@ -854,11 +871,25 @@ function LiveSessionsTab({
                       disabled={!recording}
                       onClick={() => {
                         if (!recording) return;
+                        // No storage key means there is no signed URL to mint —
+                        // the media is the video link or it is nothing. Saying
+                        // so beats navigating to a relative 404.
+                        if (!spacesRecording) {
+                          if (linkedVideo) window.open(linkedVideo, '_blank', 'noopener,noreferrer');
+                          else toast.error('Recording link is not a valid web address.');
+                          return;
+                        }
                         void (async () => {
                           try {
                             const signedUrl = await api.getLiveSessionRecordingSignedUrl(token, id);
                             window.open(signedUrl, '_blank', 'noopener,noreferrer');
                           } catch (err) {
+                            // Fall back to the video link before surfacing an
+                            // error — a linked legacy recording is still watchable.
+                            if (linkedVideo) {
+                              window.open(linkedVideo, '_blank', 'noopener,noreferrer');
+                              return;
+                            }
                             toast.error(err instanceof Error ? err.message : 'Failed to open recording');
                           }
                         })();
