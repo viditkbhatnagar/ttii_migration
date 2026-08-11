@@ -152,6 +152,34 @@ export function registerAssessmentRoutes(
     }
   });
 
+  // Naji UAT 2026-08-11 — exam answer autosave. Runs every ~25s per student
+  // mid-exam, so it is deliberately cheap and idempotent: it parks the answer
+  // sheet on exam_attempt.draft_answers and returns the SERVER's countdown, and
+  // it scores nothing. Being an ordinary authenticated call it also slides the
+  // session, which is what keeps the hard 1h expiry off a 75-minute paper.
+  //
+  // Always HTTP 200: a rejected save (someone else's attempt, an
+  // already-submitted one) reports itself in the envelope's `status` rather
+  // than as an error, because a 4xx/5xx here would surface as the "Session
+  // Expired"/"User not authenticated!" modal on top of a live exam.
+  app.post('/exams/exam_save_progress', { preHandler: [requireAuth] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const result = await assessmentService.saveExamProgress(requestUserId(request), {
+        attemptId: toStringId(payload.attempt_id),
+        userAnswers: payload.user_answers,
+        // Round 3 — the draft-writer token from /exams/exam_take, identifying
+        // WHICH open tab this save came from. Absent for the Flutter client,
+        // which coerces to '' and keeps the pre-token behaviour.
+        draftToken: toStringId(payload.draft_token),
+      });
+
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendAssessmentError(reply, error);
+    }
+  });
+
   // Naji UAT 2026-06-01 — native in-portal exam taking. Returns the exam's
   // questions (no answer keys) for an eligible student and starts/resumes the
   // attempt. The service result already carries { status, message?, data? }.

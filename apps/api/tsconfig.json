@@ -6,5 +6,5 @@
     "moduleResolution": "NodeNext",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "vitest.config.ts"]
 }

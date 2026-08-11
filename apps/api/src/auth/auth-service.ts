@@ -12,6 +12,7 @@ import { hashPassword, verifyPassword } from './password.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { createSignedPasswordResetToken, validateSignedPasswordResetToken } from './reset-token.js';
 import { resolveLegacyPortalPath } from './roles.js';
+import { nextSessionExpiry } from './session-sliding.js';
 import { generateOpaqueAuthToken, sha256Hex } from './session-token.js';
 import type { AuthContext, LegacyUserData, RequestMeta } from './types.js';
 import { AuthError as AuthErrorClass } from './types.js';
@@ -161,12 +162,57 @@ export class AuthService {
       return null;
     }
 
+    await this.slideSessionExpiry(session.id, session.expires_at, now);
+
     return {
       sessionId: String(session.id),
       tokenHash,
       user,
       linkedUserIds: this.parseLinkedUserIds(session.linked_user_ids, user.id),
     };
+  }
+
+  /**
+   * Naji UAT 2026-08-11 — an active session earns more time (see
+   * session-sliding.ts for the full why). A student mid-exam autosaves every
+   * ~25s, so their session now never reaches the hard 1h wall that 401ed two
+   * of them fifteen minutes before their paper ended.
+   *
+   * Deliberately NOT a bump of AUTH_SESSION_TTL_SECONDS: that would weaken
+   * every session in the product to fix one flow. An idle session still dies
+   * on schedule; only a session that is being used stays alive.
+   *
+   * The WHERE clause re-asserts validity, so even if this row expired or was
+   * revoked between the read above and this write, the update matches nothing
+   * and the session stays dead. Best-effort: a failed extension must never
+   * turn an otherwise-good request into a 401, so it is swallowed — the
+   * session simply keeps its existing expiry.
+   */
+  private async slideSessionExpiry(
+    sessionId: number,
+    currentExpiresAt: Date,
+    now: Date,
+  ): Promise<void> {
+    const extendedTo = nextSessionExpiry(currentExpiresAt, now, env.AUTH_SESSION_TTL_SECONDS);
+    if (!extendedTo) {
+      return;
+    }
+
+    try {
+      await this.prisma.auth_session.updateMany({
+        where: {
+          id: sessionId,
+          revoked_at: null,
+          expires_at: { gt: now },
+        },
+        data: {
+          expires_at: extendedTo,
+          updated_at: now,
+        },
+      });
+    } catch {
+      /* best-effort — never fail authentication because the slide failed */
+    }
   }
 
   // Parse the persisted JSON array of switchable user ids. Falls back to

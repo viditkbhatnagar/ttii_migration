@@ -19,9 +19,10 @@
 //   • /exams/ex-001/attempt → the in_progress phase (focused top bar with the
 //     student/enrolment + timer + submit, question card with pills + option
 //     rows, right "Question Palette" + "Summary" sidebar)
-// Only fields the backend actually provides are shown — pass marks, per-question
-// marks and auto-save do not exist server-side, so they are deliberately omitted
-// rather than faked.
+// Only fields the backend actually provides are shown — pass marks and
+// per-question marks do not exist server-side, so they are deliberately omitted
+// rather than faked. (Auto-save was in that list until 2026-08-11; it exists
+// now — see the autosave block below.)
 //
 // Risha UAT 2026-08-06 — two grading defects fixed here:
 //   • the submit payload sent a 1-BASED option index while every writer of
@@ -30,8 +31,27 @@
 //   • descriptive questions (q_type 1, no options) rendered nothing to answer,
 //     so they were always recorded as skipped even though the admin wizard
 //     configures them and exam_descriptive_grades exists to mark them.
+//
+// Naji UAT 2026-08-11 — the 10 Aug 7:30–8:45 PM exam broke three ways at once,
+// all of them downstream of the same fact: the answers lived ONLY in the
+// `answers` / `textAnswers` Maps in this component's state, and the session had
+// a shorter life than the exam.
+//   • Sessions expire an hour in; the paper runs 75 minutes. Students were 401ed
+//     at the 60-minute mark and the global "Session Expired" modal landed on top
+//     of a running exam.
+//   • Losing the tab lost EVERYTHING. The attempt and its locked question order
+//     resumed fine, so it looked like a resume, but every answer was gone —
+//     "both of them started over from the first question".
+//   • Nothing on the client or the server stopped a student working past the
+//     window close, so one submitted at 9 PM on an 8:45 PM exam.
+// The fix is one mechanism: this player now autosaves the answer map to the
+// server on a timer (see AUTOSAVE_INTERVAL_MS), which both puts the work
+// somewhere it can survive the browser AND keeps the session sliding, and the
+// countdown is driven by the server's own remaining time rather than a local
+// stopwatch, so the client can neither drift past nor argue with the deadline
+// the server enforces.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Flag,
   X,
@@ -42,7 +62,6 @@ import {
   Maximize,
   ShieldCheck,
   Wifi,
-  RefreshCw,
   Ban,
   AlertCircle,
   Lock,
@@ -55,6 +74,10 @@ import {
   Eraser,
   Send,
   ArrowLeft,
+  Save,
+  CloudCheck,
+  CloudOff,
+  RotateCcw,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -66,7 +89,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { StudentPortalApi } from '../student-portal-api.js';
+import { acquireExamFocusLock } from '@/components/SessionExpiredDialog';
+import type {
+  ExamDraftAnswer,
+  ExamProgressSaveResult,
+  StudentPortalApi,
+} from '../student-portal-api.js';
 
 interface ExamQuestion {
   questionId: string;
@@ -89,10 +117,27 @@ export interface FormalExamMeta {
   enrollmentNo?: string;
 }
 
+/** Answers recovered from the server-side autosave, ready to seed the attempt. */
+interface RestoredDraft {
+  answers: Map<string, number | null>;
+  textAnswers: Map<string, string>;
+}
+
 type Phase =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'intro'; attemptId: string; title: string; durationMin: number; questions: ExamQuestion[] }
+  | {
+      kind: 'intro';
+      attemptId: string;
+      title: string;
+      durationMin: number;
+      questions: ExamQuestion[];
+      /** Naji UAT 2026-08-11 — what the student had when they were cut off. */
+      draft: RestoredDraft;
+      deadlineAt: number | null;
+      /** This tab's claim on the server-side draft; see loadExamForTaking. */
+      draftToken: string;
+    }
   | {
       kind: 'in_progress';
       attemptId: string;
@@ -107,6 +152,14 @@ type Phase =
       visited: Set<string>;
       flagged: Set<string>;
       startedAt: number;
+      /** Naji UAT 2026-08-11 — local-clock instant of the SERVER's effective
+       * end (attempt deadline vs window close, whichever is earlier), stamped
+       * from `remaining_seconds` and re-stamped on every autosave. null only
+       * when the API did not send one, in which case the old local
+       * duration-from-start countdown takes over. */
+      deadlineAt: number | null;
+      /** This tab's claim on the server-side draft; see loadExamForTaking. */
+      draftToken: string;
     }
   | { kind: 'submitted'; title: string; total: number; answered: number; flagged: number; timeUsedSec: number; timeLeftSec: number | null };
 
@@ -126,12 +179,41 @@ interface Props {
 // the exam auto-submits. Frontend-only guard (no server persistence yet).
 const PROCTOR_MAX_VIOLATIONS = 3;
 
-// The "Please read carefully" rules. Each is true for this player: there is no
-// auto-save (refresh loses answers), proctoring records tab/window switches,
-// and the timer auto-submits at zero.
+// Naji UAT 2026-08-11 — autosave cadence.
+//
+// 25s heartbeat: it runs whether or not anything changed, because its second
+// job is to be an authenticated request. A student reading a long question
+// makes no other call for minutes at a time, which is precisely how a 75-minute
+// exam died on a one-hour session — an idle-activity-based refresh would not
+// have saved them. 25s also bounds the worst case to ~25 seconds of lost
+// typing, and costs one small write per student per 25s (a 200-student sitting
+// is ~8 writes/sec, well inside what a single indexed UPDATE handles).
+//
+// 2s debounce: an answer change schedules a save 2s after the student stops.
+// Clicking through a page of MCQs or typing an essay therefore produces one
+// save at the end of the burst, not one per keystroke.
+const AUTOSAVE_INTERVAL_MS = 25_000;
+const AUTOSAVE_DEBOUNCE_MS = 2_000;
+// Only after this many consecutive failures (~75s with nothing reaching the
+// server) does the quiet "Saved" chip turn into a "Not saved" one. A single
+// dropped request is invisible — it is retried on the next tick and says
+// nothing to a student who is being timed.
+const AUTOSAVE_STALE_AFTER_FAILURES = 3;
+
+// The "Please read carefully" rules. Each is true for this player: answers are
+// autosaved server-side, proctoring records tab/window switches, and the timer
+// auto-submits at zero.
 const EXAM_RULES: Array<{ icon: LucideIcon; text: string }> = [
   { icon: Wifi, text: 'A stable internet connection is required throughout the exam.' },
-  { icon: RefreshCw, text: 'Do not refresh the page — your answers will be lost.' },
+  // Naji UAT 2026-08-11 — this used to read "Do not refresh the page — your
+  // answers will be lost", which was true and is now not: answers are saved to
+  // the server every few seconds. Telling students the truth here matters — it
+  // is the line they remember when something goes wrong mid-paper, and the two
+  // students who lost their 10 Aug answers had been told to expect exactly that.
+  {
+    icon: Save,
+    text: 'Your answers are saved automatically — if you are disconnected, sign in again and reopen this exam to carry on.',
+  },
   { icon: Ban, text: 'Do not close the browser or switch tabs during the exam.' },
   { icon: Hourglass, text: 'Submit your exam before the timer ends.' },
   { icon: AlertCircle, text: 'Unanswered questions will be scored zero.' },
@@ -205,6 +287,65 @@ function countWords(text: string): number {
   return trimmed === '' ? 0 : trimmed.split(/\s+/).length;
 }
 
+// Naji UAT 2026-08-11 — ONE encoder, used by the autosave draft AND by the
+// final submit. The server finalises a late attempt from the draft it holds, so
+// if the two payloads encoded answers differently a student who ran over by a
+// minute would be graded differently from one who did not. Having a single
+// function makes that class of bug impossible to write.
+//
+// Risha UAT 2026-08-06 — MCQ answers ship the 0-BASED option index. Every
+// writer of question_bank.correct_answers stores the 0-based index into
+// `options`: the CSV importer maps letter A to 0 (operations-service.ts
+// bulkAddQuestions, "indexes into options"), and QuestionBankPage /
+// ViewSubjectQuestionsPage both persist the render index. The server grades by
+// exact string equality, so the old `selected + 1` marked every correct MCQ
+// wrong and applied the negative mark on top of it. Descriptive answers ship
+// the raw text — the server stores it in exam_answer.answer_submitted for
+// manual grading.
+function buildUserAnswers(
+  questions: ExamQuestion[],
+  answers: Map<string, number | null>,
+  textAnswers: Map<string, string>,
+): ExamDraftAnswer[] {
+  return questions.map((q) => {
+    if (isDescriptiveQuestion(q)) {
+      const text = (textAnswers.get(q.questionId) ?? '').trim();
+      return { questionId: q.questionId, answer: text === '' ? [] : [text] };
+    }
+    const selected = answers.has(q.questionId) ? answers.get(q.questionId) ?? null : null;
+    return { questionId: q.questionId, answer: selected !== null ? [String(selected)] : [] };
+  });
+}
+
+/** Wire shape for both /exams/exam_save_progress and /exams/exam_save_result. */
+function toWireAnswers(entries: ExamDraftAnswer[]): Array<{ question_id: string; answer: string[] }> {
+  return entries.map((entry) => ({ question_id: entry.questionId, answer: entry.answer }));
+}
+
+// Naji UAT 2026-08-11 — turn the server's autosaved draft back into the two
+// answer maps. Anything that does not line up with the questions actually being
+// rendered is dropped rather than guessed at: an MCQ index outside the option
+// list would otherwise paint a selection the student cannot see or clear.
+function restoreDraft(questions: ExamQuestion[], draft: ExamDraftAnswer[]): RestoredDraft {
+  const byId = new Map(questions.map((q) => [q.questionId, q]));
+  const answers = new Map<string, number | null>();
+  const textAnswers = new Map<string, string>();
+  for (const entry of draft) {
+    const question = byId.get(entry.questionId);
+    if (!question) continue;
+    const first = entry.answer[0];
+    if (first === undefined || first === '') continue;
+    if (isDescriptiveQuestion(question)) {
+      textAnswers.set(question.questionId, first);
+      continue;
+    }
+    const index = Number.parseInt(first, 10);
+    if (!Number.isInteger(index) || index < 0 || index >= question.options.length) continue;
+    answers.set(question.questionId, index);
+  }
+  return { answers, textAnswers };
+}
+
 export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, headerLabel, meta, proctored = true, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [tick, setTick] = useState(0);
@@ -212,6 +353,22 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
   const submittingRef = useRef(false);
+
+  // ── Autosave state ────────────────────────────────────────────────
+  // `at` is when the draft last reached the server; the chip in the top bar is
+  // the only thing the student ever sees of this machinery.
+  const [autosave, setAutosave] = useState<{ state: 'idle' | 'saving' | 'saved' | 'stale'; at: number | null }>({
+    state: 'idle',
+    at: null,
+  });
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const autosaveFailuresRef = useRef(0);
+  const lastSavedSignatureRef = useRef('');
+  const draftPayloadRef = useRef<ExamDraftAnswer[] | null>(null);
+  const draftSignatureRef = useRef('');
+  const attemptIdRef = useRef('');
+  const draftTokenRef = useRef('');
 
   // ── Proctoring state ──────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -277,12 +434,28 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
           setPhase({ kind: 'error', message: 'This exam has no questions yet.' });
           return;
         }
+        // Naji UAT 2026-08-11 — the server's remaining time is stamped into an
+        // absolute local instant HERE, at the moment the response landed, not
+        // when the student presses Start. /exams/exam_take starts (or resumes)
+        // the attempt server-side, so its clock is already running while the
+        // instructions are on screen; deriving the deadline from the reply
+        // keeps the countdown honest about the minutes spent reading them.
+        if (data.remainingSeconds !== null && data.remainingSeconds <= 0) {
+          setPhase({
+            kind: 'error',
+            message: 'This exam has closed. Any answers you had saved were submitted for you.',
+          });
+          return;
+        }
         setPhase({
           kind: 'intro',
           attemptId: data.attemptId,
           title: data.title || initialTitle,
           durationMin: parseDurationMin(data.duration),
           questions: data.questions,
+          draft: restoreDraft(data.questions, data.draftAnswers),
+          deadlineAt: data.remainingSeconds !== null ? Date.now() + data.remainingSeconds * 1000 : null,
+          draftToken: data.draftToken,
         });
       })
       .catch((err: unknown) => {
@@ -340,6 +513,17 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   // Exit full screen when the player unmounts.
   useEffect(() => () => { exitFullscreen(); }, []);
 
+  // Naji UAT 2026-08-11 — hold the exam focus lock for as long as an attempt
+  // owns the screen, so the global "Session Expired" modal (and its Log Out
+  // button) can never land on top of a running paper. The player handles a dead
+  // session itself: the answers are already on the server, and a failed submit
+  // offers a retry instead of destroying the attempt.
+  const examOwnsScreen = phase.kind === 'intro' || phase.kind === 'in_progress';
+  useEffect(() => {
+    if (!examOwnsScreen) return;
+    return acquireExamFocusLock();
+  }, [examOwnsScreen]);
+
   const handleStart = () => {
     // Enter full screen on the start gesture (must run inside the click handler).
     enterFullscreen();
@@ -351,19 +535,33 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     setProctorAutoSubmit(false);
     setPhase((p) => {
       if (p.kind !== 'intro') return p;
-      const firstId = p.questions[0]?.questionId;
+      // Naji UAT 2026-08-11 — seed from the autosaved draft. A resuming student
+      // lands on the first question they have NOT answered (not back at question
+      // one), and everything already answered counts as visited so the palette
+      // shows their real progress rather than a grid of untouched greys.
+      const answers = new Map(p.draft.answers);
+      const textAnswers = new Map(p.draft.textAnswers);
+      const firstUnanswered = p.questions.findIndex((q) => !isQuestionAnswered(q, answers, textAnswers));
+      const current = firstUnanswered === -1 ? 0 : firstUnanswered;
+      const visited = new Set(
+        p.questions.filter((q) => isQuestionAnswered(q, answers, textAnswers)).map((q) => q.questionId),
+      );
+      const currentId = p.questions[current]?.questionId;
+      if (currentId !== undefined) visited.add(currentId);
       return {
         kind: 'in_progress',
         attemptId: p.attemptId,
         title: p.title,
         durationMin: p.durationMin,
         questions: p.questions,
-        current: 0,
-        answers: new Map(),
-        textAnswers: new Map(),
-        visited: new Set(firstId !== undefined ? [firstId] : []),
+        current,
+        answers,
+        textAnswers,
+        visited,
         flagged: new Set(),
         startedAt: Date.now(),
+        deadlineAt: p.deadlineAt,
+        draftToken: p.draftToken,
       };
     });
   };
@@ -419,6 +617,117 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     });
   };
 
+  // ── Autosave ──────────────────────────────────────────────────────
+  // The draft payload is derived from the answer maps, so any change to them
+  // produces a new signature and schedules a save.
+  const draftPayload = useMemo(
+    () => (phase.kind === 'in_progress' ? buildUserAnswers(phase.questions, phase.answers, phase.textAnswers) : null),
+    [phase],
+  );
+  const draftSignature = useMemo(() => (draftPayload ? JSON.stringify(draftPayload) : ''), [draftPayload]);
+
+  // Mirror into refs so the interval below never fires with a stale closure.
+  useEffect(() => {
+    draftPayloadRef.current = draftPayload;
+    draftSignatureRef.current = draftSignature;
+    if (phase.kind === 'in_progress') {
+      attemptIdRef.current = phase.attemptId;
+      draftTokenRef.current = phase.draftToken;
+    }
+  });
+
+  // Take the server's remaining time as the truth for the countdown. Re-stamping
+  // on every reply would make the visible clock stutter by a second each time,
+  // so only a real disagreement (>2s) moves the deadline.
+  const applyServerClock = useCallback((result: ExamProgressSaveResult): void => {
+    const remaining = result.windowState === 'closed' ? 0 : result.remainingSeconds;
+    if (remaining === null) return;
+    const nextDeadline = Date.now() + remaining * 1000;
+    setPhase((p) => {
+      if (p.kind !== 'in_progress') return p;
+      if (p.deadlineAt !== null && Math.abs(p.deadlineAt - nextDeadline) < 2000) return p;
+      return { ...p, deadlineAt: nextDeadline };
+    });
+  }, []);
+
+  // Best-effort: every failure is swallowed and retried on the next tick. An
+  // autosave must never interrupt a student who is being timed — no modal, no
+  // error screen, no lost keystrokes.
+  const runAutosave = useCallback(async (): Promise<void> => {
+    const payload = draftPayloadRef.current;
+    const attemptId = attemptIdRef.current;
+    if (payload === null || attemptId === '' || autosaveInFlightRef.current || submittingRef.current) return;
+    const signature = draftSignatureRef.current;
+    autosaveInFlightRef.current = true;
+    setAutosave((prev) => ({ ...prev, state: 'saving' }));
+    try {
+      const result = await api.saveExamProgress(
+        authToken,
+        attemptId,
+        toWireAnswers(payload),
+        draftTokenRef.current,
+      );
+      applyServerClock(result);
+      // Naji UAT 2026-08-11 — `saved: false` with the window still OPEN means
+      // the server is taking its draft from a tab the student opened later than
+      // this one, and this save was ignored. Say nothing at all: this may still
+      // be the window they are looking at, and "your answers are not being
+      // saved" mid-paper would panic a student who cannot act on it. The
+      // signature is deliberately left unrecorded so the next tick retries —
+      // if the newer tab is closed and the exam reopened here, this one becomes
+      // the writer again.
+      if (!result.saved && result.windowState !== 'closed') {
+        setAutosave((prev) => ({ ...prev, state: prev.at !== null ? 'saved' : 'idle' }));
+        return;
+      }
+      lastSavedSignatureRef.current = signature;
+      autosaveFailuresRef.current = 0;
+      setAutosave({ state: 'saved', at: Date.now() });
+    } catch {
+      autosaveFailuresRef.current += 1;
+      const stale = autosaveFailuresRef.current >= AUTOSAVE_STALE_AFTER_FAILURES;
+      setAutosave((prev) => ({
+        state: stale ? 'stale' : prev.at !== null ? 'saved' : 'idle',
+        at: prev.at,
+      }));
+    } finally {
+      autosaveInFlightRef.current = false;
+    }
+  }, [api, authToken, applyServerClock]);
+
+  // Heartbeat — runs whether or not anything changed, because keeping the
+  // session alive is half its job.
+  useEffect(() => {
+    if (phase.kind !== 'in_progress') return;
+    const t = setInterval(() => { void runAutosave(); }, AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [phase.kind, runAutosave]);
+
+  // Debounced save after the student stops answering/typing.
+  useEffect(() => {
+    if (phase.kind !== 'in_progress') return;
+    if (draftSignature === '' || draftSignature === lastSavedSignatureRef.current) return;
+    const t = setTimeout(() => { void runAutosave(); }, AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [draftSignature, phase.kind, runAutosave]);
+
+  // Naji UAT 2026-08-11 — students sit these exams on phones, where a call or a
+  // notification backgrounds the tab and the browser is then free to discard it
+  // without ever running another timer. Flush the moment the page is hidden, so
+  // the most that can be lost is the last keystroke rather than the whole
+  // debounce-plus-heartbeat window.
+  useEffect(() => {
+    if (phase.kind !== 'in_progress') return;
+    const flush = (): void => { void runAutosave(); };
+    const onVisibility = (): void => { if (document.hidden) flush(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [phase.kind, runAutosave]);
+
   const goNext = () => setPhase((p) => (p.kind === 'in_progress' && p.current < p.questions.length - 1 ? { ...p, current: p.current + 1 } : p));
   const goPrev = () => setPhase((p) => (p.kind === 'in_progress' && p.current > 0 ? { ...p, current: p.current - 1 } : p));
   const jumpTo = (index: number) => setPhase((p) => (p.kind === 'in_progress' && index >= 0 && index < p.questions.length ? { ...p, current: index } : p));
@@ -428,29 +737,11 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
     submittingRef.current = true;
     proctorActiveRef.current = false;
     const snapshot = phase;
-    // Risha UAT 2026-08-06 — MCQ answers ship the 0-BASED option index. Every
-    // writer of question_bank.correct_answers stores the 0-based index into
-    // `options`: the CSV importer maps letter A to 0 (operations-service.ts
-    // bulkAddQuestions, "indexes into options"), and QuestionBankPage /
-    // ViewSubjectQuestionsPage both persist the render index. The server grades
-    // by exact string equality, so the old `selected + 1` marked every correct
-    // MCQ wrong and applied the negative mark on top of it.
-    // Descriptive answers ship the raw text — the server stores it in
-    // exam_answer.answer_submitted for manual grading.
-    const userAnswers = snapshot.questions.map((q) => {
-      if (isDescriptiveQuestion(q)) {
-        const text = (snapshot.textAnswers.get(q.questionId) ?? '').trim();
-        return {
-          question_id: q.questionId,
-          answer: text === '' ? [] : [text],
-        };
-      }
-      const selected = snapshot.answers.has(q.questionId) ? snapshot.answers.get(q.questionId) ?? null : null;
-      return {
-        question_id: q.questionId,
-        answer: selected !== null ? [String(selected)] : [],
-      };
-    });
+    setSubmitError(null);
+    // Naji UAT 2026-08-11 — same encoder as the autosave draft (see
+    // buildUserAnswers), so an on-time submit and a server-side finalisation
+    // from the draft grade identically.
+    const userAnswers = toWireAnswers(buildUserAnswers(snapshot.questions, snapshot.answers, snapshot.textAnswers));
     const answeredCount = snapshot.questions.filter(
       (q) => isQuestionAnswered(q, snapshot.answers, snapshot.textAnswers),
     ).length;
@@ -458,6 +749,17 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
       await api.submitExamAttempt(authToken, snapshot.attemptId, userAnswers);
       const elapsedSec = Math.max(0, Math.floor((Date.now() - snapshot.startedAt) / 1000));
       const totalSec = snapshot.durationMin * 60;
+      // Naji UAT 2026-08-11 — on a RESUMED attempt `startedAt` is when the
+      // student reopened the exam, not when the attempt began, so the honest
+      // "time used" comes off the server deadline whenever we have one.
+      const timeLeftAtSubmit = snapshot.deadlineAt !== null
+        ? Math.max(0, Math.round((snapshot.deadlineAt - Date.now()) / 1000))
+        : totalSec > 0
+          ? Math.max(0, totalSec - elapsedSec)
+          : null;
+      const timeUsedSec = totalSec > 0 && timeLeftAtSubmit !== null
+        ? Math.max(0, totalSec - timeLeftAtSubmit)
+        : elapsedSec;
       exitFullscreen();
       setProctorWarning(null);
       setPhase({
@@ -466,22 +768,40 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         total: snapshot.questions.length,
         answered: answeredCount,
         flagged: snapshot.flagged.size,
-        timeUsedSec: elapsedSec,
-        timeLeftSec: totalSec > 0 ? Math.max(0, totalSec - elapsedSec) : null,
+        timeUsedSec,
+        timeLeftSec: timeLeftAtSubmit,
       });
       setResultOpen(true);
       setSubmitConfirmOpen(false);
     } catch (err) {
-      setPhase({ kind: 'error', message: err instanceof Error ? err.message : 'Submission failed.' });
+      // Naji UAT 2026-08-11 — a failed submit must NOT tear the attempt down.
+      // This used to swap the whole player for a red error card, which threw
+      // away the only copy of the answers (state) and left the student staring
+      // at a bare "User not authenticated!". The attempt now stays exactly where
+      // it was: the draft is on the server, the autosave loop keeps running, and
+      // the student is offered a retry.
+      proctorActiveRef.current = proctored;
+      setSubmitError(err instanceof Error ? err.message : 'Submission failed.');
+      setSubmitConfirmOpen(false);
     } finally {
       submittingRef.current = false;
     }
   };
 
   // Countdown (auto-submit at zero).
+  //
+  // Naji UAT 2026-08-11 — the SERVER owns this number. `deadlineAt` is stamped
+  // from the exam_take reply and re-stamped by every autosave, so it tracks the
+  // earlier of the attempt deadline and the exam window close, computed in IST
+  // on the server. A student can no longer be handed more time than the window
+  // allows by a local stopwatch that started when they pressed Start (a 9 PM
+  // submission on an 8:45 PM exam, 10 Aug). The old duration-from-start maths
+  // stays as the fallback for an API build that sends no remaining_seconds.
   const timeLeftSec = useMemo(() => {
-    if (phase.kind !== 'in_progress' || phase.durationMin <= 0) return null;
+    if (phase.kind !== 'in_progress') return null;
     void tick;
+    if (phase.deadlineAt !== null) return Math.max(0, Math.round((phase.deadlineAt - Date.now()) / 1000));
+    if (phase.durationMin <= 0) return null;
     const elapsed = Math.floor((Date.now() - phase.startedAt) / 1000);
     return Math.max(0, phase.durationMin * 60 - elapsed);
   }, [phase, tick]);
@@ -521,6 +841,11 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
   // ── Instructions screen (intro) — mirrors /exams/:id/instructions ──
   if (phase.kind === 'intro') {
     const subtitle = [meta?.course, meta?.subject].filter(Boolean).join(' · ');
+    // Naji UAT 2026-08-11 — a student who was cut off is coming BACK, not
+    // starting: say so, and say their answers are still here. Reopening the exam
+    // is also what re-enters full screen (browsers only grant it on a user
+    // gesture), so this screen stays the gate on the way back in.
+    const restoredCount = phase.draft.answers.size + phase.draft.textAnswers.size;
     const chips: Array<{ icon: LucideIcon; label: string; value: string }> = [];
     if (meta?.dateLabel) chips.push({ icon: CalendarDays, label: 'Date', value: meta.dateLabel });
     if (meta?.startLabel) chips.push({ icon: Clock, label: 'Start', value: meta.startLabel });
@@ -566,6 +891,17 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
               {chips.map((c) => (
                 <StatChip key={c.label} icon={c.icon} label={c.label} value={c.value} />
               ))}
+            </div>
+          ) : null}
+
+          {restoredCount > 0 ? (
+            <div className="flex items-start gap-2 border-t border-emerald-100 bg-emerald-50/70 px-6 py-3 text-sm text-emerald-900 sm:px-7">
+              <RotateCcw aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+              <span>
+                <strong className="font-semibold">Resuming your attempt:</strong> {restoredCount}{' '}
+                {restoredCount === 1 ? 'saved answer was' : 'saved answers were'} restored, and you will be taken
+                to the first question you have not answered yet.
+              </span>
             </div>
           ) : null}
 
@@ -627,7 +963,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
               className="bg-gradient-to-br from-student-primary to-student-accent text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {proctored ? <Maximize aria-hidden="true" className="mr-2 size-4" /> : null}
-              Start Exam Now
+              {restoredCount > 0 ? 'Resume Exam' : 'Start Exam Now'}
             </Button>
           </div>
         </div>
@@ -705,6 +1041,7 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
                 <Maximize className="size-3.5" /> Full screen
               </button>
             ) : null}
+            {inProgress ? <AutosaveChip state={autosave.state} at={autosave.at} /> : null}
             {inProgress && timeLeftSec !== null ? (
               <Pill
                 icon={<Hourglass className="size-3.5" />}
@@ -969,6 +1306,39 @@ export function FormalExamPlayer({ api, authToken, examId, title: initialTitle, 
         </DialogContent>
       </Dialog>
 
+      {/* Naji UAT 2026-08-11 — submit failed (offline, or the session died
+          mid-exam). The attempt is untouched behind this box and the draft is on
+          the server, so this reassures and offers a retry instead of the old red
+          error card that threw the answers away. */}
+      <Dialog open={submitError !== null} onOpenChange={(o) => { if (!o) setSubmitError(null); }}>
+        <DialogContent
+          className="top-2 modal-maxh translate-y-0 overflow-y-auto sm:top-[50%] sm:translate-y-[-50%] sm:max-w-[520px]"
+          style={{ width: 'min(520px, calc(100vw - 2rem))', maxWidth: 'min(520px, calc(100vw - 2rem))' }}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="size-5" /> We could not submit your exam
+            </DialogTitle>
+            <DialogDescription>
+              Nothing has been lost — your answers are saved. Check your internet connection and try again. If you
+              were signed out, sign in again in another tab, then press Try Again.
+            </DialogDescription>
+          </DialogHeader>
+          {submitError !== null ? (
+            <p className="text-xs text-slate-500">Details: {submitError}</p>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubmitError(null)}>Back to Exam</Button>
+            <Button
+              onClick={() => { setSubmitError(null); void submit(); }}
+              className="bg-gradient-to-br from-student-primary to-student-accent text-white hover:opacity-95"
+            >
+              Try Again
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Completion modal (no score — formal results publish later) */}
       <Dialog
         open={resultOpen && phase.kind === 'submitted'}
@@ -1057,6 +1427,37 @@ function Pill({ icon, label, value, tone = 'neutral' }: { icon: React.ReactNode;
       <span className="text-slate-500">{icon}</span>
       <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">{label}</span>
       <span className="font-mono text-xs font-semibold">{value}</span>
+    </span>
+  );
+}
+
+// Naji UAT 2026-08-11 — the only visible trace of the autosave loop. It is
+// deliberately a chip and not a modal or a toast: a student mid-paper must not
+// be interrupted, and a single dropped request means nothing (the next tick
+// retries). Only a sustained failure — AUTOSAVE_STALE_AFTER_FAILURES in a row,
+// roughly 75 seconds with nothing reaching the server — turns it amber, because
+// by then the student genuinely wants to know before they keep typing.
+function AutosaveChip({ state, at }: { state: 'idle' | 'saving' | 'saved' | 'stale'; at: number | null }) {
+  if (state === 'idle') return null;
+  const stale = state === 'stale';
+  const savedLabel = at !== null
+    ? new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : '';
+  return (
+    <span
+      title={
+        stale
+          ? 'Your recent answers have not reached the server yet. Keep going — we are still retrying, and everything saved earlier is safe.'
+          : 'Your answers are saved on the server automatically.'
+      }
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 ${
+        stale ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600'
+      }`}
+    >
+      {stale ? <CloudOff aria-hidden="true" className="size-3.5" /> : <CloudCheck aria-hidden="true" className="size-3.5 text-emerald-600" />}
+      <span className="font-medium">
+        {stale ? 'Not saved — retrying' : state === 'saving' ? 'Saving…' : `Saved ${savedLabel}`}
+      </span>
     </span>
   );
 }

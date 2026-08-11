@@ -45,6 +45,66 @@ function asNumber(value: unknown): number {
   return 0;
 }
 
+// Naji UAT 2026-08-11 — the exam clock is SERVER-owned, and 0 is a real value
+// there ("your time is up"), so a missing field must NOT read as 0: asNumber()
+// coerces absent/garbled to 0, which an API build without `remaining_seconds`
+// (or a proxy that dropped it) would turn into "auto-submit this exam right
+// now". Anything that is not a finite number comes back as null so the caller
+// can fall back to its own duration maths instead.
+function asFiniteNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+/** Server verdict on the exam window at the moment it answered. */
+export type ExamWindowState = 'open' | 'closing' | 'closed';
+
+function asExamWindowState(value: unknown): ExamWindowState {
+  const raw = asString(value);
+  return raw === 'closed' || raw === 'closing' ? raw : 'open';
+}
+
+/** One drafted answer as autosaved by the player: the 0-based MCQ option index
+ * (as a string) or the descriptive text, in a single-entry array. Always an
+ * array — an empty one means "not answered". */
+export interface ExamDraftAnswer {
+  questionId: string;
+  answer: string[];
+}
+
+function toDraftAnswers(value: unknown): ExamDraftAnswer[] {
+  return asArray(value)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== null)
+    .map((entry) => ({
+      questionId: asString(entry.question_id),
+      answer: asArray(entry.answer)
+        .map((one) => asString(one))
+        .filter((one) => one !== ''),
+    }))
+    .filter((entry) => entry.questionId !== '');
+}
+
+/** What /exams/exam_save_progress tells the player back. `remainingSeconds` is
+ * authoritative — it counts down to the EARLIER of the attempt deadline and the
+ * exam window close, both computed on the server in IST. */
+export interface ExamProgressSaveResult {
+  saved: boolean;
+  remainingSeconds: number | null;
+  windowState: ExamWindowState;
+  serverTime: string;
+}
+
 // Group a student's exams by the backend-derived `state` for the Exams tab.
 // Only exams the student is assigned to (is_allocated) are shown, so the tab
 // reflects "your exams", not every exam on the course.
@@ -936,6 +996,11 @@ export class StudentPortalApi {
   // Native in-portal exam taking (Naji 2026-06-01). Loads an eligible exam's
   // questions (no answer keys) and starts/resumes the attempt. Returns an
   // `error` string when the exam isn't takeable (not assigned, closed, etc.).
+  //
+  // Naji UAT 2026-08-11 — the payload now also carries the autosaved draft and
+  // the server clock, so a student whose session/laptop/browser died mid-exam
+  // resumes with their answers instead of starting again from question one
+  // ("both of them started over from the beginning" — 10 Aug exam).
   async loadExamForTaking(
     authToken: string,
     examId: string,
@@ -946,6 +1011,18 @@ export class StudentPortalApi {
     duration: string;
     totalQuestions: number;
     questions: Array<{ questionId: string; qType: number; question: string; options: string[] }>;
+    draftAnswers: ExamDraftAnswer[];
+    /** Seconds left per the SERVER (attempt deadline vs window close, whichever
+     * is earlier). null when the API build predates the field — the player then
+     * falls back to its own duration countdown. */
+    remainingSeconds: number | null;
+    serverTime: string;
+    /** Naji UAT 2026-08-11 — this tab's claim on the server-side draft. Sent
+     * back on every autosave; a tab opened EARLIER than the one holding the
+     * claim has its saves ignored, so a forgotten window stops overwriting the
+     * one the student is sitting at. '' when the API build predates the field,
+     * which simply means no claim is enforced. */
+    draftToken: string;
     error?: string;
   }> {
     const payload = await this.post<Record<string, unknown>>('/exams/exam_take', authToken, {
@@ -960,6 +1037,10 @@ export class StudentPortalApi {
         duration: '',
         totalQuestions: 0,
         questions: [],
+        draftAnswers: [],
+        remainingSeconds: null,
+        serverTime: '',
+        draftToken: '',
         error: asString(payload.message) || 'This exam is not available right now.',
       };
     }
@@ -983,6 +1064,42 @@ export class StudentPortalApi {
       duration: asString(data.duration),
       totalQuestions: asNumber(data.total_questions) || questions.length,
       questions,
+      draftAnswers: toDraftAnswers(data.draft_answers),
+      remainingSeconds: asFiniteNumberOrNull(data.remaining_seconds),
+      serverTime: asString(data.server_time),
+      draftToken: asString(data.draft_token),
+    };
+  }
+
+  // Naji UAT 2026-08-11 — periodic best-effort autosave of an in-progress
+  // attempt. Two jobs in one request: it puts the answers on the SERVER (they
+  // used to live only in React state, so a 401 / refresh / dead battery wiped
+  // every one of them), and it is an authenticated call every ~25s, which is
+  // what keeps the session sliding through a 75-minute exam. It never scores
+  // anything; the reply carries the server's own remaining time so the client
+  // countdown cannot drift away from the deadline the server will enforce.
+  //
+  // `draftToken` says WHICH open tab this save is coming from (see
+  // loadExamForTaking). A save from a tab that was superseded by a later resume
+  // comes back `saved: false` with the window still open — the caller must
+  // treat that as a silent no-op, never as an error a student can see.
+  async saveExamProgress(
+    authToken: string,
+    attemptId: string,
+    userAnswers: unknown[],
+    draftToken: string,
+  ): Promise<ExamProgressSaveResult> {
+    const payload = await this.post<Record<string, unknown>>('/exams/exam_save_progress', authToken, {
+      attempt_id: attemptId,
+      user_answers: userAnswers,
+      draft_token: draftToken,
+    });
+    const data = asRecord(payload.data) ?? {};
+    return {
+      saved: asBooleanFromLegacy(data.saved),
+      remainingSeconds: asFiniteNumberOrNull(data.remaining_seconds),
+      windowState: asExamWindowState(data.window_state),
+      serverTime: asString(data.server_time),
     };
   }
 

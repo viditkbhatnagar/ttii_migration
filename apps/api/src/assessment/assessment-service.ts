@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
@@ -258,10 +260,401 @@ function combineDateAndTime(dateValue: unknown, timeValue: unknown): Date | null
 // runs UTC. Mirrors jobs/exam-reminders.ts.
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 // End of the given calendar day (23:59:59). Exam `to_date` is a DATE column
 // with no time, so an exam is open through the end of its closing day.
 function endOfDay(dateValue: unknown): Date | null {
   return combineDateAndTime(dateValue, '23:59:59');
+}
+
+/**
+ * Naji UAT 2026-08-11 — how long a submission may arrive after the deadline and
+ * still be taken at face value. A phone on a weak connection can spend a few
+ * seconds getting the final POST out, and failing that student would be
+ * indefensible. Past this, the attempt is finalised from the last autosave
+ * instead (see submitExamAttempt) — the student had until the deadline, not
+ * after it.
+ */
+const LATE_SUBMIT_GRACE_MS = 90 * 1000;
+
+/** Remaining time at which the player should start warning rather than ticking. */
+const WINDOW_CLOSING_SECONDS = 120;
+
+/**
+ * `remaining_seconds` for an exam with NO server-side deadline at all — an
+ * untimed practice paper with no duration and no window.
+ *
+ * Null, not a number, and not 0. Every candidate number is a live foot-gun in
+ * a player that derives an absolute deadline as `now + remaining * 1000`: 0
+ * ends the exam instantly, and a negative sentinel ends it a second ago. Null
+ * is the one value a client cannot mistake for a countdown, and it is what
+ * both readers already treat as "no deadline — leave the clock alone".
+ */
+const NO_DEADLINE_REMAINING_SECONDS = null;
+
+/** Backstop on the autosaved answer sheet, so a rogue client cannot post megabytes every 25s. */
+const MAX_DRAFT_ANSWERS_CHARS = 256_000;
+
+/**
+ * The exam columns that decide when a sitting must stop.
+ *
+ * Typed `unknown` deliberately: every field is read through the coercers above
+ * (toTimeOfDayString / combineDateAndTime / toStringValue), which is what makes
+ * the IST-vs-UTC handling correct, and the callers hold these columns in three
+ * different shapes — a typed Prisma select, the loosely-typed row toExamData
+ * works with, and a plain object in tests.
+ */
+export interface ExamWindowRow {
+  from_date: unknown;
+  from_time: unknown;
+  to_date: unknown;
+  to_time: unknown;
+  duration: unknown;
+}
+
+/**
+ * Exam duration is a VARCHAR the wizard writes as plain minutes ("75"), but
+ * legacy rows carry "HH:MM" and "HH:MM:SS" too — a bare parseInt on "01:15:00"
+ * yields 1. Mirrors parseDurationMin in the student player so both sides agree
+ * on how long the paper is.
+ */
+function parseDurationMinutes(value: unknown): number {
+  const raw = toStringValue(value).trim();
+  if (raw === '') {
+    return 0;
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return Number.parseInt(raw, 10);
+  }
+
+  const parts = raw.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.some((part) => Number.isNaN(part))) {
+    const fallback = Number.parseInt(raw, 10);
+    return Number.isFinite(fallback) ? Math.max(0, fallback) : 0;
+  }
+
+  const [first = 0, second = 0, third = 0] = parts;
+  if (parts.length >= 3) {
+    return first * 60 + second + Math.round(third / 60);
+  }
+  if (parts.length === 2) {
+    return first * 60 + second;
+  }
+  return Math.max(0, first);
+}
+
+/**
+ * The instant the exam's own window shuts, in IST-aware UTC.
+ *
+ * Naji UAT 2026-08-11 — the gates used to close on `endOfDay(to_date)`, i.e.
+ * 23:59:59 of the closing DAY, which for a 07:30–08:45 PM sitting left the exam
+ * effectively open for another three hours: one student worked past 9 PM and
+ * submitted, which Naji flagged as "a very serious concern". `to_time` holds
+ * the real finish time and is what the student card already renders, so it is
+ * what the deadline must use. Rows with no `to_time` (legacy, and anything the
+ * wizard never filled) keep the end-of-day behaviour rather than closing at
+ * midnight — the alternative would shut those exams the moment they opened.
+ *
+ * The recombination goes through combineDateAndTime, which is the one helper in
+ * this file that pins an IST wall clock to a UTC instant. No second variant.
+ */
+function examWindowCloseInstant(exam: ExamWindowRow): Date | null {
+  if (!exam.to_date) {
+    // No closing day configured — unchanged from the pre-2026-08-11 behaviour,
+    // where endOfDay(null) also produced "no window close".
+    return null;
+  }
+
+  const closeTime = toTimeOfDayString(exam.to_time);
+  // A stored '00:00:00' means "nobody set a finishing time", not "closes at
+  // midnight" — the wizard writes a real time and a zero only reaches the
+  // column through a legacy import or a hand edit. Treating it literally is
+  // safe on a single-day row (the correction below pushes it to the end of the
+  // day) but silently closes a MULTI-day window a whole day early: a
+  // 01 Aug 09:00 -> 10 Aug row would shut at 10 Aug 00:00 and lock out every
+  // student sitting on the final day. Same fallback as a NULL to_time.
+  if (closeTime === null || closeTime === '00:00:00') {
+    return endOfDay(exam.to_date);
+  }
+
+  const close = combineDateAndTime(exam.to_date, closeTime);
+  if (!close) {
+    return endOfDay(exam.to_date);
+  }
+
+  // A close at or before the start means the sitting runs past IST midnight on
+  // a single stored date — the same correction liveClassJoinWindow makes.
+  const start = combineDateAndTime(exam.from_date, exam.from_time);
+  if (start && close.getTime() <= start.getTime()) {
+    return new Date(close.getTime() + MS_PER_DAY);
+  }
+
+  return close;
+}
+
+/**
+ * The instant THIS attempt must stop: the EARLIER of (start + duration) and the
+ * exam window close. Null when the exam has neither — an untimed paper.
+ *
+ * The server owns this number. The client's countdown is a rendering of it, not
+ * an authority: a paused laptop, a wrong device clock or a tampered timer must
+ * not buy a student extra minutes.
+ */
+export function examEffectiveEndMs(exam: ExamWindowRow, attemptStart: Date | null): number | null {
+  const durationMinutes = parseDurationMinutes(exam.duration);
+  const durationEndMs = attemptStart && durationMinutes > 0
+    ? attemptStart.getTime() + durationMinutes * 60 * 1000
+    : null;
+  const windowCloseMs = examWindowCloseInstant(exam)?.getTime() ?? null;
+
+  if (durationEndMs === null) {
+    return windowCloseMs;
+  }
+  if (windowCloseMs === null) {
+    return durationEndMs;
+  }
+  return Math.min(durationEndMs, windowCloseMs);
+}
+
+export type ExamWindowState = 'open' | 'closing' | 'closed';
+
+export interface ExamWindowSnapshot {
+  endMs: number | null;
+  /** Null when the exam is untimed; see NO_DEADLINE_REMAINING_SECONDS. */
+  remainingSeconds: number | null;
+  windowState: ExamWindowState;
+}
+
+/** The server-authoritative countdown shipped to the player on every autosave. */
+export function examWindowSnapshot(
+  exam: ExamWindowRow,
+  attemptStart: Date | null,
+  nowMs: number,
+): ExamWindowSnapshot {
+  const endMs = examEffectiveEndMs(exam, attemptStart);
+  if (endMs === null) {
+    return { endMs: null, remainingSeconds: NO_DEADLINE_REMAINING_SECONDS, windowState: 'open' };
+  }
+
+  // Naji UAT 2026-08-11 (adversarial review round 3) — the GATE reads the raw
+  // instants; only the number shown to the student is floored. Deriving the
+  // state from the floored second closed the window up to 999ms EARLY: at
+  // nowMs = endMs - 900ms, floor(0.9) is 0 and the exam was declared 'closed',
+  // so an autosave carrying answers delivered inside the last second of a live
+  // paper was discarded and triggered a finalise on the stale draft instead.
+  const remainingSeconds = Math.max(0, Math.floor((endMs - nowMs) / 1000));
+  const windowState: ExamWindowState = nowMs >= endMs
+    ? 'closed'
+    : remainingSeconds <= WINDOW_CLOSING_SECONDS
+      ? 'closing'
+      : 'open';
+
+  return { endMs, remainingSeconds, windowState };
+}
+
+/** One drafted answer, in the shape the submit wire and the scorer both use. */
+interface DraftAnswerRow {
+  question_id: string;
+  answer: string[];
+}
+
+/**
+ * Naji UAT 2026-08-11 (adversarial review round 3) — the ONE definition of
+ * "this answer sheet holds real work".
+ *
+ * Rounds 1 and 2 each added a guard that counted ROWS, but the player's
+ * buildUserAnswers emits one row per QUESTION — blanks included — so
+ * draft_answers is a NON-EMPTY array 25 seconds into every paper, before the
+ * student has answered a single question. The scorer meanwhile counts ANSWERS
+ * (`toNormalizedStringArray(...).length > 0`, in submitExamAttempt's loop), so
+ * every row-counting guard inverted into the exact bug it was added to prevent:
+ * a blank sheet counted as work and beat a real one, in both directions.
+ *
+ * Measured here with the SAME normaliser the scoring loop uses, over the same
+ * values it will read, so the two definitions cannot drift apart again.
+ */
+function hasAnsweredEntries(answers: Iterable<unknown>): boolean {
+  for (const answer of answers) {
+    if (toNormalizedStringArray(answer).length > 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** hasAnsweredEntries over the row shape parseDraftAnswers returns. */
+function sheetHasWork(rows: DraftAnswerRow[]): boolean {
+  return hasAnsweredEntries(rows.map((row) => row.answer));
+}
+
+/**
+ * Union two answer sheets, question by question, preferring a non-empty answer
+ * over a blank one and the overlay over the base when both hold work.
+ *
+ * Naji UAT 2026-08-11 (adversarial review round 3) — used when a post-deadline
+ * request finalises an attempt: the base is the stored draft and the overlay is
+ * the sheet that request was carrying. Neither is discarded, so the student is
+ * graded on everything they had. A blank overlay entry deliberately does NOT
+ * clear a stored answer: a sheet arriving from a tab that has been out of touch
+ * cannot be told apart from a deliberate clear, and resurrecting an answer the
+ * student meant to remove is a far smaller harm than dropping one they meant to
+ * keep.
+ */
+function mergeAnswerSheets(base: DraftAnswerRow[], overlay: DraftAnswerRow[]): DraftAnswerRow[] {
+  const merged = new Map<string, string[]>();
+  for (const row of base) {
+    merged.set(row.question_id, row.answer);
+  }
+
+  for (const row of overlay) {
+    const existing = merged.get(row.question_id);
+    if (row.answer.length > 0 || existing === undefined || existing.length === 0) {
+      merged.set(row.question_id, row.answer);
+    }
+  }
+
+  return Array.from(merged, ([question_id, answer]) => ({ question_id, answer }));
+}
+
+/**
+ * Normalise an autosaved answer sheet into the same rows the submit wire uses:
+ * [{ question_id, answer: string[] }]. Accepts the wire array, the raw JSON
+ * string held in exam_attempt.draft_answers, and a plain
+ * { question_id: answer } object, so a client that ships the map form is not
+ * silently graded as having answered nothing. Anything unparseable degrades to
+ * [] — a draft is a convenience, never a reason to fail a request.
+ *
+ * Later rows win, so a client that re-sends a question keeps its newest answer.
+ */
+function parseDraftAnswers(raw: unknown): DraftAnswerRow[] {
+  const document = readDraftDocument(raw);
+  const value: unknown = isDraftEnvelope(document) ? document.answers : document;
+
+  const rows = new Map<string, string[]>();
+  const add = (questionId: unknown, answer: unknown): void => {
+    const id = toStringValue(questionId).trim();
+    if (id === '') {
+      return;
+    }
+    rows.set(id, toNormalizedStringArray(answer));
+  };
+
+  if (Array.isArray(value)) {
+    for (const row of value) {
+      if (!row || typeof row !== 'object') {
+        continue;
+      }
+      const record = row as Record<string, unknown>;
+      add(record.question_id, record.answer);
+    }
+  } else if (value && typeof value === 'object') {
+    for (const [questionId, answer] of Object.entries(value as Record<string, unknown>)) {
+      add(questionId, answer);
+    }
+  }
+
+  return Array.from(rows, ([question_id, answer]) => ({ question_id, answer }));
+}
+
+/**
+ * Naji UAT 2026-08-11 (adversarial review round 3) — exam_attempt.draft_answers
+ * holds ONE of two documents:
+ *
+ *   [{ question_id, answer }]          a client that sent no draft-writer token
+ *                                      (the Flutter app) or a legacy row
+ *   { writer, answers: [ ... ] }       a client that holds one
+ *
+ * The envelope is what lets the writer token live beside the sheet it governs
+ * without a third column on exam_attempt — and therefore without a third piece
+ * of DDL owed on production on top of draft_answers and last_seen_at. It is
+ * cohesive rather than opportunistic: the token means nothing except "who may
+ * replace THIS draft", and every reader of the column already goes through
+ * parseDraftAnswers, so unwrapping in one place covers all of them.
+ */
+function readDraftDocument(raw: unknown): unknown {
+  if (typeof raw !== 'string') {
+    return raw;
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function isDraftEnvelope(value: unknown): value is { writer?: unknown; answers: unknown } {
+  return typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Array.isArray((value as Record<string, unknown>).answers);
+}
+
+/** The token of the client that last wrote this draft; '' when nobody holds it. */
+function parseDraftWriter(raw: unknown): string {
+  const document = readDraftDocument(raw);
+  return isDraftEnvelope(document) ? toStringValue(document.writer).trim() : '';
+}
+
+function serializeDraft(writer: string, rows: DraftAnswerRow[]): string {
+  // No writer -> the plain array, which is exactly what a token-less client and
+  // every pre-envelope row already look like.
+  return writer === '' ? JSON.stringify(rows) : JSON.stringify({ writer, answers: rows });
+}
+
+/**
+ * Naji UAT 2026-08-11 (adversarial review round 3) — the draft-writer token.
+ *
+ * Minted server-side whenever an attempt is started or resumed, handed to that
+ * client, and required (optionally — see saveExamProgress) on every autosave.
+ * The mint instant is encoded in the token itself, so the server can order two
+ * tokens without keeping a counter: the LATER-minted one supersedes.
+ *
+ * A client sequence number cannot do this job — a second tab starts its counter
+ * at zero and would look older forever — and the mint is stamped from the
+ * server's clock, so a wrong device clock cannot buy a tab priority either.
+ */
+function mintDraftWriterToken(nowMs: number): string {
+  const minted = Math.max(0, Math.trunc(nowMs));
+  // base64url never contains '.', so the mint prefix always splits back out.
+  return `${minted.toString(36)}.${randomBytes(9).toString('base64url')}`;
+}
+
+function draftWriterMintedMs(token: string): number {
+  const minted = Number.parseInt(token.split('.')[0] ?? '', 36);
+  return Number.isFinite(minted) && minted > 0 ? minted : 0;
+}
+
+/**
+ * True when `presented` belongs to a tab that was opened BEFORE the one holding
+ * the draft — the abandoned laptop still heartbeating over a paper the student
+ * has resumed on their phone.
+ *
+ * Never true when either side has no token (a token-less client keeps working
+ * exactly as before) or when the two match (the ordinary single-tab case).
+ */
+function isSupersededDraftWriter(presented: string, stored: string): boolean {
+  if (presented === '' || stored === '' || presented === stored) {
+    return false;
+  }
+
+  const presentedMs = draftWriterMintedMs(presented);
+  const storedMs = draftWriterMintedMs(stored);
+  if (presentedMs !== storedMs) {
+    return presentedMs < storedMs;
+  }
+
+  // Two tabs opened inside the same millisecond: pick a stable winner rather
+  // than letting them ping-pong the draft between each other forever.
+  return presented < stored;
 }
 
 function format12HourTime(value: unknown): string {
@@ -437,6 +830,34 @@ export interface SubmitAttemptInput {
   userAnswers: unknown;
 }
 
+/** Naji UAT 2026-08-11 — POST /exams/exam_save_progress. */
+export interface SaveExamProgressInput {
+  attemptId: string;
+  userAnswers: unknown;
+  /**
+   * The draft-writer token this client was handed by /exams/exam_take.
+   *
+   * OPTIONAL on purpose: the Flutter client does not send it, and an autosave
+   * without one must keep working exactly as it does today. It only ever
+   * REJECTS a save — a token-less client can neither claim the draft nor be
+   * locked out of it.
+   */
+  draftToken?: string;
+}
+
+export interface SaveExamProgressResult {
+  status: number;
+  message: string;
+  data: {
+    saved: boolean;
+    /** From the SERVER effective end. Null means "untimed"; see NO_DEADLINE_REMAINING_SECONDS. */
+    remaining_seconds: number | null;
+    window_state: ExamWindowState;
+    /** ISO, so the client can measure its own clock drift. */
+    server_time: string;
+  };
+}
+
 export interface StartQuizAttemptInput {
   examId: string;
 }
@@ -458,14 +879,10 @@ export interface SubmitAssignmentInput {
 }
 
 /** The exam columns the eligibility gate checks and its callers then render. */
-interface ExamAttemptGateRow {
+interface ExamAttemptGateRow extends ExamWindowRow {
   id: number;
   title: string | null;
-  duration: string | null;
   mark: number | null;
-  from_date: Date | null;
-  from_time: Date | null;
-  to_date: Date | null;
   status: string | null;
   is_practice: number;
   shuffle_questions: boolean;
@@ -629,7 +1046,17 @@ export class AssessmentService {
     const isAllocated = allocationCount > 0;
     const status = toStringValue(exam.status);
     const start = combineDateAndTime(exam.from_date, exam.from_time);
-    const end = endOfDay(exam.to_date);
+    // Naji UAT 2026-08-11 — the card used to stay "available" until midnight of
+    // the closing day because this was endOfDay(to_date), so a student saw a
+    // live Start button for hours after the 08:45 PM sitting ended and was then
+    // refused by the gate. Card and gate now agree on the same instant.
+    const end = examWindowCloseInstant({
+      from_date: exam.from_date,
+      from_time: exam.from_time,
+      to_date: exam.to_date,
+      to_time: exam.to_time,
+      duration: exam.duration,
+    });
     const nowMs = Date.now();
     let state: 'submitted' | 'available' | 'upcoming' | 'closed';
     if (isSubmitted) {
@@ -1051,7 +1478,10 @@ export class AssessmentService {
       where: { id: examIdInt, deleted_at: null },
       select: {
         id: true, title: true, duration: true, mark: true,
-        from_date: true, from_time: true, to_date: true, status: true,
+        // `to_time` joined this select on 2026-08-11: the window gate used to
+        // close on end-of-day, which let a student start (and finish) hours
+        // after the sitting ended. See examWindowCloseInstant.
+        from_date: true, from_time: true, to_date: true, to_time: true, status: true,
         is_practice: true, shuffle_questions: true,
       },
     });
@@ -1093,16 +1523,16 @@ export class AssessmentService {
       return { ok: false, message: 'You are not assigned to this exam.' };
     }
 
-    const nowMs = Date.now();
-    const start = combineDateAndTime(exam.from_date, exam.from_time);
-    const end = endOfDay(exam.to_date);
-    if (start && nowMs < start.getTime()) {
-      return { ok: false, message: 'This exam has not started yet.' };
-    }
-    if (end && nowMs > end.getTime()) {
-      return { ok: false, message: 'This exam has closed.' };
-    }
+    // Naji UAT 2026-08-11 — before deciding anything, close the books on an
+    // attempt whose deadline has already passed. A student whose laptop died at
+    // 08:44 on an 08:45 paper would otherwise come back to "This exam has
+    // closed" with a full answer sheet sitting unsubmitted in draft_answers
+    // forever. Their work is graded as it stood at the deadline, and the
+    // already-submitted branch below then tells them so.
+    await this.finalizeExpiredAttempt(userIdInt, exam);
 
+    // Checked BEFORE the window so a student who finished (or was auto-finalised
+    // above) is told they have submitted rather than the misleading "closed".
     const submitted = await this.prisma.exam_attempt.count({
       where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
     });
@@ -1110,7 +1540,63 @@ export class AssessmentService {
       return { ok: false, message: 'You have already submitted this exam.' };
     }
 
+    const nowMs = Date.now();
+    const start = combineDateAndTime(exam.from_date, exam.from_time);
+    const end = examWindowCloseInstant(exam);
+    if (start && nowMs < start.getTime()) {
+      return { ok: false, message: 'This exam has not started yet.' };
+    }
+    if (end && nowMs > end.getTime()) {
+      return { ok: false, message: 'This exam has closed.' };
+    }
+
     return { ok: true, exam };
+  }
+
+  /**
+   * Naji UAT 2026-08-11 — grade a stranded attempt from its last autosave.
+   *
+   * Nothing else would: the player auto-submits when its countdown hits zero,
+   * but a student whose browser, battery or session died before that never
+   * sends it, and submitExamAttempt is only ever reached from a live player.
+   * Running this the next time the student (or the mobile app) touches the exam
+   * means an interrupted paper is graded on what they had at the deadline
+   * rather than lost.
+   *
+   * No-op while the attempt is still inside its window, so the ordinary resume
+   * path is untouched, and a no-op when there is no draft to grade — see
+   * finalizeAttemptFromDraft. Best-effort — a failure here must not block the
+   * read that triggered it.
+   */
+  private async finalizeExpiredAttempt(userIdInt: number, exam: ExamAttemptGateRow): Promise<void> {
+    try {
+      const attempt = await this.prisma.exam_attempt.findFirst({
+        where: { exam_id: exam.id, user_id: userIdInt, submit_status: false, deleted_at: null },
+        orderBy: { id: 'desc' },
+        select: { id: true, start_time: true, draft_answers: true },
+      });
+      if (!attempt) {
+        return;
+      }
+
+      const endMs = examEffectiveEndMs(exam, parseDate(attempt.start_time));
+      if (endMs === null || Date.now() <= endMs + LATE_SUBMIT_GRACE_MS) {
+        return;
+      }
+
+      // Graded on the draft, and skipped entirely when there is none: this
+      // sweep runs on an attempt row that getExamForTaking creates as soon as
+      // the INSTRUCTIONS screen loads, so finalising an empty one would turn a
+      // student who merely opened the exam into a graded 0 — with a submission
+      // receipt emailed to them and no way back in.
+      await this.finalizeAttemptFromDraft(
+        String(userIdInt),
+        idString(attempt.id),
+        attempt.draft_answers,
+      );
+    } catch {
+      /* best-effort — never fail opening an exam because a stale attempt would not finalise */
+    }
   }
 
   async startExamAttempt(userId: string, input: StartExamAttemptInput): Promise<{ attemptId: string; questionNo: number }> {
@@ -1230,7 +1716,7 @@ export class AssessmentService {
     let attempt = await this.prisma.exam_attempt.findFirst({
       where: { exam_id: examIdInt, user_id: userIdInt, submit_status: false, deleted_at: null },
       orderBy: { id: 'desc' },
-      select: { id: true, question_id: true },
+      select: { id: true, question_id: true, start_time: true, draft_answers: true },
     });
     let questions = attempt ? await this.buildExamQuestions(attempt.question_id) : [];
 
@@ -1249,7 +1735,7 @@ export class AssessmentService {
       if (started.attemptId) {
         attempt = await this.prisma.exam_attempt.findFirst({
           where: { id: toIntId(started.attemptId) },
-          select: { id: true, question_id: true },
+          select: { id: true, question_id: true, start_time: true, draft_answers: true },
         });
         questions = attempt ? await this.buildExamQuestions(attempt.question_id) : [];
       }
@@ -1259,6 +1745,15 @@ export class AssessmentService {
     if (!attempt || questions.length === 0) {
       return { status: 0, message: 'This exam has no questions available yet. Please contact your institute.' };
     }
+
+    // Naji UAT 2026-08-11 — resume the ANSWERS, not just the question order.
+    // The locked/shuffled order always resumed correctly, which is what made
+    // the 10 Aug failure look like a working resume; the answers simply had
+    // nowhere to resume FROM, because they only ever existed in the browser.
+    // Now the last autosave comes back with the paper, so signing in again
+    // after a 401 (or a crash, or a flat battery) restores the sheet intact.
+    const nowDate = new Date();
+    const snapshot = examWindowSnapshot(exam, parseDate(attempt.start_time), nowDate.getTime());
 
     return {
       status: 1,
@@ -1270,8 +1765,227 @@ export class AssessmentService {
         total_mark: toDbNumber(exam.mark),
         total_questions: questions.length,
         questions,
+        // Always an array — a null here crashes the Flutter List parse.
+        draft_answers: parseDraftAnswers(attempt.draft_answers),
+        // Naji UAT 2026-08-11 (adversarial review round 3) — this client's
+        // claim on the draft. Whoever opened the paper LAST wins, so the tab a
+        // student walked away from stops overwriting the one they are sitting
+        // at. Minted here and nowhere else; see mintDraftWriterToken.
+        draft_token: mintDraftWriterToken(nowDate.getTime()),
+        // The countdown the player must run on: min(start + duration, window
+        // close). Null means the paper is untimed — do NOT auto-submit.
+        remaining_seconds: snapshot.remainingSeconds,
+        server_time: nowDate.toISOString(),
       },
     };
+  }
+
+  /**
+   * Naji UAT 2026-08-11 — POST /exams/exam_save_progress.
+   *
+   * The autosave that makes an exam survivable: it parks the in-progress answer
+   * sheet on the server every ~25s and hands back the server's own countdown,
+   * so the client's clock is never the authority. Being an ordinary
+   * authenticated request, it also slides the session (see
+   * auth/session-sliding.ts), which is what stops the hard 1h expiry landing on
+   * top of a 75-minute paper.
+   *
+   * It scores NOTHING and writes NO exam_answer rows — a draft becomes a graded
+   * attempt only through submitExamAttempt.
+   */
+  async saveExamProgress(userId: string, input: SaveExamProgressInput): Promise<SaveExamProgressResult> {
+    const nowDate = new Date();
+    const serverTime = nowDate.toISOString();
+    // A rejection carries neutral numbers on purpose: the client must branch on
+    // `status`, and a stray "0 seconds left" would make an otherwise healthy
+    // player auto-submit a paper that is still running.
+    const reject = (message: string): SaveExamProgressResult => ({
+      status: 0,
+      message,
+      data: {
+        saved: false,
+        remaining_seconds: NO_DEADLINE_REMAINING_SECONDS,
+        window_state: 'open',
+        server_time: serverTime,
+      },
+    });
+
+    const userIdInt = toNullableIntId(userId);
+    const attemptIdInt = toNullableIntId(input.attemptId);
+    if (!userIdInt || !attemptIdInt) {
+      return reject('Invalid request.');
+    }
+
+    // user_id is part of the WHERE, so another student's attempt is simply not
+    // found — the id is never confirmed to exist.
+    const attempt = await this.prisma.exam_attempt.findFirst({
+      where: { id: attemptIdInt, user_id: userIdInt, deleted_at: null },
+      select: {
+        id: true, exam_id: true, question_id: true, start_time: true, submit_status: true,
+        // Read on every autosave because the closed branch below finalises on
+        // it, and it must grade the stored sheet rather than an empty payload.
+        draft_answers: true,
+      },
+    });
+    if (!attempt) {
+      return reject('Attempt not found.');
+    }
+    if (attempt.submit_status === true) {
+      return reject('This exam has already been submitted.');
+    }
+
+    const exam = attempt.exam_id === null || attempt.exam_id === undefined
+      ? null
+      : await this.prisma.exam.findFirst({
+          where: { id: attempt.exam_id },
+          select: { from_date: true, from_time: true, to_date: true, to_time: true, duration: true },
+        });
+    if (!exam) {
+      return reject('Exam not found.');
+    }
+
+    const snapshot = examWindowSnapshot(exam, parseDate(attempt.start_time), nowDate.getTime());
+
+    // Only answers to questions this attempt actually locked in are kept, which
+    // both discards junk and bounds what a client can park on the row.
+    const lockedIds = new Set(
+      toNormalizedStringArray(attempt.question_id).map((id) => id.trim()).filter((id) => id !== ''),
+    );
+    const draft = parseDraftAnswers(input.userAnswers)
+      .filter((row) => lockedIds.size === 0 || lockedIds.has(row.question_id));
+
+    // Naji UAT 2026-08-11 (adversarial review round 3) — is this the tab the
+    // student is actually sitting at? A frozen laptop left on the exam screen
+    // heartbeats every 25s whether or not anything changed, and used to replace
+    // the good sheet the student was building on their phone with its own stale
+    // one. The later-opened tab owns the draft; see isSupersededDraftWriter.
+    const storedWriter = parseDraftWriter(attempt.draft_answers);
+    const presentedWriter = toStringValue(input.draftToken).trim();
+    const superseded = isSupersededDraftWriter(presentedWriter, storedWriter);
+
+    if (snapshot.windowState === 'closed') {
+      // Past the deadline: nothing more is STORED — the student had until the
+      // deadline, not after it — and the attempt is finalised on what they had.
+      //
+      // "What they had" is the stored draft UNIONED with the sheet this request
+      // is carrying. Discarding the payload cost one student the two answers a
+      // flush delivered at deadline+2s, grading them from a 25-second-stale
+      // draft — while submitExamAttempt took the identical payload at face
+      // value over the same interval. The union loses nothing on either side.
+      //
+      // Note what is deliberately NOT re-decided here: whether a payload is too
+      // late to count. That policy lives in submitExamAttempt (isLate, against
+      // LATE_SUBMIT_GRACE_MS) and nowhere else, so it cannot drift — a merged
+      // sheet handed over past the grace is simply overruled there by the
+      // stored draft. A second copy of the rule was the bug this whole review
+      // is about; it also silently differed in the one corner where the draft
+      // is BLANK, refusing to grade a student on the only work in existence.
+      //
+      // A superseded writer never contributes: its sheet is by definition the
+      // one we just decided not to trust, and merging it could overwrite a
+      // newer answer with the stale tab's older one.
+      const storedRows = parseDraftAnswers(attempt.draft_answers);
+      const finalRows = superseded ? storedRows : mergeAnswerSheets(storedRows, draft);
+
+      const finalized = await this.finalizeAttemptFromDraft(userId, idString(attempt.id), finalRows);
+      return {
+        status: 1,
+        // With no answers anywhere nothing was graded (see
+        // finalizeAttemptFromDraft), so the message must not claim a submission
+        // the student never made — the player still has their sheet in memory
+        // and its own submit is what will carry it.
+        message: finalized
+          ? 'Time is up. Your saved answers have been submitted.'
+          : 'Time is up. Please submit your answers now.',
+        data: { saved: false, remaining_seconds: 0, window_state: 'closed', server_time: serverTime },
+      };
+    }
+
+    if (superseded) {
+      // Silent by contract: this may be a tab the student is still looking at,
+      // and a "your answers are not being saved" banner mid-paper would panic
+      // them. The player treats a rejection as a no-op and keeps its own copy.
+      return reject('A newer session is saving this attempt.');
+    }
+
+    // The writer only ever moves FORWARD: a token-less save (the Flutter
+    // client) leaves whoever holds the draft holding it, rather than releasing
+    // the claim for the abandoned tab to grab back.
+    const writer = presentedWriter === '' ? storedWriter : presentedWriter;
+    const serialized = serializeDraft(writer, draft);
+    if (serialized.length > MAX_DRAFT_ANSWERS_CHARS) {
+      // Keep whatever was last saved rather than replacing it with something
+      // oversized; the student's earlier work stays recoverable.
+      return reject('Your answer sheet is too large to save automatically.');
+    }
+
+    await this.prisma.exam_attempt.update({
+      where: { id: attempt.id },
+      data: { draft_answers: serialized, last_seen_at: nowDate, updated_at: nowDate },
+    });
+
+    return {
+      status: 1,
+      message: 'success',
+      data: {
+        saved: true,
+        remaining_seconds: snapshot.remainingSeconds,
+        window_state: snapshot.windowState,
+        server_time: serverTime,
+      },
+    };
+  }
+
+  /**
+   * Grade an attempt on the answer sheet its last autosave left behind — the
+   * "score what they had when time ran out" path, used by both the autosave
+   * (window closed) and the stranded-attempt sweep.
+   *
+   * Naji UAT 2026-08-11 (adversarial review) — the draft rows are passed to
+   * submitExamAttempt EXPLICITLY. This used to hand it an empty payload and
+   * rely on the late-submission rule to swap in draft_answers, but that rule
+   * only fires past LATE_SUBMIT_GRACE_MS, so a finalise landing in the first 90
+   * seconds after the deadline — a phone waking up, a failed auto-submit
+   * retrying, a heartbeat dispatched seconds before the close — scored the
+   * empty payload instead: every question skipped, score 0, submit_status set.
+   * The student's own on-time submit then read those zeros back through the
+   * idempotency branch and their real paper was gone. Handing the draft over
+   * directly removes the timing dependency entirely.
+   *
+   * Returns false when there is nothing to grade. Best-effort: an autosave must
+   * never surface an error to a student mid-exam.
+   */
+  private async finalizeAttemptFromDraft(
+    userId: string,
+    attemptId: string,
+    draftAnswers: unknown,
+  ): Promise<boolean> {
+    const draftRows = parseDraftAnswers(draftAnswers);
+    if (!sheetHasWork(draftRows)) {
+      // Naji UAT 2026-08-11 (adversarial review) — NOTHING ANSWERED, so there
+      // is nothing this student can be graded on. Finalising here would write a
+      // permanent 0 and lock them out with "You have already submitted this
+      // exam", which is the outcome submitExamAttempt deliberately refuses for
+      // the same case: a student whose every autosave failed, or one who only
+      // ever opened the instructions screen (which creates the attempt), must
+      // stay ABSENT and resumable, not scored zero.
+      //
+      // Round 3 — this used to test `draftRows.length === 0`, which is a state
+      // the web player CANNOT produce: buildUserAnswers emits a row per
+      // question, blanks included, so 25 seconds into any paper the draft is a
+      // non-empty array of empty answers. A student whose connection died right
+      // after that first heartbeat came back to a graded zero and a receipt in
+      // their inbox. sheetHasWork counts ANSWERS, exactly as the scorer does.
+      return false;
+    }
+
+    try {
+      await this.submitExamAttempt(userId, { attemptId, userAnswers: draftRows });
+      return true;
+    } catch {
+      /* best-effort — the player's own submit will retry */
+      return false;
+    }
   }
 
   /**
@@ -1405,6 +2119,22 @@ export class AssessmentService {
       };
     }
 
+    // Naji UAT 2026-08-11 — submitting twice is now a real race: the player
+    // auto-submits when the countdown reaches zero, saveExamProgress finalises
+    // a closed window, and a student can still press Submit. Re-running the
+    // scoring loop would delete the stored exam_answer rows and rewrite them
+    // from whatever the second caller happened to send (for the auto paths,
+    // an empty payload). Report the stored result instead.
+    if (attempt.submit_status === true) {
+      return {
+        correct: toInteger(attempt.correct),
+        incorrect: toInteger(attempt.incorrect),
+        skip: toInteger(attempt.skip),
+        score: toDbNumber(attempt.score),
+        timeTaken: toTimeOfDayString(attempt.time_taken) ?? '00:00:00',
+      };
+    }
+
     const examId = attempt.exam_id;
     const questionIds = toNormalizedStringArray(attempt.question_id)
       .map((id) => id.trim())
@@ -1420,13 +2150,58 @@ export class AssessmentService {
     const examRow = examId !== null && examId !== undefined
       ? await this.prisma.exam.findFirst({
           where: { id: examId },
-          select: { title: true, is_practice: true, have_minus_mark: true, minus_mark: true },
+          select: {
+            title: true, is_practice: true, have_minus_mark: true, minus_mark: true,
+            // Naji UAT 2026-08-11 — the window columns. This method used to
+            // perform NO window check at all: getExamForTaking gated STARTING
+            // an exam, but once an attempt existed nothing stopped a student
+            // working past the close and submitting, which is how one of them
+            // submitted after 9 PM on an 08:45 PM window.
+            from_date: true, from_time: true, to_date: true, to_time: true, duration: true,
+          },
         })
       : null;
     const examHasNegativeMarking = toInteger(examRow?.have_minus_mark) !== 0;
     const examNegativeMark = Math.max(0, toDbNumber(examRow?.minus_mark));
 
-    const userAnswerMap = parseAnswerMap(input.userAnswers);
+    const startedAt = parseDate(attempt.start_time);
+    const submittedAtMs = Date.now();
+    const deadlineMs = examRow ? examEffectiveEndMs(examRow, startedAt) : null;
+    const isPastDeadline = deadlineMs !== null && submittedAtMs > deadlineMs;
+    const isLate = deadlineMs !== null && submittedAtMs > deadlineMs + LATE_SUBMIT_GRACE_MS;
+    const draftRows = parseDraftAnswers(attempt.draft_answers);
+    // Measured with the parser that will actually do the scoring, so "empty"
+    // here means exactly "this payload would score nothing".
+    const payloadMap = parseAnswerMap(input.userAnswers);
+
+    // A late submission is graded on the answer sheet as it stood at the
+    // deadline, never on the payload that turned up afterwards — otherwise the
+    // deadline is decoration. The deliberate exception is an EMPTY draft: a
+    // student on an older build, or one whose every autosave failed, has no
+    // saved sheet, and scoring them zero would punish them for our outage. The
+    // rule that matters is "never lose a student's work"; a late payload is the
+    // only work that exists in that case, so it is accepted.
+    //
+    // Naji UAT 2026-08-11 (adversarial review) — the second clause is the
+    // backstop for a finalise that lands INSIDE the grace, where isLate is
+    // still false. Nothing may score an empty payload over a stored draft:
+    // that wrote a 0 and then swallowed the student's own submit through the
+    // idempotency branch above. Restricted to past-the-deadline on purpose —
+    // before it, a deliberately blank submission is the student's own choice
+    // and the live payload stays authoritative.
+    //
+    // Round 3 — BOTH sides are measured with sheetHasWork/hasAnsweredEntries
+    // rather than by row count. Counting rows broke this twice over, because
+    // the player sends a row per question whether it is answered or not:
+    //   • `draftRows.length > 0` made a blank draft beat a complete late
+    //     payload, storing answer_submitted "[]" for every question;
+    //   • `payloadMap.size === 0` could never fire for a real player payload,
+    //     so the backstop it was added to be was unreachable and a blank
+    //     payload at deadline+10s overwrote a full draft with zeros.
+    const draftHasWork = sheetHasWork(draftRows);
+    const payloadHasWork = hasAnsweredEntries(payloadMap.values());
+    const useDraft = draftHasWork && (isLate || (isPastDeadline && !payloadHasWork));
+    const userAnswerMap = useDraft ? parseAnswerMap(draftRows) : payloadMap;
 
     // Fetch exam_questions and question_bank separately (no JOIN in MongoDB)
     let examQuestions: Array<{ question_id: string; mark: number | null; negative_mark: number | null }> = [];
@@ -1563,8 +2338,13 @@ export class AssessmentService {
       });
     }
 
-    const startedAt = parseDate(attempt.start_time);
-    const elapsedSeconds = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt.getTime()) / 1000)) : 0;
+    // Time taken stops at the deadline. Without the clamp a paper finalised
+    // hours later (a stranded attempt swept up on the student's next visit)
+    // would record a 5-hour sitting on a 75-minute exam.
+    const countedUntilMs = deadlineMs === null ? submittedAtMs : Math.min(submittedAtMs, deadlineMs);
+    const elapsedSeconds = startedAt
+      ? Math.max(0, Math.floor((countedUntilMs - startedAt.getTime()) / 1000))
+      : 0;
 
     const summary: ScoredAttemptSummary = {
       correct,

@@ -15,7 +15,8 @@ export { hasTestDatabase };
  * `DATABASE_URL` the whole suite is reported as skipped rather than failing —
  * see `tests/global-setup.ts` for the one-line note printed per run.
  */
-export const describeWithDatabase = describe.skipIf(!hasTestDatabase);
+export const describeWithDatabase: ReturnType<typeof describe.skipIf> =
+  describe.skipIf(!hasTestDatabase);
 
 const resetTablesInOrder = [
   'zoom_history',

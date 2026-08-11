@@ -1163,6 +1163,20 @@ model exam_attempt {
   // submit throw. FLOAT matches exam_questions.mark, which is already Float.
   score         Float?    @db.Float
   submit_status Boolean?
+  // Naji UAT 2026-08-11 — the in-progress answer sheet, autosaved by the
+  // player every ~25s. Before this column the answers lived ONLY in browser
+  // React state until the single final submit, so a 401 (the hard 1h session
+  // expiry landing mid-exam), a refresh, a crash or a closed laptop lost every
+  // answer: two students in the 10 Aug 07:30–08:45 PM sitting had to restart
+  // from question one. Stored in the same shape the submit wire uses —
+  // [{ question_id, answer: string[] }] — so parseAnswerMap consumes it
+  // unchanged and the draft can be scored exactly like a live submission.
+  // NEVER scored on its own: only submitExamAttempt turns it into exam_answer.
+  draft_answers String?   @db.LongText
+  // Last autosave heartbeat. Diagnostic only (how far a stranded attempt got),
+  // never an authority for the deadline — that is start_time + duration vs the
+  // exam window, computed server-side.
+  last_seen_at  DateTime? @db.DateTime(0)
   created_by    Int?
   updated_by    Int?
   deleted_by    Int?

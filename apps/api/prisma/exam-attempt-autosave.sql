@@ -1,0 +1,66 @@
+-- Naji UAT 2026-08-11 — exam answer autosave + resume.
+--
+-- WHY
+-- ---
+-- A real 75-minute sitting ran on 10 Aug, 07:30–08:45 PM IST and three things
+-- went wrong at once. Two of them are fixed by these two columns.
+--
+--  1. AUTH_SESSION_TTL_SECONDS is 3600 on production — a HARD one-hour session
+--     with nothing that slides it. A student who signed in at 7:30 was 401ed at
+--     8:30, fifteen minutes before the exam ended, and got the "Session
+--     Expired" modal on top of their paper. (The copy says "due to inactivity",
+--     but it is not an idle timer: the dialog fires on ANY authenticated 401.
+--     During an exam a student makes almost no requests, so an activity-based
+--     refresh alone would not have saved them either.)
+--
+--  2. The answers lived ONLY in browser memory — a React `Map` in
+--     FormalExamPlayer — until the single final submit. There was no autosave
+--     and no save endpoint anywhere, so the server never learned an answer
+--     before the end. The 401 therefore did not just interrupt the exam, it
+--     erased it: both affected students "started over from the beginning, ie.
+--     from first question". (The attempt itself resumed fine — getExamForTaking
+--     already restores the locked/shuffled question order — it was only the
+--     answers that were never anywhere but the browser.)
+--
+-- `draft_answers` gives the answers a home on the server between the first
+-- question and the final submit; the player writes it every ~25s, and that same
+-- request now also slides the session so the 1h wall is never hit mid-exam.
+-- `last_seen_at` records when that last happened, so a stranded attempt can be
+-- reasoned about after the fact.
+--
+-- Two things this deliberately does NOT change: nothing here scores anything
+-- (a draft becomes exam_answer rows only through a real submit), and the
+-- payload shape is exactly the one the submit wire already uses
+-- ([{ question_id, answer: [...] }]), so a draft is graded by the identical
+-- code path as a live submission.
+--
+-- SAFETY
+-- ------
+-- * Both ADDs are nullable with no default → every existing exam_attempt row
+--   stays valid and every finished attempt keeps its stored score untouched.
+--   NULL draft_answers simply means "this attempt predates autosave".
+-- * No data is rewritten. No row is deleted. No index is dropped.
+-- * LONGTEXT is off-row on InnoDB, so the added width costs nothing for the
+--   ~all rows that will never carry a draft.
+-- * Safe to run on a live database, and safe to run while an exam is running:
+--   the API tolerates both columns being absent (it simply cannot autosave)
+--   only until the new build ships, so run this BEFORE deploying the code.
+--
+-- HOW TO RUN (on the droplet, against the production MariaDB)
+--   mysql -h <host> -u <admin_user> -p"$PASS" ttii_lms < exam-attempt-autosave.sql
+--
+-- Verify afterwards:
+--   SHOW COLUMNS FROM exam_attempt LIKE 'draft\_answers';   -- expect: longtext, YES, NULL
+--   SHOW COLUMNS FROM exam_attempt LIKE 'last\_seen\_at';    -- expect: datetime, YES, NULL
+--
+--   -- After the next live sitting, in-progress attempts should be saving:
+--   SELECT id, user_id, exam_id, start_time, last_seen_at,
+--          CHAR_LENGTH(COALESCE(draft_answers, '')) AS draft_bytes
+--     FROM exam_attempt
+--    WHERE submit_status = 0 AND deleted_at IS NULL
+--    ORDER BY id DESC
+--    LIMIT 20;
+
+ALTER TABLE `exam_attempt`
+  ADD COLUMN `draft_answers` LONGTEXT NULL DEFAULT NULL AFTER `submit_status`,
+  ADD COLUMN `last_seen_at`  DATETIME NULL DEFAULT NULL AFTER `draft_answers`;
