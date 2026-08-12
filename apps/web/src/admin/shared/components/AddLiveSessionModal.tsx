@@ -170,7 +170,15 @@ export function AddLiveSessionModal({
     && typeof api.importCohortRecordedSessions === 'function';
 
   useEffect(() => {
-    const listHosts = api.listTeamsMeetingHosts;
+    // Risha UAT 2026-08-12 — .bind(api) is NOT optional. `api` is the
+    // AdminPortalApi INSTANCE and these are ordinary methods that call
+    // `this.get(...)`, so pulling one off the object detaches `this` and the
+    // call dies with "Cannot read properties of undefined (reading 'get')".
+    // The local is only here to keep TypeScript's narrowing inside the async
+    // closure below; binding preserves the receiver as well. This line had the
+    // bug silently — the failure is swallowed by the catch, which is why the
+    // Teams host count never appeared.
+    const listHosts = api.listTeamsMeetingHosts?.bind(api);
     if (!open || platform !== 'teams' || !listHosts) return;
     let cancelled = false;
     void (async () => {
@@ -190,7 +198,10 @@ export function AddLiveSessionModal({
   // opened, and again after every import so the "Already imported" badges are
   // the server's truth rather than an optimistic guess.
   useEffect(() => {
-    const loadHistory = api.listCohortRecordedSessions;
+    // .bind(api) — see the note above listTeamsMeetingHosts. Without it this
+    // threw "Cannot read properties of undefined (reading 'get')" in the panel
+    // and the subject read as "None set", because the fetch never ran.
+    const loadHistory = api.listCohortRecordedSessions?.bind(api);
     if (!open || flow !== 'link' || !loadHistory) return;
     let cancelled = false;
     setHistoryLoading(true);
@@ -238,7 +249,8 @@ export function AddLiveSessionModal({
   };
 
   const runImport = async (ids: number[]) => {
-    const importSessions = api.importCohortRecordedSessions;
+    // .bind(api) — see the note above listTeamsMeetingHosts.
+    const importSessions = api.importCohortRecordedSessions?.bind(api);
     if (!importSessions) return;
     if (ids.length === 0) {
       toast.error('Select at least one recorded session to import.');
