@@ -577,6 +577,16 @@ function LiveSessionsTab({
   // static/default option; user can switch to Card. Completed sessions
   // stay as rows since that's the only sensible layout for them.
   const [upcomingView, setUpcomingView] = useState<'row' | 'card'>('row');
+  // Risha UAT 2026-08-12 — "do we have option to sort by date... Can we reverse
+  // it?" The server now returns sessions oldest-first (course order, and what
+  // students already see), which is the right default for reading a syllabus or
+  // checking a month of imported recordings. Newest-first is still the quicker
+  // way to find what just happened, so it stays one click away.
+  const [completedOrder, setCompletedOrder] = useState<'oldest' | 'newest'>('oldest');
+  const orderedCompletedSessions = useMemo(
+    () => (completedOrder === 'oldest' ? completedSessions : [...completedSessions].reverse()),
+    [completedSessions, completedOrder],
+  );
   const handleDelete = useCallback(
     async (session: Record<string, unknown>) => {
       const id = asString(session.id) || asString(session._id);
@@ -826,12 +836,31 @@ function LiveSessionsTab({
 
         {/* Completed sessions — list layout */}
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Completed</p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Completed</p>
+            {completedSessions.length > 1 ? (
+              <div className="inline-flex rounded-md border border-gray-200 p-0.5" role="group" aria-label="Sort completed sessions by date">
+                {(['oldest', 'newest'] as const).map((order) => (
+                  <button
+                    key={order}
+                    type="button"
+                    aria-pressed={completedOrder === order}
+                    onClick={() => setCompletedOrder(order)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                      completedOrder === order ? 'bg-ttii-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {order === 'oldest' ? 'Oldest first' : 'Newest first'}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           {completedSessions.length === 0 ? (
             <p className="py-4 text-center text-sm text-gray-400">No completed sessions.</p>
           ) : (
             <div className="space-y-2">
-              {completedSessions.map((s) => {
+              {orderedCompletedSessions.map((s) => {
                 const id = asString(s.id) || asString(s._id);
                 const title = asString(s.title);
                 const date = formatSessionDate(asString(s.date));

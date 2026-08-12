@@ -16332,10 +16332,20 @@ export class OperationsService {
       };
     });
 
-    // Live sessions
+    // Live sessions.
+    //
+    // Risha UAT 2026-08-12 — "now its showing the latest first and the first
+    // session at last right? Can we reverse it?" These are course sessions, so
+    // chronological is the natural reading order: session 1 first, whether the
+    // admin is checking what a learner will work through or scanning a month of
+    // imported recordings. `desc` also put the FURTHEST-AWAY upcoming class at
+    // the top of the Upcoming list rather than the next one.
+    // This now matches what students already get from
+    // engagement-service.listStudentLiveClasses, which has always ordered
+    // date/fromTime/id ascending — the two views disagreeing was the actual bug.
     const liveSessions = await this.prisma.live_class.findMany({
       where: { cohort_id: cohortIdInt, deleted_at: null },
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'asc' }, { fromTime: 'asc' }, { id: 'asc' }],
     });
 
     // Assignments — surface absolute file URL so the View page link works.
