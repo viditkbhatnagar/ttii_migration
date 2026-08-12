@@ -405,8 +405,20 @@ export default function InstructorAssignmentsPage({ api, session }: InstructorPa
 
       {/* Submission review — Naji's two-pane assignments.$id markup inside the dialog */}
       <Dialog open={activeAssignment !== null} onOpenChange={(open) => !open && closeAssignment()}>
+      {/* Thasneem 2026-08-12 — "unable to scroll down in the assignment evaluation
+          window. The lower section of the evaluation form is not accessible."
+          Two faults, and the first disabled the second's fix:
+          * shadcn's DialogContent is `grid`, NOT flex. The body below sets
+            `min-h-0 flex-1 overflow-y-auto`, but flex-1 does nothing to a GRID
+            child — the row grew to its content, this container's overflow-hidden
+            clipped it, and the body's own overflow-y-auto never had a bounded
+            height to scroll inside. Marks and Feedback sat below the cut with no
+            way to reach them.
+          * `max-h-[90dvh]` had no vh fallback: Lightning CSS keeps the bare dvh,
+            so a webview without dvh support gets NO cap at all. `modal-maxh`
+            carries the @supports-guarded pair. */}
         <DialogContent
-          className="faculty-portal max-h-[90dvh] gap-0 overflow-hidden p-0 [&>*]:min-w-0"
+          className="faculty-portal modal-maxh flex flex-col gap-0 overflow-hidden p-0 [&>*]:min-w-0"
           style={{ width: '64rem', maxWidth: 'min(64rem, calc(100vw - 2rem))' }}
         >
           <DialogHeader className="shrink-0 space-y-1 border-b border-border/60 p-5">
@@ -440,7 +452,7 @@ export default function InstructorAssignmentsPage({ api, session }: InstructorPa
               </p>
             </div>
           ) : detail.submissions.length === 0 ? (
-            <div className="space-y-4 overflow-y-auto p-5">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
               {detail.assignment.instructions ? (
                 <div className="rounded-xl border bg-muted/30 p-4 text-sm leading-relaxed text-foreground/80">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

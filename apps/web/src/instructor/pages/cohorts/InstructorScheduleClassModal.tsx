@@ -280,7 +280,11 @@ export function InstructorScheduleClassModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && resetAndClose()}>
-      <DialogContent className="faculty-portal max-h-[85dvh] max-w-2xl overflow-y-auto [&>*]:min-w-0">
+      {/* Thasneem 2026-08-12 — modal-maxh rather than a bare max-h-[85dvh]:
+          Lightning CSS keeps a lone dvh declaration, so a webview without dvh
+          support gets NO height cap and the dialog runs off the screen. Same
+          85dvh everywhere that supports it, 78vh where it does not. */}
+      <DialogContent className="faculty-portal modal-maxh max-w-2xl overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>Add Live Sessions</DialogTitle>
           <DialogDescription>For {cohortName}</DialogDescription>

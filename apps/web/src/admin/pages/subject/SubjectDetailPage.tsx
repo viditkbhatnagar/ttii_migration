@@ -364,7 +364,9 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
       {/* Article preview — articles store their body as HTML in `summary` rather
           than as a file, so there is no URL to open in a tab (Risha 2026-07-15). */}
       <Dialog open={articleItem !== null} onOpenChange={(o) => { if (!o) setArticleItem(null); }}>
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-3xl">
+        {/* modal-maxh, not a bare max-h-[85dvh] — Lightning CSS keeps a lone dvh
+            declaration, so a webview without dvh support gets no cap at all. */}
+        <DialogContent className="modal-maxh overflow-y-auto sm:max-w-3xl">
           <DialogHeader><DialogTitle>{asString(articleItem?.title) || 'Article'}</DialogTitle></DialogHeader>
           <div
             className="prose prose-sm max-w-none text-slate-800"
