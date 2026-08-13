@@ -1456,12 +1456,27 @@ export class EngagementService {
 
     const [assignments, exams, liveClasses, lessonFiles] = await Promise.all([
       this.prisma.assignment.findMany({ where: { id: { in: assignmentIds } }, select: { id: true, title: true, cohort_id: true } }),
-      this.prisma.exam.findMany({ where: { id: { in: examIds } }, select: { id: true, title: true } }),
+      this.prisma.exam.findMany({
+        where: { id: { in: examIds } },
+        select: { id: true, title: true, publish_result: true, result_published_at: true },
+      }),
       this.prisma.live_class.findMany({ where: { id: { in: liveIds } }, select: { id: true, title: true } }),
       this.prisma.lesson_files.findMany({ where: { id: { in: lessonFileIds } }, select: { id: true, title: true } }),
     ]);
     const aTitle = new Map(assignments.map((a) => [a.id, a.title]));
     const eTitle = new Map(exams.map((e) => [e.id, e.title]));
+    // Naji UAT 2026-08-13 — an exam result is published by EITHER of two live
+    // admin actions, and they write DIFFERENT columns: Evaluation → "Publish
+    // results" stamps result_published_at (operations-service
+    // publishExamResults), while the Exams table's per-row "Publish Result"
+    // flips publish_result (publishExamResult). Neither back-fills the other,
+    // so a score counts as published when either says so — gating on one column
+    // alone would hide results a student is legitimately entitled to see.
+    const publishedExamIds = new Set(
+      exams
+        .filter((e) => e.publish_result === true || e.result_published_at != null)
+        .map((e) => e.id),
+    );
     const lTitle = new Map(liveClasses.map((l) => [l.id, l.title]));
     const lfTitle = new Map(lessonFiles.map((f) => [f.id, f.title]));
 
@@ -1503,7 +1518,12 @@ export class EngagementService {
     }
     for (const e of examAttempts) {
       const title = eTitle.get(e.exam_id ?? -1) || 'an exam';
-      items.push({ id: `exam-${e.id}`, type: 'exam', title: `Attempted ${title}`, detail: e.score != null ? `Score: ${e.score}` : '', created_at: iso(e.end_time ?? e.created_at) });
+      // Until the institute publishes, the learner sees that the paper was
+      // received and NOTHING about how it went — no score, no percentage, no
+      // pass/fail. `detail` stays a string (never null) for the Flutter parse.
+      const isResultPublished = e.exam_id != null && publishedExamIds.has(e.exam_id);
+      const detail = isResultPublished && e.score != null ? `Score: ${e.score}` : 'Result awaited';
+      items.push({ id: `exam-${e.id}`, type: 'exam', title: `Attempted ${title}`, detail, created_at: iso(e.end_time ?? e.created_at) });
     }
     for (const a of attendance) {
       const title = lTitle.get(a.live_class_id) || 'a live class';

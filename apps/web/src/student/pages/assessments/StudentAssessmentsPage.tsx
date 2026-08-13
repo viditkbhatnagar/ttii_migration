@@ -881,7 +881,16 @@ function AssignmentDetail({
     if (!Number.isFinite(s) || !Number.isFinite(t) || t <= 0) return null;
     return Math.round((s / t) * 100);
   })();
-  const scoreValue = `${gradeScore}/${totalMarks}`;
+  // Naji UAT 2026-08-13 — a submitted-but-unpublished assignment showed
+  // "—/30" here, which reads as a zero. The API now holds is_reviewed at 0 (and
+  // blanks marks/remarks) until an admin verifies the instructor's evaluation,
+  // so this row has to say the work landed and the result has not been released
+  // yet. Same three-way shape as statusLabel above.
+  const scoreValue = isReviewed
+    ? `${gradeScore}/${totalMarks}`
+    : isSubmitted
+      ? 'Awaiting result'
+      : '—';
 
   return (
     // modal-maxh = 78vh, refined to 85dvh via @supports (app.css). A bare

@@ -2855,14 +2855,23 @@ export class AssessmentService {
           marks: true,
           remarks: true,
           created_at: true,
+          verified_at: true,
         },
         orderBy: { id: 'desc' },
       }),
     ]);
 
     const status = submissionCount > 0 ? 'Completed' : 'Current';
-    const reviewed =
-      toNullableString(submission?.marks) !== null && toNullableString(submission?.remarks) !== null ? 1 : 0;
+    // Naji UAT 2026-08-13 — the result gate. `verified_at` is the ONLY signal
+    // that the admin has verified the instructor's evaluation (see the column
+    // comment on assignment_submissions): saving marks writes marks/remarks and
+    // CLEARS verified_at, so deriving "reviewed" from marks+remarks published
+    // the grade the instant the instructor typed it and skipped the Verify step
+    // entirely. Marks, remarks AND the graded flag all hang off this one
+    // boolean, so no derived signal — the "Graded" badge, the score cell, the
+    // Grades page bars — can leak ahead of the number itself.
+    const isResultPublished = (submission?.verified_at ?? null) !== null;
+    const reviewed = isResultPublished ? 1 : 0;
 
     const submittedFilePaths = parseUnknownArray(submission?.assignment_files)
       .map((file) => toStringValue(file).trim())
@@ -2874,7 +2883,10 @@ export class AssessmentService {
     }));
 
     const totalMarks = toStringValue(assignment.total_marks);
-    const marksValue = toNullableString(submission?.marks) ?? '';
+    // Empty until publication — exactly the shape an ungraded assignment has
+    // always returned ("/30"), so the Flutter String parse is unchanged, the
+    // learner still sees the paper's max marks, and nothing reads as a zero.
+    const marksValue = isResultPublished ? toNullableString(submission?.marks) ?? '' : '';
 
     // Ansaba UAT 2026-05-22 — Flutter Assignment model types `id` as int.
     return {
@@ -2891,7 +2903,7 @@ export class AssessmentService {
       is_saved: savedCount,
       is_submitted: submissionCount,
       is_reviewed: reviewed,
-      remarks: toNullableString(submission?.remarks) ?? '',
+      remarks: isResultPublished ? toNullableString(submission?.remarks) ?? '' : '',
       marks: `${marksValue}/${totalMarks === '' ? '0' : totalMarks}`,
       submitted_file: submittedFiles,
     };

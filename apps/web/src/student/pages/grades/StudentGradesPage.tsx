@@ -9,7 +9,11 @@ import type { StudentPageProps } from '../../routing/student-routes.js';
 //
 // HONEST-DATA NOTES (verified against assessment-service.ts):
 //  - Completed assignments expose `marks` as the combined string "obtained/total"
-//    (e.g. "85/100"), NOT a numeric pair, plus `is_reviewed` (1 once graded).
+//    (e.g. "85/100"), NOT a numeric pair, plus `is_reviewed`. Naji UAT
+//    2026-08-13 — `is_reviewed` means "an ADMIN has verified the evaluation",
+//    not "an instructor typed a number": until then the API holds it at 0 and
+//    sends marks as "/100", so nothing on this page — ring, bars, average,
+//    letter grade, highest score — can surface an unpublished grade.
 //  - Exam rows carry NO obtained-marks field at all (only `total_mark`, the max,
 //    and `is_attempted`/`state`). The exam player deliberately never shows a score.
 //    So exams cannot be scored and are intentionally EXCLUDED from grades.
@@ -69,7 +73,7 @@ function parseMarks(value: unknown): { obtained: number; total: number } | null 
 // Build a normalised graded item from a completed-assignment row, or null when
 // it hasn't actually been graded yet.
 function toGradedItem(row: Record<string, unknown>): GradedItem | null {
-  // Only count work an instructor has reviewed AND scored.
+  // Only count work whose result the institute has actually published.
   if (asNumber(row.is_reviewed) !== 1) return null;
 
   const parsed = parseMarks(row.marks);
