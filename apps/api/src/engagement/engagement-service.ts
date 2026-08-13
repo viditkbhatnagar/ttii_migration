@@ -1458,7 +1458,7 @@ export class EngagementService {
       this.prisma.assignment.findMany({ where: { id: { in: assignmentIds } }, select: { id: true, title: true, cohort_id: true } }),
       this.prisma.exam.findMany({
         where: { id: { in: examIds } },
-        select: { id: true, title: true, publish_result: true, result_published_at: true },
+        select: { id: true, title: true, publish_result: true, result_published_at: true, parent_exam_id: true, is_practice: true },
       }),
       this.prisma.live_class.findMany({ where: { id: { in: liveIds } }, select: { id: true, title: true } }),
       this.prisma.lesson_files.findMany({ where: { id: { in: lessonFileIds } }, select: { id: true, title: true } }),
@@ -1472,11 +1472,31 @@ export class EngagementService {
     // flips publish_result (publishExamResult). Neither back-fills the other,
     // so a score counts as published when either says so — gating on one column
     // alone would hide results a student is legitimately entitled to see.
+    //
+    // A student only ever SITS a child sitting, but the Exams table lists (and
+    // publishes) the PARENT — so a child must also count as published when its
+    // parent is. publishExamResult now cascades, and this fallback additionally
+    // covers any exam published before that cascade existed, so no back-fill
+    // UPDATE is needed on production.
+    const isRowPublished = (e: { publish_result: boolean | null; result_published_at: Date | null }): boolean =>
+      e.publish_result === true || e.result_published_at != null;
+    const parentIds = [...new Set(exams.map((e) => e.parent_exam_id).filter((v): v is number => v != null))];
+    const parents = parentIds.length
+      ? await this.prisma.exam.findMany({
+          where: { id: { in: parentIds } },
+          select: { id: true, publish_result: true, result_published_at: true },
+        })
+      : [];
+    const publishedParentIds = new Set(parents.filter(isRowPublished).map((p) => p.id));
     const publishedExamIds = new Set(
       exams
-        .filter((e) => e.publish_result === true || e.result_published_at != null)
+        .filter((e) => isRowPublished(e) || (e.parent_exam_id != null && publishedParentIds.has(e.parent_exam_id)))
         .map((e) => e.id),
     );
+    // A practice paper is self-assessment — the institute never publishes it, so
+    // gating it would promise a result that can never arrive. Its score is the
+    // student's own feedback and always shown.
+    const practiceExamIds = new Set(exams.filter((e) => Number(e.is_practice) === 1).map((e) => e.id));
     const lTitle = new Map(liveClasses.map((l) => [l.id, l.title]));
     const lfTitle = new Map(lessonFiles.map((f) => [f.id, f.title]));
 
@@ -1521,7 +1541,8 @@ export class EngagementService {
       // Until the institute publishes, the learner sees that the paper was
       // received and NOTHING about how it went — no score, no percentage, no
       // pass/fail. `detail` stays a string (never null) for the Flutter parse.
-      const isResultPublished = e.exam_id != null && publishedExamIds.has(e.exam_id);
+      const isPractice = e.exam_id != null && practiceExamIds.has(e.exam_id);
+      const isResultPublished = isPractice || (e.exam_id != null && publishedExamIds.has(e.exam_id));
       const detail = isResultPublished && e.score != null ? `Score: ${e.score}` : 'Result awaited';
       items.push({ id: `exam-${e.id}`, type: 'exam', title: `Attempted ${title}`, detail, created_at: iso(e.end_time ?? e.created_at) });
     }

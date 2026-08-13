@@ -491,8 +491,20 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                         {/* Score */}
                         <div className="w-16 shrink-0 text-left sm:text-right">
                           <p className="text-sm font-bold text-student-text">
-                            {a.isReviewed && a.score !== '' ? a.score : '—'}
-                            <span className="text-xs font-normal text-student-muted">/{a.totalMarks || '100'}</span>
+                            {/* Naji UAT 2026-08-13 — the denominator used to render
+                                unconditionally, so a submitted-but-unpublished row read
+                                "—/30", which looks like a zero. Only show a mark out of
+                                something once the result is actually released. */}
+                            {a.isReviewed && a.score !== '' ? (
+                              <>
+                                {a.score}
+                                <span className="text-xs font-normal text-student-muted">/{a.totalMarks || '100'}</span>
+                              </>
+                            ) : (
+                              <span className="text-xs font-normal text-student-muted">
+                                {a.isSubmitted ? 'Awaiting' : '—'}
+                              </span>
+                            )}
                           </p>
                         </div>
 
@@ -833,7 +845,13 @@ function AssignmentDetail({
   const lines = instructionLines(item);
   const remaining = daysRemainingLabel(dueDisplay);
   const statusLabel = isReviewed ? 'Reviewed' : isSubmitted ? 'Submitted' : 'Not started';
-  const canSubmit = !isReviewed;
+  // Naji UAT 2026-08-13 — gate on SUBMITTED, not reviewed. submitAssignment
+  // refuses a second row outright ("Assignment already submitted"), so offering
+  // upload/Submit again could only ever produce a confusing toast. This used to
+  // close as soon as an instructor entered marks; now that "reviewed" waits for
+  // the admin to verify, keying off it alone would leave the form open through
+  // the whole pending-verification window.
+  const canSubmit = !isSubmitted && !isReviewed;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);

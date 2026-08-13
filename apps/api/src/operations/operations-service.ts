@@ -6592,10 +6592,29 @@ export class OperationsService {
     };
   }
 
+  // Naji UAT 2026-08-13 — this MUST cascade to the sittings. The Exams table
+  // lists parents only (listAdminExams pins parent_exam_id = null), so this
+  // always receives the PARENT id, while a student's attempt is always on a
+  // CHILD. Updating the parent alone published nothing a student could see, and
+  // the row badge reads the parent's own flag — so the admin got a green
+  // "Published" while every learner stayed on "Result awaited" indefinitely,
+  // with no surface showing anything wrong. Same cascade the instructions saver
+  // above already does. For a child id the second branch simply matches nothing.
   async publishExamResult(actorUserId: string, examId: string): Promise<Record<string, unknown>> {
+    const id = toIntId(examId);
     const now = new Date();
-    await this.prisma.exam.updateMany({ where: { id: toIntId(examId), deleted_at: null }, data: { publish_result: true, updated_by: toNullableIntId(actorUserId), updated_at: now } });
-    return { status: 1, message: 'Exam results published.' };
+    const updated = await this.prisma.exam.updateMany({
+      where: { OR: [{ id }, { parent_exam_id: id }], deleted_at: null },
+      data: { publish_result: true, updated_by: toNullableIntId(actorUserId), updated_at: now },
+    });
+    if (updated.count === 0) return { status: 0, message: 'Exam not found.' };
+    const sittings = updated.count - 1;
+    return {
+      status: 1,
+      message: sittings > 0
+        ? `Exam results published for ${sittings} subject sitting${sittings === 1 ? '' : 's'}.`
+        : 'Exam results published.',
+    };
   }
 
   // ─── Phase 2: Assignments ──────────────────────────────────────────────────
