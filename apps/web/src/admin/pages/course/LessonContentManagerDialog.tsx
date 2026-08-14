@@ -12,7 +12,7 @@ import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { stripPreviewHtml } from '../../shared/utils/quiz-csv.js';
+import { ContentPreviewDialog, type ContentPreviewRow } from '../../shared/components/content-preview-dialog.js';
 import { LessonFileFormDialog, type LessonFileType } from './LessonFileFormDialog.js';
 
 const selectClass =
@@ -24,14 +24,10 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 /** Unified shape for a content row, whether it comes from lesson_files
- * ('lesson') or the Content Library / content_asset ('library'). */
-interface ContentRow {
-  id: string;
-  title: string;
-  type: string;
-  source: 'lesson' | 'library';
+ * ('lesson') or the Content Library / content_asset ('library'). The preview
+ * fields live in ContentPreviewRow, shared with the Subject Detail page. */
+interface ContentRow extends ContentPreviewRow {
   url: string;
-  summary: string;
 }
 
 function TypeIcon({ type }: { type: string }) {
@@ -40,86 +36,6 @@ function TypeIcon({ type }: { type: string }) {
   if (t === 'audio') return <Music aria-hidden="true" className="size-4 text-purple-600" />;
   if (t === 'quiz') return <FileQuestion aria-hidden="true" className="size-4 text-orange-600" />;
   return <FileText aria-hidden="true" className="size-4 text-slate-500" />;
-}
-
-/* ─── Content preview (article body / quiz questions) ─────────────────────── */
-
-function ContentPreviewDialog({
-  api, token, item, onClose,
-}: {
-  api: AdminPageProps['api'];
-  token: string;
-  item: ContentRow | null;
-  onClose: () => void;
-}) {
-  const [questions, setQuestions] = useState<Record<string, unknown>[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const isQuiz = item?.type.toLowerCase() === 'quiz';
-  const isArticle = item?.type.toLowerCase() === 'article';
-
-  useEffect(() => {
-    if (!item || !isQuiz) { setQuestions([]); return; }
-    let cancelled = false;
-    setLoading(true);
-    setQuestions([]);
-    const load = item.source === 'library'
-      ? api.getContentAsset(token, item.id).then((a) => toRecords((a as { questions?: unknown } | null)?.questions))
-      : api.listLessonQuizQuestions(token, item.id);
-    void load
-      .then((rows) => { if (!cancelled) setQuestions(rows); })
-      .catch(() => { if (!cancelled) setQuestions([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [api, token, item, isQuiz]);
-
-  return (
-    <Dialog open={item !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent
-        className="max-h-[85vh] overflow-y-auto"
-        style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }}
-      >
-        <DialogHeader>
-          <DialogTitle>{asString(item?.title) || 'Preview'}</DialogTitle>
-        </DialogHeader>
-        {isArticle ? (
-          <div
-            className="prose max-w-none text-sm text-slate-800"
-            dangerouslySetInnerHTML={{ __html: asString(item?.summary) || '<em>No content</em>' }}
-          />
-        ) : loading ? (
-          <p className="py-6 text-center text-sm text-slate-500">Loading questions…</p>
-        ) : questions.length === 0 ? (
-          <p className="rounded-md border border-dashed py-6 text-center text-sm text-slate-500">No questions added to this quiz yet.</p>
-        ) : (
-          <ol className="space-y-3">
-            {questions.map((q, idx) => {
-              const correct = asString(q.correct_answer).toUpperCase();
-              return (
-                <li key={asString(q.id) || idx} className="rounded border p-3">
-                  <div className="mb-2 text-sm font-semibold text-slate-900">Q{idx + 1}. {stripPreviewHtml(asString(q.question))}</div>
-                  <ul className="space-y-1">
-                    {(['A', 'B', 'C', 'D'] as const).map((letter) => {
-                      const text = stripPreviewHtml(asString(q[`option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d']));
-                      if (!text) return null;
-                      const isCorrect = letter === correct;
-                      return (
-                        <li key={letter} className={`flex items-start gap-2 text-sm ${isCorrect ? 'font-medium text-green-700' : 'text-slate-600'}`}>
-                          {isCorrect ? <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0" /> : <span className="w-4 shrink-0" />}
-                          <span className="w-4 shrink-0 font-semibold">{letter}.</span>
-                          <span className="min-w-0">{text}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 /* ─── Content Library picker ──────────────────────────────────────────────── */

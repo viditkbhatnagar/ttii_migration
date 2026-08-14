@@ -146,6 +146,17 @@ function toShortDescription(value: string): string {
   return `${value.slice(0, 60)}...`;
 }
 
+/**
+ * Title key used to recognise a Content Library row as a mirror of a
+ * lesson_files row in the SAME lesson. Case- and whitespace-insensitive because
+ * the 2026-04-30 backfill copied titles verbatim while admins have since edited
+ * some of them by hand. See getContentAssetFilesForLesson for why the match is
+ * on title alone.
+ */
+function normalizeContentTitle(value: unknown): string {
+  return toStringValue(value).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function capitalize(value: string): string {
   if (value === '') {
     return value;
@@ -620,13 +631,37 @@ export class ContentService {
   // mapped to the EXACT lesson-file shape so both the web and Flutter players
   // render it as ordinary lesson content. Quizzes are excluded (content_asset
   // quizzes use a different question store than the lesson-file quiz flow).
+  // Risha UAT 2026-08-14 — `lessonFileTitles` is what stops a lesson rendering
+  // TWICE. Two one-shot backfills on 2026-04-30 copied every existing
+  // lesson_files row into content_asset, tagged by lesson NAME (lesson_id was
+  // NULL — that column only arrived on 2026-05-30). Those copies are inert: the
+  // lesson_files row is what plays, scores and tracks progress, while the mirror
+  // carries progress 0. Appending the library on top of lesson_files (added for
+  // Majida 2026-07-31 so library-only content reaches students) therefore shows
+  // every mirrored item a second time — lesson 307 rendered 24 rows for 12
+  // pieces of content, and ASSESSMENT LESSON 1-4 each reached the student twice:
+  // once as a real quiz and once as a dead "article" with no questions.
+  //
+  // Matching is on TITLE ALONE, deliberately. The backfill wrote the ASSESSMENT
+  // copies as asset_type 'article' against a lesson_type 'quiz' original, so a
+  // type-aware match would keep exactly the worst duplicates. Two rows in the
+  // SAME lesson sharing a title are a mirror in every case seen on production;
+  // genuinely library-only content (the case Majida reported) has no lesson_files
+  // counterpart and is untouched.
   private async getContentAssetFilesForLesson(
     lessonId: string,
     lessonTitle: string,
     subjectTitle: string,
+    lessonFileTitles: Iterable<unknown> = [],
   ): Promise<Record<string, unknown>[]> {
     const lid = toNullableIntId(lessonId);
     if (lid === null) return [];
+
+    const mirroredTitles = new Set<string>();
+    for (const title of lessonFileTitles) {
+      const normalized = normalizeContentTitle(title);
+      if (normalized !== '') mirroredTitles.add(normalized);
+    }
 
     const or: Record<string, unknown>[] = [{ lesson_id: lid }];
     const lt = lessonTitle.trim();
@@ -642,7 +677,9 @@ export class ContentService {
       orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
     });
 
-    return assets.map((a) => this.mapContentAssetToLessonFile(a, lid));
+    return assets
+      .filter((a) => !mirroredTitles.has(normalizeContentTitle(a.title)))
+      .map((a) => this.mapContentAssetToLessonFile(a, lid));
   }
 
   // Map one content_asset row onto the lesson-file shape produced by
@@ -2056,6 +2093,7 @@ export class ContentService {
       lessonId,
       toStringValue(lesson.title),
       subjectTitle,
+      lessonFiles.map((f) => (f as unknown as Record<string, unknown>).title),
     );
     lessonFileData.push(...assetFiles);
 
@@ -2371,6 +2409,7 @@ export class ContentService {
       lessonId,
       toStringValue(lesson.title),
       await this.getSubjectTitleById(lesson.subject_id),
+      lessonFiles.map((f) => (f as unknown as Record<string, unknown>).title),
     );
     for (const asset of assetFiles) {
       // Match the grouped-index contract: every top-level row carries a

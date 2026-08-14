@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Plus, Pencil, Trash2, BookOpen, Video, FileText,
-  ClipboardList, Presentation, FileQuestion, ExternalLink, type LucideIcon,
+  ClipboardList, Presentation, FileQuestion, ExternalLink, Eye, type LucideIcon,
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { SortableList } from '../../shared/components/SortableList.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { ContentPreviewDialog, type ContentPreviewRow } from '../../shared/components/content-preview-dialog.js';
 import { ContentItemDialog } from './ContentItemDialog.js';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 
@@ -35,6 +36,14 @@ function typeMeta(t: string) {
 // whose ids are independent auto-increment sequences and therefore collide.
 // Always key/look rows up by `item_key`; the bare `id` is only safe within one
 // source. (Fallback to `id` keeps the page alive against an older API.)
+// Title key for spotting a Content Library row that mirrors a Lesson Builder
+// row. Must stay in step with normalizeContentTitle in the API's
+// content-service, so the admin's "Duplicate" chip marks exactly the rows the
+// student player drops.
+function normalizeTitle(value: unknown): string {
+  return asString(value).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function itemKey(item: Record<string, unknown>): string {
   return asString(item.item_key) || asString(item.id);
 }
@@ -168,7 +177,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
   const [contentDialog, setContentDialog] = useState<{ lesson: LessonNode; asset: Record<string, unknown> | null } | null>(null);
   // Articles have no file to open — their body is HTML in `summary` — so "View"
   // opens it in a dialog instead of a new tab (Risha 2026-07-15).
-  const [articleItem, setArticleItem] = useState<Record<string, unknown> | null>(null);
+  const [previewItem, setPreviewItem] = useState<ContentPreviewRow | null>(null);
 
   const deleteContent = async (asset: Record<string, unknown>) => {
     const ok = await confirm({
@@ -261,6 +270,20 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
           {(id, dragHandle) => {
             const lesson = lessons.find((l) => l.id === id);
             if (!lesson) return null;
+            // Risha UAT 2026-08-14 — "are they the same assessments?". They are.
+            // Two one-shot backfills on 2026-04-30 copied every lesson_files row
+            // into content_asset (tagged by lesson NAME — content_asset.lesson_id
+            // did not exist until 2026-05-30), so most lessons carry a Library
+            // mirror of every Lesson Builder item and list at ~double length.
+            // The student player now hides these mirrors
+            // (content-service.getContentAssetFilesForLesson), so say so HERE
+            // too — otherwise an admin sees 28 items and ships 12.
+            const lessonBuilderTitles = new Set(
+              lesson.content
+                .filter((c) => asString(c.source) === 'lesson')
+                .map((c) => normalizeTitle(c.title))
+                .filter((t) => t !== ''),
+            );
             return (
               <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                 {/* Lesson header */}
@@ -298,13 +321,36 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                         const Icon = meta.icon;
                         const qc = Number(item.question_count ?? 0);
                         const fileUrl = asString(item.attachment) || asString(item.video_url) || asString(item.audio_file);
+                        const assetType = asString(item.asset_type);
                         // An article carries no attachment/video/audio — its body is
                         // HTML in `summary`, so it gets a dialog preview instead.
-                        const articleBody = asString(item.asset_type) === 'article' ? asString(item.summary).trim() : '';
+                        const articleBody = assetType === 'article' ? asString(item.summary).trim() : '';
+                        // Risha 2026-08-14 — a quiz has NEITHER a file URL nor an
+                        // article body, so the old two-branch check fell through to
+                        // `null` and quizzes got no View at all. They preview their
+                        // questions instead.
+                        const previewable: ContentPreviewRow | null =
+                          assetType === 'quiz' || articleBody !== ''
+                            ? {
+                                // The BARE id, never item_key: the two tables have
+                                // colliding ids, so a prefixed key parses to 0 and a
+                                // bare id sent to the wrong source silently returns
+                                // someone else's content. `source` picks the endpoint.
+                                id: asString(item.id),
+                                title: asString(item.title),
+                                type: assetType,
+                                source: asString(item.source) === 'lesson' ? 'lesson' : 'library',
+                                summary: asString(item.summary),
+                              }
+                            : null;
                         // Lesson Builder rows are READ-ONLY here: this page's
                         // dialog writes content_asset only, so editing/deleting
                         // them from here would hit the wrong table.
                         const isLessonItem = asString(item.source) === 'lesson';
+                        // A Library row whose title matches a Lesson Builder row in
+                        // the SAME lesson is a backfill mirror — the same matching
+                        // rule the student read uses, so the two views agree.
+                        const isMirror = !isLessonItem && lessonBuilderTitles.has(normalizeTitle(item.title));
                         return (
                           <div className="flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
                             {cHandle}
@@ -322,12 +368,25 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                                     Lesson Builder
                                   </span>
                                 ) : null}
+                                {isMirror ? (
+                                  <span
+                                    className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                                    title="A copy of the Lesson Builder item with the same name, made when content was imported into the Content Library. Students are shown the Lesson Builder one, not this."
+                                  >
+                                    Duplicate · not shown to students
+                                  </span>
+                                ) : null}
                               </p>
                             </div>
                             {fileUrl ? (
                               <IconButton label="View content" onClick={() => window.open(fileUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="size-4" /></IconButton>
-                            ) : articleBody ? (
-                              <IconButton label="View article" onClick={() => setArticleItem(item)}><ExternalLink className="size-4" /></IconButton>
+                            ) : previewable ? (
+                              <IconButton
+                                label={assetType === 'quiz' ? 'View questions' : 'View article'}
+                                onClick={() => setPreviewItem(previewable)}
+                              >
+                                <Eye className="size-4" />
+                              </IconButton>
                             ) : null}
                             {isLessonItem ? (
                               <IconButton
@@ -361,19 +420,16 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
         Quiz questions and full asset editing live in Courses → Content Library
       </p>
 
-      {/* Article preview — articles store their body as HTML in `summary` rather
-          than as a file, so there is no URL to open in a tab (Risha 2026-07-15). */}
-      <Dialog open={articleItem !== null} onOpenChange={(o) => { if (!o) setArticleItem(null); }}>
-        {/* modal-maxh, not a bare max-h-[85dvh] — Lightning CSS keeps a lone dvh
-            declaration, so a webview without dvh support gets no cap at all. */}
-        <DialogContent className="modal-maxh overflow-y-auto sm:max-w-3xl">
-          <DialogHeader><DialogTitle>{asString(articleItem?.title) || 'Article'}</DialogTitle></DialogHeader>
-          <div
-            className="prose prose-sm max-w-none text-slate-800"
-            dangerouslySetInnerHTML={{ __html: asString(articleItem?.summary) || '<em>This article has no content.</em>' }}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Preview for an article body OR a quiz's questions. Shared with the
+          course Content Manager so both stores (content_asset quizzes carry
+          their questions inline, lesson_files quizzes live in `quiz`) are
+          handled in one place. Risha 2026-07-15 / 2026-08-14. */}
+      <ContentPreviewDialog
+        api={api}
+        token={session.token}
+        item={previewItem}
+        onClose={() => setPreviewItem(null)}
+      />
 
       {/* Lesson dialog */}
       <Dialog open={lessonDialogOpen} onOpenChange={(o) => { if (!o) setLessonDialogOpen(false); }}>
