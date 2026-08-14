@@ -278,6 +278,50 @@ function endOfDay(dateValue: unknown): Date | null {
  */
 const LATE_SUBMIT_GRACE_MS = 90 * 1000;
 
+/**
+ * TTII 2026-08-14: "the exam should be automatically submitted once the allotted
+ * time expires, regardless of whether the student is online or offline".
+ *
+ * How long past a paper's own deadline the server waits before finalising it
+ * itself. Comfortably clear of BOTH the 25s autosave heartbeat and
+ * LATE_SUBMIT_GRACE_MS, so a student whose final submit is in flight on a weak
+ * connection always lands first. Past this point their own submit would be
+ * graded from the stored draft anyway (see useDraft in submitExamAttempt), so
+ * both paths produce the identical score — the race is designed out rather
+ * than locked against.
+ */
+const AUTO_SUBMIT_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * The sweeper only ever looks this far back. Two jobs at once:
+ *
+ * 1. It bounds the scan.
+ * 2. It bounds the FIRST run. On 2026-08-14 production held 39 unsubmitted
+ *    attempts going back to March 2025, none of them carrying draft_answers
+ *    (the column only shipped 2026-08-11) — 25 of them on a real exam. A
+ *    sweeper without this floor would have finalised that whole backlog on its
+ *    first tick. They are already excluded by requiring draft_answers, but two
+ *    independent guards are wanted for something that writes permanent marks
+ *    unattended.
+ */
+const AUTO_SUBMIT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Cap per tick, so a bad day cannot turn into an unattended cohort-wide write. */
+const AUTO_SUBMIT_MAX_PER_TICK = 25;
+
+/** What one sweep did, for the cron's log line. */
+export interface ExamAutoSubmitResult {
+  /** Attempts past their deadline that the sweep actually considered. */
+  scanned: number;
+  /** Papers finalised and graded from their stored draft. */
+  graded: number;
+  /** Left open on purpose: nothing was ever answered. */
+  skippedNoWork: number;
+  /** The student got there first between the scan and the write. */
+  skippedSubmitted: number;
+  failed: number;
+}
+
 /** Remaining time at which the player should start warning rather than ticking. */
 const WINDOW_CLOSING_SECONDS = 120;
 
@@ -1955,6 +1999,132 @@ export class AssessmentService {
    * Returns false when there is nothing to grade. Best-effort: an autosave must
    * never surface an error to a student mid-exam.
    */
+  /**
+   * Finalise every attempt whose time has expired while the student was away.
+   *
+   * TTII 2026-08-14 asked for this explicitly: the browser auto-submits when its
+   * countdown hits zero, but a student who is offline, or who closed the tab,
+   * submits nothing at all — the attempt stayed open forever and the paper was
+   * never graded. Their answers were already safe on the server (the 25s
+   * autosave), so the work here is purely to grade what is already stored.
+   *
+   * Everything load-bearing is REUSED, never re-derived:
+   *   - the deadline comes from examEffectiveEndMs, the one place that converts
+   *     an IST wall clock to UTC. Re-deriving it is how the 5h30m skew that
+   *     once locked students out of their own exam comes back — and in a cron
+   *     it would submit papers out from under students who are still writing.
+   *   - "has the student actually answered anything" comes from
+   *     finalizeAttemptFromDraft, which measures ANSWERS via sheetHasWork, not
+   *     rows. The player emits a row per question including blanks, so a
+   *     row-count test reads as the exact opposite of what it means.
+   *
+   * A zero-work attempt is deliberately LEFT OPEN rather than scored 0: at the
+   * data layer a student who answered nothing is indistinguishable from one
+   * whose every autosave failed, and the attempt row is created as early as the
+   * instructions screen. Unsubmitted is the honest record for "did not attempt".
+   */
+  async sweepExpiredExamAttempts(opts: { now?: Date } = {}): Promise<ExamAutoSubmitResult> {
+    const result: ExamAutoSubmitResult = { scanned: 0, graded: 0, skippedNoWork: 0, skippedSubmitted: 0, failed: 0 };
+    const nowMs = (opts.now ?? new Date()).getTime();
+    const floorDate = new Date(nowMs - AUTO_SUBMIT_LOOKBACK_MS);
+
+    // Exam-first: is_practice, parent-ness and deleted_at are all exam-level.
+    // A practice paper must never be swept — it has a duration but its window
+    // gate is skipped entirely (resolveExamForAttempt), retakes are unlimited,
+    // and there is no result to publish. Sweeping it would end a student's
+    // practice mid-question, forever.
+    const candidateExams = await this.prisma.exam.findMany({
+      where: { deleted_at: null, is_practice: 0, from_date: { gte: floorDate } },
+      // EXACTLY the five ExamWindowRow columns — the type declares all five
+      // required, so a short select is a compile error rather than a silent
+      // half-computed deadline.
+      select: { id: true, from_date: true, from_time: true, to_date: true, to_time: true, duration: true },
+    });
+    if (candidateExams.length === 0) return result;
+
+    // A PARENT holds the umbrella schedule; students only ever sit children, so
+    // a parent's effective end is fiction.
+    const parentExamIds = await this.findParentExamIds(candidateExams.map((e) => e.id));
+    const exams = parentExamIds.size === 0
+      ? candidateExams
+      : candidateExams.filter((e) => !parentExamIds.has(e.id));
+    if (exams.length === 0) return result;
+
+    const attempts = await this.prisma.exam_attempt.findMany({
+      where: {
+        exam_id: { in: exams.map((e) => e.id) },
+        submit_status: false,
+        deleted_at: null,
+        // Structural guard AND the backlog guard. exam_attempt is shared with
+        // lesson quizzes (startQuizAttempt writes a lesson_file id into
+        // exam_id, and those id spaces collide) — only a formal exam's autosave
+        // ever writes draft_answers, so this separates them. It also excludes
+        // every pre-2026-08-11 attempt, which has no draft to grade.
+        draft_answers: { not: null },
+        user_id: { not: null },
+        start_time: { gte: floorDate },
+      },
+      select: { id: true, user_id: true, exam_id: true, start_time: true },
+      orderBy: { id: 'desc' },
+    });
+
+    // Newest attempt per (student, exam) only. startExamAttempt has no resume
+    // path, so two live attempts are constructible, and the evaluation list
+    // shows the highest id — grading an older one would leave the graded paper
+    // invisible to the evaluator.
+    const seen = new Set<string>();
+    const newest = attempts.filter((a) => {
+      const key = `${a.user_id}:${a.exam_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const examById = new Map(exams.map((e) => [e.id, e]));
+
+    for (const attempt of newest) {
+      if (result.graded >= AUTO_SUBMIT_MAX_PER_TICK) break;
+
+      const exam = attempt.exam_id === null ? undefined : examById.get(attempt.exam_id);
+      if (!exam) continue;
+
+      const endMs = examEffectiveEndMs(exam, parseDate(attempt.start_time));
+      // An untimed paper has no moment at which it "expires" — skip it forever
+      // rather than inventing one.
+      if (endMs === null) continue;
+      if (nowMs <= endMs + AUTO_SUBMIT_GRACE_MS) continue;
+
+      result.scanned += 1;
+
+      // Re-read immediately before writing: the student may have submitted
+      // between the scan and here, and this is also where the draft to grade
+      // comes from.
+      const fresh = await this.prisma.exam_attempt.findUnique({
+        where: { id: attempt.id },
+        select: { submit_status: true, draft_answers: true },
+      });
+      if (!fresh || fresh.submit_status === true) {
+        result.skippedSubmitted += 1;
+        continue;
+      }
+
+      try {
+        const graded = await this.finalizeAttemptFromDraft(
+          String(attempt.user_id),
+          idString(attempt.id),
+          fresh.draft_answers,
+        );
+        if (graded) result.graded += 1;
+        else result.skippedNoWork += 1;
+      } catch {
+        // One bad attempt must never abort the sweep for everyone else.
+        result.failed += 1;
+      }
+    }
+
+    return result;
+  }
+
   private async finalizeAttemptFromDraft(
     userId: string,
     attemptId: string,
