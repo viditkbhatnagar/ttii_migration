@@ -88,6 +88,10 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'cohorts', label: 'Cohorts', href: '/admin/cohorts/index' },
       { id: 'add-cohorts', label: 'Add Cohorts', href: '/admin/cohorts/add' },
       { id: 'live-sessions', label: 'Live Sessions', href: '/admin/live_class/index' },
+      // Naji 2026-08-14 asked us for an attendance report. The page and its two
+      // endpoints already existed and worked — it simply had a route and no nav
+      // entry, so the only way in was to type the URL.
+      { id: 'attendance', label: 'Attendance', href: '/admin/cohorts/attendance' },
       { id: 'assignments-cm', label: 'Assignment Summary', href: '/admin/assignment/index' },
       { id: 'assignment-evaluation', label: 'Assignment Evaluation', href: '/admin/assignment/evaluation' },
       { id: 'announcements', label: 'Announcements', href: '/admin/announcements/index' },
