@@ -92,6 +92,16 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       // endpoints already existed and worked — it simply had a route and no nav
       // entry, so the only way in was to type the URL.
       { id: 'attendance', label: 'Attendance', href: '/admin/cohorts/attendance' },
+      // Same audit, 2026-08-17: SessionFeedbacksPage was built and routed but
+      // never linked, and unlike the Fee Information and CRM entries below it
+      // carries no note saying it was hidden on purpose — so it was simply
+      // missed. Every OTHER unlinked route was checked and left alone: the
+      // "Add X" pages and the Lesson Builder open from their parent list,
+      // Global Calendar has its own button in the navbar, /admin/admin/index is
+      // the role-1 half of loadAdminUsers rather than a page, and Scholarships,
+      // Student Payments, Course Fee Status, Mentorship and Circulars are
+      // deliberately hidden (see the comments below). Do not "restore" those.
+      { id: 'session-feedbacks', label: 'Session Feedbacks', href: '/admin/cohorts/sessions' },
       { id: 'assignments-cm', label: 'Assignment Summary', href: '/admin/assignment/index' },
       { id: 'assignment-evaluation', label: 'Assignment Evaluation', href: '/admin/assignment/evaluation' },
       { id: 'announcements', label: 'Announcements', href: '/admin/announcements/index' },

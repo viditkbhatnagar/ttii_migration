@@ -947,9 +947,40 @@ export class StudentPortalApi {
     formData.append('assignment_id', assignmentId);
     for (const file of files) formData.append('file', file);
     const url = `${this.apiClient.getBaseUrl()}assignment/submit_assignment?auth_token=${encodeURIComponent(authToken)}`;
-    const response = await fetch(url, { method: 'POST', body: formData });
+
+    let response: Response;
+    try {
+      response = await fetch(url, { method: 'POST', body: formData });
+    } catch {
+      // Naji 2026-08-17 — a student on a weak mobile uplink saw the raw
+      // "Failed to fetch" here and reported the app as broken. That string is
+      // what the browser throws when the request never completes, and the real
+      // cause was the upload stalling: nginx timed the request body out, sent a
+      // 408 and closed the connection, which reaches fetch as a network error
+      // rather than as a status code. The timeout is raised server-side, but a
+      // phone that loses signal mid-upload will always be able to land here, so
+      // say something the student can act on instead of a browser internal.
+      throw new Error(
+        'Upload could not be completed — your connection dropped while the file was being sent. '
+        + 'Please check your signal and try again. Your file has not been submitted.',
+      );
+    }
+
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!response.ok || (payload && (payload.status === 0 || payload.status === false))) {
+      // 408/413 arrive with no usable JSON body, so name them rather than
+      // falling through to a generic failure.
+      if (!payload) {
+        if (response.status === 408) {
+          throw new Error(
+            'Upload timed out — the file was taking too long to send. '
+            + 'Please try again on a stronger connection, or use a smaller file.',
+          );
+        }
+        if (response.status === 413) {
+          throw new Error('That file is too large to upload. Please submit a file under 25MB.');
+        }
+      }
       throw new Error((payload?.message as string) || 'Submission failed');
     }
   }
