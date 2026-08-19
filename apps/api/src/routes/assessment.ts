@@ -9,6 +9,7 @@ import {
   type ExamFilterInput,
   type StartPracticeAttemptInput,
 } from '../assessment/assessment-service.js';
+import { registerAssignmentUploadRoutes } from './assignment-upload.js';
 
 interface RegisterAssessmentRoutesOptions {
   authService?: AuthService;
@@ -78,6 +79,15 @@ export function registerAssessmentRoutes(
   const authService = options.authService ?? new AuthService();
   const assessmentService = options.assessmentService ?? new AssessmentService();
   const requireAuth = requireLegacyAuth(authService);
+
+  // Chunked/resumable assignment upload (TTII 2026-08-19). Additive: the
+  // single-shot multipart route below stays exactly as it is for the shipped
+  // Dart mobile app, which cannot be updated from here.
+  registerAssignmentUploadRoutes(app, {
+    authService,
+    assessmentService,
+    ...(options.storage ? { storage: options.storage } : {}),
+  });
 
   app.get('/exams/index', { preHandler: [requireAuth] }, async (request, reply) => {
     try {
@@ -436,6 +446,19 @@ export function registerAssessmentRoutes(
       });
       reply.code(200).send(submission);
     } catch (error: unknown) {
+      // @fastify/multipart throws once a part passes the 200MB fileSize limit.
+      // Flattening that to a 500 carrying the raw internal string was both
+      // useless to the student and invisible to the client's 413 branch.
+      const detail = error instanceof Error ? error.message : '';
+      if (/file too large|request file too large/i.test(detail)) {
+        reply.code(413).send({
+          status: 0,
+          message: 'That file is too large to upload. Please submit a smaller file.',
+          data: [],
+        });
+        return;
+      }
+      request.log.error({ err: error }, 'assignment.submit_failed');
       sendAssessmentError(reply, error);
     }
   });

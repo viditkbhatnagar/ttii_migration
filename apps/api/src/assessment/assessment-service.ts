@@ -3361,6 +3361,22 @@ export class AssessmentService {
     }
 
     const files = this.normalizeSubmittedAssignmentFiles(input.answerFiles);
+
+    // TTII 2026-08-19 — refuse an empty submission instead of recording one.
+    // The multipart route drops a zero-byte part on the floor, which used to
+    // land here as "no files", write a row with assignment_files = null and
+    // return success. The student was then permanently locked out: every later
+    // attempt hit the duplicate check above and was told the assignment was
+    // already submitted, with nothing actually submitted. This is placed AFTER
+    // the duplicate check so a genuine re-submit still reports the right thing.
+    if (files.length === 0) {
+      return {
+        status: 0,
+        message: 'No file was received. Please choose your file again and resubmit.',
+        data: [],
+      };
+    }
+
     const now = new Date();
 
     const created = await this.prisma.assignment_submissions.create({
@@ -3395,12 +3411,19 @@ export class AssessmentService {
       courseTitle = toStringValue(course?.title);
     }
 
-    await this.sendAssignmentSubmissionEmails(
+    // Deliberately NOT awaited. These are two Microsoft Graph sends (plus their
+    // own lookups) with no timeout, and they used to run between the committed
+    // submission row and the student's response — so a slow or failing Graph
+    // (we log 503s from it) left the student staring at a dialog that had
+    // already succeeded, and long enough could have nginx close the connection
+    // and show them "upload failed" for a submission that was safely saved.
+    // The submission is committed at this point; mail is a side effect.
+    void this.sendAssignmentSubmissionEmails(
       userId,
       idString(assignmentId),
       toStringValue(assignment.title),
       courseTitle,
-    );
+    ).catch(() => undefined);
 
     return {
       status: 1,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { UploadProgress } from '@/lib/resilient-upload';
 import {
   ClipboardList,
   FileText,
@@ -138,7 +139,9 @@ function assignmentStatusBadge(a: AssignmentView): { label: string; className: s
     return { label: 'Awaiting review', className: 'bg-sky-50 text-sky-700 border-sky-200' };
   }
   if (a.isSaved) {
-    return { label: 'Draft saved', className: 'bg-amber-50 text-amber-700 border-amber-200' };
+    // NOT a draft of any kind — this is the bookmark flag (saved_assignments).
+    // Calling it "Draft saved" told students their file was safely with us.
+    return { label: 'Saved for later', className: 'bg-amber-50 text-amber-700 border-amber-200' };
   }
   return { label: 'Not started', className: 'bg-slate-100 text-slate-600 border-slate-200' };
 }
@@ -756,13 +759,14 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
             <AssignmentDetail
               item={detailItem}
               onClose={() => setDetailItem(null)}
-              onSubmitFiles={async (files) => {
-                await api.submitAssignmentFiles(session.token, asString(detailItem.id), files);
+              onSubmitFiles={async (files, onProgress) => {
+                await api.submitAssignmentFiles(session.token, asString(detailItem.id), files, onProgress);
                 reload();
               }}
               onSaveDraft={async () => {
-                await api.toggleSavedAssignment(session.token, asString(detailItem.id));
+                const result = await api.toggleSavedAssignment(session.token, asString(detailItem.id));
                 reload();
+                return result;
               }}
             />
           ) : null}
@@ -770,6 +774,22 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
       </Dialog>
     </div>
   );
+}
+
+// Above this, a phone-scanned submission is big enough that the student should
+// be told to sit still for it. Sized from real data: the median submission is
+// 4MB, but 11% are over 25MB and the largest on record is 55MB.
+const LARGE_FILE_WARN_BYTES = 15 * 1024 * 1024;
+
+// A real ceiling, checked before a single byte is sent. The dropzone used to
+// promise "up to 25MB" while nothing anywhere enforced it — the client would
+// happily begin a 200MB upload and only discover the problem minutes later.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Strip HTML tags to plain text for legacy rich-text instruction blobs.
@@ -824,8 +844,8 @@ function AssignmentDetail({
 }: {
   item: Record<string, unknown>;
   onClose: () => void;
-  onSubmitFiles: (files: File[]) => Promise<void>;
-  onSaveDraft: () => Promise<void>;
+  onSubmitFiles: (files: File[], onProgress: (progress: UploadProgress) => void) => Promise<void>;
+  onSaveDraft: () => Promise<{ saved: boolean }>;
 }) {
   const id = asString(item.id);
   const title = asString(item.title) || 'Assignment';
@@ -852,10 +872,12 @@ function AssignmentDetail({
   // the admin to verify, keying off it alone would leave the form open through
   // the whole pending-verification window.
   const canSubmit = !isSubmitted && !isReviewed;
+  const isSavedForLater = asNumber(item.is_saved) > 0;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState<'submit' | 'draft' | null>(null);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
 
   const submit = async () => {
     if (!file) {
@@ -863,24 +885,45 @@ function AssignmentDetail({
       return;
     }
     setBusy('submit');
+    setProgress({ loaded: 0, total: file.size, percent: 0, phase: 'checking' });
     try {
-      await onSubmitFiles([file]);
+      await onSubmitFiles([file], setProgress);
       toast.success('Assignment submitted.');
       setBusy(null);
+      setProgress(null);
       onClose();
     } catch (err: unknown) {
+      // Deliberately KEEP the chosen file. Every failure here is retryable and
+      // making the student find the file again on a phone is how a blip turns
+      // into a support message.
       toast.error(err instanceof Error ? err.message : 'Submission failed.');
       setBusy(null);
+      setProgress(null);
     }
   };
 
+  // "Save for later" is a BOOKMARK. It uploads nothing. It used to be labelled
+  // "Save Draft" and to announce "Draft saved.", so a student who picked their
+  // file and tapped it — it sits right beside Submit — got a green tick and
+  // reasonably concluded they had handed the assignment in. Nothing was ever
+  // sent, which is why so many students reported being unable to submit while
+  // the server saw almost no submit requests at all. Say exactly what happened,
+  // and if they are holding a file, say what still needs doing.
   const saveDraft = async () => {
     setBusy('draft');
     try {
-      await onSaveDraft();
-      toast.success('Draft saved.');
+      const { saved } = await onSaveDraft();
+      if (!saved) {
+        toast.success('Removed from your saved list.');
+      } else if (file) {
+        toast.warning('Bookmarked — but your file has NOT been submitted. Tap "Submit Assignment" to hand it in.', {
+          duration: 8000,
+        });
+      } else {
+        toast.success('Saved for later. This only bookmarks the assignment — it does not submit anything.');
+      }
     } catch {
-      toast.error('Could not save draft.');
+      toast.error('Could not update your saved list.');
     }
     setBusy(null);
   };
@@ -1053,7 +1096,37 @@ function AssignmentDetail({
                 <p className="mt-3 text-sm font-semibold text-student-text">
                   {file ? file.name : 'Drag & drop your file here'}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-400">PDF, DOCX, PPTX up to 25MB</p>
+                <p className="mt-0.5 text-xs text-slate-400">PDF, DOCX, PPTX</p>
+                {file && file.size > LARGE_FILE_WARN_BYTES ? (
+                  <p className="mt-2 text-xs font-medium text-amber-600">
+                    This file is {formatFileSize(file.size)}. Large scans take a few minutes on mobile data —
+                    keep this screen open until the bar reaches 100%.
+                  </p>
+                ) : null}
+                {progress ? (
+                  <div className="mt-3">
+                    <div
+                      className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
+                      role="progressbar"
+                      aria-valuenow={progress.percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Upload progress"
+                    >
+                      <div
+                        className="h-full rounded-full bg-student-primary transition-[width] duration-300 ease-out"
+                        style={{ width: `${progress.percent}%` }}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      {progress.phase === 'checking'
+                        ? 'Preparing your file…'
+                        : progress.phase === 'finishing'
+                          ? 'Finishing submission…'
+                          : `Uploading ${progress.percent}% — ${formatFileSize(progress.loaded)} of ${formatFileSize(progress.total)}`}
+                    </p>
+                  </div>
+                ) : null}
                 {/* sr-only, not `hidden` — a display:none input is not rendered
                     and some in-app webviews (WhatsApp/Instagram, where students
                     open these links) refuse to open the picker for it, so
@@ -1066,7 +1139,26 @@ function AssignmentDetail({
                   accept=".pdf,.doc,.docx,.ppt,.pptx"
                   className="sr-only"
                   tabIndex={-1}
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const picked = e.target.files?.[0] ?? null;
+                    // Clear the input's value, or choosing the SAME file again
+                    // after a failed attempt fires no change event and the
+                    // student is stuck looking at a button that does nothing.
+                    e.target.value = '';
+                    if (!picked) return;
+                    if (picked.size === 0) {
+                      toast.error('That file is empty. Please choose the file again.');
+                      return;
+                    }
+                    if (picked.size > MAX_UPLOAD_BYTES) {
+                      toast.error(
+                        `That file is ${formatFileSize(picked.size)}. The limit is ${formatFileSize(MAX_UPLOAD_BYTES)} — `
+                        + 'please compress it or split it before submitting.',
+                      );
+                      return;
+                    }
+                    setFile(picked);
+                  }}
                 />
                 <Button
                   variant="outline"
@@ -1161,7 +1253,7 @@ function AssignmentDetail({
               className="order-3 w-full sm:order-none sm:w-auto"
             >
               {busy === 'draft' ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : null}
-              Save Draft
+              {isSavedForLater ? 'Remove from Saved' : 'Save for Later'}
             </Button>
             <Button
               className="order-1 col-span-2 w-full bg-student-primary text-white hover:bg-student-primary/90 sm:order-none sm:col-span-1 sm:w-auto"

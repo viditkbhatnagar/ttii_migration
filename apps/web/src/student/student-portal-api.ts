@@ -1,5 +1,11 @@
 import { ApiError, type AuthSession, type LegacyApiClient, type QueryValue } from '@ttii/frontend-core';
 
+import {
+  UploadError,
+  uploadAssignmentInChunks,
+  type UploadProgress,
+} from '../lib/resilient-upload';
+
 interface LegacyEnvelope<T> {
   data?: T;
   message?: string;
@@ -142,6 +148,54 @@ function dayOffset(offset: number): string {
   const date = new Date();
   date.setDate(date.getDate() + offset);
   return toDateOnly(date);
+}
+
+/**
+ * Turn an upload failure into something a student can act on. The old code had
+ * a single catch-all telling everyone their connection had dropped, which was
+ * wrong for most of them and told the ones it was right about nothing useful.
+ */
+function describeUploadFailure(error: unknown): string {
+  if (error instanceof UploadError) {
+    switch (error.reason) {
+      case 'unreadable-file':
+        return 'That file could not be read from your device. Please tap "Choose another file" and pick it again.';
+      case 'stalled':
+        return 'The upload stopped part-way — your phone most likely changed network (WiFi to mobile data, or between towers). '
+          + 'Nothing was submitted. Tap Submit again to resume.';
+      case 'network':
+        return 'The connection dropped while sending your file. Nothing was submitted — please tap Submit again.';
+      case 'too-large':
+        return 'That file is too large to upload. Please submit a smaller file.';
+      case 'aborted':
+        return 'Upload cancelled. Nothing was submitted.';
+      case 'server':
+      default:
+        return error.message || 'Submission failed. Please try again.';
+    }
+  }
+  return error instanceof Error && error.message ? error.message : 'Submission failed. Please try again.';
+}
+
+/**
+ * The legacy envelope reports refusals as `status: 0` with HTTP 200, so a
+ * successful-looking response still has to be inspected. "Already submitted" is
+ * called out because it is what a student sees when an earlier attempt actually
+ * DID land and only the reply was lost — telling them it failed would be a lie.
+ */
+function assertSubmissionAccepted(envelope: Record<string, unknown> | null): void {
+  if (!envelope) return;
+  const status = envelope.status;
+  if (status === 0 || status === false) {
+    const message = asString(envelope.message);
+    if (/already submitted/i.test(message)) {
+      throw new Error(
+        'This assignment has already been submitted — an earlier attempt did go through. '
+        + 'Close this window and reopen it to see your submission.',
+      );
+    }
+    throw new Error(message || 'Submission failed. Please try again.');
+  }
 }
 
 function toAnswerFiles(value: unknown): string[] {
@@ -925,10 +979,30 @@ export class StudentPortalApi {
     };
   }
 
-  async toggleSavedAssignment(authToken: string, assignmentId: string): Promise<void> {
-    await this.get<LegacyEnvelope<Record<string, unknown>>>('/assignment/save_assignment', authToken, {
-      assignment_id: assignmentId,
-    });
+  /**
+   * Bookmark / un-bookmark an assignment.
+   *
+   * TTII 2026-08-19 — this endpoint writes to `saved_assignments`, a bookmark
+   * table. It does NOT upload anything and has nothing to do with
+   * assignment_submissions. The student portal used to present it as "Save
+   * Draft" and report "Draft saved.", which is how students ended up believing
+   * their file was handed in when nothing had been sent — the single best
+   * explanation for "many students cannot submit" alongside almost no submit
+   * requests reaching the server. It is also a TOGGLE, so the second tap
+   * silently un-saves; the server says which way it went and the caller now
+   * gets that instead of a hardcoded success.
+   */
+  async toggleSavedAssignment(authToken: string, assignmentId: string): Promise<{ saved: boolean }> {
+    // This endpoint is an outlier: it answers with a human-readable STRING in
+    // `status` ("Successfully Saved" / "Successfully Removed from saved
+    // Assignments") rather than the numeric status the rest of the legacy API
+    // uses, so it is typed here instead of through LegacyEnvelope.
+    const payload = await this.get<{ status?: unknown; data?: unknown }>(
+      '/assignment/save_assignment',
+      authToken,
+      { assignment_id: assignmentId },
+    );
+    return { saved: !/removed/i.test(asString(payload.status)) };
   }
 
   async submitAssignment(authToken: string, assignmentId: string, answerFiles: unknown): Promise<void> {
@@ -938,11 +1012,57 @@ export class StudentPortalApi {
     });
   }
 
-  // Upload the student's work and submit it. The backend /assignment/submit_assignment
-  // route accepts multipart: it stores each file and records its URL. Auth rides
-  // on the URL (multipart body fields are invisible to the auth middleware),
-  // mirroring uploadProfileImage.
-  async submitAssignmentFiles(authToken: string, assignmentId: string, files: File[]): Promise<void> {
+  /**
+   * Upload the student's work and submit it.
+   *
+   * TTII 2026-08-19 — this used to be a single fetch() carrying the whole file.
+   * That is what students were reporting as broken: submissions are
+   * phone-scanned PDFs (median 4MB, but 11% over 25MB and up to 55MB), so one
+   * request ran for minutes on a mobile uplink and any cell/WiFi handover in
+   * that window killed it outright, with no progress shown and nothing
+   * resumable. It now goes up in chunks, retrying each one, and falls back to
+   * the old single-shot path if the server has not got the chunk routes yet.
+   */
+  async submitAssignmentFiles(
+    authToken: string,
+    assignmentId: string,
+    files: File[],
+    onProgress?: (progress: UploadProgress) => void,
+  ): Promise<void> {
+    const file = files[0];
+    if (!file) throw new Error('Choose a file to submit.');
+
+    let envelope: Record<string, unknown> | null;
+    try {
+      envelope = await uploadAssignmentInChunks({
+        baseUrl: this.apiClient.getBaseUrl(),
+        authToken,
+        assignmentId,
+        file,
+        ...(onProgress ? { onProgress } : {}),
+      });
+    } catch (error: unknown) {
+      // 404 means this server predates the chunk routes — the single-shot path
+      // is still there, so use it rather than failing the student.
+      if (error instanceof UploadError && error.reason === 'server' && error.status === 404) {
+        envelope = await this.submitAssignmentSingleShot(authToken, assignmentId, files);
+      } else {
+        throw new Error(describeUploadFailure(error));
+      }
+    }
+
+    assertSubmissionAccepted(envelope);
+  }
+
+  /**
+   * The original one-request upload. Kept as a fallback, and still the exact
+   * shape the shipped Dart mobile app posts, so it must not change.
+   */
+  private async submitAssignmentSingleShot(
+    authToken: string,
+    assignmentId: string,
+    files: File[],
+  ): Promise<Record<string, unknown> | null> {
     const formData = new FormData();
     formData.append('assignment_id', assignmentId);
     for (const file of files) formData.append('file', file);
@@ -952,37 +1072,26 @@ export class StudentPortalApi {
     try {
       response = await fetch(url, { method: 'POST', body: formData });
     } catch {
-      // Naji 2026-08-17 — a student on a weak mobile uplink saw the raw
-      // "Failed to fetch" here and reported the app as broken. That string is
-      // what the browser throws when the request never completes, and the real
-      // cause was the upload stalling: nginx timed the request body out, sent a
-      // 408 and closed the connection, which reaches fetch as a network error
-      // rather than as a status code. The timeout is raised server-side, but a
-      // phone that loses signal mid-upload will always be able to land here, so
-      // say something the student can act on instead of a browser internal.
       throw new Error(
-        'Upload could not be completed — your connection dropped while the file was being sent. '
-        + 'Please check your signal and try again. Your file has not been submitted.',
+        'Upload could not be completed — the connection dropped while the file was being sent. '
+        + 'Please try again. Your file has not been submitted.',
       );
     }
 
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!response.ok || (payload && (payload.status === 0 || payload.status === false))) {
-      // 408/413 arrive with no usable JSON body, so name them rather than
-      // falling through to a generic failure.
-      if (!payload) {
-        if (response.status === 408) {
-          throw new Error(
-            'Upload timed out — the file was taking too long to send. '
-            + 'Please try again on a stronger connection, or use a smaller file.',
-          );
-        }
-        if (response.status === 413) {
-          throw new Error('That file is too large to upload. Please submit a file under 25MB.');
-        }
+    if (!response.ok && !payload) {
+      if (response.status === 408) {
+        throw new Error(
+          'Upload timed out — the file was taking too long to send. '
+          + 'Please try again on a stronger connection, or use a smaller file.',
+        );
       }
-      throw new Error((payload?.message as string) || 'Submission failed');
+      if (response.status === 413) {
+        throw new Error('That file is too large to upload. Please submit a smaller file.');
+      }
+      throw new Error('Submission failed. Please try again.');
     }
+    return payload;
   }
 
   /**

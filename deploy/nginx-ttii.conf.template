@@ -40,24 +40,26 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
-        # Assignment uploads (Naji 2026-08-17): a student on a weak mobile
-        # uplink could not push a 25MB PDF through inside nginx's
-        # client_body_timeout, which DEFAULTS TO 60s and was never set here.
-        # nginx answered 408 and closed the connection, and a closed connection
-        # reaches the browser as a network error — the student saw "Failed to
-        # fetch", not a status code, so it read as the app being broken.
-        # Confirmed in the access log: 3 x 408 from one student's token, minutes
-        # apart, their IP changing between attempts (mobile signal), against 17
-        # successful submits from other phones.
+        # Assignment uploads. client_body_timeout is a GAP timer, not a budget
+        # for the whole upload: it fires only when no bytes arrive for this
+        # long. So a 408 here never meant "too slow", it meant the upload
+        # stalled dead — which is what a phone changing cell/WiFi mid-transfer
+        # looks like (the failures on record came from one student whose IP
+        # changed between attempts). The web client now uploads in chunks and
+        # retries, so a stall costs one chunk instead of the whole file; these
+        # windows stay generous for the mobile app, which still posts in one go.
         client_body_timeout 300s;
         proxy_send_timeout 300s;
-        # The API buffers the whole upload in memory and then pushes it to
-        # object storage before replying, so the response itself can be slow on
-        # a large file.
+        # The API assembles the upload and pushes it to object storage before
+        # replying, so the response itself can be slow on a large file.
         proxy_read_timeout 180s;
-        # Large document uploads need a longer send window than the 60s default.
-        proxy_send_timeout 300s;
-        proxy_request_buffering off;
+        # NOTE: request buffering is left at nginx's default (ON) on purpose,
+        # and this template must not turn it off. With buffering on, nginx
+        # absorbs the slow mobile upload and only then hands a complete body to
+        # Node. Turning it off streams straight through, so every slow phone
+        # would instead hold an API connection — and API memory — open for the
+        # whole transfer. This line previously read `proxy_request_buffering
+        # off;` here while the live server never had it; do not "restore" it.
     }
 
     location /assets/ {

@@ -85,6 +85,13 @@ export interface StorageUploadFromFileRequest {
   cacheControl?: string;
   precomputedSha256?: string;
   contentLength?: number;
+  /**
+   * Mirrors StorageUploadRequest.publicRead. Assignment submissions are served
+   * to faculty straight from their public URL, so a streamed upload has to be
+   * able to set the same ACL a buffered one does — without this they upload
+   * private and every submitted file 403s.
+   */
+  publicRead?: boolean;
 }
 
 export interface StorageUploadResult {
