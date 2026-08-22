@@ -368,7 +368,12 @@ function buildCohortInput(payload: Record<string, unknown>): AdminCohortInput {
     startDate: toStringValue(payload.start_date),
     endDate: toStringValue(payload.end_date),
     languageId: toStringValue(payload.language_id),
-    offeringIds: toStringArray(payload.offering_ids),
+    // ABSENT vs EMPTY matters: the service REPLACES these pivots, so a missing
+    // key must mean "leave them alone", not "delete them all". toStringArray
+    // turns a missing key into [], which is what used to wipe a cohort's
+    // offerings on every save. Naji 2026-08-19.
+    ...('offering_ids' in payload ? { offeringIds: toStringArray(payload.offering_ids) } : {}),
+    ...('course_ids' in payload ? { courseIds: toStringArray(payload.course_ids) } : {}),
   };
 }
 

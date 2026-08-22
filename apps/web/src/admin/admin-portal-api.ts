@@ -267,6 +267,12 @@ export interface AddAdminCohortInput {
   endDate: string;
   languageId?: string;
   offeringIds?: string[];
+  /**
+   * Every program this cohort serves (Naji 2026-08-19). `courseId` remains the
+   * PRIMARY course — the server keeps storing it on cohorts.course_id for the
+   * many readers that still use it.
+   */
+  courseIds?: string[];
 }
 
 export interface AdminPaymentStatusSnapshot {
@@ -1891,6 +1897,7 @@ export class AdminPortalApi {
       end_date: input.endDate,
       language_id: input.languageId,
       offering_ids: input.offeringIds,
+      course_ids: input.courseIds,
     });
   }
 
@@ -1907,6 +1914,7 @@ export class AdminPortalApi {
       end_date: input.endDate,
       language_id: input.languageId,
       offering_ids: input.offeringIds,
+      course_ids: input.courseIds,
     });
   }
 

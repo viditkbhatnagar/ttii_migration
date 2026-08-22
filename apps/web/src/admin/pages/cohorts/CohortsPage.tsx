@@ -248,7 +248,33 @@ export default function CohortsPage({ api, session, onNavigate }: AdminPageProps
         render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
       },
       { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
+      {
+        // Naji 2026-08-19 — a cohort can be shared by several programs
+        // (PG + Diploma), so show all of them, not just the primary.
+        key: 'course_title',
+        label: 'Programs',
+        sortable: true,
+        render: (v, row) => {
+          const titles = Array.isArray(row.course_titles)
+            ? (row.course_titles as unknown[]).map((t) => asString(t)).filter(Boolean)
+            : [];
+          if (titles.length > 1) {
+            return (
+              <div className="flex flex-wrap gap-1">
+                {titles.map((t) => (
+                  <span
+                    key={t}
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            );
+          }
+          return titles[0] || asString(v) || '-';
+        },
+      },
       {
         key: 'language',
         label: 'Language',

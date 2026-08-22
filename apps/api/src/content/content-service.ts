@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { cohortCourseIdMap } from '../data/cohort-courses.js';
 import { env } from '../env.js';
 
 const DEFAULT_COURSE_BENEFITS = [
@@ -1972,10 +1973,21 @@ export class ContentService {
       }
     }
 
-    // Course-level cohort with no specific subject_id
+    // Course-level cohort with no specific subject_id.
+    // Naji 2026-08-19 — matched on the scalar course_id alone, so a "For Course"
+    // cohort shared by PG and Diploma left the second program's lessons
+    // padlocked with no error. The subject-wise branch above needs no change:
+    // it is course-agnostic, and course_subject is a true many-to-many, so a
+    // shared subject already unlocks for both.
     if (subjectCourseId !== null) {
+      const courseIdsByCohort = await cohortCourseIdMap(
+        this.prisma,
+        cohorts.map((c) => ({ id: c.id, course_id: c.course_id })),
+      );
       for (const cohort of cohorts) {
-        if (cohort.subject_id === null && cohort.course_id === subjectCourseId) {
+        if (cohort.subject_id !== null) continue;
+        const served = courseIdsByCohort.get(cohort.id) ?? [];
+        if (served.includes(subjectCourseId)) {
           return idString(cohort.cohort_id ?? cohort.id);
         }
       }

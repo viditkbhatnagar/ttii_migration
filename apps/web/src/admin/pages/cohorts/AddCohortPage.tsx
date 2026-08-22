@@ -225,8 +225,14 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
         // A cohort with no subject_id was created "For Course" (Lesson-wise).
         setCohortType(asString(cohort.subject_id) ? 'subject' : 'course');
         setSubjectId(asString(cohort.subject_id));
+        // Naji 2026-08-19 — a cohort can serve several programs. Prefer the
+        // full set; fall back to the scalar for cohorts predating the pivot.
+        const courseIdList = Array.isArray(cohort.course_ids)
+          ? (cohort.course_ids as unknown[]).map((v) => asString(v)).filter(Boolean)
+          : [];
         const cId = asString(cohort.course_id);
-        if (cId) setCourseIds(new Set([cId]));
+        if (courseIdList.length > 0) setCourseIds(new Set(courseIdList));
+        else if (cId) setCourseIds(new Set([cId]));
         setInstructorId(asString(cohort.instructor_id));
         setLanguageId(asString(cohort.language_id));
         const sd = asString(cohort.start_date);
@@ -272,7 +278,9 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
         const res = await api.editAdminCohort(session.token, editCohortId, {
           title,
           cohortCode,
+          // courseId stays the PRIMARY; courseIds carries every program.
           courseId: cid,
+          courseIds: courseIdList,
           subjectId,
           centreId: '',
           instructorId,
@@ -294,45 +302,43 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
       return;
     }
 
-    // Multi-course = one cohort row per course. The cohorts schema stores a
-    // single course_id, so picking N courses creates N cohort rows that
-    // share metadata (subject, dates, code, offerings, instructor).
-    let createdCount = 0;
-    let firstError: string | null = null;
-    for (const cid of courseIdList) {
-      try {
-        const res = await api.addAdminCohort(session.token, {
-          title,
-          cohortCode,
-          courseId: cid,
-          subjectId,
-          centreId: '',
-          instructorId,
-          languageId,
-          startDate,
-          endDate,
-          offeringIds: offeringIdList,
-        });
-        if (res && (res as { status?: number }).status === 0) {
-          firstError = firstError ?? (asString((res as { message?: unknown }).message) || 'Failed to create cohort.');
-        } else {
-          createdCount += 1;
-        }
-      } catch (err) {
-        firstError = firstError ?? (err instanceof Error ? err.message : 'Failed to create cohort.');
+    // Naji 2026-08-19 — ONE cohort carrying every ticked program.
+    //
+    // This used to loop and POST once per course, producing N cohort rows that
+    // shared a title, code, dates and instructor. That is exactly what Naji
+    // asked us to stop: PG and Diploma ended up in separate cohorts, so the
+    // same class had two schedules, two attendance sheets and a split roster.
+    // The server stores courseIds[0] as the primary cohorts.course_id (for the
+    // many readers still on that column) and the full set in cohort_courses.
+    try {
+      const res = await api.addAdminCohort(session.token, {
+        title,
+        cohortCode,
+        courseId: courseIdList[0] ?? '',
+        courseIds: courseIdList,
+        subjectId,
+        centreId: '',
+        instructorId,
+        languageId,
+        startDate,
+        endDate,
+        offeringIds: offeringIdList,
+      });
+      setSubmitting(false);
+      if (res && (res as { status?: number }).status === 0) {
+        toast.error(asString((res as { message?: unknown }).message) || 'Failed to create cohort.');
+        return;
       }
+      toast.success(
+        courseIdList.length > 1
+          ? `Cohort created for ${courseIdList.length} programs.`
+          : 'Cohort created.',
+      );
+      onNavigate('/admin/cohorts/index');
+    } catch (err) {
+      setSubmitting(false);
+      toast.error(err instanceof Error ? err.message : 'Failed to create cohort.');
     }
-    setSubmitting(false);
-    if (createdCount === 0 && firstError) {
-      toast.error(firstError);
-      return;
-    }
-    if (createdCount < courseIdList.length && firstError) {
-      toast.error(`${createdCount}/${courseIdList.length} created. ${firstError}`);
-    } else {
-      toast.success(`${createdCount} cohort${createdCount === 1 ? '' : 's'} created.`);
-    }
-    onNavigate('/admin/cohorts/index');
   };
 
   return (
@@ -432,7 +438,9 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
             <p className="text-xs text-muted-foreground">
               {cohortType === 'course'
                 ? 'Pick the Lesson-wise course for this cohort.'
-                : 'Pick one or more courses. A separate cohort is created per course.'}
+                : 'Pick one or more programs. Ticking several creates ONE shared cohort '
+                  + 'they all attend together — one schedule, one attendance sheet. '
+                  + 'Each learner still sees only their own programme\u2019s content.'}
             </p>
           </div>
 
@@ -568,7 +576,7 @@ export default function AddCohortPage({ api, session, onNavigate }: AdminPagePro
                 : (submitting
                   ? 'Creating...'
                   : courseIds.size > 1
-                    ? `Create ${courseIds.size} Cohorts`
+                    ? `Create Cohort for ${courseIds.size} Programs`
                     : 'Create Cohort')}
             </Button>
           </div>

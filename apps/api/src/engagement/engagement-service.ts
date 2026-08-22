@@ -2,6 +2,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { isLiveClassJoinOpen, liveClassJoinWindowFromColumns } from '@ttii/shared-types';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { cohortIdsForCourse } from '../data/cohort-courses.js';
 import { env } from '../env.js';
 
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1287,11 +1288,25 @@ export class EngagementService {
 
     const courseIdInt = options?.courseId ? toNullableIntId(options.courseId) : null;
 
+    // Naji 2026-08-19 — a cohort can serve several programs (PG + Diploma).
+    // Filtering on the scalar course_id alone made the second program's students
+    // see an empty Live Classes tab for a class they are actually in, while the
+    // standalone Live Classes page (which passes no course) still showed it —
+    // two screens contradicting each other.
+    const pivotCohortIds = await cohortIdsForCourse(this.prisma, courseIdInt);
+    const courseMatch: Prisma.cohortsWhereInput[] = [];
+    if (courseIdInt !== null) {
+      courseMatch.push({ course_id: courseIdInt });
+      if (pivotCohortIds.length > 0) courseMatch.push({ id: { in: pivotCohortIds } });
+    }
+
     const cohorts = await this.prisma.cohorts.findMany({
       where: {
-        OR: cohortWhereOr,
+        AND: [
+          { OR: cohortWhereOr },
+          ...(courseMatch.length > 0 ? [{ OR: courseMatch }] : []),
+        ],
         deleted_at: null,
-        ...(courseIdInt !== null ? { course_id: courseIdInt } : {}),
       },
       select: {
         id: true,

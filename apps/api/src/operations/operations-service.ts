@@ -3,6 +3,7 @@ import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 // Type-only — the runtime modules stay lazily imported so MSAL is never loaded
@@ -834,7 +835,13 @@ export type AdminCohortInput = {
   startDate: string;
   endDate: string;
   languageId?: string;
-  offeringIds?: string[];
+  offeringIds?: string[] | undefined;
+  /**
+   * The full set of programs this cohort serves. `courseId` stays the PRIMARY
+   * course (courseIds[0]) so the ~40 readers of cohorts.course_id keep working.
+   * Undefined means "not supplied" and leaves the pivot untouched.
+   */
+  courseIds?: string[] | undefined;
 };
 
 export type FeeInstallmentFilters = {
@@ -2671,6 +2678,20 @@ export class OperationsService {
       },
     });
 
+    // Keep the programs pivot a strict superset of cohorts.course_id for
+    // centre-created cohorts too, so the widened readers never miss them.
+    if (courseIdInt !== null && courseIdInt > 0) {
+      await this.prisma.cohort_courses.createMany({
+        data: [{
+          cohort_id: created.id,
+          course_id: courseIdInt,
+          created_by: toNullableIntId(actorUserId),
+          created_at: now,
+        }],
+        skipDuplicates: true,
+      });
+    }
+
     return {
       success: true,
       message: 'Cohort added successfully!',
@@ -4261,7 +4282,16 @@ export class OperationsService {
 
   async listAdminCohorts(filters: AdminCohortFilters): Promise<SqlRow[]> {
     const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = toIntId(filters.courseId);
+    // Naji 2026-08-19 — match on the primary course OR the programs pivot, so
+    // filtering by Diploma still shows a cohort shared with PG. Hiding it would
+    // have an admin conclude it was never created and make a duplicate.
+    if (filters.courseId) {
+      const filterCourseId = toIntId(filters.courseId);
+      const pivotCohortIds = await cohortIdsForCourse(this.prisma, filterCourseId);
+      where.OR = pivotCohortIds.length > 0
+        ? [{ course_id: filterCourseId }, { id: { in: pivotCohortIds } }]
+        : [{ course_id: filterCourseId }];
+    }
     if (filters.subjectId) where.subject_id = toIntId(filters.subjectId);
     if (filters.centreId) where.centre_id = toIntId(filters.centreId);
 
@@ -4320,12 +4350,34 @@ export class OperationsService {
       return 'active';
     };
 
+    // Naji 2026-08-19 — a cohort can serve several programs. course_title stays
+    // the primary (existing callers depend on it); course_titles carries the
+    // full set so the listing can show both PG and Diploma.
+    const cohortCourseIds = await cohortCourseIdMap(
+      this.prisma,
+      cohorts.map((c) => ({ id: c.id, course_id: c.course_id })),
+    );
+    const extraCourseIds = [...new Set([...cohortCourseIds.values()].flat())]
+      .filter((id) => !courseMap.has(id));
+    if (extraCourseIds.length > 0) {
+      const extra = await this.prisma.course.findMany({
+        where: { id: { in: extraCourseIds } },
+        select: { id: true, title: true },
+      });
+      for (const c of extra) courseMap.set(c.id, c as (typeof courses)[number]);
+    }
+
     return cohorts.map(ch => {
       const pivot = cohortPivotMap.get(ch.id);
+      const servedCourseIds = cohortCourseIds.get(ch.id) ?? [];
       return {
         ...ch,
         // Display-friendly cohort row id (used as the "Cohort ID" column).
         cohort_row_id: `C-${ch.id}`,
+        course_ids: servedCourseIds,
+        course_titles: servedCourseIds
+          .map((id) => courseMap.get(id)?.title ?? '')
+          .filter((t) => t !== ''),
         course_title: ch.course_id ? courseMap.get(ch.course_id)?.title ?? null : null,
         subject_title: ch.subject_id ? subjectMap.get(ch.subject_id)?.title ?? null : null,
         centre_name: ch.centre_id ? centreMap.get(ch.centre_id)?.centre_name ?? null : null,
@@ -5371,12 +5423,24 @@ export class OperationsService {
       // have different assignment sets, and Priya V (TTS0004) regressed
       // from Eligible to Not Eligible when a sibling cohort added a new
       // assignment she was never expected to submit.
+      // Naji 2026-08-19 — a cohort can serve several programs, so reach the
+      // course through cohort_courses as well as the scalar. Selecting the
+      // MATCHED course (not c.course_id) puts a shared cohort's assignments in
+      // BOTH programs' buckets; keying off the primary alone left the second
+      // program's students with zero required assignments, which reads as
+      // "No assignments configured for this cohort" and forces not_eligible.
       courseIds.length > 0
         ? this.prisma.$queryRaw<Array<{ id: number; cohort_id: number; course_id: number }>>`
-            SELECT a.id, COALESCE(a.cohort_id, 0) AS cohort_id, c.course_id
+            SELECT a.id, COALESCE(a.cohort_id, 0) AS cohort_id, m.course_id
             FROM assignment a
             LEFT JOIN cohorts c ON c.id = a.cohort_id
-            WHERE c.course_id IN (${Prisma.join(courseIds)})
+            JOIN (
+              SELECT id AS cohort_id, course_id FROM cohorts
+              WHERE course_id IS NOT NULL
+              UNION
+              SELECT cohort_id, course_id FROM cohort_courses
+            ) m ON m.cohort_id = c.id
+            WHERE m.course_id IN (${Prisma.join(courseIds)})
               AND (a.deleted_at IS NULL)
           `.catch(() => [])
         : Promise.resolve([] as Array<{ id: number; cohort_id: number; course_id: number }>),
@@ -6826,29 +6890,43 @@ export class OperationsService {
       where: { id: cId, deleted_at: null },
       select: { id: true, cohort_id: true, course_id: true, subject_id: true },
     });
-    if (!cohort || !cohort.course_id) return [];
+    if (!cohort) return [];
 
-    // Course must be cohort-based (course_type=1). Self-study courses
+    // Naji 2026-08-19 — a cohort can now serve several programs (PG + Diploma).
+    // This dialog used to read the single cohorts.course_id, which meant the
+    // second program's students could never be added to a shared cohort at all.
+    const courseIdSet = await cohortCourseIdMap(this.prisma, [cohort]);
+    const cohortCourseIds = courseIdSet.get(cohort.id) ?? [];
+    if (cohortCourseIds.length === 0) return [];
+
+    // Courses must be cohort-based (course_type=1). Self-study courses
     // (course_type != 1) are skipped per the eligibility rules.
-    const course = await this.prisma.course.findFirst({
-      where: { id: cohort.course_id },
+    const courses = await this.prisma.course.findMany({
+      where: { id: { in: cohortCourseIds }, course_type: 1 },
       select: { id: true, title: true, course_type: true },
     });
-    if (!course || course.course_type !== 1) return [];
+    if (courses.length === 0) return [];
 
-    // Subject must be in the course's curriculum.
+    // The subject must be in the curriculum of the course we recruit from.
+    // Checked PER COURSE: a shared cohort's subject may belong to only one of
+    // its programs, and that program is the one we may take students from.
+    let eligibleCourseIds = courses.map((c) => c.id);
     if (cohort.subject_id) {
-      const subjectInCourse = await this.prisma.course_subject.findFirst({
-        where: { course_id: cohort.course_id, subject_id: cohort.subject_id, deleted_at: null },
+      const links = await this.prisma.course_subject.findMany({
+        where: { course_id: { in: eligibleCourseIds }, subject_id: cohort.subject_id, deleted_at: null },
         select: { course_id: true },
       });
-      if (!subjectInCourse) return [];
+      const withSubject = new Set(links.map((l) => l.course_id));
+      eligibleCourseIds = eligibleCourseIds.filter((id) => withSubject.has(id));
+      if (eligibleCourseIds.length === 0) return [];
     }
 
-    // Pull enrolments for this course with the right status.
+    const courseTitleById = new Map(courses.map((c) => [c.id, c.title ?? '']));
+
+    // Pull enrolments for every eligible course with the right status.
     const enrolments = await this.prisma.enrol.findMany({
       where: {
-        course_id: cohort.course_id,
+        course_id: { in: eligibleCourseIds },
         deleted_at: null,
         OR: [
           { enrollment_status: { in: ['Active', 'On Hold', 'active', 'on hold'] } },
@@ -6857,6 +6935,15 @@ export class OperationsService {
       },
       select: { user_id: true, course_id: true, enrollment_status: true },
     });
+
+    // Each learner is labelled with THEIR OWN program, not the cohort's — in a
+    // shared cohort the picker has to show PG on some rows and Diploma on others.
+    const courseIdByUser = new Map<number, number>();
+    for (const e of enrolments) {
+      if (e.user_id != null && e.course_id != null && !courseIdByUser.has(e.user_id)) {
+        courseIdByUser.set(e.user_id, e.course_id);
+      }
+    }
     const candidateUserIds = [...new Set(enrolments.map((e) => e.user_id).filter((x): x is number => x != null))];
     if (candidateUserIds.length === 0) return [];
 
@@ -6905,17 +6992,20 @@ export class OperationsService {
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
 
-    return users.map((u) => ({
-      id: u.id,
-      _id: u.id,
-      name: u.name,
-      student_id: u.student_id,
-      user_email: u.user_email,
-      phone: u.phone,
-      course_id: course.id,
-      course_title: course.title,
-      image: toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture),
-    })) as unknown as SqlRow[];
+    return users.map((u) => {
+      const ownCourseId = courseIdByUser.get(u.id) ?? null;
+      return {
+        id: u.id,
+        _id: u.id,
+        name: u.name,
+        student_id: u.student_id,
+        user_email: u.user_email,
+        phone: u.phone,
+        course_id: ownCourseId,
+        course_title: ownCourseId !== null ? (courseTitleById.get(ownCourseId) ?? '') : '',
+        image: toLegacyFileUrl(u.image) || toLegacyFileUrl(u.profile_picture),
+      };
+    }) as unknown as SqlRow[];
   }
 
   // Naji UAT 2026-05-14 — bulk-assign students to a cohort. Each row in
@@ -7511,6 +7601,33 @@ export class OperationsService {
     return users as unknown as SqlRow[];
   }
 
+  /**
+   * Persist the set of programs a cohort serves.
+   *
+   * Naji 2026-08-19 — "we want to create common cohorts for both PG and Diploma
+   * students". Falls back to the single primary course so the pivot is always a
+   * strict superset of cohorts.course_id, including for cohorts created before
+   * this existed and for centre-created ones.
+   */
+  private async writeCohortCourses(
+    cohortId: number,
+    input: AdminCohortInput,
+    actor: number | null,
+    now: Date,
+  ): Promise<void> {
+    const source = input.courseIds && input.courseIds.length > 0
+      ? input.courseIds
+      : (input.courseId ? [input.courseId] : []);
+
+    const rows = [...new Set(
+      source.map((cid) => toNullableIntId(cid)).filter((v): v is number => v !== null && v > 0),
+    )].map((courseId) => ({ cohort_id: cohortId, course_id: courseId, created_by: actor, created_at: now }));
+
+    if (rows.length > 0) {
+      await this.prisma.cohort_courses.createMany({ data: rows, skipDuplicates: true });
+    }
+  }
+
   async addAdminCohort(actorUserId: string, input: AdminCohortInput): Promise<Record<string, unknown>> {
     if (!input.title.trim()) {
       return { status: 0, message: 'Cohort title is required.' };
@@ -7547,6 +7664,11 @@ export class OperationsService {
       }
     }
 
+    // The programs this cohort serves. Always written — falling back to the
+    // single courseId keeps the pivot a strict superset of cohorts.course_id,
+    // which is what lets the widened readers use one OR-branch for both.
+    await this.writeCohortCourses(created.id, input, actor, now);
+
     return { status: 1, message: 'Cohort created successfully.', id: created.id };
   }
 
@@ -7577,16 +7699,26 @@ export class OperationsService {
       },
     });
 
-    // Replace pivot rows
-    await this.prisma.cohort_offerings.deleteMany({ where: { cohort_id: id } });
-    if (input.offeringIds && input.offeringIds.length > 0) {
-      const pivotRows = input.offeringIds
-        .map((oid) => toNullableIntId(oid))
-        .filter((v): v is number => v !== null)
-        .map((oid) => ({ cohort_id: id, offering_id: oid, created_by: actor, created_at: now }));
-      if (pivotRows.length > 0) {
-        await this.prisma.cohort_offerings.createMany({ data: pivotRows, skipDuplicates: true });
+    // Replace pivot rows — but ONLY when the caller actually sent them. This
+    // used to run unconditionally against an input that was always [] (the
+    // detail endpoint never returned offering_ids for the form to send back),
+    // so every save permanently deleted the cohort's offerings.
+    if (input.offeringIds !== undefined) {
+      await this.prisma.cohort_offerings.deleteMany({ where: { cohort_id: id } });
+      if (input.offeringIds.length > 0) {
+        const pivotRows = input.offeringIds
+          .map((oid) => toNullableIntId(oid))
+          .filter((v): v is number => v !== null)
+          .map((oid) => ({ cohort_id: id, offering_id: oid, created_by: actor, created_at: now }));
+        if (pivotRows.length > 0) {
+          await this.prisma.cohort_offerings.createMany({ data: pivotRows, skipDuplicates: true });
+        }
       }
+    }
+
+    if (input.courseIds !== undefined) {
+      await this.prisma.cohort_courses.deleteMany({ where: { cohort_id: id } });
+      await this.writeCohortCourses(id, input, actor, now);
     }
 
     return { status: 1, message: 'Cohort updated successfully.' };
@@ -16410,11 +16542,39 @@ export class OperationsService {
       ? toLegacyFileUrl(instructor.profile_picture) || toLegacyFileUrl(instructor.image)
       : '';
 
+    // The edit form round-trips these back to editAdminCohort, which REPLACES
+    // both pivots. Omitting them made the form post an empty list, so opening a
+    // cohort and pressing Save silently deleted every cohort_offerings row it
+    // had — permanent, since that table has no deleted_at. Naji 2026-08-19.
+    const [offeringLinks, courseLinks] = await Promise.all([
+      this.prisma.cohort_offerings.findMany({
+        where: { cohort_id: cohortIdInt },
+        select: { offering_id: true },
+      }),
+      this.prisma.cohort_courses.findMany({
+        where: { cohort_id: cohortIdInt },
+        select: { course_id: true },
+      }),
+    ]);
+    // A cohort predating the pivot has no rows yet; fall back to the scalar so
+    // the form never hydrates emptier than the truth.
+    const courseIds = courseLinks.length > 0
+      ? courseLinks.map((c) => c.course_id)
+      : (cohort.course_id ? [cohort.course_id] : []);
+    const courseTitles = await this.prisma.course.findMany({
+      where: { id: { in: courseIds.length > 0 ? courseIds : [0] } },
+      select: { id: true, title: true },
+    });
+    const courseTitleById = new Map(courseTitles.map((c) => [c.id, c.title ?? '']));
+
     return {
       status: 1,
       message: 'success',
       cohort: {
         ...cohort,
+        offering_ids: offeringLinks.map((o) => o.offering_id),
+        course_ids: courseIds,
+        course_titles: courseIds.map((id) => courseTitleById.get(id) ?? '').filter(Boolean),
         course_title: course?.title ?? null,
         subject_title: subject?.title ?? null,
         subject_short_name: subject?.short_name ?? null,

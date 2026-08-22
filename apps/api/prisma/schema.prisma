@@ -2816,6 +2816,27 @@ model cohort_offerings {
   @@index([offering_id])
 }
 
+/// Naji 2026-08-19 — "we want to create common cohorts for both PG and Diploma
+/// students". A cohort used to carry ONE course, so ticking two programs on the
+/// Add Cohort page created two separate cohort rows sharing a name and code:
+/// two schedules, two attendance sheets, students split in half. This pivot lets
+/// one cohort serve several programs. `cohorts.course_id` is KEPT and still
+/// holds the primary (first) course, because ~40 readers rely on it; this table
+/// is the full set and is backfilled from that scalar.
+///
+/// Deliberately NOT derived from cohort_offerings: offerings are optional on
+/// create, so a cohort can legitimately have a course with no offering.
+model cohort_courses {
+  cohort_id  Int
+  course_id  Int
+  created_at DateTime? @default(now()) @db.DateTime(0)
+  created_by Int?
+
+  @@id([cohort_id, course_id])
+  @@index([cohort_id])
+  @@index([course_id])
+}
+
 model course_subject {
   course_id  Int
   subject_id Int
