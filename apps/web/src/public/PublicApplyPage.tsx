@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { PageLoader } from '@/components/ui/page-loader';
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { PhotoCropper } from './PhotoCropper';
+import { DocumentCropper } from './DocumentCropper';
+import { prepareDocumentImage } from './prepare-document-image';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
 // Naji UAT 2026-05-31 — Country / State / District as cascading
@@ -309,6 +311,16 @@ function Select({
 // PhotoCropper) can be handed to the SAME token-scoped multipart upload the
 // non-cropped path uses. Keeps storage-backed uploads (DO Spaces) intact — we
 // never persist a raw base64 string onto the application.
+/** Inverse of dataUrlToFile — feeds a picked file into the crop dialog. */
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
   const res = await fetch(dataUrl);
   const blob = await res.blob();
@@ -1320,14 +1332,32 @@ function PerDocumentUploads({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} is larger than 10 MB.`); return; }
+
     if (file.type === 'image/jpeg' || file.type === 'image/png') {
-      const reader = new FileReader();
-      reader.onload = () => { setActiveDoc(doc); setRawImage(reader.result as string); setCropOpen(true); };
-      reader.readAsDataURL(file);
-    } else {
-      void doUpload(doc, file);
+      // Naji 2026-08-22 — hand the student an adjustable frame instead of the
+      // square profile-photo crop that was cutting certificates in half. The
+      // image is first turned upright (phone photos carry their rotation in
+      // EXIF, which a canvas would otherwise drop) and capped in size, so what
+      // they see in the cropper is what gets uploaded.
+      setBusyTypeId(doc.document_type_id);
+      void (async () => {
+        try {
+          const upright = await prepareDocumentImage(file);
+          const dataUrl = await fileToDataUrl(upright);
+          setActiveDoc(doc);
+          setRawImage(dataUrl);
+          setCropOpen(true);
+        } catch {
+          toast.error(`Could not open ${file.name}. Please try another photo.`);
+        } finally {
+          setBusyTypeId(null);
+        }
+      })();
+      return;
     }
+
+    if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} is larger than 10 MB.`); return; }
+    void doUpload(doc, file);
   };
 
   const onCropConfirm = async (dataUrl: string) => {
@@ -1335,10 +1365,13 @@ function PerDocumentUploads({
     const doc = activeDoc;
     setRawImage(null);
     setActiveDoc(null);
-    if (doc) {
-      const file = await dataUrlToFile(dataUrl, `${slug(doc.label)}-${slug(studentName || 'student')}.jpg`);
-      await doUpload(doc, file);
+    if (!doc) return;
+    const file = await dataUrlToFile(dataUrl, `${slug(doc.label)}-${slug(studentName || 'student')}.jpg`);
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('That document is too large to upload. Please retake it at a lower resolution.');
+      return;
     }
+    await doUpload(doc, file);
   };
 
   return (
@@ -1390,8 +1423,9 @@ function PerDocumentUploads({
         );
       })}
 
-      <PhotoCropper
+      <DocumentCropper
         imageSrc={rawImage}
+        label={activeDoc?.label ?? 'document'}
         open={cropOpen}
         onCancel={() => { setCropOpen(false); setRawImage(null); setActiveDoc(null); }}
         onConfirm={(c) => { void onCropConfirm(c); }}
