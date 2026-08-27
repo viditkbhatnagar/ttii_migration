@@ -12391,6 +12391,8 @@ export class OperationsService {
         id: true, application_id: true, name: true, user_email: true, phone: true,
         payment_plan: true, payment_status: true, student_id: true, course_id: true,
         stage: true, is_converted: true,
+        // Naji 2026-08-27 — needed to EMAIL this link and CC the counsellor.
+        offering_id: true, pipeline_user: true,
       },
     });
     if (!app) return { status: 0, message: 'Application not found.' };
@@ -12507,18 +12509,88 @@ export class OperationsService {
       },
     });
 
+    // Email the student the link and CC the counsellor.
+    //
+    // Naji 2026-08-27 — "one of the students has received the Registration Fee
+    // Payment Link through SMS only... has not received the payment link via
+    // email and the counsellor has also not received the acknowledgement mail
+    // too." This route created the Razorpay link and stopped there. Razorpay's
+    // own email is deliberately off (notify.email=false, so students never get
+    // two), so SMS was the ONLY thing that ever went out — and the counsellor
+    // got nothing at all. generatePaymentLink has always emailed; this sibling
+    // never did. Delivery outcome is captured rather than swallowed, so an
+    // admin is not told "sent" when MsGraph bounced.
+    let emailDelivered = false;
+    let emailError: string | null = null;
+    try {
+      const { renderInstalmentPaymentEmail } = await import('../integrations/payment-emails.js');
+
+      const offeringTitle = app.offering_id
+        ? (await this.prisma.offerings.findFirst({ where: { id: app.offering_id }, select: { title: true } }))?.title ?? ''
+        : '';
+      const counsellor = app.pipeline_user
+        ? await this.prisma.users.findFirst({
+            where: { id: app.pipeline_user },
+            select: { user_email: true, email: true },
+          })
+        : null;
+      const counsellorEmail = (counsellor?.user_email ?? counsellor?.email ?? '').trim();
+
+      const html = renderInstalmentPaymentEmail({
+        studentFirstName: (app.name ?? '').trim().split(/\s+/)[0] || 'there',
+        courseName: courseTitle,
+        offeringName: offeringTitle,
+        instalmentLabel: label,
+        amountPayable: amountMinor / 100,
+        paymentLink: link.shortUrl,
+        paymentDueDate: new Date(expireBy * 1000).toLocaleDateString('en-IN', {
+          day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+        }),
+      });
+
+      await registry.email.sendEmail({
+        to: app.user_email,
+        ...(counsellorEmail ? { cc: [counsellorEmail] } : {}),
+        subject: `${label} — payment link`,
+        html,
+      });
+      emailDelivered = true;
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : 'Unknown email error';
+      console.error(
+        `[generateInstalmentPaymentLink] email send failed for application ${id} → ${app.user_email}:`,
+        emailError,
+      );
+    }
+
     await this.recordEvent(
       id,
       'instalment_link_sent',
-      `Payment link sent for ${label} (₹${(amountMinor / 100).toLocaleString('en-IN')})`,
+      emailDelivered
+        ? `Payment link emailed for ${label} (₹${(amountMinor / 100).toLocaleString('en-IN')}) to ${app.user_email}`
+        : `Payment link created for ${label} (₹${(amountMinor / 100).toLocaleString('en-IN')}) — email delivery failed: ${emailError}`,
       actorUserId,
-      { instalment_index: index, amount_minor: amountMinor, link_id: link.paymentLinkId },
+      {
+        instalment_index: index,
+        amount_minor: amountMinor,
+        link_id: link.paymentLinkId,
+        email_delivered: emailDelivered,
+        ...(emailError ? { email_error: emailError } : {}),
+      },
     );
 
     return {
       status: 1,
-      message: `Payment link generated for ${label}.`,
-      data: { payment_link_url: link.shortUrl, payment_link_id: link.paymentLinkId, instalment_index: index },
+      message: emailDelivered
+        ? `Payment link generated and emailed for ${label}.`
+        : `Payment link generated for ${label}, but the email could not be sent (${emailError}). The student can still be sent the link manually.`,
+      data: {
+        payment_link_url: link.shortUrl,
+        payment_link_id: link.paymentLinkId,
+        instalment_index: index,
+        email_delivered: emailDelivered,
+        ...(emailError ? { email_error: emailError } : {}),
+      },
     };
   }
 

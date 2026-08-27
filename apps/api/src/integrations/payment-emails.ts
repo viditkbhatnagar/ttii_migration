@@ -440,6 +440,100 @@ export function renderFullPaymentEmail(data: FullPaymentEmailData): string {
   });
 }
 
+export interface InstalmentPaymentEmailData {
+  studentFirstName: string;
+  courseName: string;
+  offeringName: string;
+  /** The plan row this link collects, e.g. "Instalment 2". */
+  instalmentLabel: string;
+  amountPayable: number;
+  paymentLink: string;
+  paymentDueDate?: string;
+  supportEmail?: string;
+  supportPhone?: string;
+  currency?: string;
+}
+
+/**
+ * The email for a SINGLE instalment link.
+ *
+ * Naji 2026-08-27 — "one of the students has received the Registration Fee
+ * Payment Link through SMS only... has not received the payment link via email
+ * and the counsellor has also not received the acknowledgement mail too."
+ * generateInstalmentPaymentLink created the Razorpay link but never sent an
+ * email, and Razorpay's own email is deliberately suppressed
+ * (notify.email=false, so students do not get two), which left SMS as the only
+ * channel.
+ *
+ * renderFullPaymentEmail was NOT reused: it presents Total Course Fee, Discount
+ * and Total Amount Payable, which for a single instalment would misstate what
+ * the student owes right now. This states the one row being collected.
+ */
+export function renderInstalmentPaymentEmail(data: InstalmentPaymentEmailData): string {
+  const currency = data.currency ?? '₹';
+  const supportEmail = (data.supportEmail ?? DEFAULT_SUPPORT_EMAIL).trim() || DEFAULT_SUPPORT_EMAIL;
+  const supportPhone = (data.supportPhone ?? DEFAULT_SUPPORT_PHONE).trim() || DEFAULT_SUPPORT_PHONE;
+  const dueLi = data.paymentDueDate
+    ? `<li style="margin-bottom:8px;">Please complete this payment on or before <strong>${esc(data.paymentDueDate)}</strong>.</li>`
+    : '';
+
+  const rowBase = `padding:14px 12px;font-family:${FONT};font-size:14px;color:${INK};border-bottom:1px solid ${BORDER};`;
+  const th = `background:${NAVY};padding:14px 12px;font-family:${FONT};font-size:12px;letter-spacing:0.5px;text-transform:uppercase;color:#ffffff;font-weight:600;border-bottom:1px solid ${BORDER};`;
+
+  const bodyInner = `
+    <p style="margin:0 0 22px;${PARA}">Dear ${orDash(data.studentFirstName)},</p>
+    <p style="margin:0 0 22px;${PARA}">This is the payment link for your next instalment at Teachers' Training Institute of India.</p>
+    ${programmeDetails(data.courseName, data.offeringName)}
+    <p style="margin:0 0 12px;${SECTION_LABEL}">Amount Due Now</p>
+    <div class="table-wrap" style="display:block;">
+      <table class="data-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">
+        <tr>
+          <th align="left" style="${th}">Description</th>
+          <th align="right" style="${th}">Amount</th>
+        </tr>
+        <tr>
+          <td align="left" style="padding:14px 12px;font-family:${FONT};font-size:14px;font-weight:700;color:${INK};background:#FFFFFF;">${esc(data.instalmentLabel)}</td>
+          <td align="right" style="padding:14px 12px;font-family:${FONT};font-size:14px;font-weight:700;color:${INK};background:#FFFFFF;white-space:nowrap;">${esc(currency)}${money(data.amountPayable)}</td>
+        </tr>
+        <tr>
+          <td align="left" style="${rowBase}background:${SOFT};" colspan="2">This link collects this instalment only. Your remaining instalments are unchanged.</td>
+        </tr>
+      </table>
+    </div>
+    ${payNowButton(data.paymentLink)}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:28px;line-height:28px;font-size:0;">&nbsp;</td></tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;background:${SOFT};border:1px solid ${BORDER};border-radius:12px;">
+      <tr>
+        <td class="px" style="padding:22px 24px;">
+          <p style="margin:0 0 12px;font-family:${FONT};font-size:14px;font-weight:700;color:${INK};">Important Information:</p>
+          <ul style="margin:0;padding:0 0 0 18px;font-family:${FONT};font-size:14px;line-height:22px;color:${INK};">
+            ${dueLi}
+            <li style="margin-bottom:8px;">A payment confirmation and receipt will be sent as soon as this payment is received.</li>
+            <li>If you have any questions or require assistance, please contact our Admissions Team.</li>
+          </ul>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;">
+            <tr>
+              <td class="stack" width="50%" valign="top" style="padding:6px 0;">
+                <p style="margin:0;font-family:${FONT};font-size:13px;color:${MUTED};">Email</p>
+                <p style="margin:2px 0 0;font-family:${FONT};font-size:14px;font-weight:600;color:${INK};">${esc(supportEmail)}</p>
+              </td>
+              <td class="stack" width="50%" valign="top" style="padding:6px 0;">
+                <p style="margin:0;font-family:${FONT};font-size:13px;color:${MUTED};">Phone</p>
+                <p style="margin:2px 0 0;font-family:${FONT};font-size:14px;font-weight:600;color:${INK};">${esc(supportPhone)}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>`;
+
+  return lovableShell({
+    title: `${data.instalmentLabel} — Teachers' Training Institute of India`,
+    preheader: `Payment link for ${data.instalmentLabel}.`,
+    bodyInner,
+  });
+}
+
 export function renderPaymentApprovalEmail(data: PaymentApprovalEmailData): string {
   const currency = data.currency ?? '₹';
   const dCellLabel = `padding:14px 12px;font-family:${FONT};font-size:14px;color:${MUTED};border:1px solid ${BORDER};vertical-align:top;`;
