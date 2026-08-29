@@ -430,6 +430,17 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                 <option value="cohort">Cohort Based</option>
                 <option value="subject">Subject Based</option>
               </select>
+              {/* Risha 2026-08-29 — "we tried to see if it is subject based or
+                  lesson based, such an option is not been shown anywhere." The
+                  control was here but said nothing about what it does, and
+                  students were showing up padlocked with no way to tell why. */}
+              <p className="text-xs text-muted-foreground">
+                {form.content_release_strategy === 'full'
+                  ? 'Every subject and lesson is open to the learner from day one.'
+                  : form.content_release_strategy === 'subject'
+                    ? 'All subjects are open, and every lesson inside a subject is available together.'
+                    : 'A subject unlocks only for learners in a cohort for that subject. Without one, lessons open one at a time as the previous lesson is completed.'}
+              </p>
             </div>
           </div>
         </CardContent>

@@ -1892,6 +1892,59 @@ export class ContentService {
     };
   }
 
+  /**
+   * How this student's offering says content should be released.
+   *
+   * Naji/Risha 2026-08-29 — "students are unable to open the videos, as they are
+   * showing as locked... we tried to see if it is subject based or lesson based,
+   * such an option is not been shown anywhere." The option IS there: every
+   * offering has a Content Release Strategy dropdown (Full / Cohort Based /
+   * Subject Based, AddOfferingPage.tsx). It was written to `offerings` and then
+   * read by NOTHING — the lock logic here never looked at it. Production has 6
+   * offerings set to "Full (all at once)", including the live July and September
+   * 2026 Montessori intakes, whose students were still being gated.
+   *
+   * Falls back to 'cohort' — today's behaviour — whenever the offering cannot be
+   * resolved, so an unmapped student is never accidentally granted more than
+   * they have now.
+   */
+  private async resolveContentReleaseStrategy(userId: string, courseId: string): Promise<string> {
+    const DEFAULT_STRATEGY = 'cohort';
+    const userIdInt = toNullableIntId(userId);
+    const courseIdInt = toNullableIntId(courseId);
+    if (userIdInt === null) return DEFAULT_STRATEGY;
+
+    // Enrolled students keep their applications row via users.application_id;
+    // `enrol` carries no offering_id and offerings.legacy_batch_id is unused, so
+    // this is the only link from a learner to their intake.
+    const user = await this.prisma.users.findFirst({
+      where: { id: userIdInt },
+      select: { application_id: true },
+    });
+    if (!user?.application_id) return DEFAULT_STRATEGY;
+
+    const application = await this.prisma.applications.findFirst({
+      where: { id: user.application_id, deleted_at: null },
+      select: { offering_id: true, course_id: true },
+    });
+    if (!application?.offering_id) return DEFAULT_STRATEGY;
+    // One learner has ONE application row, so if they are studying a different
+    // course than the application covers, that offering says nothing about this
+    // course — stay on the default rather than guess.
+    if (courseIdInt !== null && application.course_id !== null && application.course_id !== courseIdInt) {
+      return DEFAULT_STRATEGY;
+    }
+
+    const offering = await this.prisma.offerings.findFirst({
+      where: { id: application.offering_id },
+      select: { content_release_strategy: true },
+    });
+    const strategy = (offering?.content_release_strategy ?? '').trim().toLowerCase();
+    return strategy === 'full' || strategy === 'subject' || strategy === 'cohort'
+      ? strategy
+      : DEFAULT_STRATEGY;
+  }
+
   private async getCohortIdForSubject(userId: string, subject: Record<string, unknown>): Promise<string | null> {
     const subjectIdInt = toNullableIntId(toStringValue(subject.id));
     if (subjectIdInt === null) return null;
@@ -2057,6 +2110,13 @@ export class ContentService {
 
     const subjectData: Record<string, unknown>[] = [];
 
+    // Naji/Risha 2026-08-29 — the offering's Content Release Strategy finally
+    // decides this. "Full" and "Subject Based" both mean the learner may reach
+    // every subject; only "Cohort Based" gates a subject behind cohort
+    // membership. Resolved once for the whole list, not per subject.
+    const releaseStrategy = await this.resolveContentReleaseStrategy(userId, courseId);
+    const cohortGatesSubjects = releaseStrategy === 'cohort';
+
     for (const subject of subjects) {
       const cohortId = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
       const totalLessons = await this.prisma.lesson.count({
@@ -2075,7 +2135,7 @@ export class ContentService {
         total_lessons: totalLessons,
         progress: Math.round(progress.progress),
         cohort_id: cohortId ?? 0,
-        is_locked: cohortId === null,
+        is_locked: cohortGatesSubjects ? cohortId === null : false,
       });
     }
 
@@ -2191,13 +2251,27 @@ export class ContentService {
       lessonsData.push(await this.buildLessonData(lesson as unknown as Record<string, unknown>, userId, purchaseStatus, index, courseId));
     }
 
-    // Naji's release rule: if the student is enrolled in a cohort that
-    // covers this subject, every lesson + every file in that subject is
-    // unlocked. Otherwise we fall back to the legacy sequential gating.
-    const cohortIdForSubject = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
-    const cohortUnlocks = cohortIdForSubject !== null;
+    // Release rule, in the order the offering's Content Release Strategy says.
+    //
+    // Naji/Risha 2026-08-29 — "students are unable to open the videos, as they
+    // are showing as locked". Only the FIRST lesson of a subject was open and
+    // the rest padlocked, because with no cohort covering that subject the code
+    // silently fell through to sequential gating (finish lesson 1 to open
+    // lesson 2). The offering said "Full (all at once)"; nothing read it.
+    const releaseStrategy = await this.resolveContentReleaseStrategy(userId, courseId);
 
-    if (cohortUnlocks) {
+    // Full: everything open, no cohort needed, no sequencing.
+    // Subject Based: the SUBJECT is the unit of release, so once a learner can
+    // see it, its lessons are not drip-fed one at a time.
+    if (releaseStrategy === 'full' || releaseStrategy === 'subject') {
+      this.unlockAllLessons(lessonsData);
+      return lessonsData;
+    }
+
+    // Cohort Based (the default): a cohort covering this subject opens all of
+    // it; otherwise fall back to the legacy sequential gating.
+    const cohortIdForSubject = await this.getCohortIdForSubject(userId, subject as unknown as Record<string, unknown>);
+    if (cohortIdForSubject !== null) {
       this.unlockAllLessons(lessonsData);
       return lessonsData;
     }
@@ -2283,8 +2357,18 @@ export class ContentService {
       );
     }
 
-    // No subject → cohort bulk-unlock (which is subject-keyed) doesn't apply;
-    // use the sequential gating fallback.
+    // No subject here (lesson-wise course), so the cohort rule — which is
+    // subject-keyed — cannot apply. The offering's strategy still can:
+    // "Full (all at once)" has to mean the same thing on a lesson-wise course
+    // as on a subject-wise one. "Subject Based" is meaningless without
+    // subjects, so it stays on the sequential fallback rather than being
+    // stretched into a meaning nobody chose.
+    const releaseStrategy = await this.resolveContentReleaseStrategy(userId, courseId);
+    if (releaseStrategy === 'full') {
+      this.unlockAllLessons(lessonsData);
+      return lessonsData;
+    }
+
     this.applyLessonSequentialGating(lessonsData);
     return lessonsData;
   }
