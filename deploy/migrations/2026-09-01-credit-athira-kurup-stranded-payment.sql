@@ -27,6 +27,10 @@
 -- Shifa's, this one has no bank receipt attached, so if Razorpay later shows the
 -- attempt did not capture, roll it back with the block at the end.
 --
+-- APPLIED to production 2026-09-01 and verified: student_payments 410 now Paid
+-- (31 Aug, Online), create_order 89 closed to 'completed', payment_info row
+-- written. Her Sep/Oct/Nov instalments correctly remain pending.
+--
 -- Every statement is guarded, so this is safe to re-run.
 USE lms_ttii;
 
