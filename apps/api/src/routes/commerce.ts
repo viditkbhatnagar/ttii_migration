@@ -53,6 +53,35 @@ function sendCommerceError(reply: FastifyReply, error: unknown): void {
   });
 }
 
+/**
+ * Pull the order and payment ids out of a Razorpay webhook.
+ *
+ * The two events we act on nest them differently: `order.paid` carries the
+ * order under payload.order.entity, while `payment.captured` only has the
+ * payment, whose order_id points back. Read both shapes so whichever arrives
+ * first is usable.
+ */
+export function extractRazorpayOrderPayment(parsed: Record<string, unknown>): {
+  orderId: string;
+  paymentId: string;
+} {
+  const payload = (parsed.payload ?? {}) as Record<string, unknown>;
+  const entityOf = (key: string): Record<string, unknown> => {
+    const node = (payload[key] ?? {}) as Record<string, unknown>;
+    return (node.entity ?? {}) as Record<string, unknown>;
+  };
+
+  const paymentEntity = entityOf('payment');
+  const orderEntity = entityOf('order');
+
+  const asId = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+  return {
+    orderId: asId(orderEntity.id) || asId(paymentEntity.order_id),
+    paymentId: asId(paymentEntity.id),
+  };
+}
+
 export function registerCommerceRoutes(
   app: FastifyInstance,
   options: RegisterCommerceRoutesOptions = {},
@@ -224,13 +253,51 @@ export function registerCommerceRoutes(
         ? (JSON.parse(request.body) as Record<string, unknown>)
         : ((request.body ?? {}) as Record<string, unknown>);
       const eventName = typeof parsed.event === 'string' ? parsed.event : '';
+
       if (eventName === 'payment_link.paid') {
         const { OperationsService } = await import('../operations/operations-service.js');
         const ops = new OperationsService();
         await ops.handleRazorpayWebhook(eventName, parsed);
       }
-    } catch {
-      // swallow — ack to Razorpay anyway
+
+      // TTII 2026-09-01 — "the payment status of enrolled students (Installment
+      // payment) has not been updated in the LMS despite the payments having
+      // been successfully made through the platform."
+      //
+      // Checkout payments were recorded ONLY by /payment/complete_order, which
+      // the student's BROWSER calls after paying. A closed tab, a dropped
+      // connection or a missing redirect meant the money moved and nothing was
+      // written — 72 of 90 orders sat 'pending', with students retrying because
+      // the portal still showed them as unpaid. This handler was a deliberate
+      // no-op ("when we wire those flows we'll handle the events here"); those
+      // flows are live, so it is wired now.
+      //
+      // Both events are handled because either can arrive first, and Razorpay
+      // retries for hours. Reconciliation is idempotent, so duplicates are safe.
+      if (eventName === 'order.paid' || eventName === 'payment.captured') {
+        const { orderId, paymentId } = extractRazorpayOrderPayment(parsed);
+        const outcome = await commerceService.reconcileWebhookOrderPayment(orderId, paymentId);
+        request.log.info(
+          {
+            event: 'razorpay.webhook.reconcile',
+            razorpay_event: eventName,
+            order_id: orderId,
+            payment_id: paymentId,
+            reconciled: outcome.reconciled,
+            reason: outcome.reason,
+          },
+          'razorpay webhook reconciliation',
+        );
+      } else {
+        // The audit trail this handler always claimed to keep but never wrote.
+        request.log.info(
+          { event: 'razorpay.webhook.ignored', razorpay_event: eventName },
+          'razorpay webhook received',
+        );
+      }
+    } catch (error: unknown) {
+      // Still ack — Razorpay retries non-2xx for hours — but never silently.
+      request.log.error({ err: error, event: 'razorpay.webhook.failed' }, 'razorpay webhook handling failed');
     }
 
     // Acknowledge fast — Razorpay retries non-2xx for hours.

@@ -727,21 +727,143 @@ export class CommerceService {
     // This order may have been created to pay a specific installment (persisted
     // by createOrder as {"sp_id":<student_payments.id>}). Full-payment orders
     // carry no sp_id and leave the ledger untouched, exactly as today.
-    let targetInstallmentId: number | null = null;
+    const targetInstallmentId = this.installmentIdFromOrderNotes(orderDetails.notes);
+
+    return this.recordOrderPayment({
+      orderId: input.razorpayOrderId,
+      orderDetails,
+      user,
+      courseSalePrice: course.sale_price,
+      paymentId: input.razorpayPaymentId,
+      signature: input.razorpaySignature,
+      targetInstallmentId,
+      userIntId,
+      courseIntId,
+      userId,
+      courseId: input.courseId,
+    });
+  }
+
+  /**
+   * Write a paid order into the ledger. Shared by the browser callback
+   * (completeOrder) and the Razorpay webhook, so the two can never drift.
+   *
+   * TTII 2026-09-01 — they drifted, and students paid for it: recording a
+   * payment used to live ONLY in completeOrder, which the BROWSER calls after
+   * checkout. If the student closed the tab, lost signal or the redirect never
+   * came back, the money was taken and nothing here ran. 72 of 90 orders on
+   * record were still 'pending'.
+   *
+   * Every write is idempotent, which is what makes it safe to run from both
+   * paths and to re-run on a Razorpay retry: the payment id is checked for a
+   * duplicate first, the order flip is guarded on status='pending', and the
+   * instalment update is guarded on not-already-paid.
+   */
+  /**
+   * The instalment this order was raised to pay, persisted by createOrder as
+   * {"sp_id": <student_payments.id>}. Full-payment orders carry no sp_id and
+   * leave the ledger untouched.
+   */
+  private installmentIdFromOrderNotes(notes: string | null): number | null {
     try {
-      const parsedNotes = JSON.parse(orderDetails.notes ?? '') as { sp_id?: unknown };
-      const spId = Number(parsedNotes?.sp_id);
-      if (Number.isInteger(spId) && spId > 0) {
-        targetInstallmentId = spId;
-      }
+      const parsed = JSON.parse(notes ?? '') as { sp_id?: unknown };
+      const spId = Number(parsed?.sp_id);
+      return Number.isInteger(spId) && spId > 0 ? spId : null;
     } catch {
-      // Non-JSON / legacy notes (e.g. {"status":"created"}) — no installment link.
+      // Non-JSON / legacy notes (e.g. {"status":"created"}) — no instalment link.
+      return null;
     }
+  }
+
+  /**
+   * Record a payment that Razorpay told us about directly, with no browser
+   * involved.
+   *
+   * TTII 2026-09-01 — "the payment status of enrolled students (Installment
+   * payment) has not been updated in the LMS despite the payments having been
+   * successfully made through the platform." Recording a payment ran ONLY from
+   * completeOrder, which the student's BROWSER calls after checkout. Close the
+   * tab, lose signal, or never get the redirect back, and the money was taken
+   * while nothing was written: the order stayed 'pending', no payment_info row
+   * appeared and the instalment stayed unpaid. 72 of 90 orders were stuck that
+   * way, with students visibly retrying — one raised four orders in 31 minutes.
+   *
+   * The webhook is the authoritative path precisely because it does not depend
+   * on the student's device. The route verifies Razorpay's HMAC before calling
+   * this, so the caller is trusted and the owning user is taken from the order
+   * itself rather than from a session.
+   */
+  async reconcileWebhookOrderPayment(
+    orderId: string,
+    paymentId: string,
+  ): Promise<{ reconciled: boolean; reason: string }> {
+    if (!orderId || !paymentId) return { reconciled: false, reason: 'missing_ids' };
+
+    const orderDetails = await this.prisma.create_order.findFirst({
+      where: { order_id: orderId, deleted_at: null },
+    });
+    if (!orderDetails) return { reconciled: false, reason: 'order_not_found' };
+    if (orderDetails.order_status !== 'pending') {
+      // Already handled by the browser callback, or by an earlier delivery of
+      // this same event. Razorpay retries for hours, so this is normal.
+      return { reconciled: false, reason: 'already_recorded' };
+    }
+
+    const userIntId = toDbNumber(orderDetails.user_id);
+    const courseIntId = toDbNumber(orderDetails.course_id);
+    if (userIntId <= 0 || courseIntId <= 0) {
+      return { reconciled: false, reason: 'order_missing_user_or_course' };
+    }
+
+    const [user, course] = await Promise.all([
+      this.getUserById(String(userIntId)),
+      this.prisma.course.findFirst({
+        where: { id: courseIntId, deleted_at: null },
+        select: { sale_price: true },
+      }),
+    ]);
+    if (!user || !course) return { reconciled: false, reason: 'context_missing' };
+
+    const reconciled = await this.recordOrderPayment({
+      orderId,
+      orderDetails,
+      user,
+      courseSalePrice: course.sale_price,
+      paymentId,
+      // No browser signature on this path; the webhook HMAC was already verified.
+      signature: null,
+      targetInstallmentId: this.installmentIdFromOrderNotes(orderDetails.notes),
+      userIntId,
+      courseIntId,
+      userId: String(userIntId),
+      courseId: String(courseIntId),
+    });
+
+    return { reconciled, reason: reconciled ? 'recorded' : 'noop' };
+  }
+
+  private async recordOrderPayment(params: {
+    orderId: string;
+    orderDetails: { amount: unknown; notes: string | null };
+    user: { user_email?: unknown; email?: unknown; phone?: unknown };
+    courseSalePrice: unknown;
+    paymentId: string;
+    signature: string | null;
+    targetInstallmentId: number | null;
+    userIntId: number;
+    courseIntId: number;
+    userId: string;
+    courseId: string;
+  }): Promise<boolean> {
+    const {
+      orderId, orderDetails, user, courseSalePrice, paymentId, signature,
+      targetInstallmentId, userIntId, courseIntId, userId, courseId,
+    } = params;
 
     const completed = await this.prisma.$transaction(async (tx) => {
       const duplicatePayment = await tx.payment_info.count({
         where: {
-          razorpay_payment_id: input.razorpayPaymentId,
+          razorpay_payment_id: paymentId,
           deleted_at: null,
         },
       });
@@ -751,7 +873,7 @@ export class CommerceService {
       }
 
       const now = new Date();
-      const amountPaid = toDbNumber(orderDetails.amount) > 0 ? toDbNumber(orderDetails.amount) : toDbNumber(course.sale_price);
+      const amountPaid = toDbNumber(orderDetails.amount) > 0 ? toDbNumber(orderDetails.amount) : toDbNumber(courseSalePrice);
       const userEmail = toNullableString(user.user_email) ?? toNullableString(user.email) ?? '';
 
       await tx.payment_info.create({
@@ -760,11 +882,11 @@ export class CommerceService {
           amount_paid: Math.trunc(amountPaid),
           coupon_id: null,
           course_id: courseIntId,
-          razorpay_payment_id: input.razorpayPaymentId,
+          razorpay_payment_id: paymentId,
           user_phone: toNullableString(user.phone),
           user_email: userEmail,
-          razorpay_order_id: input.razorpayOrderId,
-          razorpay_signature: input.razorpaySignature,
+          razorpay_order_id: orderId,
+          razorpay_signature: signature ?? '',
           payment_date: now,
           created_at: now,
           updated_at: now,
@@ -775,13 +897,13 @@ export class CommerceService {
 
       const updatedOrder = await tx.create_order.updateMany({
         where: {
-          order_id: input.razorpayOrderId,
+          order_id: orderId,
           order_status: 'pending',
           deleted_at: null,
         },
         data: {
           order_status: 'completed',
-          payment_id_raz: toNullableIntId(input.razorpayPaymentId),
+          payment_id_raz: toNullableIntId(paymentId),
           updated_by: userIntId,
           updated_at: now,
         },
@@ -808,7 +930,7 @@ export class CommerceService {
             AND (status IS NULL OR LOWER(TRIM(status)) <> 'paid')`;
       }
 
-      await this.ensureEnrolment(tx, userId, input.courseId, null, false);
+      await this.ensureEnrolment(tx, userId, courseId, null, false);
       return true;
     });
 
