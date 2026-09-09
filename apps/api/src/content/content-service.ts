@@ -3683,6 +3683,27 @@ export class ContentService {
       throw new Error('A course (or subject) is required to add a lesson.');
     }
 
+    // Risha 2026-09-09 — refuse a duplicate chapter name inside a subject.
+    // Older Content Library rows are attached to a chapter by NAME, and the
+    // student player resolves that per chapter, so two chapters sharing a name
+    // serve the same content under both. Subject 27 already carries one such
+    // pair and it is exactly why "the heading is different from the content
+    // added inside it".
+    const newTitle = (input.title ?? '').trim();
+    if (subjectIdInt !== null && newTitle !== '') {
+      const clash = await this.prisma.lesson.findFirst({
+        where: { subject_id: subjectIdInt, title: newTitle, deleted_at: null },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new Error(
+          `This subject already has a chapter called "${newTitle}". `
+          + 'Two chapters with the same name cause content to appear under both for students. '
+          + 'Please use a different name.',
+        );
+      }
+    }
+
     // Next display order — within the subject (subject-wise) or within the
     // course's subjectless lessons (lesson-wise).
     const maxOrder = await this.prisma.lesson.aggregate({
@@ -4151,17 +4172,94 @@ export class ContentService {
     }));
   }
 
+  /**
+   * Edit a chapter (lesson).
+   *
+   * Risha 2026-09-09 — "when I tried changing the heading name, the whole
+   * content is getting rearranged or misplaced."
+   *
+   * That was literal. A Content Library row is attached to a chapter either by
+   * the FK `content_asset.lesson_id` or, for everything imported before that
+   * column existed, by MATCHING `lesson_tag` AGAINST THE CHAPTER TITLE. Both
+   * readers do it — the admin tree AND the live student player. Renaming the
+   * chapter therefore detached every title-matched row the instant the title
+   * changed: the Lesson Builder items stayed (they are FK-linked) and the
+   * Library items vanished, which is exactly what "rearranged or misplaced"
+   * looks like. On production 301 of 382 library rows are attached this way.
+   *
+   * So a rename now ADOPTS its title-matched rows onto the FK first, inside the
+   * same transaction, and only then writes the new title. After that the rows
+   * are held by id and no future rename can shake them loose.
+   */
   async editLessonAdmin(actorUserId: string, lessonId: string, input: AdminLessonInput): Promise<void> {
-    await this.prisma.lesson.update({
-      where: { id: toIntId(lessonId) },
-      data: {
-        title: input.title,
-        summary: toNullableString(input.summary),
-        free: input.free ? 'on' : 'off',
-        ...(input.order != null ? { order: input.order } : {}),
-        updated_by: toNullableIntId(actorUserId),
-        updated_at: new Date(),
-      },
+    const lessonIdInt = toIntId(lessonId);
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.lesson.findFirst({
+        where: { id: lessonIdInt, deleted_at: null },
+        select: { id: true, title: true, subject_id: true },
+      });
+      if (!current) throw new Error('Lesson not found');
+
+      const oldTitle = (current.title ?? '').trim();
+      const newTitle = (input.title ?? '').trim();
+      const isRename = newTitle !== '' && newTitle !== oldTitle;
+
+      if (isRename && current.subject_id !== null) {
+        // Two live chapters sharing a name is itself the bug behind "the
+        // heading is different from the content inside it": the student player
+        // resolves a name-tagged row per chapter, so BOTH serve it. Renaming
+        // INTO that state, or adopting while already in it, would silently move
+        // content away from the twin for students. Refuse and say why.
+        const clash = await tx.lesson.findFirst({
+          where: { subject_id: current.subject_id, title: newTitle, deleted_at: null, NOT: { id: lessonIdInt } },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new Error(
+            `Another chapter in this subject is already called "${newTitle}". `
+            + 'Two chapters with the same name cause content to appear under both for students. '
+            + 'Please use a different name.',
+          );
+        }
+
+        const subject = current.subject_id !== null
+          ? await tx.subject.findFirst({ where: { id: current.subject_id }, select: { title: true } })
+          : null;
+        const subjectTitle = (subject?.title ?? '').trim();
+
+        // Adopt ONLY when this chapter's name is unambiguous in the subject —
+        // otherwise the rows belong to more than one chapter and a human has to
+        // decide. Guarded on lesson_id NULL so a row already owned by another
+        // chapter can never be stolen.
+        if (oldTitle !== '' && subjectTitle !== '') {
+          const twinsOnOldTitle = await tx.lesson.count({
+            where: { subject_id: current.subject_id, title: oldTitle, deleted_at: null },
+          });
+          if (twinsOnOldTitle <= 1) {
+            await tx.content_asset.updateMany({
+              where: { lesson_id: null, deleted_at: null, subject_tag: subjectTitle, lesson_tag: oldTitle },
+              data: { lesson_id: lessonIdInt, updated_at: now },
+            });
+          }
+        }
+      }
+
+      await tx.lesson.update({
+        where: { id: lessonIdInt },
+        data: {
+          title: input.title,
+          // Only touch the summary when the caller actually sent one. The
+          // Subject Detail dialog omits it, and coercing an absent field to ''
+          // was silently blanking the chapter summary on every rename.
+          ...(input.summary !== undefined ? { summary: toNullableString(input.summary) } : {}),
+          free: input.free ? 'on' : 'off',
+          ...(input.order != null ? { order: input.order } : {}),
+          updated_by: toNullableIntId(actorUserId),
+          updated_at: now,
+        },
+      });
     });
   }
 

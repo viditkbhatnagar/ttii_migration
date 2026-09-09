@@ -988,7 +988,9 @@ export function registerContentRoutes(
         course_id: payload.course_id ? toStringValue(payload.course_id) : undefined,
         subject_id: toStringValue(payload.subject_id),
         title: toStringValue(payload.title),
-        summary: toStringValue(payload.summary),
+        // ABSENT vs EMPTY: the Subject Detail rename dialog sends no summary,
+        // and coercing that to '' blanked the chapter summary on every rename.
+        ...(payload.summary !== undefined ? { summary: toStringValue(payload.summary) } : {}),
         free: payload.free === true || payload.free === 'true' || payload.free === 'on',
         order: payload.order != null ? toNumber(payload.order) : undefined,
       };
@@ -1618,8 +1620,11 @@ export function registerContentRoutes(
     try {
       const payload = requestPayload(request);
       const assetIds = Array.isArray(payload.asset_ids) ? (payload.asset_ids as string[]) : [];
-      await contentAssetService.reorderLessonAssets(toStringValue(payload.lesson_id), assetIds);
-      reply.code(200).send({ status: 1, message: 'Content reordered', data: {} });
+      const outcome = await contentAssetService.reorderLessonAssets(toStringValue(payload.lesson_id), assetIds);
+      // Report what was actually written. Rows attached to the chapter by NAME
+      // rather than by lesson_id cannot be reordered, and reporting a blanket
+      // success is why that went unnoticed for months.
+      reply.code(200).send({ status: 1, message: 'Content reordered', data: outcome });
     } catch (error: unknown) {
       sendContentError(reply, error);
     }

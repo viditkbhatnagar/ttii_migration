@@ -56,6 +56,8 @@ interface LessonNode {
   title: string;
   summary: string;
   free: string;
+  /** Another live chapter in this subject shares this name — see the banner. */
+  duplicateTitle: boolean;
   content: Record<string, unknown>[];
 }
 
@@ -95,9 +97,15 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
       title: asString(l.title),
       summary: asString(l.summary),
       free: asString(l.free) || 'off',
+      duplicateTitle: l.duplicate_title === true,
       content: toRecords(l.content),
     }));
   }, [data]);
+
+  // Content tagged to this subject whose chapter name matches no chapter here.
+  // It renders nowhere in the course and was previously absent from this page
+  // entirely, so nobody could tell it had come loose.
+  const unfiled = useMemo(() => toRecords(data?.unfiled), [data]);
 
   // ── Lesson add/edit dialog ──────────────────────────────────────────
   const [lessonDialogOpen, setLessonDialogOpen] = useState(false);
@@ -205,9 +213,29 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
       const libraryIds = nextKeys.filter((k) => k.startsWith(LIBRARY_PREFIX)).map((k) => k.slice(LIBRARY_PREFIX.length));
       const lessonFileIds = nextKeys.filter((k) => k.startsWith(LESSON_PREFIX)).map((k) => k.slice(LESSON_PREFIX.length));
       try {
-        if (libraryIds.length) await api.reorderLessonContent(session.token, lessonId, libraryIds);
+        let skipped = 0;
+        if (libraryIds.length) {
+          const res = await api.reorderLessonContent(session.token, lessonId, libraryIds);
+          // Risha 2026-09-09 — this used to claim success unconditionally. A
+          // Content Library row attached to the chapter by NAME has no
+          // lesson_id, so the update matches nothing and its position is not
+          // saved. Say so instead of letting the row snap back unexplained.
+          const outcome = (res?.data ?? res) as Record<string, unknown> | undefined;
+          const updated = asNumber(outcome?.updated);
+          if (Number.isFinite(updated) && updated < libraryIds.length) {
+            skipped = libraryIds.length - updated;
+          }
+        }
         if (lessonFileIds.length) await api.reorderLessonFiles(session.token, lessonId, lessonFileIds);
-        toast.success('Content reordered');
+        if (skipped > 0) {
+          toast.warning(
+            `${skipped} Content Library item${skipped === 1 ? '' : 's'} could not be reordered yet — `
+            + 'they are filed under the chapter name rather than the chapter itself.',
+            { duration: 8000 },
+          );
+        } else {
+          toast.success('Content reordered');
+        }
         reload();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Could not save order.');
@@ -253,9 +281,47 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
           </Button>
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder · content added here also appears in the Content Library · items marked “Lesson Builder” were added in the course’s Lesson Builder and are edited there
+          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder chapters · Content Library items and “Lesson Builder” items are two separate lists and sort within their own list · anything added here is also a Content Library item · Lesson Builder items are edited in the course’s Lesson Builder
         </p>
       </div>
+
+      {/* Risha 2026-09-09 — two chapters sharing a name is the mechanism behind
+          "the chapter heading is different from the content added inside it":
+          older Library content is filed against the chapter NAME, so students
+          are served it under BOTH chapters while this page can only show it
+          under the first. Make it visible rather than silently wrong. */}
+      {lessons.some((l) => l.duplicateTitle) ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4" role="alert">
+          <p className="text-sm font-semibold text-amber-900">Two chapters share the same name</p>
+          <p className="mt-1 text-sm text-amber-800">
+            Older content is filed against the chapter <em>name</em>, so students see it under both
+            chapters and this page can only list it under the first. Give one of them a different
+            name to fix it — the content attached to it will move with it.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Content tagged to this subject that matches no chapter here. It reaches
+          nobody and used to be absent from this page entirely. */}
+      {unfiled.length > 0 ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4" role="alert">
+          <p className="text-sm font-semibold text-red-800">
+            {unfiled.length} item{unfiled.length === 1 ? '' : 's'} not attached to any chapter
+          </p>
+          <p className="mt-1 text-sm text-red-700">
+            These are filed under a chapter name that no longer exists here, so no student can see
+            them. They were most likely left behind when a chapter was renamed or removed.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {unfiled.map((u) => (
+              <li key={itemKey(u)} className="text-sm text-red-900">
+                {asString(u.title) || 'Untitled'}
+                <span className="text-red-600"> · filed under “{asString(u.lesson_tag) || '—'}”</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* Lessons */}
       {lessons.length === 0 ? (
@@ -290,7 +356,17 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                 <div className="flex items-center gap-2 border-b border-slate-100 p-4">
                   {dragHandle}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-slate-900">{lesson.title || 'Untitled lesson'}</p>
+                    <p className="flex items-center gap-2 truncate font-semibold text-slate-900">
+                      <span className="truncate">{lesson.title || 'Untitled lesson'}</span>
+                      {lesson.duplicateTitle ? (
+                        <span
+                          className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                          title="Another chapter in this subject has the same name. Older content is filed by name, so students see it under both."
+                        >
+                          Duplicate name
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-slate-400">{lesson.content.length} item{lesson.content.length === 1 ? '' : 's'}</p>
                   </div>
                   <button

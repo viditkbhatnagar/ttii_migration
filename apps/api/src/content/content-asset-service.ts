@@ -215,8 +215,11 @@ function normalizeCorrectAnswer(v: string): string {
 export class ContentAssetService {
   private prisma: PrismaClient;
 
-  constructor() {
-    this.prisma = getPrismaClient();
+  // Injectable like ContentService and OperationsService, so the ordering and
+  // grouping rules can be unit-tested against a stub. The DB-backed suites are
+  // skipped in CI, so a stub is what actually guards this behaviour.
+  constructor(prisma: PrismaClient = getPrismaClient()) {
+    this.prisma = prisma;
   }
 
   async listAssets(filters?: ContentAssetFilters): Promise<Record<string, unknown>[]> {
@@ -476,23 +479,42 @@ export class ContentAssetService {
     });
   }
 
-  // Persist a new display order for content within a lesson. Takes the asset
-  // ids in the desired order; writes sequential sort_order values.
-  async reorderLessonAssets(lessonId: string, assetIds: string[]): Promise<void> {
+  /**
+   * Persist a new display order for Content Library items within a lesson.
+   *
+   * Risha 2026-09-09 — "why not able to sort / I mean re order?"
+   *
+   * The scoping below is deliberate (a row owned by another chapter must never
+   * be renumbered from here), but it means a row whose `lesson_id` is NULL —
+   * i.e. one attached to the chapter by NAME rather than by FK — matches
+   * nothing and is silently skipped. On production that was 63 of the 72 rows
+   * in her subject, so the drag saved nothing at all while the UI reported
+   * success. The count is now returned so the caller can say what really
+   * happened instead of always claiming it worked; the lesson_id backfill is
+   * what actually makes those rows sortable.
+   */
+  async reorderLessonAssets(
+    lessonId: string,
+    assetIds: string[],
+  ): Promise<{ requested: number; updated: number }> {
     const lid = toIntId(lessonId);
     if (!lid) throw new Error('Invalid lesson id');
     const now = new Date();
-    await this.prisma.$transaction(
-      assetIds
-        .map((aid) => toIntId(aid))
-        .filter((aid) => aid > 0)
-        .map((aid, index) =>
-          this.prisma.content_asset.updateMany({
-            where: { id: aid, lesson_id: lid },
-            data: { sort_order: index, updated_at: now },
-          }),
-        ),
+    const ids = assetIds.map((aid) => toIntId(aid)).filter((aid) => aid > 0);
+
+    const results = await this.prisma.$transaction(
+      ids.map((aid, index) =>
+        this.prisma.content_asset.updateMany({
+          where: { id: aid, lesson_id: lid },
+          data: { sort_order: index, updated_at: now },
+        }),
+      ),
     );
+
+    return {
+      requested: ids.length,
+      updated: results.reduce((sum, r) => sum + (r?.count ?? 0), 0),
+    };
   }
 
   // Subject Detail page payload: the subject, its lessons (in order), and for
@@ -537,8 +559,32 @@ export class ContentAssetService {
         })
       : [];
 
-    // Quiz question counts in one query.
-    const quizIds = assets.filter((a) => a.asset_type === 'quiz').map((a) => a.id);
+    // Chapter names that appear more than once in this subject.
+    const titleCounts = new Map<string, number>();
+    for (const l of lessons) {
+      const t = (l.title ?? '').trim();
+      if (t !== '') titleCounts.set(t, (titleCounts.get(t) ?? 0) + 1);
+    }
+    const duplicateTitles = new Set([...titleCounts].filter(([, n]) => n > 1).map(([t]) => t));
+
+    // Rows tagged to this subject whose lesson_tag matches no live chapter —
+    // orphaned by a rename, or by the chapter having been deleted/renamed since
+    // the 2026-04-30 import. They are invisible everywhere today.
+    const unfiledAssets = subjectTitle !== ''
+      ? await this.prisma.content_asset.findMany({
+          where: {
+            deleted_at: null,
+            lesson_id: null,
+            subject_tag: subjectTitle,
+            ...(lessonTitles.length ? { NOT: { lesson_tag: { in: lessonTitles } } } : {}),
+          },
+          orderBy: [{ id: 'asc' }],
+        })
+      : [];
+
+    // Quiz question counts in one query — include the unfiled rows so their
+    // question counts render too.
+    const quizIds = [...assets, ...unfiledAssets].filter((a) => a.asset_type === 'quiz').map((a) => a.id);
     const counts = quizIds.length
       ? await this.prisma.quiz_question.groupBy({
           by: ['asset_id'],
@@ -617,10 +663,22 @@ export class ContentAssetService {
         summary: l.summary ?? '',
         order: l.order ?? 0,
         free: l.free ?? 'off',
+        // Risha 2026-09-09 — two chapters sharing a name is the mechanism behind
+        // "the heading is different from the content added inside it". The map
+        // above is first-wins, so the admin files every name-tagged row under
+        // the FIRST chapter while the student player, which resolves per
+        // chapter, serves those rows under BOTH. Flag it so it is visible
+        // instead of silently wrong.
+        duplicate_title: duplicateTitles.has((l.title ?? '').trim()),
         // Library block first, then the lesson block, so subjects that only
         // ever had Content Library items render byte-identically to before.
         content: [...(assetsByLesson.get(l.id) ?? []), ...(filesByLesson.get(l.id) ?? [])],
       })),
+      // Content whose lesson_tag matches NO chapter in this subject. It is
+      // attached to nothing, renders nowhere, and until now was simply absent
+      // from this page with no trace — 8 such rows in Child Psychology alone.
+      // Surfaced so staff can re-file it rather than quietly lose it.
+      unfiled: unfiledAssets.map((a) => serializeAsset(a, { question_count: countMap.get(a.id) })),
     };
   }
 }
