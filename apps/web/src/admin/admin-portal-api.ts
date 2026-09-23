@@ -3424,6 +3424,11 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/course/lesson_files/edit', authToken, { id, ...input });
   }
 
+  /** Title-only rename of a Lesson Builder file; also renames its hidden Content Library copy. */
+  async renameLessonFile(authToken: string, id: string, title: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/course/lesson_files/rename', authToken, { id, title });
+  }
+
   async deleteLessonFile(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/course/lesson_files/delete', authToken, { id });
   }

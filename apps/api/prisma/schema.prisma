@@ -2211,6 +2211,11 @@ model subject {
   icon                   String?   @db.VarChar(500)
   free                   String    @db.VarChar(10)
   master_subject_id      Int?
+  // Risha/Majida 2026-09-23 — "5 Areas of Practical Work" is the practical half
+  // of "Montessori Methodology in Modern Education": a cohort covering THIS
+  // subject id also unlocks the subject that points at it. One hop, no chains.
+  // See deploy/migrations/2026-09-23-subject-unlock-with.sql (DDL before deploy).
+  unlock_with_subject_id Int?
   created_on             Int?
   updated_on             Int?
   created_by             Int?

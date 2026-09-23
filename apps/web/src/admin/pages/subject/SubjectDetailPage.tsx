@@ -187,6 +187,73 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
   // opens it in a dialog instead of a new tab (Risha 2026-07-15).
   const [previewItem, setPreviewItem] = useState<ContentPreviewRow | null>(null);
 
+  // ── Rename a Lesson Builder item ────────────────────────────────────
+  // Risha 2026-09-23 — "why are we not able to change the name of the file that
+  // shows Lesson Builder under it". The pencil only opened the Lesson Builder
+  // for the whole subject, where the file had to be found again. Rename in place
+  // through a title-only endpoint (the full edit route rewrites every column).
+  const [renameTarget, setRenameTarget] = useState<{ lesson: LessonNode; item: Record<string, unknown> } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const openRename = (lesson: LessonNode, item: Record<string, unknown>) => {
+    setRenameTarget({ lesson, item });
+    setRenameValue(asString(item.title));
+  };
+
+  const saveRename = async () => {
+    if (!renameTarget) return;
+    const next = renameValue.trim();
+    if (!next) { toast.error('Please enter a name.'); return; }
+    const { lesson, item } = renameTarget;
+    const oldKey = normalizeTitle(item.title);
+    const newKey = normalizeTitle(next);
+    if (next === asString(item.title)) { setRenameTarget(null); return; }
+
+    // The student player shows ONE item per name within a chapter: a Content
+    // Library item that shares a Lesson Builder item's name is treated as its
+    // copy and hidden. Warn before a rename pulls an unrelated library item
+    // into that rule. (Quizzes from the library never reach students anyway.)
+    if (newKey !== oldKey) {
+      const otherBuilderTitles = new Set(
+        lesson.content
+          .filter((c) => asString(c.source) === 'lesson' && itemKey(c) !== itemKey(item))
+          .map((c) => normalizeTitle(c.title)),
+      );
+      const wouldHide = lesson.content.filter((c) =>
+        asString(c.source) !== 'lesson'
+        && asString(c.asset_type) !== 'quiz'
+        && normalizeTitle(c.title) === newKey
+        && !otherBuilderTitles.has(newKey));
+      if (wouldHide.length > 0) {
+        const ok = await confirm({
+          title: `A Content Library item in this chapter is already called "${asString(wouldHide[0]?.title)}"`,
+          description:
+            'Students see only one item per name in a chapter. After this rename they will see this Lesson Builder '
+            + 'item, and the Content Library item with the same name will be hidden from them. Continue?',
+          confirmText: 'Rename anyway',
+        });
+        if (!ok) return;
+      }
+    }
+
+    setRenaming(true);
+    try {
+      await api.renameLessonFile(session.token, asString(item.id), next);
+      toast.success('Renamed');
+      setRenameTarget(null);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not rename.');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const openLessonBuilder = () => onNavigate(
+    `/admin/course_new/builder?course_id=${encodeURIComponent(subject.courseId)}&subject_id=${encodeURIComponent(subject.id)}`,
+  );
+
   const deleteContent = async (asset: Record<string, unknown>) => {
     const ok = await confirm({
       title: `Delete "${asString(asset.title)}"?`,
@@ -281,7 +348,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
           </Button>
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder chapters · Content Library items and “Lesson Builder” items are two separate lists and sort within their own list · anything added here is also a Content Library item · Lesson Builder items are edited in the course’s Lesson Builder
+          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder chapters · Content Library items and “Lesson Builder” items are two separate lists and sort within their own list · anything added here is also a Content Library item · Lesson Builder items can be renamed here; other changes to them are made in the course’s Lesson Builder
         </p>
       </div>
 
@@ -465,12 +532,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                               </IconButton>
                             ) : null}
                             {isLessonItem ? (
-                              <IconButton
-                                label="Edit in Lesson Builder"
-                                onClick={() => onNavigate(
-                                  `/admin/course_new/builder?course_id=${encodeURIComponent(subject.courseId)}&subject_id=${encodeURIComponent(subject.id)}`,
-                                )}
-                              >
+                              <IconButton label="Rename" onClick={() => openRename(lesson, item)}>
                                 <Pencil className="size-4" />
                               </IconButton>
                             ) : (
@@ -527,6 +589,43 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
               {savingLesson ? 'Saving…' : lessonEditId ? 'Save Changes' : 'Add Lesson'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename a Lesson Builder item */}
+      <Dialog open={renameTarget !== null} onOpenChange={(o) => { if (!o && !renaming) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Rename Lesson Builder item</DialogTitle></DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => { e.preventDefault(); void saveRename(); }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="lesson-file-rename">Name *</Label>
+              <Input
+                id="lesson-file-rename"
+                value={renameValue}
+                maxLength={255}
+                autoFocus
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                Only the name changes. The file, video and quiz questions stay as they are, and students
+                see the new name straight away.
+              </p>
+            </div>
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button type="button" variant="ghost" onClick={openLessonBuilder} disabled={renaming} className="gap-1.5">
+                <ExternalLink aria-hidden="true" className="size-4" /> Open Lesson Builder
+              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setRenameTarget(null)} disabled={renaming}>Cancel</Button>
+                <Button type="submit" disabled={renaming || !renameValue.trim()}>
+                  {renaming ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

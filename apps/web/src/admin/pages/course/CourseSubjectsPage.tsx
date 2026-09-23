@@ -18,6 +18,7 @@ import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { useConfirm } from '@/components/confirm-dialog';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
+import { UnlockWithSubjectField } from './UnlockWithSubjectField.js';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 const textareaClass = 'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -42,6 +43,7 @@ interface SubjectFormState {
   viva_pass_marks: string;
   status: string;
   order: string;
+  unlock_with_subject_id: string;
 }
 
 const emptyForm: SubjectFormState = {
@@ -64,6 +66,7 @@ const emptyForm: SubjectFormState = {
   viva_pass_marks: '',
   status: 'draft',
   order: '',
+  unlock_with_subject_id: '',
 };
 
 export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
@@ -73,6 +76,8 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
   const [showReorderDialog, setShowReorderDialog] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<SubjectFormState>(emptyForm);
+  // The partner as loaded when Edit opened, to send the field only if changed.
+  const [initialUnlockWith, setInitialUnlockWith] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(new Set());
 
@@ -121,6 +126,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
 
   const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
     setEditId(asString(row.id));
+    setInitialUnlockWith(asString(row.unlock_with_subject_id));
     setForm({
       title: asString(row.title),
       subject_code: asString(row.subject_code),
@@ -141,6 +147,7 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       viva_pass_marks: asString(row.viva_pass_marks),
       status: asString(row.status) || 'draft',
       order: row.order != null ? String(asNumber(row.order)) : '',
+      unlock_with_subject_id: asString(row.unlock_with_subject_id),
     });
     setShowForm(true);
   }, []);
@@ -168,8 +175,12 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
       viva_pass_marks: numOrUndef(form.viva_pass_marks),
       status: form.status,
       order: form.order ? Number(form.order) : undefined,
+      // Only when it was set or changed here — see SubjectsPage for why.
+      ...(!editId || form.unlock_with_subject_id !== initialUnlockWith
+        ? { unlock_with_subject_id: form.unlock_with_subject_id }
+        : {}),
     };
-  }, [courseId, form]);
+  }, [courseId, editId, form, initialUnlockWith]);
 
   const handleSave = useCallback(async () => {
     if (!form.title.trim()) return;
@@ -429,6 +440,15 @@ export default function CourseSubjectsPage({ api, session }: AdminPageProps) {
                 <div>
                   <Label>Display Order</Label>
                   <Input type="number" value={form.order} onChange={(e) => updateField('order', e.target.value)} placeholder="0" />
+                </div>
+                <div className="md:col-span-2">
+                  {/* The partner is normally a subject of this same course. */}
+                  <UnlockWithSubjectField
+                    value={form.unlock_with_subject_id}
+                    onChange={(v) => updateField('unlock_with_subject_id', v)}
+                    subjects={rows}
+                    ownSubjectId={editId}
+                  />
                 </div>
               </div>
             </section>

@@ -37,6 +37,16 @@ function toStringValue(value: unknown): string {
   return value.trim();
 }
 
+// An optional id the caller may omit entirely. Absent → undefined (the service
+// leaves the stored value alone); null / '' → '' (clear); a number or numeric
+// string → its string form. toStringValue alone would turn a numeric id into ''.
+function optionalIdField(payload: Record<string, unknown>, key: string): string | undefined {
+  if (!(key in payload)) return undefined;
+  const value = payload[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return toStringValue(value);
+}
+
 function requestPayload(request: FastifyRequest): Record<string, unknown> {
   if (request.method === 'GET') {
     return (request.query as Record<string, unknown>) ?? {};
@@ -850,6 +860,7 @@ export function registerContentRoutes(
         viva_max_marks: toNumber(payload.viva_max_marks),
         viva_pass_marks: toNumber(payload.viva_pass_marks),
         status: toStringValue(payload.status) || 'draft',
+        unlock_with_subject_id: optionalIdField(payload, 'unlock_with_subject_id'),
       };
       const result = await contentService.addSubjectAdmin(requestUserId(request), input);
       reply.code(200).send({ status: 1, message: 'Subject added', data: result });
@@ -883,6 +894,7 @@ export function registerContentRoutes(
         viva_max_marks: toNumber(payload.viva_max_marks),
         viva_pass_marks: toNumber(payload.viva_pass_marks),
         status: toStringValue(payload.status),
+        unlock_with_subject_id: optionalIdField(payload, 'unlock_with_subject_id'),
       };
       await contentService.editSubjectAdmin(requestUserId(request), subjectId, input);
       reply.code(200).send({ status: 1, message: 'Subject updated', data: {} });
@@ -1170,6 +1182,19 @@ export function registerContentRoutes(
       };
       await contentService.editLessonFileAdmin(requestUserId(request), fileId, input);
       reply.code(200).send({ status: 1, message: 'Lesson file updated', data: {} });
+    } catch (error: unknown) {
+      sendContentError(reply, error);
+    }
+  });
+
+  // Title-only rename of a Lesson Builder file (Risha 2026-09-23). The edit
+  // route above rewrites every column, so it cannot be used for a rename alone.
+  app.post('/admin/course/lesson_files/rename', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const fileId = optionalIdField(payload, 'id') ?? '';
+      const result = await contentService.renameLessonFileAdmin(requestUserId(request), fileId, toStringValue(payload.title));
+      reply.code(200).send({ status: 1, message: 'Renamed', data: result });
     } catch (error: unknown) {
       sendContentError(reply, error);
     }

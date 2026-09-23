@@ -382,6 +382,9 @@ export type AdminSubjectInput = {
   viva_max_marks?: number | undefined;
   viva_pass_marks?: number | undefined;
   status?: string | undefined; // 'draft' | 'active' | 'archived'
+  // Partner subject whose cohort also unlocks this one. undefined = leave the
+  // stored value alone (callers that don't show the field); '' / '0' = clear.
+  unlock_with_subject_id?: string | undefined;
 };
 
 export type AdminLessonInput = {
@@ -1999,9 +2002,8 @@ export class ContentService {
     // per the release rule.
     const subjectRow = await this.prisma.subject.findFirst({
       where: { id: subjectIdInt, deleted_at: null },
-      select: { id: true, course_id: true, master_subject_id: true },
+      select: { id: true, course_id: true, master_subject_id: true, unlock_with_subject_id: true },
     });
-    const subjectCourseId = subjectRow?.course_id ?? null;
 
     const cohortWhereOr: Prisma.cohortsWhereInput[] = [];
     if (cohortRowIds.length > 0) cohortWhereOr.push({ id: { in: cohortRowIds } });
@@ -2018,6 +2020,37 @@ export class ContentService {
     if (cohorts.length === 0) {
       return null;
     }
+
+    const own = await this.findCohortCoveringSubject(cohorts, subjectIdInt, subjectRow);
+    if (own !== null) return own;
+
+    // Risha/Majida 2026-09-23 — "5 Areas of Practical Work – Montessori Records"
+    // is the practical component of "Montessori Methodology in Modern
+    // Education" and must open with it, without restructuring the course. A
+    // subject may name ONE partner (subject.unlock_with_subject_id); a cohort
+    // covering the partner, by any of the rules above, covers this subject too.
+    // Deliberately one hop: the partner's own partner is not followed, so two
+    // subjects naming each other cannot loop.
+    const partnerId = subjectRow?.unlock_with_subject_id ?? null;
+    if (partnerId === null || partnerId === subjectIdInt) return null;
+    const partnerRow = await this.prisma.subject.findFirst({
+      where: { id: partnerId, deleted_at: null },
+      select: { id: true, course_id: true, master_subject_id: true },
+    });
+    if (!partnerRow) return null;
+    return this.findCohortCoveringSubject(cohorts, partnerRow.id, partnerRow);
+  }
+
+  /**
+   * The matching half of getCohortIdForSubject: given the cohorts a learner is
+   * in, return the one that covers `subjectIdInt`, or null.
+   */
+  private async findCohortCoveringSubject(
+    cohorts: Array<{ id: number; cohort_id: string | null; subject_id: number | null; course_id: number | null }>,
+    subjectIdInt: number,
+    subjectRow: { course_id: number | null; master_subject_id: number | null } | null,
+  ): Promise<string | null> {
+    const subjectCourseId = subjectRow?.course_id ?? null;
 
     // Direct subject match
     for (const cohort of cohorts) {
@@ -3157,6 +3190,7 @@ export class ContentService {
       lesson_count: lessonCountMap.get(s.id) ?? 0,
       total_lessons: lessonCountMap.get(s.id) ?? 0, // QA spec alias
       course_count: courseCountMap.get(s.id) ?? 1,
+      unlock_with_subject_id: s.unlock_with_subject_id ?? null,
     }));
   }
 
@@ -3228,6 +3262,7 @@ export class ContentService {
           course_title: primary?.title ?? null,
           courses: linked,
           course_count: linked.length,
+          unlock_with_subject_id: s.unlock_with_subject_id ?? null,
         };
       });
   }
@@ -3256,6 +3291,8 @@ export class ContentService {
         throw err;
       }
     }
+
+    const unlockWithSubjectId = await this.resolveUnlockWithSubjectId(input.unlock_with_subject_id, null);
 
     const maxOrder = await this.prisma.subject.aggregate({
       where: { course_id: courseIdInt, deleted_at: null },
@@ -3286,6 +3323,7 @@ export class ContentService {
         status: input.status ?? 'draft',
         order: nextOrder,
         free: 'off',
+        ...(unlockWithSubjectId !== undefined ? { unlock_with_subject_id: unlockWithSubjectId } : {}),
         created_by: toNullableIntId(actorUserId),
         created_at: new Date(),
         updated_at: new Date(),
@@ -3433,6 +3471,8 @@ export class ContentService {
       }
     }
 
+    const unlockWithSubjectId = await this.resolveUnlockWithSubjectId(input.unlock_with_subject_id, subjectIdInt);
+
     await this.prisma.subject.update({
       where: { id: subjectIdInt },
       data: {
@@ -3455,10 +3495,46 @@ export class ContentService {
         viva_pass_marks: input.viva_pass_marks ?? null,
         ...(input.status ? { status: input.status } : {}),
         ...(input.order != null ? { order: input.order } : {}),
+        ...(unlockWithSubjectId !== undefined ? { unlock_with_subject_id: unlockWithSubjectId } : {}),
         updated_by: toNullableIntId(actorUserId),
         updated_at: new Date(),
       },
     });
+  }
+
+  /**
+   * Validate the "Unlocks together with" partner. Returns undefined when the
+   * caller did not send the field (leave the stored value untouched), null to
+   * clear it, or the partner's id. A subject cannot partner itself, and the
+   * partner must be a live subject.
+   */
+  private async resolveUnlockWithSubjectId(
+    raw: string | undefined,
+    ownSubjectId: number | null,
+  ): Promise<number | null | undefined> {
+    if (raw === undefined) return undefined;
+    const partnerId = toNullableIntId(raw.trim());
+    if (partnerId === null || partnerId <= 0) return null;
+    if (ownSubjectId !== null && partnerId === ownSubjectId) {
+      throw new Error('A subject cannot unlock together with itself.');
+    }
+    const partner = await this.prisma.subject.findFirst({
+      where: { id: partnerId, deleted_at: null },
+      select: { id: true },
+    });
+    if (partner) return partner.id;
+    // The partner was deleted after it was chosen (here or in the legacy PHP
+    // admin, which shares this table). The form echoes the stored id back, so
+    // refusing would block every unrelated edit of this subject — drop the
+    // dead link instead. A newly picked id that doesn't exist is still an error.
+    if (ownSubjectId !== null) {
+      const current = await this.prisma.subject.findFirst({
+        where: { id: ownSubjectId },
+        select: { unlock_with_subject_id: true },
+      });
+      if (current?.unlock_with_subject_id === partnerId) return null;
+    }
+    throw new Error('The subject chosen for "Unlocks together with" no longer exists.');
   }
 
   async deleteSubjectAdmin(actorUserId: string, subjectId: string, courseId?: string): Promise<void> {
@@ -4411,6 +4487,8 @@ export class ContentService {
   }
 
   async editLessonFileAdmin(actorUserId: string, fileId: string, input: AdminLessonFileInput): Promise<void> {
+    const fileIdInt = toIntId(fileId);
+    const now = new Date();
     const data: Record<string, unknown> = {
       title: input.title ?? null,
       summary: toNullableString(input.summary),
@@ -4426,10 +4504,117 @@ export class ContentService {
     if (input.thumbnail !== undefined) data.thumbnail = input.thumbnail;
     // Ishfaq UAT 2026-05-22 — same json_valid(languages) CHECK as create.
     if (input.language !== undefined) data.languages = toLanguagesJson(input.language);
-    await this.prisma.lesson_files.update({
-      where: { id: toIntId(fileId) },
-      data,
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.lesson_files.findFirst({
+        where: { id: fileIdInt },
+        select: { lesson_id: true, title: true },
+      });
+      await tx.lesson_files.update({ where: { id: fileIdInt }, data });
+      const newTitle = (input.title ?? '').trim();
+      if (current && newTitle !== '' && newTitle !== (current.title ?? '').trim()) {
+        await this.carryLessonFileMirrors(tx, {
+          fileId: fileIdInt,
+          lessonId: current.lesson_id,
+          oldTitle: current.title ?? '',
+          newTitle,
+          actorUserId,
+          now,
+        });
+      }
     });
+  }
+
+  /**
+   * Rename ONE Lesson Builder file and nothing else (Risha 2026-09-23: "why
+   * are we not able to change the name of the file that shows Lesson Builder").
+   * The Subject Detail page had no way to do it, and the full edit route above
+   * rewrites every column from the request, so a title-only call through it
+   * would blank the video, attachment and summary.
+   */
+  async renameLessonFileAdmin(actorUserId: string, fileId: string, title: string): Promise<Record<string, unknown>> {
+    const fileIdInt = toNullableIntId(fileId);
+    const newTitle = title.trim();
+    if (fileIdInt === null || fileIdInt <= 0) throw new Error('Lesson file id is required.');
+    if (newTitle === '') throw new Error('Please enter a name.');
+    if (newTitle.length > 255) throw new Error('The name must be 255 characters or fewer.');
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.lesson_files.findFirst({
+        where: { id: fileIdInt, deleted_at: null },
+        select: { id: true, lesson_id: true, title: true },
+      });
+      if (!current) throw new Error('This Lesson Builder item no longer exists.');
+
+      await tx.lesson_files.update({
+        where: { id: fileIdInt },
+        data: { title: newTitle, updated_by: toNullableIntId(actorUserId), updated_at: now },
+      });
+      const mirrorsRenamed = await this.carryLessonFileMirrors(tx, {
+        fileId: fileIdInt,
+        lessonId: current.lesson_id,
+        oldTitle: current.title ?? '',
+        newTitle,
+        actorUserId,
+        now,
+      });
+      return { id: fileIdInt, title: newTitle, mirrors_renamed: mirrorsRenamed };
+    });
+  }
+
+  /**
+   * Keep a renamed Lesson Builder file's Content Library mirrors in step.
+   *
+   * The 2026-04-30 backfill copied every lesson_files row into content_asset,
+   * and the student player hides a library row only while its title matches a
+   * Lesson Builder row in the same chapter (getContentAssetFilesForLesson). A
+   * rename that left the copy on the OLD title would therefore make it appear to
+   * students as an extra item the moment the rename saved. Candidates are found
+   * exactly the way the student reader finds them (FK, or unlinked + name tags).
+   * Skipped when another live Lesson Builder file in the chapter still carries
+   * the old title, because the copy still mirrors that one.
+   */
+  private async carryLessonFileMirrors(
+    tx: Prisma.TransactionClient,
+    args: { fileId: number; lessonId: number; oldTitle: string; newTitle: string; actorUserId: string; now: Date },
+  ): Promise<number> {
+    const oldKey = normalizeContentTitle(args.oldTitle);
+    if (oldKey === '' || args.oldTitle.trim() === args.newTitle) return 0;
+
+    const siblings = await tx.lesson_files.findMany({
+      where: { lesson_id: args.lessonId, deleted_at: null, NOT: { id: args.fileId } },
+      select: { title: true },
+    });
+    if (siblings.some((f) => normalizeContentTitle(f.title) === oldKey)) return 0;
+
+    const lesson = await tx.lesson.findFirst({
+      where: { id: args.lessonId },
+      select: { title: true, subject_id: true },
+    });
+    const subject = lesson?.subject_id != null
+      ? await tx.subject.findFirst({ where: { id: lesson.subject_id }, select: { title: true } })
+      : null;
+    const lessonTitle = (lesson?.title ?? '').trim();
+    const subjectTitle = (subject?.title ?? '').trim();
+
+    const or: Prisma.content_assetWhereInput[] = [{ lesson_id: args.lessonId }];
+    if (lessonTitle !== '' && subjectTitle !== '') {
+      or.push({ lesson_id: null, lesson_tag: lessonTitle, subject_tag: subjectTitle });
+    }
+    const candidates = await tx.content_asset.findMany({
+      where: { deleted_at: null, OR: or },
+      select: { id: true, title: true },
+    });
+    const mirrorIds = candidates
+      .filter((a) => normalizeContentTitle(a.title) === oldKey)
+      .map((a) => a.id);
+    if (mirrorIds.length === 0) return 0;
+
+    const result = await tx.content_asset.updateMany({
+      where: { id: { in: mirrorIds }, deleted_at: null },
+      data: { title: args.newTitle, updated_by: toNullableIntId(args.actorUserId), updated_at: args.now },
+    });
+    return result.count;
   }
 
   async deleteLessonFileAdmin(actorUserId: string, fileId: string): Promise<void> {

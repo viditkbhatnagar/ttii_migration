@@ -16,6 +16,7 @@ import { AdminFilterBar, type FilterField } from '../../shared/components/AdminF
 import { useConfirm } from '@/components/confirm-dialog';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
+import { UnlockWithSubjectField } from './UnlockWithSubjectField.js';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -41,6 +42,7 @@ interface SubjectFormState {
   viva_max_marks: string;
   viva_pass_marks: string;
   status: string;
+  unlock_with_subject_id: string;
 }
 
 const emptyForm: SubjectFormState = {
@@ -62,6 +64,7 @@ const emptyForm: SubjectFormState = {
   viva_max_marks: '',
   viva_pass_marks: '',
   status: 'draft',
+  unlock_with_subject_id: '',
 };
 
 export default function SubjectsPage({ api, session, onNavigate }: AdminPageProps) {
@@ -69,6 +72,8 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState<SubjectFormState>(emptyForm);
+  // The partner as loaded when Edit opened, to send the field only if changed.
+  const [initialUnlockWith, setInitialUnlockWith] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -137,6 +142,7 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
 
   const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
     setEditId(asString(row.id));
+    setInitialUnlockWith(asString(row.unlock_with_subject_id));
     setForm({
       title: asString(row.title),
       subject_code: asString(row.subject_code),
@@ -156,6 +162,7 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
       viva_max_marks: row.viva_max_marks == null ? '' : String(asNumber(row.viva_max_marks)),
       viva_pass_marks: row.viva_pass_marks == null ? '' : String(asNumber(row.viva_pass_marks)),
       status: asString(row.status) || 'draft',
+      unlock_with_subject_id: asString(row.unlock_with_subject_id),
     });
     setShowForm(true);
   }, []);
@@ -195,6 +202,12 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
         viva_max_marks: form.viva_max_marks ? Number(form.viva_max_marks) : null,
         viva_pass_marks: form.viva_pass_marks ? Number(form.viva_pass_marks) : null,
         status: form.status,
+        // Only when it was set or changed here: echoing the value loaded with
+        // the page would silently undo a partner set since (by another admin or
+        // by SQL). The API leaves the stored value alone when the key is absent.
+        ...(!editId || form.unlock_with_subject_id !== initialUnlockWith
+          ? { unlock_with_subject_id: form.unlock_with_subject_id }
+          : {}),
       };
       if (editId) await api.editSubject(session.token, editId, payload);
       else await api.addSubject(session.token, payload);
@@ -208,7 +221,7 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
     } finally {
       setSaving(false);
     }
-  }, [api, session.token, editId, form, reload]);
+  }, [api, session.token, editId, form, initialUnlockWith, reload]);
 
   const handleDelete = useCallback(
     async (row: Record<string, unknown>) => {
@@ -472,6 +485,12 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
                     <option value="archived">Archived</option>
                   </select>
                 </div>
+                <UnlockWithSubjectField
+                  value={form.unlock_with_subject_id}
+                  onChange={(v) => setForm((f) => ({ ...f, unlock_with_subject_id: v }))}
+                  subjects={allRows}
+                  ownSubjectId={editId}
+                />
               </div>
             </div>
 
