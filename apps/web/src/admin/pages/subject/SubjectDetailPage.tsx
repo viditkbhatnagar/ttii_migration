@@ -16,6 +16,7 @@ import { SortableList } from '../../shared/components/SortableList.js';
 import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
 import { ContentPreviewDialog, type ContentPreviewRow } from '../../shared/components/content-preview-dialog.js';
 import { ContentItemDialog } from './ContentItemDialog.js';
+import { lessonFileDeleteMessage } from '../../shared/utils/lesson-file-delete-message.js';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 
 // Visual treatment per content type. PPT/Word/PDF all map to "document".
@@ -254,6 +255,41 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
     `/admin/course_new/builder?course_id=${encodeURIComponent(subject.courseId)}&subject_id=${encodeURIComponent(subject.id)}`,
   );
 
+  // Risha 2026-09-24 — Lesson Builder items had no delete here. Deleting one also
+  // removes its hidden Content Library copies (the API does it in the same
+  // transaction): the student player hides a copy only while the original's
+  // name is in the chapter, so it would otherwise take the original's place.
+  const deleteLessonItem = async (lesson: LessonNode, item: Record<string, unknown>) => {
+    const title = asString(item.title) || 'this item';
+    const key = normalizeTitle(item.title);
+    const anotherBuilderItemHasName = lesson.content.some((c) =>
+      asString(c.source) === 'lesson' && itemKey(c) !== itemKey(item) && normalizeTitle(c.title) === key);
+    const hiddenCopies = key === '' || anotherBuilderItemHasName
+      ? 0
+      : lesson.content.filter((c) => asString(c.source) !== 'lesson' && normalizeTitle(c.title) === key).length;
+    const isQuiz = asString(item.asset_type) === 'quiz';
+    const ok = await confirm({
+      title: `Delete "${title}"?`,
+      description:
+        `Students will no longer see ${isQuiz ? 'this quiz' : 'it'} in "${lesson.title}".`
+        + (hiddenCopies > 0
+          ? ' Its older hidden duplicates in the Content Library are removed too, so they do not appear in its'
+            + ' place. A Content Library item with the same name that was added AFTER it is kept, and students'
+            + ' will see that one instead.'
+          : ''),
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.deleteLessonFile(session.token, asString(item.id));
+      toast.success(lessonFileDeleteMessage(res));
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not delete.');
+    }
+  };
+
   const deleteContent = async (asset: Record<string, unknown>) => {
     const ok = await confirm({
       title: `Delete "${asString(asset.title)}"?`,
@@ -348,7 +384,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
           </Button>
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder chapters · Content Library items and “Lesson Builder” items are two separate lists and sort within their own list · anything added here is also a Content Library item · Lesson Builder items can be renamed here; other changes to them are made in the course’s Lesson Builder
+          {lessons.length} lesson{lessons.length === 1 ? '' : 's'} · drag the grip to reorder chapters · Content Library items and “Lesson Builder” items are two separate lists and sort within their own list · anything added here is also a Content Library item · Lesson Builder items can be renamed or deleted here; other changes to them are made in the course’s Lesson Builder
         </p>
       </div>
 
@@ -486,9 +522,9 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                                 summary: asString(item.summary),
                               }
                             : null;
-                        // Lesson Builder rows are READ-ONLY here: this page's
-                        // dialog writes content_asset only, so editing/deleting
-                        // them from here would hit the wrong table.
+                        // Lesson Builder rows never go through this page's content
+                        // dialog (it writes content_asset only); they get their
+                        // own rename/delete, which call the lesson_files routes.
                         const isLessonItem = asString(item.source) === 'lesson';
                         // A Library row whose title matches a Lesson Builder row in
                         // the SAME lesson is a backfill mirror — the same matching
@@ -532,9 +568,14 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                               </IconButton>
                             ) : null}
                             {isLessonItem ? (
-                              <IconButton label="Rename" onClick={() => openRename(lesson, item)}>
-                                <Pencil className="size-4" />
-                              </IconButton>
+                              <>
+                                <IconButton label="Rename" onClick={() => openRename(lesson, item)}>
+                                  <Pencil className="size-4" />
+                                </IconButton>
+                                <IconButton label="Delete" onClick={() => void deleteLessonItem(lesson, item)} danger>
+                                  <Trash2 className="size-4" />
+                                </IconButton>
+                              </>
                             ) : (
                               <>
                                 <IconButton label="Edit content" onClick={() => setContentDialog({ lesson, asset: item })}><Pencil className="size-4" /></IconButton>

@@ -1203,9 +1203,9 @@ export function registerContentRoutes(
   app.post('/admin/course/lesson_files/delete', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const fileId = toStringValue(payload.id);
-      await contentService.deleteLessonFileAdmin(requestUserId(request), fileId);
-      reply.code(200).send({ status: 1, message: 'Lesson file deleted', data: {} });
+      const fileId = optionalIdField(payload, 'id') ?? '';
+      const result = await contentService.deleteLessonFileAdmin(requestUserId(request), fileId);
+      reply.code(200).send({ status: 1, message: 'Lesson file deleted', data: result });
     } catch (error: unknown) {
       sendContentError(reply, error);
     }

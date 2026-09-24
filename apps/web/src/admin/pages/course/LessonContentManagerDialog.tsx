@@ -14,6 +14,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import { ContentPreviewDialog, type ContentPreviewRow } from '../../shared/components/content-preview-dialog.js';
 import { LessonFileFormDialog, type LessonFileType } from './LessonFileFormDialog.js';
+import { lessonFileDeleteMessage } from '../../shared/utils/lesson-file-delete-message.js';
 
 const selectClass =
   'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -355,7 +356,8 @@ export function LessonContentManagerDialog({
       title: row.source === 'library' ? `Remove "${row.title || 'item'}" from this lesson?` : `Delete "${row.title || 'file'}"?`,
       description: row.source === 'library'
         ? 'The item stays in the Content Library and can be re-attached later.'
-        : 'This content file will be permanently deleted.',
+        : 'This content file will be deleted. Older hidden duplicates of it in the Content Library are removed'
+          + ' too; a same-named Content Library item added after it is kept and shown to students instead.',
       confirmText: row.source === 'library' ? 'Remove' : 'Delete',
       variant: 'destructive',
     });
@@ -365,8 +367,8 @@ export function LessonContentManagerDialog({
         await api.unlinkAssetFromLesson(token, lid, row.id);
         toast.success('Removed from lesson.');
       } else {
-        await api.deleteLessonFile(token, row.id);
-        toast.success('Content deleted.');
+        const res = await api.deleteLessonFile(token, row.id);
+        toast.success(lessonFileDeleteMessage(res));
       }
       reloadAll();
     } catch (err) {

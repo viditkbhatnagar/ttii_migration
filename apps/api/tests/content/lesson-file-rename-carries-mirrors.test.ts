@@ -19,6 +19,10 @@ const FILE_ID = 900;
 const LESSON_ID = 41;
 const OLD_TITLE = 'ASSESSMENT LESSON 2';
 const NEW_TITLE = 'ASSESSMENT LESSON 3';
+const APRIL_IMPORT = new Date('2026-04-30T10:00:00Z');
+const JUNE = new Date('2026-06-12T11:07:59Z');
+const JULY_1 = new Date('2026-07-01T09:00:00Z');
+const JULY_16 = new Date('2026-07-16T17:01:31Z');
 
 interface Recorder {
   fileUpdates: Record<string, unknown>[];
@@ -27,12 +31,14 @@ interface Recorder {
 }
 
 function makeService(opts: {
-  file?: { id: number; lesson_id: number; title: string } | null;
+  file?: { id: number; lesson_id: number; title: string; created_at?: Date | null; updated_at?: Date | null } | null;
   siblingTitles?: string[];
-  candidates?: { id: number; title: string }[];
+  candidates?: { id: number; title: string; created_at?: Date | null }[];
 } = {}): { service: ContentService; rec: Recorder } {
   const rec: Recorder = { fileUpdates: [], assetFindWhere: [], assetUpdates: [] };
-  const file = opts.file === undefined ? { id: FILE_ID, lesson_id: LESSON_ID, title: OLD_TITLE } : opts.file;
+  const file = opts.file === undefined
+    ? { id: FILE_ID, lesson_id: LESSON_ID, title: OLD_TITLE, created_at: JUNE, updated_at: JULY_1 }
+    : opts.file;
 
   const tx = {
     lesson_files: {
@@ -49,9 +55,9 @@ function makeService(opts: {
       findMany: ({ where }: { where: Record<string, unknown> }) => {
         rec.assetFindWhere.push(where);
         return Promise.resolve(opts.candidates ?? [
-          { id: 1, title: 'Assessment Lesson 2' },       // the backfill copy, case differs
-          { id: 2, title: 'ASSESSMENT LESSON 3' },       // a different item
-          { id: 3, title: '  assessment   lesson 2 ' }, // copy with stray whitespace
+          { id: 1, title: 'Assessment Lesson 2', created_at: APRIL_IMPORT },       // the backfill copy, case differs
+          { id: 2, title: 'ASSESSMENT LESSON 3', created_at: APRIL_IMPORT },       // a different item
+          { id: 3, title: '  assessment   lesson 2 ', created_at: APRIL_IMPORT }, // copy with stray whitespace
         ]);
       },
       updateMany: (args: { where: { id: { in: number[] } }; data: Record<string, unknown> }) => {
@@ -89,17 +95,13 @@ describe('renaming a Lesson Builder item', () => {
     expect(rec.assetUpdates[0]?.data).toMatchObject({ title: NEW_TITLE });
   });
 
-  test('finds copies the way the student player does: by chapter id, or unlinked + name tags', async () => {
+  test('only follows copies attached to this chapter by id, never by name', async () => {
+    // A row attached by NAME is served in every chapter sharing that name, so
+    // touching it from one chapter could change what students see in another.
     const { service, rec } = makeService();
     await service.renameLessonFileAdmin('7', String(FILE_ID), NEW_TITLE);
 
-    expect(rec.assetFindWhere[0]).toMatchObject({
-      deleted_at: null,
-      OR: [
-        { lesson_id: LESSON_ID },
-        { lesson_id: null, lesson_tag: 'STAGES OF CHILD DEVELOPMENT', subject_tag: 'Child Psychology' },
-      ],
-    });
+    expect(rec.assetFindWhere[0]).toEqual({ deleted_at: null, lesson_id: LESSON_ID });
   });
 
   test('leaves the copy alone while another Lesson Builder item still has the old name', async () => {
@@ -152,6 +154,59 @@ describe('editing a Lesson Builder item in the Lesson Builder', () => {
     await service.editLessonFileAdmin('7', String(FILE_ID), { ...input, title: OLD_TITLE });
 
     expect(rec.fileUpdates).toHaveLength(1);
+    expect(rec.assetUpdates).toHaveLength(0);
+  });
+});
+
+// Risha 2026-09-24 — "how can we delete the video named Meet Your Trainer that's
+// not written as duplicate against it? Because there is no delete button."
+// Deleting the original alone would un-hide its Content Library copy (on
+// production these are mostly OLDER Vimeo links and quizzes missing a question),
+// which would then appear to students in its place. So the copy goes with it.
+describe('deleting a Lesson Builder item', () => {
+  test('soft-deletes the file and its hidden Content Library copies together', async () => {
+    const { service, rec } = makeService();
+    const result = await service.deleteLessonFileAdmin('7', String(FILE_ID));
+
+    expect(rec.fileUpdates).toHaveLength(1);
+    expect(rec.fileUpdates[0]).toMatchObject({ deleted_by: 7 });
+    expect(rec.fileUpdates[0]?.deleted_at).toBeInstanceOf(Date);
+    expect(rec.assetUpdates).toHaveLength(1);
+    expect(rec.assetUpdates[0]?.where.id).toEqual({ in: [1, 3] });
+    expect(rec.assetUpdates[0]?.data).toMatchObject({ deleted_by: 7 });
+    expect(rec.assetUpdates[0]?.data).not.toHaveProperty('title');
+    expect(result).toMatchObject({ id: FILE_ID, mirrors_deleted: 2, mirrors_kept: 0 });
+  });
+
+  test('keeps the copy while another Lesson Builder item in the chapter still has that name', async () => {
+    const { service, rec } = makeService({ siblingTitles: ['Assessment Lesson 2'] });
+    const result = await service.deleteLessonFileAdmin('7', String(FILE_ID));
+
+    expect(rec.fileUpdates).toHaveLength(1);
+    expect(rec.assetUpdates).toHaveLength(0);
+    expect(result).toMatchObject({ mirrors_deleted: 0 });
+  });
+
+  test('keeps a same-named Content Library item added AFTER the file was last changed', async () => {
+    // Foundation To IT: "Chapter 1" PDF re-uploaded to the library on 16 Jul
+    // behind a June Lesson Builder original. Deleting the old original is how
+    // the new one reaches students, so it must survive.
+    const { service, rec } = makeService({
+      candidates: [
+        { id: 1, title: 'Assessment Lesson 2', created_at: APRIL_IMPORT },
+        { id: 353, title: 'ASSESSMENT LESSON 2', created_at: JULY_16 },
+      ],
+    });
+    const result = await service.deleteLessonFileAdmin('7', String(FILE_ID));
+
+    expect(rec.assetUpdates[0]?.where.id).toEqual({ in: [1] });
+    expect(result).toMatchObject({ mirrors_deleted: 1, mirrors_kept: 1 });
+  });
+
+  test('refuses an item that is already gone, without writing anything', async () => {
+    const { service, rec } = makeService({ file: null });
+    await expect(service.deleteLessonFileAdmin('7', String(FILE_ID))).rejects.toThrow(/no longer exists/i);
+    expect(rec.fileUpdates).toHaveLength(0);
     expect(rec.assetUpdates).toHaveLength(0);
   });
 });

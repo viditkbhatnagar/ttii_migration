@@ -17,6 +17,7 @@ import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../.
 import { FileUpload } from '../../shared/components/FileUpload.js';
 import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
 import { useConfirm } from '@/components/confirm-dialog';
+import { lessonFileDeleteMessage } from '../../shared/utils/lesson-file-delete-message.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseEachWord } from '@/lib/text-format';
 
@@ -429,15 +430,17 @@ export default function AddLessonPage({ api, session }: AdminPageProps) {
     async (row: Record<string, unknown>) => {
       if (!(await confirm({
         title: `Delete file "${asString(row.title)}"?`,
-        description: 'This action cannot be undone.',
+        description: 'This action cannot be undone. Older hidden duplicates of it in the Content Library are'
+          + ' removed too; a same-named Content Library item added after it is kept and shown to students instead.',
         confirmText: 'Delete',
         variant: 'destructive',
       }))) return;
       try {
-        await api.deleteLessonFile(session.token, asString(row.id));
+        const res = await api.deleteLessonFile(session.token, asString(row.id));
+        toast.success(lessonFileDeleteMessage(res));
         reloadFiles();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not delete the file.');
       }
     },
     [api, session.token, reloadFiles, confirm],

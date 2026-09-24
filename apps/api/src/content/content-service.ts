@@ -4578,36 +4578,8 @@ export class ContentService {
     tx: Prisma.TransactionClient,
     args: { fileId: number; lessonId: number; oldTitle: string; newTitle: string; actorUserId: string; now: Date },
   ): Promise<number> {
-    const oldKey = normalizeContentTitle(args.oldTitle);
-    if (oldKey === '' || args.oldTitle.trim() === args.newTitle) return 0;
-
-    const siblings = await tx.lesson_files.findMany({
-      where: { lesson_id: args.lessonId, deleted_at: null, NOT: { id: args.fileId } },
-      select: { title: true },
-    });
-    if (siblings.some((f) => normalizeContentTitle(f.title) === oldKey)) return 0;
-
-    const lesson = await tx.lesson.findFirst({
-      where: { id: args.lessonId },
-      select: { title: true, subject_id: true },
-    });
-    const subject = lesson?.subject_id != null
-      ? await tx.subject.findFirst({ where: { id: lesson.subject_id }, select: { title: true } })
-      : null;
-    const lessonTitle = (lesson?.title ?? '').trim();
-    const subjectTitle = (subject?.title ?? '').trim();
-
-    const or: Prisma.content_assetWhereInput[] = [{ lesson_id: args.lessonId }];
-    if (lessonTitle !== '' && subjectTitle !== '') {
-      or.push({ lesson_id: null, lesson_tag: lessonTitle, subject_tag: subjectTitle });
-    }
-    const candidates = await tx.content_asset.findMany({
-      where: { deleted_at: null, OR: or },
-      select: { id: true, title: true },
-    });
-    const mirrorIds = candidates
-      .filter((a) => normalizeContentTitle(a.title) === oldKey)
-      .map((a) => a.id);
+    if (args.oldTitle.trim() === args.newTitle) return 0;
+    const mirrorIds = (await this.findLessonFileMirrors(tx, args.fileId, args.lessonId, args.oldTitle)).map((m) => m.id);
     if (mirrorIds.length === 0) return 0;
 
     const result = await tx.content_asset.updateMany({
@@ -4617,13 +4589,88 @@ export class ContentService {
     return result.count;
   }
 
-  async deleteLessonFileAdmin(actorUserId: string, fileId: string): Promise<void> {
-    await this.prisma.lesson_files.update({
-      where: { id: toIntId(fileId) },
-      data: {
-        deleted_by: toNullableIntId(actorUserId),
-        deleted_at: new Date(),
-      },
+  /**
+   * The live Content Library rows that mirror one Lesson Builder file: attached
+   * to the same chapter BY ID, with the same normalised title — the rows the
+   * student player hides behind it. Empty when the title is blank or another
+   * live Lesson Builder file in the chapter still carries it, because then the
+   * copy still mirrors that one.
+   *
+   * FK only, deliberately: a row attached by NAME (lesson_id NULL) is served in
+   * every chapter sharing that name, so renaming or deleting it from here could
+   * change what students see in a different chapter. Production has no
+   * name-attached copies left (2026-09-09 backfill; re-checked 2026-09-24).
+   */
+  private async findLessonFileMirrors(
+    tx: Prisma.TransactionClient,
+    fileId: number,
+    lessonId: number,
+    title: string,
+  ): Promise<Array<{ id: number; created_at: Date | null }>> {
+    const key = normalizeContentTitle(title);
+    if (key === '') return [];
+
+    const siblings = await tx.lesson_files.findMany({
+      where: { lesson_id: lessonId, deleted_at: null, NOT: { id: fileId } },
+      select: { title: true },
+    });
+    if (siblings.some((f) => normalizeContentTitle(f.title) === key)) return [];
+
+    const candidates = await tx.content_asset.findMany({
+      where: { deleted_at: null, lesson_id: lessonId },
+      select: { id: true, title: true, created_at: true },
+    });
+    return candidates
+      .filter((a) => normalizeContentTitle(a.title) === key)
+      .map((a) => ({ id: a.id, created_at: a.created_at }));
+  }
+
+  /**
+   * Soft-delete a Lesson Builder file, and the hidden Content Library copies it
+   * was hiding (Risha 2026-09-24 — "how can we delete the video named Meet Your
+   * Trainer that's not written as duplicate against it?"). The student player
+   * hides a copy only while the original's title is in the chapter, so deleting
+   * the original alone would surface the copy — on production mostly an OLDER
+   * Vimeo link, or a quiz missing questions — in its place.
+   *
+   * A copy created AFTER the file was last changed is KEPT: that is a newer
+   * upload (the Foundation To IT "Chapter" PDFs of 2026-07-16 sit behind June
+   * originals), and surfacing it is exactly what deleting the old original is
+   * for. created_at only — the 2026-09-09 backfill bumped every copy's
+   * updated_at, so updated_at would make every copy look newer.
+   */
+  async deleteLessonFileAdmin(actorUserId: string, fileId: string): Promise<Record<string, unknown>> {
+    const fileIdInt = toNullableIntId(fileId);
+    if (fileIdInt === null || fileIdInt <= 0) throw new Error('Lesson file id is required.');
+    const now = new Date();
+    const actor = toNullableIntId(actorUserId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.lesson_files.findFirst({
+        where: { id: fileIdInt, deleted_at: null },
+        select: { id: true, lesson_id: true, title: true, created_at: true, updated_at: true },
+      });
+      if (!current) throw new Error('This Lesson Builder item no longer exists.');
+
+      // Read the copies BEFORE the original is gone, while it still anchors them.
+      const mirrors = await this.findLessonFileMirrors(tx, fileIdInt, current.lesson_id, current.title ?? '');
+      const fileChangedMs = Math.max(current.created_at?.getTime() ?? 0, current.updated_at?.getTime() ?? 0);
+      const isNewer = (m: { created_at: Date | null }) =>
+        fileChangedMs > 0 && m.created_at !== null && m.created_at.getTime() > fileChangedMs;
+      const toDelete = mirrors.filter((m) => !isNewer(m)).map((m) => m.id);
+      const kept = mirrors.filter(isNewer).map((m) => m.id);
+
+      await tx.lesson_files.update({
+        where: { id: fileIdInt },
+        data: { deleted_by: actor, deleted_at: now },
+      });
+      const removed = toDelete.length > 0
+        ? await tx.content_asset.updateMany({
+            where: { id: { in: toDelete }, deleted_at: null },
+            data: { deleted_by: actor, deleted_at: now },
+          })
+        : { count: 0 };
+      return { id: fileIdInt, mirrors_deleted: removed.count, mirrors_kept: kept.length };
     });
   }
 
