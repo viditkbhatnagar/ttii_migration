@@ -1,5 +1,10 @@
 -- DATA change (not schema): remove the hidden Content Library duplicates.
 --
+-- APPLIED 2026-09-24 04:42:53 (DB clock) as root on 143.110.240.210, after 66af95ab
+-- deployed and a re-run classification matched these 290 ids exactly. Result:
+-- 290 -> 0 live, 4 held rows untouched, live content_asset 403 -> 113, and the
+-- student view of all 8 subjects unchanged (59 chapters / 339 items, 0 diffs).
+--
 -- Risha 2026-09-24: "do we have an option to delete all duplicates that exist
 -- across the entire number of subjects?"
 --
@@ -88,6 +93,6 @@ WHERE deleted_at IS NULL AND id IN (
 );
 SELECT id, title, deleted_at FROM content_asset WHERE id IN (353, 354, 356, 357);
 
--- ROLLBACK (restores exactly these rows; replace the timestamp with the APPLIED time below):
+-- ROLLBACK (restores exactly these rows):
 -- UPDATE content_asset SET deleted_at = NULL
--- WHERE deleted_at >= '<APPLIED timestamp>' AND id IN (<the same 290 ids>);
+-- WHERE deleted_at = '2026-09-24 04:42:53' AND id IN (<the same 290 ids as above>);
