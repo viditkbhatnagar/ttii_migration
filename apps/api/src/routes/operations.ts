@@ -2007,8 +2007,9 @@ export function registerOperationsRoutes(
   });
 
   // Risha UAT 2026-05-25 — bulk-delete every question for a subject from
-  // the Question Bank list. course_id is optional; when present, mirrors
-  // the listing's course filter so we only soft-delete what the user sees.
+  // the Question Bank list. course_id is optional; when present, it applies the
+  // listing's course scope (a shared subject's questions count under every
+  // course it is linked to), so we soft-delete exactly what the user sees.
   app.post('/admin/question_bank/delete-by-subject', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);

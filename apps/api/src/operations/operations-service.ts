@@ -4615,7 +4615,8 @@ export class OperationsService {
 
   async listQuestionBank(filters: QuestionBankFilters = {}): Promise<SqlRow[]> {
     const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = toIntId(filters.courseId);
+    // A shared subject's questions belong to every course it is linked to.
+    if (filters.courseId) Object.assign(where, await this.questionBankCourseScope([toIntId(filters.courseId)]));
     if (filters.subjectId) where.subject_id = toIntId(filters.subjectId);
     if (filters.lessonId) where.lesson_id = toIntId(filters.lessonId);
     if (filters.qType !== undefined && filters.qType >= 0) where.q_type = filters.qType;
@@ -4722,8 +4723,10 @@ export class OperationsService {
   }
 
   // Risha UAT 2026-05-25 — bulk-delete every question for a subject from
-  // the Question Bank list. Mirrors the listing's filter shape so the
-  // delete is scoped to the same (subject, course) view the user sees.
+  // the Question Bank list. Uses the SAME course scope as the listing
+  // (questionBankCourseScope, 2026-10-01) so it deletes exactly the rows the
+  // row counted — for a subject shared between courses that is all of its
+  // questions, whichever course each was filed under.
   async deleteQuestionsBySubject(
     actorUserId: string,
     subjectId: string,
@@ -4734,7 +4737,7 @@ export class OperationsService {
     const where: Record<string, unknown> = { subject_id: sid, deleted_at: null };
     if (courseId) {
       const cid = toNullableIntId(courseId);
-      if (cid) where.course_id = cid;
+      if (cid) Object.assign(where, await this.questionBankCourseScope([cid]));
     }
     const result = await this.prisma.question_bank.updateMany({
       where: where as Prisma.question_bankWhereInput,
@@ -4754,7 +4757,8 @@ export class OperationsService {
   // q_type to populate MCQ / Descriptive tabs.
   async listQuestionBankSubjects(filters: { courseId?: string; subjectId?: string } = {}): Promise<SqlRow[]> {
     const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = toIntId(filters.courseId);
+    // A shared subject's questions belong to every course it is linked to.
+    if (filters.courseId) Object.assign(where, await this.questionBankCourseScope([toIntId(filters.courseId)]));
     if (filters.subjectId) where.subject_id = toIntId(filters.subjectId);
 
     const counts = await this.prisma.question_bank.groupBy({
@@ -5971,8 +5975,40 @@ export class OperationsService {
   // questionCount 0 and is never takeable. These three methods let the admin
   // pick real question_bank rows for the exam and persist exam_questions.
 
-  // Candidate questions: every live question in the exam's course(s); a flag
-  // marks those whose subject is one the exam is scheduled for.
+  /**
+   * Prisma filter for "questions that belong to these courses".
+   *
+   * Risha 2026-10-01 — "We have added Question bank for all subjects including
+   * common subjects. But when I try to create PG exam — it's showing that we are
+   * short of questions." A question_bank row carries ONE course_id, but subjects
+   * are shared between courses through course_subject: the Montessori Diploma
+   * (16) and PG Diploma (18) share five subjects, and every one of their
+   * questions was filed under 16, so a PG exam found "0 of 70" for all five. A
+   * question now belongs to a course when its own course_id matches OR its
+   * subject is linked to that course. `extraSubjectIds` lets the exam picker
+   * also admit the subjects it is scheduled for.
+   */
+  private async questionBankCourseScope(
+    courseIds: number[],
+    extraSubjectIds: number[] = [],
+  ): Promise<Prisma.question_bankWhereInput> {
+    const links = courseIds.length > 0
+      ? await this.prisma.course_subject.findMany({
+          where: { course_id: { in: courseIds }, deleted_at: null },
+          select: { subject_id: true },
+        })
+      : [];
+    const subjectIds = [...new Set([...links.map((l) => l.subject_id), ...extraSubjectIds])];
+    const or: Prisma.question_bankWhereInput[] = [];
+    if (courseIds.length > 0) or.push({ course_id: { in: courseIds } });
+    if (subjectIds.length > 0) or.push({ subject_id: { in: subjectIds } });
+    // No course and no subject: match nothing rather than everything.
+    return or.length > 0 ? { OR: or } : { id: { in: [] } };
+  }
+
+  // Candidate questions: every live question in the exam's course(s) — by the
+  // question's own course OR its subject's course links — and a flag marks those
+  // whose subject is one the exam is scheduled for.
   async listExamQuestionOptions(examId: string): Promise<Record<string, unknown>[]> {
     const id = toNullableIntId(examId);
     if (!id) return [];
@@ -5997,8 +6033,9 @@ export class OperationsService {
       if (s.subject_id === null || s.subject_id === undefined) continue;
       if (!scheduleIdBySubject.has(s.subject_id)) scheduleIdBySubject.set(s.subject_id, s.id);
     }
+    const scope = await this.questionBankCourseScope(courseIds, [...scheduledSubjects]);
     const questions = await this.prisma.question_bank.findMany({
-      where: { deleted_at: null, course_id: { in: courseIds } },
+      where: { deleted_at: null, ...scope },
       select: { id: true, title: true, q_type: true, subject_id: true, course_id: true, number_of_options: true },
       orderBy: [{ subject_id: 'asc' }, { id: 'desc' }],
     });
@@ -6027,11 +6064,20 @@ export class OperationsService {
       orderBy: [{ question_no: 'asc' }, { id: 'asc' }],
       select: { id: true, question_id: true, question_no: true, mark: true },
     });
+    // A saved question can be deleted from the bank afterwards (exam 28 had 149
+    // of 219 after a re-upload). The student player silently drops those, so
+    // Step 4 flags them instead of counting them as part of the paper.
+    const qids = rows.map((r) => r.question_id).filter((x): x is number => x !== null && x !== undefined);
+    const live = qids.length > 0
+      ? await this.prisma.question_bank.findMany({ where: { id: { in: qids }, deleted_at: null }, select: { id: true } })
+      : [];
+    const liveIds = new Set(live.map((q) => q.id));
     return rows.map((r) => ({
       id: r.id,
       question_id: r.question_id,
       question_no: r.question_no,
       mark: r.mark === null ? 0 : Number(r.mark),
+      question_deleted: r.question_id === null || r.question_id === undefined || !liveIds.has(r.question_id),
     }));
   }
 
@@ -6267,10 +6313,81 @@ export class OperationsService {
     });
     const parentQuestionIds = parentQuestions.map((q) => q.question_id).filter((x): x is number => x !== null && x !== undefined);
     const bankRows = parentQuestionIds.length > 0
-      ? await this.prisma.question_bank.findMany({ where: { id: { in: parentQuestionIds } }, select: { id: true, subject_id: true, course_id: true } })
+      ? await this.prisma.question_bank.findMany({ where: { id: { in: parentQuestionIds } }, select: { id: true, subject_id: true, course_id: true, deleted_at: true } })
       : [];
     const bankMap = new Map(bankRows.map((b) => [b.id, b]));
     const baseCode = parent.exam_code && parent.exam_code.trim() ? parent.exam_code.trim() : `EX${parent.id}`;
+
+    const courseIdsOfRow = (row: (typeof schedule)[number]): number[] =>
+      (row.course_ids ?? '')
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    // This sitting's questions: the parent pool sliced by subject, or — for
+    // the "whole course" row a lesson-wise course produces (subject_id
+    // NULL) — by the courses named on the schedule row.
+    const sliceFor = (row: (typeof schedule)[number]): typeof parentQuestions => {
+      const courseIdList = courseIdsOfRow(row);
+      return parentQuestions.filter((q) => {
+        const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
+        if (!bank) return false;
+        if (row.subject_id !== null && row.subject_id !== undefined) return bank.subject_id === row.subject_id;
+        return bank.course_id !== null && bank.course_id !== undefined && courseIdList.includes(bank.course_id);
+      });
+    };
+
+    // Risha 2026-10-01 — exam 28 was one click from publishing with 149
+    // questions that had been deleted from the bank after a re-upload, and five
+    // subjects holding none at all. Publishing copies each subject's slice into
+    // its own sitting, and the student player silently DROPS deleted questions,
+    // so those sittings would have opened empty on exam day. Refuse and name the
+    // subjects instead. A sitting that already has attempts is never re-sliced
+    // (below), so it is not checked; a sitting whose Step 3 plan asks for no
+    // MCQ/descriptive questions may legitimately have none.
+    const plannedRows = schedule.length > 0
+      ? await this.prisma.exam_subject_components.findMany({
+          where: { exam_subject_id: { in: schedule.map((r) => r.id) }, component_type: { in: ['mcq', 'descriptive'] } },
+          select: { exam_subject_id: true, num_questions: true },
+        })
+      : [];
+    const plannedBySubjectRow = new Map<number, number>();
+    for (const c of plannedRows) {
+      plannedBySubjectRow.set(c.exam_subject_id, (plannedBySubjectRow.get(c.exam_subject_id) ?? 0) + (c.num_questions ?? 0));
+    }
+    const withDeleted: string[] = [];
+    const empty: string[] = [];
+    for (const row of schedule) {
+      const childId = childBySubjectRow.get(row.id);
+      if (childId !== undefined && attemptedChildIds.has(childId)) continue;
+      const slice = sliceFor(row);
+      const deletedCount = slice.filter((q) => {
+        const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
+        return bank !== undefined && bank.deleted_at !== null;
+      }).length;
+      const title = row.subject_title || `Subject ${row.id}`;
+      if (deletedCount > 0) {
+        withDeleted.push(`${title} (${deletedCount} of its saved questions ${deletedCount === 1 ? 'was' : 'were'} deleted from the Question Bank)`);
+      } else if (slice.length === 0 && (plannedBySubjectRow.get(row.id) ?? 0) > 0) {
+        empty.push(title);
+      }
+    }
+    if (withDeleted.length > 0 || empty.length > 0) {
+      const parts: string[] = [];
+      if (withDeleted.length > 0) {
+        parts.push(
+          `Not published — ${withDeleted.join('; ')}. Open Step 4 (Assign Questions): the deleted questions are already `
+          + "left out there; use that subject's Auto-fill button if it is now short, then Save and publish again.",
+        );
+      }
+      if (empty.length > 0) {
+        parts.push(
+          `${withDeleted.length > 0 ? 'Also, these' : 'Not published — these'} subjects have no questions assigned but `
+          + `Step 3 plans some: ${empty.join(', ')}. Assign questions to them in Step 4 (add them to the Question Bank `
+          + 'first if it has none), or set their count to 0 in Step 3 if they have no MCQ/descriptive paper.',
+        );
+      }
+      return { status: 0, message: parts.join(' ') };
+    }
 
     // Writes are ordered children-first, parent-publish-last, and wrapped so a
     // mid-way failure leaves the exam unpublished rather than half-published.
@@ -6283,23 +6400,12 @@ export class OperationsService {
       for (let idx = 0; idx < schedule.length; idx += 1) {
         const row = schedule[idx];
         if (!row) continue;
-        const courseIdList = (row.course_ids ?? '')
-          .split(',')
-          .map((s) => Number(s.trim()))
-          .filter((n) => Number.isFinite(n) && n > 0);
+        const courseIdList = courseIdsOfRow(row);
         const childCourseIds = courseIdList.length > 0
           ? courseIdList
           : (parent.course_id !== null && parent.course_id !== undefined ? [parent.course_id] : []);
 
-        // This sitting's questions: the parent pool sliced by subject, or — for
-        // the "whole course" row a lesson-wise course produces (subject_id
-        // NULL) — by the courses named on the schedule row.
-        const sliced = parentQuestions.filter((q) => {
-          const bank = q.question_id !== null && q.question_id !== undefined ? bankMap.get(q.question_id) : undefined;
-          if (!bank) return false;
-          if (row.subject_id !== null && row.subject_id !== undefined) return bank.subject_id === row.subject_id;
-          return bank.course_id !== null && bank.course_id !== undefined && courseIdList.includes(bank.course_id);
-        });
+        const sliced = sliceFor(row);
 
         for (const q of sliced) {
           if (q.question_id !== null && q.question_id !== undefined) placedQuestionIds.add(q.question_id);

@@ -452,6 +452,7 @@ export default function AddExamPage({ api, session, onNavigate }: AdminPageProps
           api={api}
           authToken={session.token}
           examId={draft.id}
+          isPublished={meta.is_published}
           onSaved={() => setActiveStep(5)}
           onBack={() => setActiveStep(3)}
           onClose={() => onNavigate('/admin/exam/index')}
@@ -1159,6 +1160,7 @@ function QuestionsStep({
   api,
   authToken,
   examId,
+  isPublished,
   onSaved,
   onBack,
   onClose,
@@ -1166,6 +1168,8 @@ function QuestionsStep({
   api: AdminPageProps['api'];
   authToken: string;
   examId: string;
+  /** A published exam's sittings keep their own copy of the questions until re-published. */
+  isPublished: boolean;
   onSaved: () => void;
   onBack: () => void;
   onClose: () => void;
@@ -1182,6 +1186,10 @@ function QuestionsStep({
   // and `autoFill` describes the proposal on screen (null once it is saved).
   const [savedCount, setSavedCount] = useState(0);
   const [dirty, setDirty] = useState(false);
+  // Risha 2026-10-01 — saved questions that have since been deleted from the
+  // Question Bank (exam 28: 149 of 219, after a re-upload). The student player
+  // drops them, so they are kept out of the selection and named in a banner.
+  const [deletedSavedCount, setDeletedSavedCount] = useState(0);
   const [autoFill, setAutoFill] = useState<AutoFillNotice | null>(null);
   // Section keys the admin has folded away. Tracking the closed ones (rather
   // than the open ones) keeps a section that arrives later expanded by default.
@@ -1227,10 +1235,14 @@ function QuestionsStep({
         setOptions(mappedOptions);
         setPlans(mappedPlans);
         const sel = new Map<number, number>();
+        let deletedSaved = 0;
         for (const a of assigned) {
           const qid = asNumber(a.question_id);
-          if (qid > 0) sel.set(qid, Number(a.mark ?? 0) || 0);
+          if (qid <= 0) continue;
+          if (asBoolean(a.question_deleted)) { deletedSaved += 1; continue; }
+          sel.set(qid, Number(a.mark ?? 0) || 0);
         }
+        setDeletedSavedCount(deletedSaved);
         setSavedCount(sel.size);
         // Risha UAT 2026-08-06 — first open of a never-assigned exam fills
         // itself from the Step 3 plan. A saved selection is NEVER overwritten:
@@ -1246,6 +1258,9 @@ function QuestionsStep({
           }
         }
         setSelected(sel);
+        // Saving now would store the paper without the deleted questions, so
+        // say it differs from what is stored.
+        if (deletedSaved > 0) setDirty(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1440,7 +1455,11 @@ function QuestionsStep({
         setSavedCount(questions.length);
         setDirty(false);
         setAutoFill(null);
+        setDeletedSavedCount(0);
         if (questions.length === 0) toast('No questions assigned — students won’t be able to take this exam yet.');
+        // Saving changes the exam's question pool only; each live subject
+        // sitting keeps its own copy until the exam is published again.
+        else if (isPublished) toast.success(`${message} Re-publish the exam (Step 6) to update the live subject sittings.`, { duration: 8000 });
         else toast.success(message);
         if (then === 'next') onSaved(); else onClose();
       } else {
@@ -1533,6 +1552,21 @@ function QuestionsStep({
           </div>
         ) : null}
 
+        {deletedSavedCount > 0 ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900" role="alert">
+            <p className="font-semibold">
+              {deletedSavedCount} saved question{deletedSavedCount === 1 ? ' was' : 's were'} deleted from the Question Bank
+            </p>
+            <p className="mt-0.5 text-xs">
+              {deletedSavedCount === 1 ? 'It was' : 'They were'} saved on this exam and later deleted from the Question Bank (for
+              example when a subject’s questions were re-uploaded). Students would not see {deletedSavedCount === 1 ? 'it' : 'them'},
+              so {deletedSavedCount === 1 ? 'it is' : 'they are'} left out below. Press Auto-fill from plan to pick from the current
+              bank, then Save.
+              {isPublished ? ' This exam is already published: after saving, re-publish it in Step 6 so the live subject sittings pick up the change.' : ''}
+            </p>
+          </div>
+        ) : null}
+
         {/* Honest under-fill: which subjects are short, and by how much. */}
         {totalMissing > 0 ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -1548,7 +1582,9 @@ function QuestionsStep({
               ))}
             </ul>
             <p className="mt-2 text-xs">
-              Auto-fill takes everything the bank does have, so those subjects will publish under their planned count. Add the missing questions in Question Bank and re-run Auto-fill, or lower the count in Step 3.
+              Auto-fill takes everything the bank does have, so a subject with some questions will publish under its planned count.
+              A subject with none at all cannot be published until questions are added to the Question Bank or its Step 3 count is set to 0.
+              Add the missing questions in Question Bank and re-run Auto-fill, or lower the count in Step 3.
             </p>
           </div>
         ) : null}

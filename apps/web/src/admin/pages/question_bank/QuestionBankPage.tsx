@@ -130,9 +130,17 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
     const mcq = asNumber(row.mcq_count);
     const desc = asNumber(row.descriptive_count);
     const total = mcq + desc;
+    // A subject shared between courses has ONE set of questions, used by every
+    // course it is linked to — say so before deleting it (2026-10-01).
+    const linkedCourses = (Array.isArray(row.courses) ? (row.courses as Array<Record<string, unknown>>) : [])
+      .map((c) => asString(c.title))
+      .filter((t) => t !== '');
+    const sharedNote = linkedCourses.length > 1
+      ? ` This subject is shared, so they are removed for every course it belongs to: ${linkedCourses.join(', ')}.`
+      : '';
     const ok = await confirm({
       title: `Delete all questions from ${subjectName}?`,
-      description: `This soft-deletes ${total} question(s) (${mcq} MCQ + ${desc} Descriptive) from this subject${courseFilter ? ' under the selected course' : ''}. They will no longer appear in the bank.`,
+      description: `This soft-deletes ${total} question(s) (${mcq} MCQ + ${desc} Descriptive) from this subject. They will no longer appear in the bank.${sharedNote}`,
       confirmText: 'Delete All',
       variant: 'destructive',
     });
