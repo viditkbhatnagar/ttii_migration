@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
 import type { EmailProvider, IntegrationRegistry } from '../integrations/contracts.js';
@@ -957,17 +958,19 @@ export class AssessmentService {
 
   private readonly prisma: PrismaClient;
 
+  // TTII 2026-10-03 — "Students are unable to view or download assignment
+  // question": View/Download opened https://api.teachersindia.in/uploads/... —
+  // a host with NO DNS record (APP_BASE_URL in prod). Relative `uploads/...`
+  // paths are legacy PHP uploads served by lms.teachersindia.in (11 of 27 live
+  // assignments, incl. ASG-65 due 10 Oct); toLegacyFileUrl resolves them there
+  // and rewrites stale absolute api.* URLs. Spaces / lms URLs pass through.
+  // Feeds BOTH the web portal and the Flutter app (toAssignmentData).
   private toFileUrl(path: unknown): string {
     const normalized = toNullableString(path);
     if (!normalized) {
       return '';
     }
-
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-      return normalized;
-    }
-
-    return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
+    return toLegacyFileUrl(normalized);
   }
 
   private async getUserById(userId: string): Promise<Record<string, unknown> | null> {

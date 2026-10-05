@@ -2,8 +2,8 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { isLiveClassJoinOpen, liveClassJoinWindowFromColumns } from '@ttii/shared-types';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { cohortIdsForCourse } from '../data/cohort-courses.js';
-import { env } from '../env.js';
 
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_NAMES_LONG = [
@@ -308,22 +308,21 @@ type EventRow = {
   [key: string]: unknown;
 };
 
-export class EngagementService {
-  private readonly appBaseUrl = env.APP_BASE_URL.replace(/\/$/, '');
+// Legacy placeholder image, served by the PHP host (lms.teachersindia.in).
+const DUMMY_IMAGE_URL = toLegacyFileUrl('uploads/dummy.jpg');
 
+export class EngagementService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
+  // 2026-10-03 — same dead-host defect as the assignment files: relative
+  // legacy paths were prefixed with APP_BASE_URL (https://api.teachersindia.in,
+  // no DNS record). toLegacyFileUrl resolves them on lms.teachersindia.in.
   private toFileUrl(path: unknown): string {
     const normalized = toNullableString(path);
     if (!normalized) {
       return '';
     }
-
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-      return normalized;
-    }
-
-    return `${this.appBaseUrl}/${normalized.replace(/^\/+/, '')}`;
+    return toLegacyFileUrl(normalized);
   }
 
   private async getUserById(userId: string) {
@@ -453,7 +452,7 @@ export class EngagementService {
       date: formatLegacyDateDmy(eventRow.event_date),
       formatted_date: formatLegacyDateShortMonth(eventRow.event_date),
       time: `${formatLegacyTime(fromTime)} - ${formatLegacyTime(toTime)}`,
-      image: this.toFileUrl(eventRow.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
+      image: this.toFileUrl(eventRow.image) || DUMMY_IMAGE_URL,
       objectives: parseObjectives(eventRow.objectives),
       duration: toStringValue(eventRow.duration),
       recording_status: eventRow.is_recording_available === 1 ? 'Available' : 'Not available',
@@ -461,7 +460,7 @@ export class EngagementService {
       status: this.eventStatus(eventRow.event_date, fromTime, toTime),
       is_registered: isRegistered,
       instructor_name: toStringValue(instructor?.name),
-      instructor_image: this.toFileUrl(instructor?.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
+      instructor_image: this.toFileUrl(instructor?.image) || DUMMY_IMAGE_URL,
     };
   }
 
@@ -542,7 +541,7 @@ export class EngagementService {
         date: formatLegacyDateDmy(row.created_at),
         instructor_id: row.instructor_id ?? 0,
         instructor_name: toStringValue(instructor?.name),
-        instructor_image: this.toFileUrl(instructor?.image) || `${this.appBaseUrl}/uploads/dummy.jpg`,
+        instructor_image: this.toFileUrl(instructor?.image) || DUMMY_IMAGE_URL,
         is_liked: userLikedFeedIds.has(row.id) ? 1 : 0,
         likes: likesCountMap.get(row.id) ?? 0,
       });
