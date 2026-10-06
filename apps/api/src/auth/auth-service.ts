@@ -1263,58 +1263,25 @@ export class AuthService {
   // Naji 2026-05-06: option (a) — we DO auto-create. Without it the
   // student would have to ask admissions to add them before they could
   // even browse courses, which contradicts the self-serve flow.
-  private async findOrCreateStudentBySsoEmail(input: {
-    email: string;
-    name: string;
-    provider: 'google' | 'microsoft';
-  }): Promise<{ user: users; created: boolean }> {
-    const existing = await this.prisma.users.findFirst({
+  /**
+   * The existing student account for an SSO-verified email, or null.
+   *
+   * Majida 2026-10-05 — "Anyone who logs in using Sign in with Google is
+   * directly appearing in the student list, without any manual or approved
+   * enrollment." First-time SSO used to CREATE a role-2 student (Naji's
+   * 2026-05-06 "option a"). On production that made 6 accounts in two months,
+   * none of which ever applied, enrolled, joined a cohort or paid — one was a
+   * trainer signing in on the student site. Students are created by admission
+   * (application approval / conversion); SSO now only signs THEM in.
+   */
+  private async findStudentBySsoEmail(email: string): Promise<users | null> {
+    return this.prisma.users.findFirst({
       where: {
         deleted_at: null,
         role_id: 2,
-        OR: [{ user_email: input.email }, { email: input.email }],
+        OR: [{ user_email: email }, { email }],
       },
     });
-    if (existing) {
-      return { user: existing, created: false };
-    }
-
-    const now = new Date();
-    const created = await this.prisma.users.create({
-      data: {
-        country_code: null,
-        phone: '',
-        email: input.email,
-        user_email: input.email,
-        name: input.name,
-        // SSO accounts have no password — leave the column empty so
-        // email/password login can never succeed for them.
-        password: '',
-        role_id: 2,
-        // Naji 2026-05-06: SSO email is verified by the IdP. Mark
-        // active so the student lands on the dashboard immediately.
-        status: 1,
-        gender: '',
-        dynamic_link: '',
-        image: '',
-        profile_picture: '',
-        application_id: 0,
-        created_at: now,
-        updated_at: now,
-      },
-    });
-
-    const studentId = `TT0000${created.id}`;
-    await this.prisma.users.updateMany({
-      where: { id: created.id },
-      data: { student_id: studentId, updated_at: now },
-    });
-
-    const refetched = (await this.prisma.users.findFirst({
-      where: { id: created.id, deleted_at: null },
-    })) ?? created;
-
-    return { user: refetched, created: true };
   }
 
   private async finalizeSsoLogin(input: {
@@ -1328,18 +1295,30 @@ export class AuthService {
     expiresAt: Date;
     requiresProfileCompletion: boolean;
   }> {
-    const { user, created } = await this.findOrCreateStudentBySsoEmail({
-      email: input.email,
-      name: input.name,
-      provider: input.provider,
-    });
+    const user = await this.findStudentBySsoEmail(input.email);
+    if (!user) {
+      await this.writeAuditLog({
+        event: 'SSO_LOGIN_NO_ACCOUNT',
+        success: false,
+        identifier: input.email,
+        userId: null,
+        requestMeta: input.requestMeta,
+        details: { provider: input.provider },
+      });
+      throw new AuthErrorClass(
+        403,
+        `There is no TTII student account for ${input.email}. Please sign in with the email address you used `
+          + 'for your admission, or contact TTII.',
+        'SSO_NO_ACCOUNT',
+      );
+    }
 
     // Per Naji 2026-05-06: blocked accounts (status=0 set by an admin)
     // see a "contact support" message rather than auto-reactivating.
-    // The status=0 quirk for unverified students from the legacy phone-
-    // OTP flow doesn't apply here because SSO accounts are created with
-    // status=1 and existing student rows are already active.
-    if (user.status === 0 && !created) {
+    // users.disabled_at is the admin "Disable" switch the password login
+    // already honours; SSO skipped it, so a disabled student could still get
+    // in with Google (2026-10-05).
+    if (user.status === 0 || user.disabled_at) {
       await this.writeAuditLog({
         event: 'SSO_LOGIN_BLOCKED_INACTIVE',
         success: false,
@@ -1363,7 +1342,7 @@ export class AuthService {
     const userData = this.toLegacyUserData(user, issuedSession.token);
 
     await this.writeAuditLog({
-      event: created ? 'SSO_REGISTER_SUCCESS' : 'SSO_LOGIN_SUCCESS',
+      event: 'SSO_LOGIN_SUCCESS',
       success: true,
       identifier: input.email,
       userId: user.id,
