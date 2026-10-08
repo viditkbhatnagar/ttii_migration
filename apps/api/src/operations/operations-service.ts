@@ -14430,10 +14430,19 @@ export class OperationsService {
         consumed: false,
       }));
 
+    // TTII 2026-10-08 — one Razorpay payment recorded twice (order.paid and
+    // payment.captured raced) put Shifa Shukoor at 31,000 against 26,000 paid.
+    // The writer is fixed; a payment id is still counted at most once here.
+    const seenRazorpayPaymentIds = new Set<string>();
     for (const p of payments) {
       if (p.course_id == null) continue;
       const amt = Number(p.amount_paid ?? 0);
       if (!Number.isFinite(amt) || amt <= 0) continue;
+      const razorpayPaymentId = (p.razorpay_payment_id ?? '').trim();
+      if (razorpayPaymentId !== '') {
+        if (seenRazorpayPaymentIds.has(razorpayPaymentId)) continue;
+        seenRazorpayPaymentIds.add(razorpayPaymentId);
+      }
       const day = dayOf(p.payment_date);
       const match = unmatchedSettled.find(
         (s) => !s.consumed && s.courseId === p.course_id && s.amount === amt && s.day === day,

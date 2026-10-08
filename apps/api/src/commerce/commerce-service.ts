@@ -755,9 +755,18 @@ export class CommerceService {
    * record were still 'pending'.
    *
    * Every write is idempotent, which is what makes it safe to run from both
-   * paths and to re-run on a Razorpay retry: the payment id is checked for a
-   * duplicate first, the order flip is guarded on status='pending', and the
-   * instalment update is guarded on not-already-paid.
+   * paths and to re-run on a Razorpay retry: the order flip is guarded on
+   * status='pending' and runs FIRST, the payment id is checked for a duplicate,
+   * and the instalment update is guarded on not-already-paid.
+   *
+   * TTII 2026-10-08 — "Shifa Shukoor paid only 26000 but in LMS it shows
+   * 31000." Razorpay delivers order.paid AND payment.captured for one payment,
+   * near-simultaneously. Both deliveries passed the duplicate count (neither had
+   * committed), both wrote payment_info, and the loser only noticed at the order
+   * flip — after its row was written. `return false` inside a Prisma
+   * transaction COMMITS, so the second row stayed: 3 payments double-credited
+   * between 30 Sep and 3 Oct. Claiming the order first fixes it: the flip takes
+   * the row lock, the loser waits, re-reads 'completed', and writes nothing.
    */
   /**
    * The instalment this order was raised to pay, persisted by createOrder as
@@ -861,6 +870,29 @@ export class CommerceService {
     } = params;
 
     const completed = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+
+      // Claim the order before writing anything. Only one concurrent caller can
+      // flip it from 'pending'; every other caller gets count 0 and leaves with
+      // nothing written (see the 2026-10-08 note above).
+      const updatedOrder = await tx.create_order.updateMany({
+        where: {
+          order_id: orderId,
+          order_status: 'pending',
+          deleted_at: null,
+        },
+        data: {
+          order_status: 'completed',
+          payment_id_raz: toNullableIntId(paymentId),
+          updated_by: userIntId,
+          updated_at: now,
+        },
+      });
+
+      if (updatedOrder.count <= 0) {
+        return false;
+      }
+
       const duplicatePayment = await tx.payment_info.count({
         where: {
           razorpay_payment_id: paymentId,
@@ -872,7 +904,6 @@ export class CommerceService {
         return false;
       }
 
-      const now = new Date();
       const amountPaid = toDbNumber(orderDetails.amount) > 0 ? toDbNumber(orderDetails.amount) : toDbNumber(courseSalePrice);
       const userEmail = toNullableString(user.user_email) ?? toNullableString(user.email) ?? '';
 
@@ -894,24 +925,6 @@ export class CommerceService {
           updated_by: userIntId,
         },
       });
-
-      const updatedOrder = await tx.create_order.updateMany({
-        where: {
-          order_id: orderId,
-          order_status: 'pending',
-          deleted_at: null,
-        },
-        data: {
-          order_status: 'completed',
-          payment_id_raz: toNullableIntId(paymentId),
-          updated_by: userIntId,
-          updated_at: now,
-        },
-      });
-
-      if (updatedOrder.count <= 0) {
-        return false;
-      }
 
       if (targetInstallmentId !== null) {
         // Mark exactly the installment this order was created to pay. Scoped by

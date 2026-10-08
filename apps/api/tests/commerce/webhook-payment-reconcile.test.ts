@@ -171,6 +171,80 @@ describe('reconciling a Razorpay payment from the webhook', () => {
   });
 });
 
+// TTII 2026-10-08 — "Shifa Shukoor paid only 26000 but in LMS it shows 31000."
+// Razorpay sends order.paid AND payment.captured for one payment at the same
+// moment. Both deliveries wrote a payment_info row (ids 41/42, same order, same
+// second), and the extra Rs.5,000 surfaced as Paid on her profile. Two more
+// payments were doubled the same way on 3 Oct.
+//
+// This harness models what the database does: a transaction's writes become
+// visible to others only when it COMMITS, a transaction that returns normally
+// commits (Prisma rolls back only on throw), and the guarded order flip lets
+// exactly one caller through.
+function makeConcurrentService(): { service: CommerceService; committed: Record<string, unknown>[] } {
+  const committed: Record<string, unknown>[] = [];
+  let orderStatus = 'pending';
+  let started = 0;
+  let releaseBoth: () => void = () => undefined;
+  const bothStarted = new Promise<void>((resolve) => { releaseBoth = resolve; });
+
+  const prisma = {
+    $transaction: async (fn: (t: unknown) => Promise<boolean>) => {
+      const pending: Record<string, unknown>[] = [];
+      const tx = {
+        payment_info: {
+          count: ({ where }: { where: { razorpay_payment_id: string } }) => Promise.resolve(
+            committed.filter((r) => r.razorpay_payment_id === where.razorpay_payment_id).length,
+          ),
+          create: ({ data }: { data: Record<string, unknown> }) => { pending.push(data); return Promise.resolve({ id: 1 }); },
+        },
+        create_order: {
+          updateMany: () => {
+            if (orderStatus !== 'pending') return Promise.resolve({ count: 0 });
+            orderStatus = 'completed';
+            return Promise.resolve({ count: 1 });
+          },
+        },
+        enrol: { count: () => Promise.resolve(1), create: () => Promise.resolve({ id: 1 }) },
+        $executeRaw: () => Promise.resolve(1),
+      };
+      // Both deliveries are inside their transactions before either commits.
+      started += 1;
+      if (started === 2) releaseBoth();
+      await bothStarted;
+      const result = await fn(tx);
+      committed.push(...pending);
+      return result;
+    },
+    create_order: {
+      findFirst: () => Promise.resolve({
+        order_id: ORDER_ID, user_id: USER_ID, course_id: COURSE_ID, amount: 5000,
+        order_status: orderStatus, notes: JSON.stringify({ sp_id: SP_ID }),
+      }),
+    },
+    course: { findFirst: () => Promise.resolve({ sale_price: 0 }) },
+    users: {
+      findFirst: () => Promise.resolve({ id: USER_ID, user_email: 'student@example.com', email: null, phone: '9800000000' }),
+    },
+  } as unknown as PrismaClient;
+
+  return { service: new CommerceService({ prisma }), committed };
+}
+
+describe('order.paid and payment.captured arriving together', () => {
+  test('one payment is recorded once, not once per webhook event', async () => {
+    const { service, committed } = makeConcurrentService();
+
+    const [a, b] = await Promise.all([
+      service.reconcileWebhookOrderPayment(ORDER_ID, PAYMENT_ID),
+      service.reconcileWebhookOrderPayment(ORDER_ID, PAYMENT_ID),
+    ]);
+
+    expect(committed).toHaveLength(1);
+    expect([a.reconciled, b.reconciled].filter(Boolean)).toHaveLength(1);
+  });
+});
+
 describe('reading the ids out of a Razorpay webhook', () => {
   test('order.paid nests the order alongside the payment', async () => {
     const { extractRazorpayOrderPayment } = await import('../../src/routes/commerce.js');
