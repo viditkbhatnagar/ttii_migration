@@ -33,7 +33,8 @@ export const STUDENT_NAV_TREE: readonly StudentNavItem[] = [
   // Certificates moved here from Learning)
   { id: 'payments', label: 'Payments', href: '/student/payments', icon: 'CreditCard', section: 'account' },
   { id: 'calendar', label: 'Calendar', href: '/student/calendar', icon: 'CalendarDays', section: 'account' },
-  { id: 'certificates', label: 'Certificates', href: '/student/certificates', icon: 'Award', section: 'account' },
+  // TTII 2026-10-08 — Certificates hidden until real certificates are issued
+  // (last phase of the exam module). See StudentCertificatesPage.
   // System — settings + support (Naji 2026-06-05: Settings moved here)
   { id: 'settings', label: 'Settings', href: '/student/settings', icon: 'Settings', section: 'system' },
   { id: 'help', label: 'Help Center', href: '/student/help', icon: 'HelpCircle', section: 'system' },

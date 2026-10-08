@@ -601,10 +601,13 @@ export default function StudentDashboardPage({ api, session, onNavigate }: Stude
       tint: 'emerald',
     },
     {
+      // TTII 2026-10-08 — was "Certificates · ready to claim", counting courses
+      // at 100% lessons. No certificate exists behind that; it is a completion
+      // count, so say so.
       icon: Award,
-      label: 'Certificates',
+      label: 'Completed Courses',
       value: String(completedCourses),
-      delta: completedCourses > 0 ? 'ready to claim' : ' ',
+      delta: ' ',
       tint: 'primary',
     },
   ];
