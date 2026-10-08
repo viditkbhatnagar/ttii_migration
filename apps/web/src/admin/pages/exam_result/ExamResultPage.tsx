@@ -1,97 +1,125 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
+import { toExamResultsDetail, toExamResultsRows, type ExamResultsDetail as Detail } from './exam-results-model.js';
+import { ExamResultsList } from './ExamResultsList.js';
+import { ExamResultsDetail } from './ExamResultsDetail.js';
 
-export default function ExamResultPage({ api, session }: AdminPageProps) {
-  const [examFilter, setExamFilter] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
+// Exam → Result (TTII 2026-10-08), after Naji's Result Management design.
+// Replaces the flat attempt table that lived here: results are now worked out
+// per exam — every subject sitting, pass/fail/absent per student, an overall
+// result — and published from here in one action.
+//
+// The open exam lives in the URL (?exam=<id>) so the Exams table can deep-link
+// to it and the browser back button returns to the list.
 
-  useEffect(() => {
-    api.loadCourses(session.token).then(setCourses).catch(() => {});
-  }, [api, session.token]);
+const BASE_PATH = '/admin/Exam_result/index';
 
-  const { data, loading, error } = useAdminPageData(
-    () => api.loadAdminExamResults(session.token, {
-      ...(examFilter ? { examId: examFilter } : {}),
-      ...(courseFilter ? { courseId: courseFilter } : {}),
-    }),
-    [examFilter, courseFilter],
+function examFromUrl(): number | null {
+  const id = asNumber(new URLSearchParams(window.location.search).get('exam'));
+  return id > 0 ? id : null;
+}
+
+function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card>
+      <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+        {message}
+        <div className="mt-4"><Button variant="outline" onClick={onRetry}>Retry</Button></div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExamResultView({ examId, api, session, onBack }: { examId: number; onBack: () => void } & Pick<AdminPageProps, 'api' | 'session'>) {
+  const confirm = useConfirm();
+  const [publishing, setPublishing] = useState(false);
+  const { data, loading, error, reload } = useAdminPageData<Detail | null>(
+    async () => {
+      const raw = await api.getExamResultSheet(session.token, String(examId));
+      return raw ? toExamResultsDetail(raw) : null;
+    },
+    [examId],
   );
 
-  const exams = data?.exams ?? [];
-  const results = data?.results ?? [];
+  const publish = useCallback(async () => {
+    if (!data) return;
+    const flagged = data.totals.flagged;
+    const ok = await confirm({
+      title: 'Publish exam results?',
+      description:
+        `All ${data.totals.students} students of "${data.title}" will see their marks and result for every subject, and will be emailed.`
+        + (flagged > 0 ? ` ${flagged} student${flagged === 1 ? ' has' : 's have'} a paper flagged for a possible technical issue.` : '')
+        + ' Published results cannot be withdrawn from here.',
+      confirmText: 'Publish results',
+    });
+    if (!ok) return;
+    setPublishing(true);
+    try {
+      const res = await api.publishExamResultSheet(session.token, String(data.examId));
+      const message = asString(res.message) || 'Done.';
+      if (asNumber(res.status) === 1) {
+        toast.success(message);
+        reload();
+      } else {
+        toast.error(message);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not publish the results.');
+    } finally {
+      setPublishing(false);
+    }
+  }, [api, session.token, data, confirm, reload]);
 
-  const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'student_name', label: 'Student', sortable: true },
-    { key: 'student_id', label: 'Student ID' },
-    { key: 'exam_title', label: 'Exam' },
-    { key: 'score', label: 'Score', sortable: true },
-    { key: 'total_marks', label: 'Total Marks' },
-    { key: 'correct', label: 'Correct' },
-    { key: 'incorrect', label: 'Incorrect' },
-    { key: 'skip', label: 'Skipped' },
-    { key: 'time_taken', label: 'Time Taken' },
-    {
-      key: 'submit_status',
-      label: 'Status',
-      render: (v) => <AdminStatusBadge status={asNumber(v) === 1 ? 'Submitted' : 'Incomplete'} />,
-    },
-  ], []);
-
-  const filters: FilterField[] = useMemo(() => [
-    {
-      key: 'course', label: 'Choose Course', type: 'select' as const, value: courseFilter,
-      placeholder: 'Choose Course',
-      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-      onChange: setCourseFilter,
-    },
-    {
-      key: 'exam', label: 'Choose Exam', type: 'select' as const, value: examFilter,
-      placeholder: 'Choose Exam',
-      options: exams.map((e) => ({ label: asString(e.title), value: asString(e.id) })),
-      onChange: setExamFilter,
-    },
-  ], [courseFilter, examFilter, courses, exams]);
-
-  if (loading) {
-    return <PageLoader label="Loading exam result..." />;
-  }
-
-  if (error) {
+  if (loading) return <PageLoader label="Loading results…" />;
+  if (error) return <ErrorCard message={error} onRetry={reload} />;
+  if (!data) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="status" className="py-10 text-center text-sm text-muted-foreground">
+          This exam could not be found.
+          <div className="mt-4"><Button variant="outline" onClick={onBack}>Back to exam results</Button></div>
+        </CardContent>
       </Card>
     );
   }
+  return <ExamResultsDetail detail={data} publishing={publishing} onBack={onBack} onPublish={() => void publish()} />;
+}
 
-  return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Exam Results" />
+export default function ExamResultPage({ api, session, onNavigate }: AdminPageProps) {
+  const [openExam, setOpenExam] = useState<number | null>(examFromUrl);
 
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={() => { setExamFilter(''); setCourseFilter(''); }}
-      />
+  // Back/forward between the list and an exam.
+  useEffect(() => {
+    const sync = () => setOpenExam(examFromUrl());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
 
-      {!examFilter ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-gray-500">
-            Select an exam from the filter above to view results.
-          </CardContent>
-        </Card>
-      ) : (
-        <AdminDataTable columns={columns} rows={results} exportable />
-      )}
-    </div>
+  const { data, loading, error, reload } = useAdminPageData(
+    async () => toExamResultsRows(await api.listExamResultSheets(session.token)),
+    [openExam === null],
   );
+
+  const open = (examId: number) => {
+    onNavigate(`${BASE_PATH}?exam=${examId}`);
+    setOpenExam(examId);
+  };
+  const back = () => {
+    onNavigate(BASE_PATH);
+    setOpenExam(null);
+  };
+
+  if (openExam !== null) {
+    return <ExamResultView examId={openExam} api={api} session={session} onBack={back} />;
+  }
+  if (loading) return <PageLoader label="Loading exam results…" />;
+  if (error) return <ErrorCard message={error} onRetry={reload} />;
+  return <ExamResultsList rows={data ?? []} onOpen={open} />;
 }

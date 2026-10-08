@@ -223,8 +223,11 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
             onClick: (row) => onNavigate('/admin/exam/edit/' + asString(row.id)),
           },
           {
-            label: 'Publish Result',
-            onClick: (row) => { void api.publishExamResult(session.token, asString(row.id)); },
+            // TTII 2026-10-08 — was "Publish Result", which fired on one click
+            // with no confirmation and emailed no one. Results are reviewed and
+            // published from Exam → Result.
+            label: 'View Results',
+            onClick: (row) => onNavigate(`/admin/Exam_result/index?exam=${asString(row.id)}`),
           },
           {
             label: 'Delete',

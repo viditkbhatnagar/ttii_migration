@@ -74,6 +74,8 @@ interface ExamView {
   durationLabel: string;
   marksLabel: string;
   questionCount: number;
+  /** TTII 2026-10-08 — the student's own result, once TTII publishes it. */
+  result: { score: number; total: number; status: 'passed' | 'failed' | '' } | null;
   raw: Record<string, unknown>;
 }
 
@@ -174,8 +176,32 @@ function toExamView(raw: Record<string, unknown>): ExamView {
     durationLabel: duration ? `${duration} min` : '',
     marksLabel: totalMark ? `${totalMark} marks` : '',
     questionCount,
+    result: asNumber(raw.result_published) === 1
+      ? {
+          score: asNumber(raw.result_score),
+          total: asNumber(raw.total_mark),
+          status: asString(raw.result_status) === 'passed' ? 'passed' : asString(raw.result_status) === 'failed' ? 'failed' : '',
+        }
+      : null,
     raw,
   };
+}
+
+// Published result on a completed exam card: the marks, and the verdict when
+// the sitting has a pass mark.
+function ExamResultChip({ result }: { result: NonNullable<ExamView['result']> }) {
+  const tone = result.status === 'passed'
+    ? 'bg-emerald-50 text-emerald-700'
+    : result.status === 'failed'
+      ? 'bg-rose-50 text-rose-700'
+      : 'bg-slate-50 text-slate-700';
+  return (
+    <span className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold ${tone}`}>
+      <span className="tabular-nums">{result.score}{result.total > 0 ? ` / ${result.total}` : ''}</span>
+      {result.status ? <span aria-hidden="true">·</span> : null}
+      {result.status === 'passed' ? 'Passed' : result.status === 'failed' ? 'Failed' : ''}
+    </span>
+  );
 }
 
 // Start time of the sitting, rendered in IST.
@@ -695,9 +721,13 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                             Starts Soon
                           </span>
                         ) : e.state === 'submitted' ? (
-                          <span className="inline-flex h-10 items-center rounded-xl bg-fuchsia-50 px-4 text-xs font-medium text-fuchsia-700">
-                            Awaiting Result
-                          </span>
+                          e.result ? (
+                            <ExamResultChip result={e.result} />
+                          ) : (
+                            <span className="inline-flex h-10 items-center rounded-xl bg-fuchsia-50 px-4 text-xs font-medium text-fuchsia-700">
+                              Awaiting Result
+                            </span>
+                          )
                         ) : (
                           <span className="inline-flex h-10 items-center rounded-xl bg-slate-50 px-4 text-xs font-medium text-slate-500">
                             Missed

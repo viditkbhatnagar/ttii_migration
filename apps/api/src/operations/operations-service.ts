@@ -5349,45 +5349,6 @@ export class OperationsService {
     return { status: 1, message: 'Score saved.' };
   }
 
-  async publishExamResults(actorUserId: string, examId: string): Promise<Record<string, unknown>> {
-    const id = toNullableIntId(examId);
-    if (!id) return { status: 0, message: 'Invalid exam id.' };
-    const actor = toNullableIntId(actorUserId);
-    const now = new Date();
-    await this.prisma.exam.updateMany({
-      where: { id, deleted_at: null },
-      data: { result_published_at: now, result_published_by: actor, updated_at: now, updated_by: actor },
-    });
-    // Best-effort: notify all allocated students by email.
-    try {
-      const allocs = await this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } });
-      const userIds = allocs.map((a) => a.user_id);
-      if (userIds.length > 0) {
-        const students = await this.prisma.users.findMany({ where: { id: { in: userIds }, deleted_at: null }, select: { id: true, name: true, user_email: true, email: true } });
-        const exam = await this.prisma.exam.findFirst({ where: { id }, select: { title: true, exam_code: true } });
-        const { createIntegrationRegistry } = await import('../integrations/registry.js');
-        const { renderBrandedEmail } = await import('../integrations/email-template.js');
-        const registry = createIntegrationRegistry();
-        for (const s of students) {
-          const to = s.user_email ?? s.email ?? '';
-          if (!to) continue;
-          try {
-            await registry.email.sendEmail({
-              to,
-              subject: `Results published — ${exam?.title ?? 'TTII'}`,
-              html: renderBrandedEmail({
-                heading: 'Your Exam Results Are Out',
-                bodyHtml: `<p>Hi ${escapeHtmlText(s.name ?? 'there')},</p><p>Results for <strong>${escapeHtmlText(exam?.title ?? '')}</strong>${exam?.exam_code ? ` (${escapeHtmlText(exam.exam_code)})` : ''} have been published. Log in to your portal to see your score and feedback.</p>`,
-                cta: { label: 'View My Results', href: 'https://learn.teachersindia.in/exams' },
-              }),
-            });
-          } catch { /* best-effort */ }
-        }
-      }
-    } catch { /* email phase swallowed */ }
-    return { status: 1, message: 'Results published.' };
-  }
-
   // Naji 2026-05-09 — Student Eligibility table.
   // Per-enrollment rows tagged Eligible / Completed / Not Eligible.
   //
@@ -6759,31 +6720,6 @@ export class OperationsService {
       message: children.length > 0
         ? `Exam deleted successfully, along with ${children.length} subject sitting${children.length === 1 ? '' : 's'}.`
         : 'Exam deleted successfully.',
-    };
-  }
-
-  // Naji UAT 2026-08-13 — this MUST cascade to the sittings. The Exams table
-  // lists parents only (listAdminExams pins parent_exam_id = null), so this
-  // always receives the PARENT id, while a student's attempt is always on a
-  // CHILD. Updating the parent alone published nothing a student could see, and
-  // the row badge reads the parent's own flag — so the admin got a green
-  // "Published" while every learner stayed on "Result awaited" indefinitely,
-  // with no surface showing anything wrong. Same cascade the instructions saver
-  // above already does. For a child id the second branch simply matches nothing.
-  async publishExamResult(actorUserId: string, examId: string): Promise<Record<string, unknown>> {
-    const id = toIntId(examId);
-    const now = new Date();
-    const updated = await this.prisma.exam.updateMany({
-      where: { OR: [{ id }, { parent_exam_id: id }], deleted_at: null },
-      data: { publish_result: true, updated_by: toNullableIntId(actorUserId), updated_at: now },
-    });
-    if (updated.count === 0) return { status: 0, message: 'Exam not found.' };
-    const sittings = updated.count - 1;
-    return {
-      status: 1,
-      message: sittings > 0
-        ? `Exam results published for ${sittings} subject sitting${sittings === 1 ? '' : 's'}.`
-        : 'Exam results published.',
     };
   }
 

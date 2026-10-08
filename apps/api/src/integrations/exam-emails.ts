@@ -203,9 +203,36 @@ export function renderExamSubmittedEmail(data: ExamSubmittedEmailData): string {
   });
 }
 
+export interface ExamResultsPublishedEmailData {
+  studentFirstName: string;
+  examName: string;
+}
+
+/**
+ * TTII 2026-10-08 — results released. Deliberately carries NO marks: the email
+ * says where to look, and the portal (behind the student's login) shows them.
+ */
+export function renderExamResultsPublishedEmail(data: ExamResultsPublishedEmailData): string {
+  const bodyInner = `
+    ${greeting(data.studentFirstName)}
+    <p style="margin:0 0 22px;${PARA}">
+      The results for <strong>${orDash(data.examName)}</strong> have been published.
+      Log in to the student portal to see your marks for each subject.
+    </p>
+    ${ctaButton('View My Results', EXAM_PORTAL_URL)}
+    ${supportNote()}
+  `;
+  return shell({
+    title: `Your Results Are Published — ${data.examName}`,
+    preheader: `Results published for ${data.examName}.`,
+    bodyInner,
+  });
+}
+
 /** Subject lines, kept beside the renderers so triggers stay consistent. */
 export const EXAM_EMAIL_SUBJECTS = {
   published: (examName: string): string => `Your Examination Schedule Has Been Published — ${examName}`,
+  resultsPublished: (examName: string): string => `Your Results Are Published — ${examName}`,
   reminder24h: (subjectName: string): string => `Reminder: Your ${subjectName} Exam Is Scheduled for Tomorrow`,
   reminder1h: (subjectName: string): string => `Your Exam Begins in 1 Hour — ${subjectName}`,
   submitted: (subjectName: string): string => `Exam Submitted Successfully — ${subjectName}`,

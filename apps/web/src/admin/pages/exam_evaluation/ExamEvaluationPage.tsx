@@ -1,9 +1,7 @@
 import { useCallback, useMemo, useState, Fragment } from 'react';
-import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageLoader } from '@/components/ui/page-loader';
-import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, asNumber, formatDate, toRecords } from '../../shared/utils/admin-data-utils.js';
@@ -16,21 +14,21 @@ import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 //   MCQ auto-score. (Manual descriptive grading dialog ships with
 //   the per-question UI in a follow-up — for now the page surfaces
 //   how many descriptive answers are graded vs pending.)
-//   Per exam: a "Publish Results" button that emails students.
+//   Per exam: a "Results" link. TTII 2026-10-08 — publishing moved to
+//   Exam → Result, which publishes the WHOLE exam (every subject sitting) at
+//   once; this page used to publish one sitting at a time.
 
 interface ExamRow { exam_id: number; exam_code: string; title: string; from_date: string; allocated: number; attempted: number; result_published: boolean }
 interface SubjectRow { exam_subject_id: number; subject_title: string; exam_date: string; total_marks: number; pass_marks: number; mcq_questions: number; descriptive_questions: number }
 interface StudentRow { user_id: number; student_id: string; name: string; email: string; attempt_id: number | null; attempted: boolean; submit_status: boolean; mcq_score: number; correct: number; incorrect: number; skip: number; descriptive_graded: number }
 
-export default function ExamEvaluationPage({ api, session }: AdminPageProps) {
-  const confirm = useConfirm();
+export default function ExamEvaluationPage({ api, session, onNavigate }: AdminPageProps) {
   const [openExam, setOpenExam] = useState<number | null>(null);
   const [openSubject, setOpenSubject] = useState<number | null>(null);
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [subjectsLoading, setSubjectsLoading] = useState(false);
   const [studentsLoading, setStudentsLoading] = useState(false);
-  const [publishing, setPublishing] = useState<number | null>(null);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.listEvaluationExams(session.token),
@@ -89,21 +87,6 @@ export default function ExamEvaluationPage({ api, session }: AdminPageProps) {
     } finally { setStudentsLoading(false); }
   }, [api, session.token, openSubject]);
 
-  const handlePublish = useCallback(async (exam: ExamRow) => {
-    if (!(await confirm({ title: 'Publish results?', description: `Students allocated to "${exam.title}" will be emailed and can see their score on the portal.`, confirmText: 'Publish', variant: 'default' }))) return;
-    setPublishing(exam.exam_id);
-    try {
-      const res = await api.publishExamResults(session.token, String(exam.exam_id));
-      const status = (res as { status?: number }).status;
-      const message = asString((res as { message?: unknown }).message) || 'Done.';
-      if (status === 1) {
-        toast.success(message);
-        reload();
-      } else toast.error(message);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to publish.');
-    } finally { setPublishing(null); }
-  }, [api, session.token, confirm, reload]);
 
   if (loading) return <PageLoader label="Loading evaluation…" />;
   if (error) return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
@@ -113,7 +96,7 @@ export default function ExamEvaluationPage({ api, session }: AdminPageProps) {
       <AdminPageHeader title="Evaluation">
         <Button variant="outline" onClick={reload}>Refresh</Button>
       </AdminPageHeader>
-      <p className="-mt-2 text-sm text-gray-500">MCQ answers are auto-evaluated. Descriptive answers need manual grading. Publish results once everything is reviewed.</p>
+      <p className="-mt-2 text-sm text-gray-500">MCQ answers are auto-evaluated. Descriptive answers need manual grading. Review and publish results under Exam → Result.</p>
 
       <Card>
         <CardContent className="p-0">
@@ -146,11 +129,9 @@ export default function ExamEvaluationPage({ api, session }: AdminPageProps) {
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-2">
                           <Button size="sm" variant="outline" onClick={() => { void openExamRow(e.exam_id); }}>{openExam === e.exam_id ? 'Hide' : 'View'}</Button>
-                          {!e.result_published ? (
-                            <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => { void handlePublish(e); }} disabled={publishing === e.exam_id}>
-                              {publishing === e.exam_id ? 'Publishing…' : 'Publish Results'}
-                            </Button>
-                          ) : null}
+                          <Button size="sm" variant="outline" onClick={() => onNavigate(`/admin/Exam_result/index?exam=${e.exam_id}`)}>
+                            Results
+                          </Button>
                         </div>
                       </td>
                     </tr>

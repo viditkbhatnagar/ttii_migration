@@ -185,11 +185,6 @@ export interface AdminExamListSnapshot {
   summary: { total: number; upcoming: number; expired: number; practice: number };
 }
 
-export interface AdminExamResultSnapshot {
-  exams: Record<string, unknown>[];
-  results: Record<string, unknown>[];
-}
-
 export interface AdminExamEvaluationSnapshot {
   exams: Record<string, unknown>[];
   pendingEvaluations: Record<string, unknown>[];
@@ -1519,9 +1514,6 @@ export class AdminPortalApi {
   async submitDescriptiveGrade(authToken: string, input: { attempt_id: number; question_id: number; score: number; remarks?: string }): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam_evaluation/grade', authToken, input);
   }
-  async publishExamResults(authToken: string, examId: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/exam_evaluation/publish', authToken, { exam_id: examId });
-  }
 
   // Step 2 — scheduling.
   async getExamSchedulingSuggestions(authToken: string, examId: string): Promise<Record<string, unknown>[]> {
@@ -1665,9 +1657,6 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/exam/delete', authToken, { id });
   }
 
-  async publishExamResult(authToken: string, examId: string): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/exam/publish_result', authToken, { id: examId });
-  }
 
   // ─── Phase 2: Assignments ──────────────────────────────────────────────
 
@@ -1744,24 +1733,21 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/assignment/verify', authToken, { id: submissionId });
   }
 
-  // ─── Phase 2: Exam Results ─────────────────────────────────────────────
+  // ─── Exam → Result (TTII 2026-10-08) ───────────────────────────────────
+  // One result sheet per exam and ONE publish action; see exam-results-service.
 
-  async loadAdminExamResults(
-    authToken: string,
-    filters: { examId?: string; courseId?: string; batchId?: string } = {},
-  ): Promise<AdminExamResultSnapshot> {
-    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/Exam_result/index', authToken, {
-      ...(filters.examId ? { exam_id: filters.examId } : {}),
-      ...(filters.courseId ? { course_id: filters.courseId } : {}),
-      ...(filters.batchId ? { batch_id: filters.batchId } : {}),
-    });
+  async listExamResultSheets(authToken: string): Promise<unknown[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_results/list', authToken);
+    return Array.isArray(payload.data) ? payload.data : [];
+  }
 
-    const data = asRecord(payload.data) ?? {};
+  async getExamResultSheet(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exam_results/detail', authToken, { exam_id: examId });
+    return asRecord(payload.data) ?? null;
+  }
 
-    return {
-      exams: toRecords(data.exams),
-      results: toRecords(data.results),
-    };
+  async publishExamResultSheet(authToken: string, examId: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam_results/publish', authToken, { exam_id: examId });
   }
 
   // ─── Phase 2: Exam Evaluation ──────────────────────────────────────────

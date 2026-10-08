@@ -6,6 +6,7 @@ import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, IN
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
+import { ExamResultsService } from '../operations/exam-results-service.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -45,6 +46,7 @@ import {
 interface RegisterOperationsRoutesOptions {
   authService?: AuthService;
   operationsService?: OperationsService;
+  examResultsService?: ExamResultsService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -384,6 +386,7 @@ export function registerOperationsRoutes(
   const authService = options.authService ?? new AuthService();
   const operationsService = options.operationsService ?? new OperationsService();
   const announcementService = new AnnouncementService();
+  const examResultsService = options.examResultsService ?? new ExamResultsService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2150,12 +2153,46 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/exam_evaluation/publish', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  // TTII 2026-10-08 — Exam → Result. One sheet per exam (every subject sitting,
+  // pass/fail/absent per student) and the ONE publish action. Admin/Subadmin
+  // only: releasing results is not a counsellor function.
+  app.get('/admin/exam_results/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await examResultsService.listExams();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_results/detail', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.publishExamResults(requestUserId(request), toStringValue(payload.exam_id));
+      const data = await examResultsService.getExamResults(toInteger(payload.exam_id));
+      if (!data) {
+        reply.code(200).send({ status: 0, message: 'Exam not found.', data: null });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  const publishResults = async (request: FastifyRequest, reply: FastifyReply, examIdField: 'exam_id' | 'id'): Promise<void> => {
+    try {
+      const payload = requestPayload(request);
+      const actor = toInteger(requestUserId(request));
+      const result = await examResultsService.publish(actor > 0 ? actor : null, toInteger(payload[examIdField]));
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
+  };
+
+  app.post('/admin/exam_results/publish', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    await publishResults(request, reply, 'exam_id');
+  });
+
+  // The two older publish routes write through the same action, so whichever
+  // client calls them gets the whole exam published and the students emailed
+  // once — never a single sitting, never silently.
+  app.post('/admin/exam_evaluation/publish', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    await publishResults(request, reply, 'exam_id');
   });
 
   // Naji 2026-05-09 — Student Eligibility table.
@@ -2470,14 +2507,8 @@ export function registerOperationsRoutes(
     }
   });
 
-  app.post('/admin/exam/publish_result', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
-    try {
-      const payload = requestPayload(request);
-      const result = await operationsService.publishExamResult(requestUserId(request), toStringValue(payload.id));
-      reply.code(200).send(result);
-    } catch (error: unknown) {
-      sendOperationsError(reply, error);
-    }
+  app.post('/admin/exam/publish_result', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    await publishResults(request, reply, 'id');
   });
 
   // ─── Phase 2: Assignments ───────────────────────────────────────────────

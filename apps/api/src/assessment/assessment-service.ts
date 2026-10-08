@@ -405,7 +405,7 @@ function parseDurationMinutes(value: unknown): number {
  * The recombination goes through combineDateAndTime, which is the one helper in
  * this file that pins an IST wall clock to a UTC instant. No second variant.
  */
-function examWindowCloseInstant(exam: ExamWindowRow): Date | null {
+export function examWindowCloseInstant(exam: ExamWindowRow): Date | null {
   if (!exam.to_date) {
     // No closing day configured — unchanged from the pre-2026-08-11 behaviour,
     // where endOfDay(null) also produced "no window close".
@@ -1118,9 +1118,20 @@ export class AssessmentService {
       state = 'available';
     }
 
+    const result = isSubmitted
+      ? await this.publishedExamResult(exam, toNullableIntId(userId) ?? 0)
+      : null;
+
     // Ansaba UAT 2026-05-22 — Flutter Exam model types `id` as int.
     // Send the raw int so Map<int,Exam> indexing doesn't crash.
     return {
+      // TTII 2026-10-08 — the student's own result once TTII publishes it.
+      // Additive, and always present with a typed default (0 / '') so the
+      // Flutter parse never meets a null.
+      result_published: result ? 1 : 0,
+      result_score: result?.score ?? 0,
+      result_pass_mark: result?.passMark ?? 0,
+      result_status: result?.status ?? '',
       id: toNullableIntId(examId) ?? 0,
       title: toStringValue(exam.title),
       exam_code: toStringValue(exam.exam_code),
@@ -1153,6 +1164,52 @@ export class AssessmentService {
         return fromLabel || '';
       })(),
       exam_link: `${this.appBaseUrl}/exam/exam_web_view/${examId}/${userId}`,
+    };
+  }
+
+  /**
+   * TTII 2026-10-08 — the student's result on one sitting, or null while it is
+   * sealed. Published means this sitting OR its parent exam carries either
+   * publish flag (the same rule recent activity uses). The newest submitted
+   * attempt counts, so a re-sit replaces the first paper. Pass/fail needs the
+   * sitting's pass mark; without one the score is shown with no verdict.
+   */
+  private async publishedExamResult(
+    exam: Record<string, unknown>,
+    userIdInt: number,
+  ): Promise<{ score: number; passMark: number; status: 'passed' | 'failed' | '' } | null> {
+    const flagged = (row: { publish_result?: unknown; result_published_at?: unknown } | null): boolean =>
+      !!row && (row.publish_result === true || (row.result_published_at !== null && row.result_published_at !== undefined));
+
+    let published = flagged(exam);
+    const parentId = toNullableIntId(toStringValue(exam.parent_exam_id));
+    if (!published && parentId) {
+      const parent = await this.prisma.exam.findFirst({
+        where: { id: parentId, deleted_at: null },
+        select: { publish_result: true, result_published_at: true },
+      });
+      published = flagged(parent);
+    }
+    if (!published || userIdInt <= 0) return null;
+
+    const examIdInt = toNullableIntId(toStringValue(exam.id)) ?? 0;
+    const attempt = await this.prisma.exam_attempt.findFirst({
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+      orderBy: { id: 'desc' },
+      select: { score: true },
+    });
+    if (!attempt) return null;
+
+    const scheduleId = toNullableIntId(toStringValue(exam.exam_subject_id));
+    const schedule = scheduleId
+      ? await this.prisma.exam_subjects.findFirst({ where: { id: scheduleId }, select: { pass_marks: true } })
+      : null;
+    const score = attempt.score ?? 0;
+    const passMark = schedule?.pass_marks && schedule.pass_marks > 0 ? schedule.pass_marks : 0;
+    return {
+      score,
+      passMark,
+      status: passMark > 0 ? (score >= passMark ? 'passed' : 'failed') : '',
     };
   }
 
