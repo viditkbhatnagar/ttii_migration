@@ -30,7 +30,9 @@ function downloadCsv(filename: string, csv: string): void {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoked on the next tick: Safari cancels a download whose URL is revoked
+  // synchronously after click().
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function Notice({ tone, icon: Icon, children }: { tone: 'amber' | 'sky' | 'emerald'; icon: typeof Info; children: React.ReactNode }) {

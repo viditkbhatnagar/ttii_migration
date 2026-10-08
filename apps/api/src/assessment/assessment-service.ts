@@ -291,7 +291,7 @@ const LATE_SUBMIT_GRACE_MS = 90 * 1000;
  * both paths produce the identical score — the race is designed out rather
  * than locked against.
  */
-const AUTO_SUBMIT_GRACE_MS = 5 * 60 * 1000;
+export const AUTO_SUBMIT_GRACE_MS = 5 * 60 * 1000;
 
 /**
  * The sweeper only ever looks this far back. Two jobs at once:

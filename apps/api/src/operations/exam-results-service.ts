@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 
-import { examWindowCloseInstant } from '../assessment/assessment-service.js';
+import { AUTO_SUBMIT_GRACE_MS, examWindowCloseInstant } from '../assessment/assessment-service.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
 import {
@@ -174,15 +174,25 @@ export class ExamResultsService {
     }
 
     const now = this.now();
+    const published = {
+      publish_result: true,
+      result_published_at: now,
+      result_published_by: actorUserId,
+      updated_at: now,
+      updated_by: actorUserId,
+    };
+    // Claim the exam first, guarded on "not yet published", so a double-click
+    // or two admins at once publish (and email) exactly once.
+    const claimed = await this.prisma.exam.updateMany({
+      where: { id: top.id, publish_result: false, result_published_at: null, deleted_at: null },
+      data: published,
+    });
+    if (claimed.count === 0) {
+      return { status: 0, message: 'Results for this exam are already published.' };
+    }
     await this.prisma.exam.updateMany({
-      where: { OR: [{ id: top.id }, { parent_exam_id: top.id }], deleted_at: null },
-      data: {
-        publish_result: true,
-        result_published_at: now,
-        result_published_by: actorUserId,
-        updated_at: now,
-        updated_by: actorUserId,
-      },
+      where: { parent_exam_id: top.id, deleted_at: null },
+      data: published,
     });
 
     const notified = await this.notifyStudents(loaded);
@@ -236,14 +246,20 @@ export class ExamResultsService {
     const nowMs = this.now().getTime();
     const sittings: ResultSitting[] = sittingRows.map((row) => {
       const schedule = row.exam_subject_id !== null ? scheduleById.get(row.exam_subject_id) : soleSchedule;
+      // A sitting counts as over only once the server's own auto-submit has had
+      // its chance: a paper still running at the window close is finalised up
+      // to AUTO_SUBMIT_GRACE_MS later, and publishing before then would seal a
+      // result ("absent") that the finalised paper then contradicts. A sitting
+      // with no closing date has no window to wait for.
       const closeAt = examWindowCloseInstant(row);
+      const closed = closeAt === null || closeAt.getTime() + AUTO_SUBMIT_GRACE_MS < nowMs;
       return {
         examId: row.id,
         subjectTitle: (schedule?.subject_title ?? '').trim() || (row.title ?? '').trim() || `Exam ${row.id}`,
         date: ymd(row.from_date),
         totalMarks: positiveOrNull(row.mark) ?? positiveOrNull(schedule?.total_marks) ?? 0,
         passMarks: positiveOrNull(schedule?.pass_marks),
-        closed: closeAt !== null && closeAt.getTime() < nowMs,
+        closed,
       };
     });
 

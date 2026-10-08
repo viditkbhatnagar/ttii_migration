@@ -49,7 +49,7 @@ interface StubExamRow {
 }
 
 interface ExamRowUpdate {
-  where: { OR?: Array<Record<string, unknown>>; deleted_at: null };
+  where: Record<string, unknown> & { deleted_at: null };
   data: Record<string, unknown>;
 }
 
@@ -76,7 +76,7 @@ function examRow(id: number, overrides: Partial<StubExamRow> = {}): Record<strin
   };
 }
 
-function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: boolean } = {}): {
+function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: boolean; now?: Date } = {}): {
   service: ExamResultsService;
   updated: () => number[];
   calls: ExamRowUpdate[];
@@ -98,14 +98,10 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
   const touched: number[] = [];
   const mailed: string[] = [];
 
-  const matches = (where: Record<string, unknown>, row: Record<string, unknown>): boolean => {
-    const clauses = (where.OR as Array<Record<string, unknown>> | undefined) ?? [where];
-    return clauses.some((c) => {
-      if ('id' in c && typeof c.id === 'number') return row.id === c.id;
-      if ('parent_exam_id' in c && c.parent_exam_id !== undefined) return row.parent_exam_id === c.parent_exam_id;
-      return false;
-    });
-  };
+  // Models the real WHERE: every listed column must match (null and false
+  // included), so the "not yet published" guard on the claim is honoured.
+  const matches = (where: Record<string, unknown>, row: Record<string, unknown>): boolean =>
+    Object.entries(where).every(([col, want]) => col === 'deleted_at' || row[col] === want);
 
   const prisma = {
     exam: {
@@ -114,7 +110,8 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
         Promise.resolve(rows.filter((r) => r.parent_exam_id === where.parent_exam_id)),
       updateMany: (args: ExamRowUpdate) => {
         calls.push(args);
-        const hit = rows.filter((r) => matches(args.where as unknown as Record<string, unknown>, r));
+        const hit = rows.filter((r) => matches(args.where, r));
+        for (const r of hit) Object.assign(r, args.data);
         touched.push(...hit.map((r) => r.id as number));
         return Promise.resolve({ count: hit.length });
       },
@@ -144,7 +141,7 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
     sendEmail: ({ to }: { to: string }) => { mailed.push(to); return Promise.resolve({ accepted: true }); },
   } as unknown as EmailProvider;
 
-  return { service: new ExamResultsService(prisma, { email, now: () => NOW }), updated: () => touched, calls, mailed };
+  return { service: new ExamResultsService(prisma, { email, now: () => opts.now ?? NOW }), updated: () => touched, calls, mailed };
 }
 
 describe('publishing results — the whole exam at once', () => {
@@ -172,9 +169,33 @@ describe('publishing results — the whole exam at once', () => {
 
     await service.publish(7, PARENT_ID);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.data).toMatchObject({ publish_result: true, result_published_at: NOW, result_published_by: 7 });
-    expect(calls[0]?.where.deleted_at).toBeNull();
+    // The guarded claim on the exam itself, then its sittings.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.where).toMatchObject({ id: PARENT_ID, publish_result: false, result_published_at: null });
+    for (const call of calls) {
+      expect(call.data).toMatchObject({ publish_result: true, result_published_at: NOW, result_published_by: 7 });
+      expect(call.where.deleted_at).toBeNull();
+    }
+  });
+
+  test('a double-click publishes and emails once', async () => {
+    const { service, mailed } = makePublishService();
+
+    const [a, b] = await Promise.all([service.publish(1, PARENT_ID), service.publish(1, PARENT_ID)]);
+
+    expect([a.status, b.status].sort()).toEqual([0, 1]);
+    expect(mailed).toEqual(['asha@example.com']);
+  });
+
+  test('refused inside the auto-submit window after the last sitting closes', async () => {
+    // Both sittings close 10 Aug 08:45 PM IST (15:15Z). A paper still running
+    // then is finalised by the server up to 5 minutes later.
+    const { service, calls } = makePublishService({ now: new Date('2026-08-10T15:17:00Z') });
+
+    const res = await service.publish(1, PARENT_ID);
+
+    expect(res.status).toBe(0);
+    expect(calls).toHaveLength(0);
   });
 
   test('each student is emailed once; a phone number in the email column is skipped', async () => {

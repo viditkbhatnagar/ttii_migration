@@ -92,34 +92,33 @@ function ExamResultView({ examId, api, session, onBack }: { examId: number; onBa
   return <ExamResultsDetail detail={data} publishing={publishing} onBack={onBack} onPublish={() => void publish()} />;
 }
 
+function ExamResultsListView({ api, session, onOpen }: { onOpen: (examId: number) => void } & Pick<AdminPageProps, 'api' | 'session'>) {
+  // Only mounted while the list is on screen, so opening an exam (or arriving
+  // on a deep link) never pays for the whole list. Cached, so coming back from
+  // an exam paints at once and refreshes behind it.
+  const { data, loading, error, reload } = useAdminPageData(
+    async () => toExamResultsRows(await api.listExamResultSheets(session.token)),
+    [],
+    'admin:exam-results:list',
+  );
+  if (loading) return <PageLoader label="Loading exam results…" />;
+  if (error) return <ErrorCard message={error} onRetry={reload} />;
+  return <ExamResultsList rows={data ?? []} onOpen={onOpen} />;
+}
+
 export default function ExamResultPage({ api, session, onNavigate }: AdminPageProps) {
   const [openExam, setOpenExam] = useState<number | null>(examFromUrl);
 
-  // Back/forward between the list and an exam.
+  // The admin router fires popstate on every navigation (and the browser on
+  // back/forward), so the URL stays the single source of the open exam.
   useEffect(() => {
     const sync = () => setOpenExam(examFromUrl());
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
 
-  const { data, loading, error, reload } = useAdminPageData(
-    async () => toExamResultsRows(await api.listExamResultSheets(session.token)),
-    [openExam === null],
-  );
-
-  const open = (examId: number) => {
-    onNavigate(`${BASE_PATH}?exam=${examId}`);
-    setOpenExam(examId);
-  };
-  const back = () => {
-    onNavigate(BASE_PATH);
-    setOpenExam(null);
-  };
-
   if (openExam !== null) {
-    return <ExamResultView examId={openExam} api={api} session={session} onBack={back} />;
+    return <ExamResultView examId={openExam} api={api} session={session} onBack={() => onNavigate(BASE_PATH)} />;
   }
-  if (loading) return <PageLoader label="Loading exam results…" />;
-  if (error) return <ErrorCard message={error} onRetry={reload} />;
-  return <ExamResultsList rows={data ?? []} onOpen={open} />;
+  return <ExamResultsListView api={api} session={session} onOpen={(examId) => onNavigate(`${BASE_PATH}?exam=${examId}`)} />;
 }

@@ -236,8 +236,11 @@ export const STATUS_LABEL: Record<ExamResultsStatus, string> = {
 /** CSV of the result sheet — one row per student, one column per subject. */
 export function resultSheetCsv(detail: ExamResultsDetail): string {
   const esc = (v: string | number): string => {
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = String(v);
+    // A cell opening with = + - @ (or a tab/CR) is run as a formula by Excel;
+    // a leading apostrophe keeps it text. Numbers are never prefixed.
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const head = [
     'Student', 'Student ID',
