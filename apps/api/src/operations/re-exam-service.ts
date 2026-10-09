@@ -8,6 +8,7 @@ import {
 import { NOT_CANCELLED, withReExamWindow, type ActiveReExam } from '../assessment/re-exam-window.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
+import { examQuestionIds, isExamPaper } from './exam-paper.js';
 
 // Re-examination (TTII 2026-10-09). Schedules, moves, cancels and lists
 // re-exams: one subject sitting re-opened for one student in a window of its
@@ -187,9 +188,10 @@ export class ReExamService {
       };
     }
 
-    // Only students who were allocated this paper can be re-examined on it.
+    // Only students allocated THIS sitting — the same check the student's own
+    // gate makes, so nobody is emailed a re-exam they cannot open.
     const allocated = await this.prisma.exam_student_allocations.findMany({
-      where: { exam_id: { in: [sitting.id, ...(sitting.parent_exam_id ? [sitting.parent_exam_id] : [])] }, user_id: { in: userIds } },
+      where: { exam_id: sitting.id, user_id: { in: userIds } },
       select: { user_id: true },
     });
     const allocatedIds = new Set(allocated.map((a) => a.user_id));
@@ -202,37 +204,75 @@ export class ReExamService {
       return { status: 0, message: `${missing} selected student${missing === 1 ? ' is' : 's are'} not allocated to this exam.` };
     }
 
-    const notes = (input.notes ?? '').trim().slice(0, 500) || null;
-    let scheduled = 0;
-    let rescheduled = 0;
-    const toEmail: Array<{ student: (typeof students)[number]; rescheduled: boolean }> = [];
+    // Their papers on this sitting (lesson-quiz rows sharing the id space excluded).
+    const paperQuestions = await examQuestionIds(this.prisma, [sitting.id]);
+    const papers = (await this.prisma.exam_attempt.findMany({
+      where: { exam_id: sitting.id, user_id: { in: userIds }, deleted_at: null },
+      select: { user_id: true, submit_status: true, created_at: true, question_id: true },
+    })).filter((a) => isExamPaper(a.question_id, paperQuestions.get(sitting.id)));
+
+    // Plan every student before writing anything, so a refusal leaves no half-done batch.
+    type Plan = { student: (typeof students)[number]; existingId: number | null };
+    const plans: Plan[] = [];
+    const busy: string[] = [];
     for (const student of students) {
       const existing = await this.prisma.exam_re_examinations.findFirst({
         where: { exam_id: sitting.id, user_id: student.id, ...NOT_CANCELLED },
         orderBy: { id: 'desc' },
-        select: { id: true, created_at: true },
+        select: { id: true, created_at: true, new_date: true, new_start_time: true, new_end_time: true },
       });
-      // Move a re-exam the student has not started; once they have, a new one
-      // is a fresh re-exam with its own attempt floor.
-      const started = existing?.created_at
-        ? await this.prisma.exam_attempt.count({
-            where: { exam_id: sitting.id, user_id: student.id, deleted_at: null, created_at: { gte: existing.created_at } },
-          })
-        : 0;
-      const windowData = {
-        new_date: window.date,
-        new_start_time: window.start,
-        new_end_time: window.end,
-        notes,
+      if (!existing?.created_at) {
+        plans.push({ student, existingId: null });
+        continue;
+      }
+      const floor = existing.created_at.getTime();
+      const since = papers.filter((a) => a.user_id === student.id && (a.created_at?.getTime() ?? -Infinity) >= floor);
+      if (since.length === 0) {
+        // Not started: move this re-exam rather than stacking a second one.
+        plans.push({ student, existingId: existing.id });
+        continue;
+      }
+      // Started. A fresh re-exam would move the attempt floor past a paper the
+      // student may still be writing, and that paper would then be judged by
+      // the original (closed) window and finalised mid-way. Wait until it is
+      // over: submitted, or its window (plus the auto-submit grace) has passed.
+      const active: ActiveReExam | null = existing.new_date && existing.new_start_time && existing.new_end_time
+        ? { id: existing.id, examId: sitting.id, userId: student.id, date: existing.new_date, startTime: existing.new_start_time, endTime: existing.new_end_time, scheduledAt: existing.created_at }
+        : null;
+      const closeAt = active ? examWindowCloseInstant(withReExamWindow(sitting, active)) : null;
+      const windowOver = closeAt === null || closeAt.getTime() + AUTO_SUBMIT_GRACE_MS < nowMs;
+      if (since.some((a) => a.submit_status !== true) && !windowOver) {
+        busy.push((student.name ?? '').trim() || `Student ${student.id}`);
+        continue;
+      }
+      plans.push({ student, existingId: null });
+    }
+    if (busy.length > 0) {
+      return {
+        status: 0,
+        message: `${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} still writing the current re-exam. Schedule again once that paper is finished.`,
       };
-      if (existing && started === 0) {
-        await this.prisma.exam_re_examinations.update({ where: { id: existing.id }, data: windowData });
+    }
+
+    const notes = (input.notes ?? '').trim().slice(0, 500);
+    const windowData = { new_date: window.date, new_start_time: window.start, new_end_time: window.end };
+    let scheduled = 0;
+    let rescheduled = 0;
+    const toEmail: Array<{ student: (typeof students)[number]; rescheduled: boolean }> = [];
+    for (const { student, existingId } of plans) {
+      if (existingId !== null) {
+        await this.prisma.exam_re_examinations.update({
+          where: { id: existingId },
+          // An empty note on a move keeps the note already there.
+          data: { ...windowData, ...(notes ? { notes } : {}) },
+        });
         rescheduled += 1;
         toEmail.push({ student, rescheduled: true });
       } else {
         await this.prisma.exam_re_examinations.create({
           data: {
             ...windowData,
+            notes: notes || null,
             exam_id: sitting.id,
             exam_subject_id: sitting.exam_subject_id,
             user_id: student.id,
@@ -269,10 +309,12 @@ export class ReExamService {
     });
     if (!row) return { status: 0, message: 'Re-exam not found.' };
     if (row.status === 'cancelled') return { status: 0, message: 'This re-exam is already cancelled.' };
+    const paperQuestions = await examQuestionIds(this.prisma, [row.exam_id]);
     const started = row.created_at
-      ? await this.prisma.exam_attempt.count({
+      ? (await this.prisma.exam_attempt.findMany({
           where: { exam_id: row.exam_id, user_id: row.user_id, deleted_at: null, created_at: { gte: row.created_at } },
-        })
+          select: { question_id: true },
+        })).filter((a) => isExamPaper(a.question_id, paperQuestions.get(row.exam_id))).length
       : 0;
     if (started > 0) return { status: 0, message: 'The student has already started this re-exam, so it cannot be cancelled.' };
     await this.prisma.exam_re_examinations.update({ where: { id: row.id }, data: { status: 'cancelled' } });
@@ -293,9 +335,11 @@ export class ReExamService {
       }),
       this.prisma.exam_attempt.findMany({
         where: { exam_id: { in: sittingIds }, user_id: { in: userIds }, deleted_at: null },
-        select: { id: true, exam_id: true, user_id: true, score: true, submit_status: true, created_at: true, start_time: true },
+        select: { id: true, exam_id: true, user_id: true, score: true, submit_status: true, created_at: true, start_time: true, question_id: true },
       }),
     ]);
+    const paperQuestions = await examQuestionIds(this.prisma, sittingIds);
+    const papers = attempts.filter((a) => a.exam_id !== null && isExamPaper(a.question_id, paperQuestions.get(a.exam_id)));
     const parentIds = [...new Set(sittings.map((s) => s.parent_exam_id).filter((v): v is number => v !== null))];
     const scheduleIds = [...new Set(sittings.map((s) => s.exam_subject_id).filter((v): v is number => v !== null))];
     const [parents, schedules] = await Promise.all([
@@ -330,7 +374,7 @@ export class ReExamService {
       const student = userById.get(r.user_id);
       const floor = r.created_at?.getTime() ?? 0;
       const ceiling = nextFloor.get(r.id) ?? Infinity;
-      const mine = attempts.filter((a) => a.exam_id === r.exam_id && a.user_id === r.user_id);
+      const mine = papers.filter((a) => a.exam_id === r.exam_id && a.user_id === r.user_id);
       const created = (a: (typeof mine)[number]): number => a.created_at?.getTime() ?? -Infinity;
       const newestSubmitted = (list: typeof mine) => list.filter((a) => a.submit_status === true).sort((a, b) => b.id - a.id)[0];
       const previous = newestSubmitted(mine.filter((a) => created(a) < floor));

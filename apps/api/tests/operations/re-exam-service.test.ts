@@ -40,7 +40,11 @@ interface AttemptRow {
   submit_status: boolean;
   created_at: Date;
   start_time: Date;
+  /** Locked question ids; the sitting's questions are 9001/9002. */
+  question_id?: string;
 }
+
+const PAPER = JSON.stringify(['9001', '9002']);
 
 function sittingRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -104,8 +108,11 @@ function makeService(w: World): ReExamService {
         Promise.resolve(where.id.in.includes(SITTING_ID) ? [{ ...w.sitting }] : where.id.in.includes(PARENT_ID) ? [{ id: PARENT_ID, title: 'Diploma Regular', exam_code: 'TTIIEXM2600007' }] : []),
     },
     exam_student_allocations: {
-      findMany: ({ where }: { where: { user_id: { in: number[] } } }) =>
-        Promise.resolve(w.allocated.filter((id) => where.user_id.in.includes(id)).map((user_id) => ({ user_id }))),
+      // The sitting's own allocation is what the student gate checks.
+      findMany: ({ where }: { where: { exam_id: number; user_id: { in: number[] } } }) =>
+        Promise.resolve(where.exam_id === SITTING_ID
+          ? w.allocated.filter((id) => where.user_id.in.includes(id)).map((user_id) => ({ user_id }))
+          : []),
     },
     users: {
       findMany: ({ where }: { where: { id: { in: number[] } } }) =>
@@ -136,9 +143,18 @@ function makeService(w: World): ReExamService {
       },
     },
     exam_attempt: {
-      count: ({ where }: { where: { exam_id: number; user_id: number; created_at?: unknown } }) =>
-        Promise.resolve(w.attempts.filter((a) => a.exam_id === where.exam_id && a.user_id === where.user_id && gte(a.created_at, where.created_at)).length),
-      findMany: () => Promise.resolve(w.attempts),
+      findMany: ({ where }: { where: { exam_id?: number | { in: number[] }; user_id?: number | { in: number[] }; created_at?: unknown } }) => {
+        const matches = (want: number | { in: number[] } | undefined, v: number): boolean =>
+          want === undefined || (typeof want === 'number' ? want === v : want.in.includes(v));
+        return Promise.resolve(
+          w.attempts
+            .filter((a) => matches(where.exam_id, a.exam_id) && matches(where.user_id, a.user_id) && gte(a.created_at, where.created_at))
+            .map((a) => ({ ...a, question_id: a.question_id ?? PAPER })),
+        );
+      },
+    },
+    exam_questions: {
+      findMany: () => Promise.resolve([{ exam_id: SITTING_ID, question_id: 9001 }, { exam_id: SITTING_ID, question_id: 9002 }]),
     },
   } as unknown as PrismaClient;
   const email = {
@@ -302,5 +318,64 @@ describe('the re-exam list', () => {
 
     expect(rows.find((r) => r.id === 1)?.state).toBe('missed');
     expect(rows.find((r) => r.id === 2)?.state).toBe('cancelled');
+  });
+});
+
+describe('review fixes (2026-10-09)', () => {
+  const sheba = (): World => world({ allocated: [174], students: [world().students[0]!] });
+
+  test('no fresh re-exam while the student is still writing the current one', async () => {
+    const w = sheba();
+    const service = makeService(w);
+    await service.schedule(1, input({ userIds: [174], date: '2026-10-09', startTime: '14:50', endTime: '16:30' }));
+    // Started at 15:00 IST, the moment it was scheduled, and still open.
+    w.attempts.push({ id: 960, exam_id: SITTING_ID, user_id: 174, score: 0, submit_status: false, created_at: NOW, start_time: NOW });
+
+    const res = await service.schedule(1, input({ userIds: [174], date: '2026-10-25' }));
+
+    expect(res.status).toBe(0);
+    expect(res.message).toContain('still writing the current re-exam');
+    expect(w.reExams).toHaveLength(1);
+    expect(w.mailed).toHaveLength(1);
+  });
+
+  test('a refusal for one student writes nothing for the others', async () => {
+    const w = world();
+    const service = makeService(w);
+    await service.schedule(1, input({ userIds: [174], date: '2026-10-09', startTime: '14:50', endTime: '16:30' }));
+    w.attempts.push({ id: 961, exam_id: SITTING_ID, user_id: 174, score: 0, submit_status: false, created_at: NOW, start_time: NOW });
+
+    await service.schedule(1, input({ userIds: [174, 152], date: '2026-10-25' }));
+
+    expect(w.reExams.filter((r) => r.user_id === 152)).toHaveLength(0);
+  });
+
+  test('a lesson-quiz attempt sharing the sitting id does not count as starting the re-exam', async () => {
+    const w = sheba();
+    const service = makeService(w);
+    await service.schedule(1, input({ userIds: [174] }));
+    // A legacy quiz attempt: exam_id is a lesson_file id that happens to be 24.
+    w.attempts.push({ id: 970, exam_id: SITTING_ID, user_id: 174, score: 3, submit_status: true, created_at: ist(2026, 10, 15, 9), start_time: ist(2026, 10, 15, 9), question_id: JSON.stringify(['55', '56']) });
+
+    expect(await service.cancel(1)).toMatchObject({ status: 1 });
+  });
+
+  test('a student allocated only on the parent exam is refused — the student gate checks the sitting', async () => {
+    const w = sheba();
+    w.allocated = [];
+
+    const res = await makeService(w).schedule(1, input({ userIds: [174] }));
+
+    expect(res).toMatchObject({ status: 0, message: '1 selected student is not allocated to this exam.' });
+  });
+
+  test('moving a re-exam with no note keeps the note it had', async () => {
+    const w = sheba();
+    const service = makeService(w);
+    await service.schedule(1, input({ userIds: [174], notes: 'Technical issue on 11 Aug' }));
+
+    await service.schedule(1, input({ userIds: [174], date: '2026-10-22' }));
+
+    expect(w.reExams[0]?.notes).toBe('Technical issue on 11 Aug');
   });
 });

@@ -91,10 +91,13 @@ export function ScheduleReExamDialog({
 
   const candidates = useMemo(() => (examId === null ? [] : candidatesFor(examId)), [examId, candidatesFor]);
 
-  // A new subject starts from its own suggested students.
+  // Seed the ticks when the dialog opens or the subject changes — never on a
+  // background reload of the page data, which would wipe the admin's choices.
   useEffect(() => {
-    setSelected(new Set(candidates.filter((c) => c.preselect).map((c) => c.userId)));
-  }, [candidates]);
+    if (!open || examId === null) return;
+    setSelected(new Set(candidatesFor(examId).filter((c) => c.preselect).map((c) => c.userId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, examId]);
 
   const toggle = (userId: number) => setSelected((cur) => {
     const next = new Set(cur);

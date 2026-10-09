@@ -135,6 +135,7 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
     },
     exam_attempt: { findMany: () => Promise.resolve([]) },
     exam_re_examinations: { findMany: () => Promise.resolve([]) },
+    exam_questions: { findMany: () => Promise.resolve([]) },
   } as unknown as PrismaClient;
 
   const email = {
