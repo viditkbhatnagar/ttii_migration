@@ -6,6 +6,16 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
+import {
+  findActiveReExam,
+  findActiveReExams,
+  findActiveReExamsForExams,
+  reExamAttemptFloor,
+  reExamKey,
+  windowForAttempt,
+  withReExamWindow,
+  type ActiveReExam,
+} from './re-exam-window.js';
 import type { EmailProvider, IntegrationRegistry } from '../integrations/contracts.js';
 
 function toIntId(id: string | number | null | undefined): number {
@@ -1044,7 +1054,15 @@ export class AssessmentService {
     return payments > 0 ? 'on' : 'off';
   }
 
-  private async toExamData(exam: Record<string, unknown>, userId: string): Promise<Record<string, unknown>> {
+  /**
+   * `exam` arrives with the re-exam window already applied when `reExam` is
+   * set (listExams does it), so every date below is the student's own.
+   */
+  private async toExamData(
+    exam: Record<string, unknown>,
+    userId: string,
+    reExam: ActiveReExam | null = null,
+  ): Promise<Record<string, unknown>> {
     const examId = toStringValue(exam.id);
     const courseId = toStringValue(exam.course_id);
 
@@ -1074,6 +1092,9 @@ export class AssessmentService {
           user_id: toNullableIntId(userId),
           submit_status: true,
           deleted_at: null,
+          // Under a re-exam only the re-exam paper counts as "submitted"; the
+          // original one is why the re-exam exists.
+          ...reExamAttemptFloor(reExam),
         },
       }),
       this.prisma.exam_student_allocations.count({
@@ -1132,6 +1153,9 @@ export class AssessmentService {
       result_score: result?.score ?? 0,
       result_pass_mark: result?.passMark ?? 0,
       result_status: result?.status ?? '',
+      // TTII 2026-10-09 — this sitting is re-opened for this student; the date
+      // and window fields below are the re-exam's.
+      is_reexam: reExam ? 1 : 0,
       id: toNullableIntId(examId) ?? 0,
       title: toStringValue(exam.title),
       exam_code: toStringValue(exam.exam_code),
@@ -1293,8 +1317,17 @@ export class AssessmentService {
       ? candidateExams
       : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
 
+    // TTII 2026-10-09 — a sitting re-opened for this student shows (and is
+    // listed by) the re-exam's date and window, not the original one.
+    const reExams = await findActiveReExams(this.prisma, toNullableIntId(userId) ?? 0, exams.map((e) => e.id));
+    const shownExams = exams.map((exam) => {
+      const reExam = reExams.get(exam.id);
+      return reExam ? withReExamWindow(exam, reExam) : exam;
+    });
     const examData = await Promise.all(
-      exams.map((exam) => this.toExamData(exam as unknown as Record<string, unknown>, userId)),
+      shownExams.map((exam) =>
+        this.toExamData(exam as unknown as Record<string, unknown>, userId, reExams.get(exam.id) ?? null),
+      ),
     );
 
     // The list is scoped to one course of this student's, so the course name is
@@ -1380,8 +1413,8 @@ export class AssessmentService {
     const upcomingExams: Record<string, unknown>[] = [];
     const expiredExams: Record<string, unknown>[] = [];
 
-    for (let index = 0; index < exams.length; index += 1) {
-      const exam = exams[index];
+    for (let index = 0; index < shownExams.length; index += 1) {
+      const exam = shownExams[index];
       const examInfo = examData[index];
       if (!exam || !examInfo) {
         continue;
@@ -1460,13 +1493,23 @@ export class AssessmentService {
     // marking those days on the student's calendar invents exams that do not
     // exist. Only the materialised children are real sittings.
     const parentExamIds = await this.findParentExamIds(candidateExams.map((exam) => exam.id));
-    const exams = parentExamIds.size === 0
+    const sittings = parentExamIds.size === 0
       ? candidateExams
       : candidateExams.filter((exam) => !parentExamIds.has(exam.id));
 
-    if (exams.length === 0) {
+    if (sittings.length === 0) {
       return this.getEmptyExamCalendar();
     }
+
+    // TTII 2026-10-09 — a sitting re-opened for this student is marked on the
+    // re-exam's day, not the original one.
+    const reExams = await findActiveReExams(this.prisma, toNullableIntId(userId) ?? 0, sittings.map((e) => e.id));
+    const exams = sittings
+      .map((exam) => {
+        const reExam = reExams.get(exam.id);
+        return reExam ? { ...exam, from_date: reExam.date } : exam;
+      })
+      .sort((a, b) => (parseDate(a.from_date)?.getTime() ?? 0) - (parseDate(b.from_date)?.getTime() ?? 0));
 
     const firstExam = exams[0];
     const lastExam = exams[exams.length - 1];
@@ -1577,7 +1620,7 @@ export class AssessmentService {
   private async resolveExamForAttempt(
     userIdInt: number,
     examIdInt: number,
-  ): Promise<{ ok: true; exam: ExamAttemptGateRow } | { ok: false; message: string }> {
+  ): Promise<{ ok: true; exam: ExamAttemptGateRow; reExam: ActiveReExam | null } | { ok: false; message: string }> {
     const exam = await this.prisma.exam.findFirst({
       where: { id: examIdInt, deleted_at: null },
       select: {
@@ -1617,7 +1660,7 @@ export class AssessmentService {
     //     query in getExamForTaking only matches an UNSUBMITTED attempt, so once
     //     a run is submitted the next visit naturally starts a fresh attempt.
     if (toInteger(exam.is_practice) === 1) {
-      return { ok: true, exam };
+      return { ok: true, exam, reExam: null };
     }
 
     const allocated = await this.prisma.exam_student_allocations.count({
@@ -1627,34 +1670,41 @@ export class AssessmentService {
       return { ok: false, message: 'You are not assigned to this exam.' };
     }
 
+    // TTII 2026-10-09 — a re-exam re-opens this sitting for this student in a
+    // window of its own. From here on everything is judged against that window
+    // and against attempts started since the re-exam was scheduled; the
+    // original paper is history, not "already submitted".
+    const reExam = await findActiveReExam(this.prisma, userIdInt, examIdInt);
+    const sitting = reExam ? withReExamWindow(exam, reExam) : exam;
+
     // Naji UAT 2026-08-11 — before deciding anything, close the books on an
     // attempt whose deadline has already passed. A student whose laptop died at
     // 08:44 on an 08:45 paper would otherwise come back to "This exam has
     // closed" with a full answer sheet sitting unsubmitted in draft_answers
     // forever. Their work is graded as it stood at the deadline, and the
     // already-submitted branch below then tells them so.
-    await this.finalizeExpiredAttempt(userIdInt, exam);
+    await this.finalizeExpiredAttempt(userIdInt, sitting, reExam);
 
     // Checked BEFORE the window so a student who finished (or was auto-finalised
     // above) is told they have submitted rather than the misleading "closed".
     const submitted = await this.prisma.exam_attempt.count({
-      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null },
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: true, deleted_at: null, ...reExamAttemptFloor(reExam) },
     });
     if (submitted > 0) {
       return { ok: false, message: 'You have already submitted this exam.' };
     }
 
     const nowMs = Date.now();
-    const start = combineDateAndTime(exam.from_date, exam.from_time);
-    const end = examWindowCloseInstant(exam);
+    const start = combineDateAndTime(sitting.from_date, sitting.from_time);
+    const end = examWindowCloseInstant(sitting);
     if (start && nowMs < start.getTime()) {
-      return { ok: false, message: 'This exam has not started yet.' };
+      return { ok: false, message: reExam ? 'Your re-exam has not started yet.' : 'This exam has not started yet.' };
     }
     if (end && nowMs > end.getTime()) {
-      return { ok: false, message: 'This exam has closed.' };
+      return { ok: false, message: reExam ? 'Your re-exam window has closed.' : 'This exam has closed.' };
     }
 
-    return { ok: true, exam };
+    return { ok: true, exam: sitting, reExam };
   }
 
   /**
@@ -1672,10 +1722,16 @@ export class AssessmentService {
    * finalizeAttemptFromDraft. Best-effort — a failure here must not block the
    * read that triggered it.
    */
-  private async finalizeExpiredAttempt(userIdInt: number, exam: ExamAttemptGateRow): Promise<void> {
+  private async finalizeExpiredAttempt(
+    userIdInt: number,
+    exam: ExamAttemptGateRow,
+    reExam: ActiveReExam | null = null,
+  ): Promise<void> {
     try {
+      // Under a re-exam `exam` carries the re-exam window, so only attempts
+      // that belong to the re-exam may be judged by it.
       const attempt = await this.prisma.exam_attempt.findFirst({
-        where: { exam_id: exam.id, user_id: userIdInt, submit_status: false, deleted_at: null },
+        where: { exam_id: exam.id, user_id: userIdInt, submit_status: false, deleted_at: null, ...reExamAttemptFloor(reExam) },
         orderBy: { id: 'desc' },
         select: { id: true, start_time: true, draft_answers: true },
       });
@@ -1818,7 +1874,9 @@ export class AssessmentService {
     // started — abandon it and start a fresh attempt against the current
     // questions, rather than stranding the student in an empty exam.
     let attempt = await this.prisma.exam_attempt.findFirst({
-      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: false, deleted_at: null },
+      // A re-exam never resumes the original paper: its start time would put it
+      // past its own deadline the moment it opened.
+      where: { exam_id: examIdInt, user_id: userIdInt, submit_status: false, deleted_at: null, ...reExamAttemptFloor(gate.reExam) },
       orderBy: { id: 'desc' },
       select: { id: true, question_id: true, start_time: true, draft_answers: true },
     });
@@ -1925,7 +1983,7 @@ export class AssessmentService {
     const attempt = await this.prisma.exam_attempt.findFirst({
       where: { id: attemptIdInt, user_id: userIdInt, deleted_at: null },
       select: {
-        id: true, exam_id: true, question_id: true, start_time: true, submit_status: true,
+        id: true, exam_id: true, question_id: true, start_time: true, submit_status: true, created_at: true,
         // Read on every autosave because the closed branch below finalises on
         // it, and it must grade the stored sheet rather than an empty payload.
         draft_answers: true,
@@ -1938,15 +1996,21 @@ export class AssessmentService {
       return reject('This exam has already been submitted.');
     }
 
-    const exam = attempt.exam_id === null || attempt.exam_id === undefined
+    const examRow = attempt.exam_id === null || attempt.exam_id === undefined
       ? null
       : await this.prisma.exam.findFirst({
           where: { id: attempt.exam_id },
           select: { from_date: true, from_time: true, to_date: true, to_time: true, duration: true },
         });
-    if (!exam) {
+    if (!examRow || attempt.exam_id === null) {
       return reject('Exam not found.');
     }
+    // A re-exam paper runs on the re-exam window (see re-exam-window.ts).
+    const exam = windowForAttempt(
+      examRow,
+      attempt.created_at,
+      await findActiveReExam(this.prisma, userIdInt, attempt.exam_id),
+    );
 
     const snapshot = examWindowSnapshot(exam, parseDate(attempt.start_time), nowDate.getTime());
 
@@ -2093,8 +2157,22 @@ export class AssessmentService {
     // gate is skipped entirely (resolveExamForAttempt), retakes are unlimited,
     // and there is no result to publish. Sweeping it would end a student's
     // practice mid-question, forever.
+    // TTII 2026-10-09 — a re-exam re-opens a sitting whose own date may be long
+    // past the lookback, so sittings with a recent re-exam are swept too.
+    const reExamSittings = await this.prisma.exam_re_examinations.findMany({
+      where: { new_date: { gte: floorDate }, OR: [{ status: null }, { status: { not: 'cancelled' } }] },
+      select: { exam_id: true },
+    });
+    const reExamSittingIds = [...new Set(reExamSittings.map((r) => r.exam_id))];
     const candidateExams = await this.prisma.exam.findMany({
-      where: { deleted_at: null, is_practice: 0, from_date: { gte: floorDate } },
+      where: {
+        deleted_at: null,
+        is_practice: 0,
+        OR: [
+          { from_date: { gte: floorDate } },
+          ...(reExamSittingIds.length > 0 ? [{ id: { in: reExamSittingIds } }] : []),
+        ],
+      },
       // EXACTLY the five ExamWindowRow columns — the type declares all five
       // required, so a short select is a compile error rather than a silent
       // half-computed deadline.
@@ -2124,7 +2202,7 @@ export class AssessmentService {
         user_id: { not: null },
         start_time: { gte: floorDate },
       },
-      select: { id: true, user_id: true, exam_id: true, start_time: true },
+      select: { id: true, user_id: true, exam_id: true, start_time: true, created_at: true },
       orderBy: { id: 'desc' },
     });
 
@@ -2141,12 +2219,20 @@ export class AssessmentService {
     });
 
     const examById = new Map(exams.map((e) => [e.id, e]));
+    const reExams = await findActiveReExamsForExams(this.prisma, exams.map((e) => e.id));
 
     for (const attempt of newest) {
       if (result.graded >= AUTO_SUBMIT_MAX_PER_TICK) break;
 
-      const exam = attempt.exam_id === null ? undefined : examById.get(attempt.exam_id);
-      if (!exam) continue;
+      const examRow = attempt.exam_id === null ? undefined : examById.get(attempt.exam_id);
+      if (!examRow || attempt.exam_id === null || attempt.user_id === null) continue;
+      // A re-exam paper is judged by the re-exam window. By the original one it
+      // would be "expired" the moment it started and finalised mid-paper.
+      const exam = windowForAttempt(
+        examRow,
+        attempt.created_at,
+        reExams.get(reExamKey(attempt.user_id, attempt.exam_id)) ?? null,
+      );
 
       const endMs = examEffectiveEndMs(exam, parseDate(attempt.start_time));
       // An untimed paper has no moment at which it "expires" — skip it forever
@@ -2394,9 +2480,17 @@ export class AssessmentService {
     const examHasNegativeMarking = toInteger(examRow?.have_minus_mark) !== 0;
     const examNegativeMark = Math.max(0, toDbNumber(examRow?.minus_mark));
 
+    // TTII 2026-10-09 — a re-exam paper's deadline is the re-exam window's.
+    // Judged by the original (long-closed) window, an on-time re-exam submit
+    // would count as late and be graded from the autosave, not the answers.
+    const attemptUserId = toNullableIntId(attempt.user_id) ?? 0;
+    const windowRow = examRow && examId !== null && examId !== undefined
+      ? windowForAttempt(examRow, attempt.created_at, await findActiveReExam(this.prisma, attemptUserId, examId))
+      : examRow;
+
     const startedAt = parseDate(attempt.start_time);
     const submittedAtMs = Date.now();
-    const deadlineMs = examRow ? examEffectiveEndMs(examRow, startedAt) : null;
+    const deadlineMs = windowRow ? examEffectiveEndMs(windowRow, startedAt) : null;
     const isPastDeadline = deadlineMs !== null && submittedAtMs > deadlineMs;
     const isLate = deadlineMs !== null && submittedAtMs > deadlineMs + LATE_SUBMIT_GRACE_MS;
     const draftRows = parseDraftAnswers(attempt.draft_answers);

@@ -51,6 +51,19 @@ interface AttemptRow {
   start_time: Date | null;
   submit_status: boolean | null;
   draft_answers: string | null;
+  created_at?: Date | null;
+}
+
+/** An exam_re_examinations row (TTII 2026-10-09). */
+interface ReExamRow {
+  id: number;
+  exam_id: number;
+  user_id: number;
+  new_date: Date;
+  new_start_time: Date;
+  new_end_time: Date;
+  created_at: Date;
+  status?: string;
 }
 
 /** A draft with real answers, in the shape the player actually sends. */
@@ -75,7 +88,7 @@ interface Harness {
   attemptFindManyArgs: Record<string, unknown>[];
 }
 
-function makeHarness(exams: ExamRow[], attempts: AttemptRow[]): Harness {
+function makeHarness(exams: ExamRow[], attempts: AttemptRow[], reExams: ReExamRow[] = []): Harness {
   const finalized: string[] = [];
   const examFindManyArgs: Record<string, unknown>[] = [];
   const attemptFindManyArgs: Record<string, unknown>[] = [];
@@ -99,11 +112,18 @@ function makeHarness(exams: ExamRow[], attempts: AttemptRow[]): Harness {
           );
         }
         examFindManyArgs.push(w);
-        const floor = (w.from_date as { gte?: unknown } | undefined)?.gte;
+        // { OR: [{ from_date: { gte } }, { id: { in } }] } — recent sittings,
+        // plus any sitting a re-exam has re-opened.
+        const clauses = (w.OR as Array<Record<string, unknown>> | undefined) ?? [w];
+        const inScope = (e: ExamRow): boolean => clauses.some((c) => {
+          const ids = (c.id as { in?: number[] } | undefined)?.in;
+          if (ids) return ids.includes(e.id);
+          return matchesFloor(e.from_date, (c.from_date as { gte?: unknown } | undefined)?.gte);
+        });
         return Promise.resolve(
           exams
             .filter((e) => (w.is_practice === undefined ? true : (e.is_practice ?? 0) === w.is_practice))
-            .filter((e) => matchesFloor(e.from_date, floor))
+            .filter(inScope)
             .map(({ is_practice: _p, parent_exam_id: _q, ...row }) => row),
         );
       },
@@ -121,11 +141,26 @@ function makeHarness(exams: ExamRow[], attempts: AttemptRow[]): Harness {
             .filter((a) => (w.draft_answers === undefined ? true : a.draft_answers !== null))
             .filter((a) => (w.user_id === undefined ? true : a.user_id !== null))
             .filter((a) => matchesFloor(a.start_time, floor))
+            .map((a) => ({ ...a, created_at: a.created_at ?? a.start_time }))
             .sort((x, y) => y.id - x.id),
         );
       },
       findUnique: (args: { where: { id: number } }) =>
         Promise.resolve(attempts.find((a) => a.id === args.where.id) ?? null),
+    },
+    exam_re_examinations: {
+      findMany: (args: { where: Record<string, unknown> }) => {
+        const w = args.where;
+        const dateFloor = (w.new_date as { gte?: Date } | undefined)?.gte;
+        const examIds = (w.exam_id as { in?: number[] } | undefined)?.in;
+        return Promise.resolve(
+          reExams
+            .filter((r) => r.status !== 'cancelled')
+            .filter((r) => !dateFloor || r.new_date.getTime() >= dateFloor.getTime())
+            .filter((r) => !examIds || examIds.includes(r.exam_id))
+            .sort((x, y) => y.id - x.id),
+        );
+      },
     },
   } as unknown as PrismaClient;
 
@@ -336,5 +371,63 @@ describe('exam auto-submit — scope', () => {
 
     expect(res.graded).toBe(1);
     expect(h.finalized).toEqual([`${USER_ID}:9002`]);
+  });
+});
+
+// TTII 2026-10-09 — a re-exam re-opens one sitting for one student in a window
+// of its own. The sweep must judge that paper by the RE-EXAM window: by the
+// original sitting's (long closed) it is "expired" the moment it starts, and
+// would be taken off the student mid-paper.
+describe('exam auto-submit — a re-exam paper runs on the re-exam window', () => {
+  /** An IST wall-clock time on a given day of August 2026, as a UTC instant. */
+  const istAug = (day: number, h: number, m = 0): Date => new Date(Date.UTC(2026, 7, day, h, m) - IST_OFFSET_MS);
+
+  /** Re-exam on 16 Aug, 14:00–15:30 IST, scheduled on the 15th. */
+  const reExam = (over: Partial<ReExamRow> = {}): ReExamRow => ({
+    id: 1,
+    exam_id: EXAM_ID,
+    user_id: USER_ID,
+    new_date: new Date(Date.UTC(2026, 7, 16)),
+    new_start_time: time(14),
+    new_end_time: time(15, 30),
+    created_at: istAug(15, 12),
+    ...over,
+  });
+
+  /** The re-exam paper: started 16 Aug 14:00 IST, so (60 min) due at 15:00. */
+  const reExamPaper = (): AttemptRow => attempt({ id: 9100, start_time: istAug(16, 14), created_at: istAug(16, 14) });
+
+  test('mid re-exam the paper is untouched, though the original sitting closed two days ago', async () => {
+    const h = makeHarness([liveExam()], [reExamPaper()], [reExam()]);
+
+    await h.service.sweepExpiredExamAttempts({ now: istAug(16, 14, 30) });
+
+    expect(h.finalized).toEqual([]);
+  });
+
+  test('an abandoned re-exam paper is finalised once ITS deadline and the grace pass', async () => {
+    const h = makeHarness([liveExam()], [reExamPaper()], [reExam()]);
+
+    await h.service.sweepExpiredExamAttempts({ now: istAug(16, 15, 6) });
+
+    expect(h.finalized).toEqual([`${USER_ID}:9100`]);
+  });
+
+  test('a re-exam on a sitting older than the lookback is still swept', async () => {
+    // Sitting on 1 Jul — outside the 7-day lookback by the re-exam on 16 Aug.
+    const oldSitting = liveExam({ from_date: new Date(Date.UTC(2026, 6, 1)), to_date: new Date(Date.UTC(2026, 6, 1)) });
+    const h = makeHarness([oldSitting], [reExamPaper()], [reExam()]);
+
+    await h.service.sweepExpiredExamAttempts({ now: istAug(16, 15, 6) });
+
+    expect(h.finalized).toEqual([`${USER_ID}:9100`]);
+  });
+
+  test('a cancelled re-exam gives no window — the paper is judged by the original sitting', async () => {
+    const h = makeHarness([liveExam()], [reExamPaper()], [reExam({ status: 'cancelled' })]);
+
+    await h.service.sweepExpiredExamAttempts({ now: istAug(16, 14, 30) });
+
+    expect(h.finalized).toEqual([`${USER_ID}:9100`]);
   });
 });

@@ -91,11 +91,15 @@ interface AttemptRow {
   skip?: number | null;
   score?: number | null;
   time_taken?: Date | null;
+  /** When the attempt was STARTED; decides whether it belongs to a re-exam. */
+  created_at?: Date;
 }
 
 interface StubState {
   attempt: AttemptRow;
   exam: Record<string, unknown>;
+  /** exam_re_examinations rows (TTII 2026-10-09). */
+  reExams?: Array<Record<string, unknown>>;
   attemptUpdates: Array<Record<string, unknown>>;
   answersWritten: Array<Record<string, unknown>>;
 }
@@ -105,11 +109,18 @@ interface StubState {
  * submit paths make. `question_bank` answers are 0-BASED repo-wide, so the
  * fixtures below use "0"/"1" and never "1"/"2".
  */
+/** A re-exam reads only attempts started on/after it was scheduled. */
+function onOrAfterFloor(attempt: AttemptRow, where: Record<string, unknown>): boolean {
+  const floor = (where.created_at as { gte?: Date } | undefined)?.gte;
+  return !floor || (attempt.created_at ?? attempt.start_time).getTime() >= floor.getTime();
+}
+
 function makeService(state: StubState): AssessmentService {
   const prisma = {
     exam_attempt: {
       findFirst: (args: { where: Record<string, unknown> }) => {
         const where = args.where;
+        if (!onOrAfterFloor(state.attempt, where)) return Promise.resolve(null);
         if (where.id !== undefined && where.id !== state.attempt.id) return Promise.resolve(null);
         if (where.user_id !== undefined && where.user_id !== state.attempt.user_id)
           return Promise.resolve(null);
@@ -117,7 +128,8 @@ function makeService(state: StubState): AssessmentService {
           return Promise.resolve(null);
         return Promise.resolve({ ...state.attempt });
       },
-      count: () => Promise.resolve(state.attempt.submit_status ? 1 : 0),
+      count: (args: { where: Record<string, unknown> }) =>
+        Promise.resolve(state.attempt.submit_status && onOrAfterFloor(state.attempt, args.where) ? 1 : 0),
       update: (args: { data: Record<string, unknown> }) => {
         state.attemptUpdates.push(args.data);
         Object.assign(state.attempt, args.data);
@@ -131,6 +143,9 @@ function makeService(state: StubState): AssessmentService {
       findMany: () => Promise.resolve([]),
     },
     exam_student_allocations: { count: () => Promise.resolve(1) },
+    exam_re_examinations: {
+      findMany: () => Promise.resolve((state.reExams ?? []).filter((r) => r.status !== 'cancelled')),
+    },
     exam_questions: {
       findMany: () =>
         Promise.resolve([
@@ -1255,5 +1270,102 @@ describe("examEffectiveEndMs — a stored to_time of '00:00:00'", () => {
     );
     expect(zeroTime).toBe(nullTime);
     expect(new Date(zeroTime ?? 0).toISOString()).toBe('2026-08-10T18:29:59.000Z');
+  });
+});
+
+// TTII 2026-10-09 — a re-exam re-opens the 10 Aug sitting for one student on
+// 20 Aug, 10:00–11:30 IST. Every exam-time check must judge the RE-EXAM paper
+// by that window. By the original one (closed 20:45 on 10 Aug) the student
+// would be refused, the autosave would finalise the paper on its first beat,
+// and an on-time submit would be graded as late — from the autosave instead
+// of the answers the student actually sent.
+describe('a re-exam re-opens the sitting for one student', () => {
+  const istAug = (day: number, h: number, m = 0): Date =>
+    new Date(Date.UTC(2026, 7, day, h, m) - IST_OFFSET_MS);
+  const reExamRow = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 1,
+    exam_id: 10,
+    user_id: 137,
+    new_date: new Date('2026-08-20T00:00:00Z'),
+    new_start_time: new Date('1970-01-01T10:00:00Z'),
+    new_end_time: new Date('1970-01-01T11:30:00Z'),
+    created_at: istAug(15, 12),
+    status: 'scheduled',
+    ...over,
+  });
+  /** The re-exam paper, started 20 Aug 10:00 IST (75 min → due 11:15). */
+  const reExamPaper = (over: Partial<AttemptRow> = {}): StubState => {
+    const state = baseState({ start_time: istAug(20, 10), created_at: istAug(20, 10), ...over });
+    state.reExams = [reExamRow()];
+    return state;
+  };
+  type Gate = { ok: boolean; message?: string; reExam?: unknown };
+  const gate = (service: AssessmentService): Promise<Gate> =>
+    (service as unknown as { resolveExamForAttempt: (u: number, e: number) => Promise<Gate> })
+      .resolveExamForAttempt(137, 10);
+
+  test('the autosave stores the re-exam sheet instead of finalising it', async () => {
+    freezeAtInstant(istAug(20, 10, 30).getTime());
+    const state = reExamPaper();
+
+    const result = await makeService(state).saveExamProgress('137', {
+      attemptId: '5001',
+      userAnswers: [{ question_id: '9001', answer: ['0'] }],
+    });
+
+    expect(result.data.saved).toBe(true);
+    expect(result.data.window_state).toBe('open');
+    // 10:30 → due 11:15.
+    expect(result.data.remaining_seconds).toBe(45 * 60);
+    expect(state.attempt.submit_status).toBe(false);
+  });
+
+  test('an on-time re-exam submit is scored on the answers sent, not the autosave', async () => {
+    freezeAtInstant(istAug(20, 11).getTime());
+    const state = reExamPaper({ draft_answers: JSON.stringify([{ question_id: '9001', answer: ['1'] }]) });
+
+    const summary = await makeService(state).submitExamAttempt('137', {
+      attemptId: '5001',
+      userAnswers: [
+        { question_id: '9001', answer: ['0'] },
+        { question_id: '9002', answer: ['1'] },
+      ],
+    });
+
+    expect(summary.correct).toBe(2);
+  });
+
+  test('the original paper is history: the student may sit the re-exam inside its window', async () => {
+    freezeAtInstant(istAug(20, 10, 5).getTime());
+    // The 10 Aug paper, submitted. It predates the re-exam, so it does not count.
+    const state = baseState({ start_time: istOn10Aug(19, 30), created_at: istOn10Aug(19, 30), submit_status: true });
+    state.reExams = [reExamRow()];
+
+    const result = await gate(makeService(state));
+
+    expect(result.ok).toBe(true);
+    expect(result.reExam).toBeTruthy();
+  });
+
+  test('before the re-exam window opens the student is told so', async () => {
+    freezeAtInstant(istAug(20, 9, 50).getTime());
+    const state = baseState({ start_time: istOn10Aug(19, 30), created_at: istOn10Aug(19, 30), submit_status: true });
+    state.reExams = [reExamRow()];
+
+    expect(await gate(makeService(state))).toMatchObject({ ok: false, message: 'Your re-exam has not started yet.' });
+  });
+
+  test('once the re-exam paper is submitted it cannot be sat again', async () => {
+    freezeAtInstant(istAug(20, 11, 20).getTime());
+    const state = reExamPaper({ submit_status: true });
+
+    expect(await gate(makeService(state))).toMatchObject({ ok: false, message: 'You have already submitted this exam.' });
+  });
+
+  test('without a re-exam the closed sitting stays closed', async () => {
+    freezeAtInstant(istAug(20, 10, 5).getTime());
+    const state = baseState({ start_time: istOn10Aug(19, 30), created_at: istOn10Aug(19, 30), submit_status: true });
+
+    expect(await gate(makeService(state))).toMatchObject({ ok: false, message: 'You have already submitted this exam.' });
   });
 });
