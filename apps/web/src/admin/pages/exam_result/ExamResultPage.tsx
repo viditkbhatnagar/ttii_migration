@@ -89,7 +89,17 @@ function ExamResultView({ examId, api, session, onBack }: { examId: number; onBa
       </Card>
     );
   }
-  return <ExamResultsDetail detail={data} publishing={publishing} onBack={onBack} onPublish={() => void publish()} />;
+  return (
+    <ExamResultsDetail
+      detail={data}
+      publishing={publishing}
+      onBack={onBack}
+      onPublish={() => void publish()}
+      api={api}
+      token={session.token}
+      onReload={reload}
+    />
+  );
 }
 
 function ExamResultsListView({ api, session, onOpen }: { onOpen: (examId: number) => void } & Pick<AdminPageProps, 'api' | 'session'>) {

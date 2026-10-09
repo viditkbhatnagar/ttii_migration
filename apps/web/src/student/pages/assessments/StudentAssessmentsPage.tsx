@@ -74,6 +74,8 @@ interface ExamView {
   durationLabel: string;
   marksLabel: string;
   questionCount: number;
+  /** TTII 2026-10-09 — this subject is re-opened for this student; dates are the re-exam's. */
+  isReExam: boolean;
   /** TTII 2026-10-08 — the student's own result, once TTII publishes it. */
   result: { score: number; total: number; status: 'passed' | 'failed' | '' } | null;
   raw: Record<string, unknown>;
@@ -176,6 +178,7 @@ function toExamView(raw: Record<string, unknown>): ExamView {
     durationLabel: duration ? `${duration} min` : '',
     marksLabel: totalMark ? `${totalMark} marks` : '',
     questionCount,
+    isReExam: asNumber(raw.is_reexam) === 1,
     result: asNumber(raw.result_published) === 1
       ? {
           score: asNumber(raw.result_score),
@@ -691,6 +694,11 @@ export default function StudentAssessmentsPage({ api, session, pathname }: Stude
                             <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>
                               {badge.label}
                             </span>
+                            {e.isReExam ? (
+                              <span className="inline-flex items-center rounded-full border border-student-primary/30 bg-student-primary-light px-2.5 py-0.5 text-xs font-semibold text-student-primary">
+                                Re-exam
+                              </span>
+                            ) : null}
                             {/* Proctoring badge — formal exams run the proctored player. */}
                             {e.state === 'available' || e.state === 'upcoming' ? (
                               <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-0.5 text-xs font-semibold text-fuchsia-700">

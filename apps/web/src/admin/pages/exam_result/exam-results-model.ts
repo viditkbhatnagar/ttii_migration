@@ -5,8 +5,8 @@
 
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 
-export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only';
-export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only';
+export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam';
+export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only' | 'reexam';
 export type ExamResultsStatus = 'in_progress' | 'ready' | 'published';
 
 export interface ResultTotals {
@@ -16,6 +16,7 @@ export interface ResultTotals {
   incomplete: number;
   absent: number;
   pending: number;
+  reexam: number;
   flagged: number;
   passPercentage: number;
 }
@@ -53,6 +54,10 @@ export interface StudentSitting {
   questionCount: number | null;
   minutesTaken: number | null;
   flag: string | null;
+  /** The re-exam on this subject, when one has been scheduled. */
+  reExam: { id: number; date: string; startTime: string; endTime: string; state: 'scheduled' | 'completed' | 'missed' } | null;
+  /** The original paper's mark once a re-exam replaced it. */
+  previousScore: number | null;
 }
 
 export interface StudentResult {
@@ -81,6 +86,7 @@ export interface SubjectSummary {
   failed: number;
   absent: number;
   pending: number;
+  reexam: number;
   averageMarks: number;
   passPercentage: number;
 }
@@ -105,6 +111,19 @@ function numOrNull(value: unknown): number | null {
   return value === null || value === undefined || value === '' ? null : asNumber(value);
 }
 
+function toCellReExam(raw: unknown): StudentSitting['reExam'] {
+  const r = rec(raw);
+  if (!r.id) return null;
+  const state = asString(r.state);
+  return {
+    id: asNumber(r.id),
+    date: asString(r.date),
+    startTime: asString(r.startTime),
+    endTime: asString(r.endTime),
+    state: state === 'completed' || state === 'missed' ? state : 'scheduled',
+  };
+}
+
 function toTotals(raw: unknown): ResultTotals {
   const t = rec(raw);
   return {
@@ -114,6 +133,7 @@ function toTotals(raw: unknown): ResultTotals {
     incomplete: asNumber(t.incomplete),
     absent: asNumber(t.absent),
     pending: asNumber(t.pending),
+    reexam: asNumber(t.reexam),
     flagged: asNumber(t.flagged),
     passPercentage: asNumber(t.passPercentage),
   };
@@ -168,6 +188,8 @@ export function toExamResultsDetail(raw: Record<string, unknown>): ExamResultsDe
         questionCount: numOrNull(c.questionCount),
         minutesTaken: numOrNull(c.minutesTaken),
         flag: asString(c.flag) || null,
+        reExam: toCellReExam(c.reExam),
+        previousScore: numOrNull(c.previousScore),
       })),
       obtained: asNumber(s.obtained),
       maxMarks: asNumber(s.maxMarks),
@@ -189,12 +211,21 @@ export function toExamResultsDetail(raw: Record<string, unknown>): ExamResultsDe
       failed: asNumber(s.failed),
       absent: asNumber(s.absent),
       pending: asNumber(s.pending),
+      reexam: asNumber(s.reexam),
       averageMarks: asNumber(s.averageMarks),
       passPercentage: asNumber(s.passPercentage),
     })),
     totals: toTotals(sheet.totals),
     allSittingsClosed: sheet.allSittingsClosed === true,
   };
+}
+
+/** 12-hour label for an HH:MM IST wall clock: "14:00" → "2:00 PM". */
+export function formatHm(hm: string): string {
+  const m = /^(\d{2}):(\d{2})/.exec(hm);
+  if (!m) return hm;
+  const h = Number(m[1]);
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 /** dd/mm/yyyy from a bare YYYY-MM-DD, built by hand so no timezone can shift it. */
@@ -217,6 +248,7 @@ export const OVERALL_LABEL: Record<OverallResult, string> = {
   absent: 'Absent',
   pending: 'Pending',
   marks_only: 'Marks only',
+  reexam: 'Re-exam pending',
 };
 
 export const SITTING_LABEL: Record<SittingStatus, string> = {
@@ -225,6 +257,7 @@ export const SITTING_LABEL: Record<SittingStatus, string> = {
   absent: 'Absent',
   pending: 'Not held yet',
   marks_only: 'No pass mark',
+  reexam: 'Re-exam scheduled',
 };
 
 export const STATUS_LABEL: Record<ExamResultsStatus, string> = {
@@ -249,7 +282,11 @@ export function resultSheetCsv(detail: ExamResultsDetail): string {
   ];
   const rows = detail.students.map((st) => [
     st.name, st.studentCode,
-    ...st.sittings.map((c) => (c.score === null ? SITTING_LABEL[c.status] : `${c.score}${c.status === 'fail' ? ' (F)' : ''}`)),
+    ...st.sittings.map((c) => {
+      if (c.score === null) return SITTING_LABEL[c.status] ?? c.status;
+      const mark = `${c.score}${c.status === 'fail' ? ' (F)' : ''}`;
+      return c.reExam?.state === 'completed' ? `${mark} (re-exam; was ${c.previousScore ?? '—'})` : mark;
+    }),
     st.obtained, st.maxMarks, `${st.percentage}%`, `${st.subjectsPassed}/${st.subjectsTotal}`,
     OVERALL_LABEL[st.overall] ?? st.overall,
     st.sittings.map((c) => c.flag).filter(Boolean).join('; '),

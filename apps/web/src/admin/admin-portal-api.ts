@@ -1485,17 +1485,20 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/question_bank/bulk-add', authToken, { rows });
   }
 
-  // Naji 2026-05-09 — Re-Examination
-  async listReExaminations(authToken: string): Promise<Record<string, unknown>[]> {
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/re_exam/index', authToken);
-    return toRecords(payload.data);
+  // TTII 2026-10-09 — Re-examination: one subject re-opened for one student
+  // in a window of its own (see re-exam-service on the API).
+  async listReExams(authToken: string): Promise<unknown[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/re_exams/list', authToken);
+    return Array.isArray(payload.data) ? payload.data : [];
   }
-  async getReExaminationDetail(authToken: string, examId: string): Promise<Record<string, unknown>> {
-    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/re_exam/detail', authToken, { exam_id: examId });
-    return payload.data ?? {};
+  async scheduleReExams(
+    authToken: string,
+    input: { exam_id: number; user_ids: number[]; date: string; start_time: string; end_time: string; notes?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/re_exams/schedule', authToken, input);
   }
-  async scheduleReExamination(authToken: string, input: { exam_id: string; exam_subject_id?: number; user_id: number; new_date: string; new_start_time: string; new_end_time: string; notes?: string }): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/re_exam/schedule', authToken, input);
+  async cancelReExam(authToken: string, id: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/re_exams/cancel', authToken, { id });
   }
 
   // Naji 2026-05-09 — Evaluation
@@ -1777,28 +1780,6 @@ export class AdminPortalApi {
   }
 
   // ─── Phase 2: Re-Examination ───────────────────────────────────────────
-
-  async loadReExams(
-    authToken: string,
-    filters: { courseId?: string; batchId?: string } = {},
-  ): Promise<Record<string, unknown>[]> {
-    // Server route was renamed from /admin/Re_exam/index → /admin/re_exam/manage_list
-    // on 2026-05-30 when the API switched to case-insensitive routing (the
-    // CamelCase path collided with the Naji 2026-05-09 /admin/re_exam/index
-    // overview endpoint).
-    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/re_exam/manage_list', authToken, {
-      ...(filters.courseId ? { course_id: filters.courseId } : {}),
-      ...(filters.batchId ? { batch_id: filters.batchId } : {}),
-    });
-    return toRecords(payload.data);
-  }
-
-  async grantReExam(authToken: string, examId: string, userIds: string[]): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/re_exam/manage_grant', authToken, {
-      exam_id: examId,
-      user_ids: userIds,
-    });
-  }
 
   // ─── Phase 2: Entrance Exams ───────────────────────────────────────────
 

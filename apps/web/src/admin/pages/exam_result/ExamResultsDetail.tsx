@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, Download, Eye, Info, Search, Send, Users } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowLeft, BookOpen, CalendarClock, CheckCircle2, Download, Eye, Info, Search, Send, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import type { AdminPortalApi } from '../../admin-portal-api.js';
+import { ScheduleReExamDialog, type ReExamCandidate, type ReExamWindowDraft } from '../re_exam/ScheduleReExamDialog.js';
+import { reExamCandidates } from './re-exam-candidates.js';
 import {
   OVERALL_LABEL,
   formatPeriod,
@@ -66,16 +69,54 @@ function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; on
   );
 }
 
-const RESULT_FILTERS: Array<'all' | OverallResult> = ['all', 'passed', 'failed', 'incomplete', 'absent', 'pending'];
+const RESULT_FILTERS: Array<'all' | OverallResult> = ['all', 'passed', 'failed', 'reexam', 'incomplete', 'absent', 'pending'];
+
+interface ReExamTarget {
+  examId: number | null;
+  /** Set when the dialog is for one student (from their result). */
+  student: StudentResult | null;
+}
 
 export function ExamResultsDetail({
-  detail, publishing, onBack, onPublish,
-}: { detail: Detail; publishing: boolean; onBack: () => void; onPublish: () => void }) {
+  detail, publishing, onBack, onPublish, api, token, onReload,
+}: {
+  detail: Detail;
+  publishing: boolean;
+  onBack: () => void;
+  onPublish: () => void;
+  api: AdminPortalApi;
+  token: string;
+  onReload: () => void;
+}) {
   const [tab, setTab] = useState<Tab>('students');
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<'all' | OverallResult>('all');
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [openStudent, setOpenStudent] = useState<StudentResult | null>(null);
+  const [reExamTarget, setReExamTarget] = useState<ReExamTarget | null>(null);
+
+  const closedSittings = useMemo(() => detail.sittings.filter((s) => s.closed), [detail.sittings]);
+  const reExamSubjects = useMemo(() => {
+    const pool = reExamTarget?.examId ? detail.sittings.filter((s) => s.examId === reExamTarget.examId) : closedSittings;
+    return pool.map((s) => ({ examId: s.examId, subjectTitle: s.subjectTitle, date: s.date }));
+  }, [reExamTarget, detail.sittings, closedSittings]);
+  const candidatesFor = useCallback((examId: number): ReExamCandidate[] => {
+    const index = detail.sittings.findIndex((s) => s.examId === examId);
+    if (index < 0) return [];
+    const target = reExamTarget?.student;
+    if (target) {
+      return [{ userId: target.userId, name: target.name, studentCode: target.studentCode, note: 'Selected', tone: 'violet', preselect: true }];
+    }
+    return reExamCandidates(detail.students, index);
+  }, [detail, reExamTarget]);
+  const reExamWindow = useMemo<ReExamWindowDraft | undefined>(() => {
+    const target = reExamTarget;
+    if (!target?.student || !target.examId) return undefined;
+    const cell = target.student.sittings.find((c) => c.examId === target.examId);
+    return cell?.reExam?.state === 'scheduled'
+      ? { date: cell.reExam.date, startTime: cell.reExam.startTime, endTime: cell.reExam.endTime }
+      : undefined;
+  }, [reExamTarget]);
 
   const { totals } = detail;
   const students = useMemo(() => {
@@ -119,6 +160,15 @@ export function ExamResultsDetail({
               size="sm"
               variant="outline"
               className="gap-1.5"
+              disabled={closedSittings.length === 0}
+              onClick={() => setReExamTarget({ examId: null, student: null })}
+            >
+              <CalendarClock aria-hidden="true" className="size-4" /> Schedule Re-exam
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
               disabled={detail.students.length === 0}
               onClick={() => downloadCsv(`results-${detail.examCode || detail.examId}.csv`, resultSheetCsv(detail))}
             >
@@ -126,10 +176,11 @@ export function ExamResultsDetail({
             </Button>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
             <StatBox label="Students" value={totals.students} tone="blue" />
             <StatBox label="Passed" value={totals.passed} tone="emerald" />
             <StatBox label="Failed" value={totals.failed} tone="rose" />
+            <StatBox label="Re-exam" value={totals.reexam} tone="violet" />
             <StatBox label="Incomplete" value={totals.incomplete} tone="amber" />
             <StatBox label="Absent" value={totals.absent} tone="slate" />
             <StatBox label="Pending" value={totals.pending} tone="blue" />
@@ -152,7 +203,7 @@ export function ExamResultsDetail({
             {totals.flagged > 0 && detail.status !== 'published' ? (
               <Notice tone="amber" icon={AlertTriangle}>
                 <strong>{totals.flagged} student{totals.flagged === 1 ? ' has' : 's have'}</strong> a paper with almost no answers saved, often submitted within minutes.
-                That usually means a technical problem, not a real attempt. Check these before publishing.{' '}
+                That usually means a technical problem, not a real attempt. Check these, and schedule a re-exam where needed, before publishing.{' '}
                 <button type="button" className="font-semibold underline underline-offset-2" onClick={() => { setTab('students'); setFlaggedOnly(true); }}>
                   Show them
                 </button>
@@ -258,6 +309,7 @@ export function ExamResultsDetail({
                 <TableHead className="text-xs">Passed</TableHead>
                 <TableHead className="text-xs">Failed</TableHead>
                 <TableHead className="text-xs">Absent</TableHead>
+                <TableHead className="text-xs">Re-exam</TableHead>
                 <TableHead className="text-xs">Average</TableHead>
                 <TableHead className="text-xs">Pass %</TableHead>
               </TableRow>
@@ -275,6 +327,7 @@ export function ExamResultsDetail({
                   <TableCell className="text-sm tabular-nums text-emerald-700">{s.passed}</TableCell>
                   <TableCell className="text-sm tabular-nums text-rose-700">{s.failed}</TableCell>
                   <TableCell className="text-sm tabular-nums text-slate-600">{s.absent}</TableCell>
+                  <TableCell className="text-sm tabular-nums text-primary">{s.reexam}</TableCell>
                   <TableCell className="text-sm tabular-nums">{s.averageMarks}</TableCell>
                   <TableCell className="text-sm font-semibold tabular-nums">{s.passed + s.failed > 0 ? `${s.passPercentage}%` : '—'}</TableCell>
                 </TableRow>
@@ -288,6 +341,21 @@ export function ExamResultsDetail({
         student={openStudent}
         sittings={detail.sittings}
         onClose={() => setOpenStudent(null)}
+        onReExam={(student, examId) => { setOpenStudent(null); setReExamTarget({ examId, student }); }}
+      />
+
+      <ScheduleReExamDialog
+        open={reExamTarget !== null}
+        onClose={() => setReExamTarget(null)}
+        onScheduled={onReload}
+        api={api}
+        token={token}
+        examTitle={detail.title}
+        subjects={reExamSubjects}
+        initialExamId={reExamTarget?.examId ?? null}
+        candidatesFor={candidatesFor}
+        initialWindow={reExamWindow}
+        mode={reExamWindow ? 'reschedule' : 'schedule'}
       />
     </div>
   );
