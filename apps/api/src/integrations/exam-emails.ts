@@ -229,10 +229,52 @@ export function renderExamResultsPublishedEmail(data: ExamResultsPublishedEmailD
   });
 }
 
+export interface ReExamScheduledEmailData {
+  studentFirstName: string;
+  examName: string;
+  subjectName: string;
+  /** e.g. "20 Oct 2026 (Tuesday)". */
+  dateLabel: string;
+  /** e.g. "10:00 AM – 11:30 AM". */
+  timeLabel: string;
+  /** e.g. "75 minutes"; empty when the paper is untimed. */
+  durationLabel: string;
+  rescheduled: boolean;
+}
+
+/** TTII 2026-10-09 — a re-examination of one subject, scheduled or moved. */
+export function renderReExamScheduledEmail(data: ReExamScheduledEmailData): string {
+  const lead = data.rescheduled
+    ? `Your re-examination for <strong>${orDash(data.subjectName)}</strong> has been moved. The new schedule is below.`
+    : `A re-examination has been scheduled for you in <strong>${orDash(data.subjectName)}</strong>.`;
+  const rows = [
+    { label: 'Examination', value: data.examName },
+    { label: 'Subject', value: data.subjectName },
+    { label: 'Date', value: data.dateLabel },
+    { label: 'Time', value: data.timeLabel },
+    ...(data.durationLabel ? [{ label: 'Duration', value: data.durationLabel }] : []),
+  ];
+  const bodyInner = `
+    ${greeting(data.studentFirstName)}
+    <p style="margin:0 0 22px;${PARA}">${lead}</p>
+    ${detailsCard('Re-examination', rows)}
+    ${callout('You can start the paper any time inside this window from the Exams page of your portal. Log in a few minutes early and check your internet connection.', 'info')}
+    ${ctaButton('Go to My Exams', EXAM_PORTAL_URL)}
+    ${supportNote()}
+  `;
+  return shell({
+    title: `Re-examination ${data.rescheduled ? 'Rescheduled' : 'Scheduled'} — ${data.subjectName}`,
+    preheader: `${data.subjectName} re-examination on ${data.dateLabel}.`,
+    bodyInner,
+  });
+}
+
 /** Subject lines, kept beside the renderers so triggers stay consistent. */
 export const EXAM_EMAIL_SUBJECTS = {
   published: (examName: string): string => `Your Examination Schedule Has Been Published — ${examName}`,
   resultsPublished: (examName: string): string => `Your Results Are Published — ${examName}`,
+  reExamScheduled: (subjectName: string, rescheduled: boolean): string =>
+    `Re-examination ${rescheduled ? 'Rescheduled' : 'Scheduled'} — ${subjectName}`,
   reminder24h: (subjectName: string): string => `Reminder: Your ${subjectName} Exam Is Scheduled for Tomorrow`,
   reminder1h: (subjectName: string): string => `Your Exam Begins in 1 Hour — ${subjectName}`,
   submitted: (subjectName: string): string => `Exam Submitted Successfully — ${subjectName}`,

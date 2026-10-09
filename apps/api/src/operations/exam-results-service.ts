@@ -1,12 +1,14 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { AUTO_SUBMIT_GRACE_MS, examWindowCloseInstant } from '../assessment/assessment-service.js';
+import { findActiveReExamsForExams, withReExamWindow } from '../assessment/re-exam-window.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
 import {
   computeExamResults,
   type ExamResultSheet,
   type ResultAttempt,
+  type ResultReExam,
   type ResultSitting,
   type ResultStudent,
 } from './exam-results.js';
@@ -105,6 +107,11 @@ function isPublished(exam: Pick<ExamRow, 'publish_result' | 'result_published_at
   return exam.publish_result === true || exam.result_published_at !== null;
 }
 
+/** HH:MM from a @db.Time column (an IST wall clock read with UTC getters). */
+function hhmm(value: Date): string {
+  return `${String(value.getUTCHours()).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 function firstName(name: string | null): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';
 }
@@ -116,6 +123,7 @@ interface LoadedExam {
   students: ResultStudent[];
   studentEmails: Map<number, string>;
   attempts: ResultAttempt[];
+  reExams: ResultReExam[];
   courses: string[];
 }
 
@@ -141,7 +149,7 @@ export class ExamResultsService {
     const rows: ExamResultsListRow[] = [];
     for (const top of tops) {
       const loaded = await this.load(top);
-      const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts);
+      const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
       rows.push({ ...(await this.header(loaded, sheet)), subjects: loaded.sittings.length, totals: sheet.totals });
     }
     return rows;
@@ -151,7 +159,7 @@ export class ExamResultsService {
     const top = await this.resolveTop(examId);
     if (!top) return null;
     const loaded = await this.load(top);
-    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts);
+    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
     return { ...(await this.header(loaded, sheet)), sheet, sittings: loaded.sittings };
   }
 
@@ -164,7 +172,7 @@ export class ExamResultsService {
       return { status: 0, message: 'Results for this exam are already published.' };
     }
     const loaded = await this.load(top);
-    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts);
+    const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
     if (!sheet.allSittingsClosed) {
       const lastDate = loaded.sittings.map((s) => s.date).filter(Boolean).sort().at(-1) ?? '';
       return {
@@ -282,7 +290,7 @@ export class ExamResultsService {
     const attemptRows = students.length > 0
       ? await this.prisma.exam_attempt.findMany({
           where: { exam_id: { in: sittingIds }, user_id: { in: students.map((s) => s.userId) }, deleted_at: null },
-          select: { id: true, exam_id: true, user_id: true, score: true, question_no: true, skip: true, submit_status: true, start_time: true, end_time: true },
+          select: { id: true, exam_id: true, user_id: true, score: true, question_no: true, skip: true, submit_status: true, start_time: true, end_time: true, created_at: true },
         })
       : [];
     const attempts: ResultAttempt[] = attemptRows
@@ -297,7 +305,28 @@ export class ExamResultsService {
         submitted: a.submit_status === true,
         startTime: a.start_time,
         endTime: a.end_time,
+        createdAt: a.created_at,
       }));
+
+    // The re-exam governing each (student, sitting), with its own window.
+    const rowById = new Map(sittingRows.map((r) => [r.id, r]));
+    const activeReExams = await findActiveReExamsForExams(this.prisma, sittingIds);
+    const reExams: ResultReExam[] = [];
+    for (const re of activeReExams.values()) {
+      const row = rowById.get(re.examId);
+      if (!row) continue;
+      const closeAt = examWindowCloseInstant(withReExamWindow(row, re));
+      reExams.push({
+        id: re.id,
+        examId: re.examId,
+        userId: re.userId,
+        scheduledAt: re.scheduledAt,
+        date: ymd(re.date),
+        startTime: hhmm(re.startTime),
+        endTime: hhmm(re.endTime),
+        closed: closeAt !== null && closeAt.getTime() + AUTO_SUBMIT_GRACE_MS < nowMs,
+      });
+    }
 
     const courseIds = [...new Set([...courseLinks.map((c) => c.course_id), ...(top.course_id ? [top.course_id] : [])])];
     const courseRows = courseIds.length > 0
@@ -311,6 +340,7 @@ export class ExamResultsService {
       students,
       studentEmails,
       attempts,
+      reExams,
       courses: courseRows.map((c) => (c.title ?? '').trim()).filter(Boolean),
     };
   }

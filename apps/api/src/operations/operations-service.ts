@@ -939,11 +939,6 @@ export type AdminExamEvaluationFilters = {
   courseId?: string;
 };
 
-export type AdminReExamFilters = {
-  courseId?: string;
-  batchId?: string;
-};
-
 export type EntranceExamInput = {
   title: string;
   description?: string;
@@ -5088,117 +5083,6 @@ export class OperationsService {
     };
   }
 
-  // Naji 2026-05-09 — Re-Examination overview + reschedule.
-  // List exams with allocated students who don't have an attempt.
-  async listReExaminationOverview(): Promise<Record<string, unknown>[]> {
-    const published = await this.prisma.exam.findMany({
-      where: { deleted_at: null, status: 'published' },
-      select: { id: true, exam_code: true, title: true, from_date: true, parent_exam_id: true },
-      orderBy: { id: 'desc' },
-    });
-    if (published.length === 0) return [];
-    // Risha UAT 2026-08-06 — attempts sit on the CHILD sittings, so a parent
-    // (which keeps a copy of the allocation) would report every student as
-    // having missed the exam. List the sittings; child-less exams are unchanged.
-    const parentIds = new Set(published.map((e) => e.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
-    const exams = published.filter((e) => !parentIds.has(e.id));
-    if (exams.length === 0) return [];
-    const examIds = exams.map((e) => e.id);
-    const [allocs, attempts] = await Promise.all([
-      this.prisma.exam_student_allocations.findMany({ where: { exam_id: { in: examIds } }, select: { exam_id: true, user_id: true } }),
-      this.prisma.exam_attempt.findMany({ where: { exam_id: { in: examIds } }, select: { exam_id: true, user_id: true } }),
-    ]);
-    const allocByExam = new Map<number, Set<number>>();
-    for (const a of allocs) {
-      const set = allocByExam.get(a.exam_id) ?? new Set<number>();
-      set.add(a.user_id);
-      allocByExam.set(a.exam_id, set);
-    }
-    const attemptByExam = new Map<number, Set<number>>();
-    for (const t of attempts) {
-      if (t.exam_id === null || t.user_id === null) continue;
-      const set = attemptByExam.get(t.exam_id) ?? new Set<number>();
-      set.add(t.user_id);
-      attemptByExam.set(t.exam_id, set);
-    }
-    return exams.map((e) => {
-      const allocated = allocByExam.get(e.id) ?? new Set<number>();
-      const attempted = attemptByExam.get(e.id) ?? new Set<number>();
-      let missed = 0;
-      for (const uid of allocated) if (!attempted.has(uid)) missed += 1;
-      return {
-        exam_id: e.id,
-        exam_code: e.exam_code,
-        title: e.title,
-        from_date: e.from_date,
-        allocated: allocated.size,
-        attempted: attempted.size,
-        missed,
-      };
-    }).filter((r) => r.missed > 0 || r.allocated > 0);
-  }
-
-  async getReExaminationDetail(examId: string): Promise<Record<string, unknown>> {
-    const id = toNullableIntId(examId);
-    if (!id) return { status: 0, message: 'Invalid exam id.' };
-    const [exam, subjects, allocs, attempts, reExams] = await Promise.all([
-      this.prisma.exam.findFirst({ where: { id }, select: { id: true, exam_code: true, title: true } }),
-      this.prisma.exam_subjects.findMany({ where: { exam_id: id }, select: { id: true, subject_title: true, exam_date: true, start_time: true, end_time: true } }),
-      this.prisma.exam_student_allocations.findMany({ where: { exam_id: id }, select: { user_id: true } }),
-      this.prisma.exam_attempt.findMany({ where: { exam_id: id }, select: { user_id: true } }),
-      this.prisma.exam_re_examinations.findMany({ where: { exam_id: id }, select: { exam_subject_id: true, user_id: true, new_date: true, new_start_time: true, new_end_time: true, status: true } }),
-    ]);
-    if (!exam) return { status: 0, message: 'Exam not found.' };
-    const allocatedIds = allocs.map((a) => a.user_id);
-    const attemptedSet = new Set(attempts.map((t) => t.user_id).filter((v): v is number => v !== null));
-    const missedIds = allocatedIds.filter((uid) => !attemptedSet.has(uid));
-    const users = missedIds.length > 0
-      ? await this.prisma.users.findMany({ where: { id: { in: missedIds } }, select: { id: true, name: true, user_email: true, email: true, student_id: true } })
-      : [];
-    const userMap = new Map(users.map((u) => [u.id, u]));
-    return {
-      status: 1,
-      data: {
-        exam,
-        subjects: subjects.map((s) => ({ ...s })),
-        missed_students: missedIds.map((uid) => {
-          const u = userMap.get(uid);
-          return {
-            user_id: uid,
-            student_id: u?.student_id ?? '',
-            name: u?.name ?? '',
-            email: u?.user_email ?? u?.email ?? '',
-          };
-        }),
-        scheduled: reExams.map((r) => ({ ...r })),
-      },
-    };
-  }
-
-  async scheduleReExamination(
-    actorUserId: string,
-    input: { examId: string; examSubjectId?: number | null | undefined; userId: number; newDate: string; newStartTime: string; newEndTime: string; notes?: string | undefined },
-  ): Promise<Record<string, unknown>> {
-    const examIdInt = toNullableIntId(input.examId);
-    if (!examIdInt) return { status: 0, message: 'Invalid exam id.' };
-    if (!input.userId) return { status: 0, message: 'Student is required.' };
-    if (!input.newDate || !input.newStartTime || !input.newEndTime) return { status: 0, message: 'Date and times are required.' };
-    await this.prisma.exam_re_examinations.create({
-      data: {
-        exam_id: examIdInt,
-        exam_subject_id: input.examSubjectId ?? null,
-        user_id: input.userId,
-        new_date: new Date(input.newDate),
-        new_start_time: new Date(`1970-01-01T${input.newStartTime}:00`),
-        new_end_time: new Date(`1970-01-01T${input.newEndTime}:00`),
-        notes: input.notes ?? null,
-        status: 'scheduled',
-        created_by: toNullableIntId(actorUserId),
-      },
-    });
-    return { status: 1, message: 'Re-exam scheduled.' };
-  }
-
   // Naji 2026-05-09 — Evaluation drill-down (Exams → Subjects → Students)
   // + manual descriptive grading + exam-wise result publishing.
   async listEvaluationExams(): Promise<Record<string, unknown>[]> {
@@ -7487,62 +7371,6 @@ export class OperationsService {
     const now = new Date();
     await this.prisma.exam_attempt.updateMany({ where: { id: toIntId(attemptId), deleted_at: null }, data: { score, updated_by: toNullableIntId(actorUserId), updated_at: now } });
     return { status: 1, message: 'Exam attempt evaluated successfully.' };
-  }
-
-  // ─── Phase 2: Re-Examination ───────────────────────────────────────────────
-
-  async listReExams(filters: AdminReExamFilters = {}): Promise<SqlRow[]> {
-    const where: Record<string, unknown> = { deleted_at: null };
-    if (filters.courseId) where.course_id = toIntId(filters.courseId);
-    if (filters.batchId) where.batch_id = toIntId(filters.batchId);
-
-    const examRows = await this.prisma.exam.findMany({ where: where as Prisma.examWhereInput, orderBy: { id: 'desc' } });
-    const examIds = examRows.map(e => e.id);
-    const courseIds = [...new Set(examRows.map(e => e.course_id).filter((x): x is number => x !== null && x !== undefined))];
-    const batchIds = [...new Set(examRows.map(e => e.batch_id).filter((x): x is number => x !== null && x !== undefined))];
-
-    const [courses, batches, attemptCounts, allAttempts] = await Promise.all([
-      courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
-      batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
-      examIds.length > 0 ? this.prisma.exam_attempt.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, submit_status: true, deleted_at: null }, _count: { id: true } }) : [],
-      examIds.length > 0 ? this.prisma.exam_attempt.findMany({ where: { exam_id: { in: examIds }, submit_status: true, deleted_at: null }, select: { exam_id: true, score: true } }) : [],
-    ]);
-
-    const courseMap = new Map(courses.map(c => [c.id, c]));
-    const batchMap = new Map(batches.map(b => [b.id, b]));
-    const attemptCountMap = new Map(attemptCounts.map((ac) => [ac.exam_id, ac._count?.id ?? 0]));
-
-    // Calculate failed counts in JS (score < mark * 0.4)
-    const failedCountMap = new Map<number, number>();
-    for (const e of examRows) {
-      const threshold = (e.mark ?? 0) * 0.4;
-      const failed = allAttempts.filter(a => a.exam_id === e.id && (a.score ?? 0) < threshold).length;
-      failedCountMap.set(e.id, failed);
-    }
-
-    return examRows.map(e => ({
-      ...e,
-      course_title: e.course_id ? courseMap.get(e.course_id)?.title ?? null : null,
-      batch_title: e.batch_id ? batchMap.get(e.batch_id)?.title ?? null : null,
-      total_attempts: attemptCountMap.get(e.id) ?? 0,
-      failed_count: failedCountMap.get(e.id) ?? 0,
-    })) as unknown as SqlRow[];
-  }
-
-  async grantReExam(actorUserId: string, examId: string, userIds: string[]): Promise<Record<string, unknown>> {
-    if (userIds.length === 0) {
-      return { status: 0, message: 'No students selected.' };
-    }
-
-    const now = new Date();
-    for (const userId of userIds) {
-      await this.prisma.exam_attempt.updateMany({
-        where: { exam_id: toIntId(examId), user_id: toIntId(userId), submit_status: true, deleted_at: null },
-        data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
-      });
-    }
-
-    return { status: 1, message: `Re-exam granted to ${userIds.length} student(s).` };
   }
 
   // ─── Phase 2: Entrance Exams ───────────────────────────────────────────────

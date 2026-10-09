@@ -374,7 +374,7 @@ export interface ExamWindowRow {
  * yields 1. Mirrors parseDurationMin in the student player so both sides agree
  * on how long the paper is.
  */
-function parseDurationMinutes(value: unknown): number {
+export function parseDurationMinutes(value: unknown): number {
   const raw = toStringValue(value).trim();
   if (raw === '') {
     return 0;

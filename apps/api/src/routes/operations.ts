@@ -7,6 +7,7 @@ import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
+import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -21,7 +22,6 @@ import {
   type AdminExamEvaluationFilters,
   type AdminExamFilters,
   type AdminExamResultFilters,
-  type AdminReExamFilters,
   type AssignmentInput,
   type BannerInput,
   type BatchInput,
@@ -47,6 +47,7 @@ interface RegisterOperationsRoutesOptions {
   authService?: AuthService;
   operationsService?: OperationsService;
   examResultsService?: ExamResultsService;
+  reExamService?: ReExamService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -387,6 +388,7 @@ export function registerOperationsRoutes(
   const operationsService = options.operationsService ?? new OperationsService();
   const announcementService = new AnnouncementService();
   const examResultsService = options.examResultsService ?? new ExamResultsService();
+  const reExamService = options.reExamService ?? new ReExamService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2084,34 +2086,38 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  // Naji 2026-05-09 — Re-Examination
-  app.get('/admin/re_exam/index', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+  // TTII 2026-10-09 — Re-examination: one subject sitting re-opened for one
+  // student in a window of its own (see re-exam-service / re-exam-window).
+  // Admin/Subadmin only. Replaces /admin/re_exam/{index,detail,schedule}, whose
+  // rows nothing ever read, and /admin/re_exam/manage_{list,grant}, which
+  // "granted" a re-exam by soft-deleting the student's submitted papers.
+  app.get('/admin/re_exams/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
     try {
-      const data = await operationsService.listReExaminationOverview();
+      const data = await reExamService.list();
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.get('/admin/re_exam/detail', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/re_exams/schedule', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const data = await operationsService.getReExaminationDetail(toStringValue(payload.exam_id));
-      reply.code(200).send(data);
+      const actor = toInteger(requestUserId(request));
+      const result = await reExamService.schedule(actor > 0 ? actor : null, {
+        examId: toInteger(payload.exam_id),
+        userIds: toStringArray(payload.user_ids).map((id) => toInteger(id)),
+        date: toStringValue(payload.date),
+        startTime: toStringValue(payload.start_time),
+        endTime: toStringValue(payload.end_time),
+        notes: toStringValue(payload.notes),
+      });
+      reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/re_exam/schedule', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/re_exams/cancel', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const result = await operationsService.scheduleReExamination(requestUserId(request), {
-        examId: toStringValue(payload.exam_id),
-        examSubjectId: toInteger(payload.exam_subject_id) || null,
-        userId: toInteger(payload.user_id),
-        newDate: toStringValue(payload.new_date),
-        newStartTime: toStringValue(payload.new_start_time),
-        newEndTime: toStringValue(payload.new_end_time),
-        notes: toStringValue(payload.notes) || undefined,
-      });
+      const result = await reExamService.cancel(toInteger(payload.id));
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
@@ -2723,44 +2729,6 @@ export function registerOperationsRoutes(
         requestUserId(request),
         toStringValue(payload.attempt_id),
         toNumber(payload.score),
-      );
-      reply.code(200).send(result);
-    } catch (error: unknown) {
-      sendOperationsError(reply, error);
-    }
-  });
-
-  // ─── Phase 2: Re-Examination ────────────────────────────────────────────
-  //
-  // 2026-05-30 — Renamed from `/admin/Re_exam/index` + `/admin/Re_exam/grant`
-  // (CamelCase) to `/admin/re_exam/manage_list` + `/admin/re_exam/manage_grant`
-  // when the API switched to case-insensitive routing (Flutter mobile sends
-  // PHP-style CamelCase URLs that 404'd under Fastify's case-sensitive default).
-  // The CamelCase paths collided with the Naji 2026-05-09 lowercase
-  // `/admin/re_exam/*` family above; these renamed routes preserve the older
-  // filtered-list + grant implementation for callers that need them.
-
-  app.get('/admin/re_exam/manage_list', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
-    try {
-      const payload = requestPayload(request);
-      const filters: AdminReExamFilters = {
-        courseId: toStringValue(payload.course_id),
-        batchId: toStringValue(payload.batch_id),
-      };
-      const data = await operationsService.listReExams(filters);
-      reply.code(200).send({ status: 1, message: 'success', data });
-    } catch (error: unknown) {
-      sendOperationsError(reply, error);
-    }
-  });
-
-  app.post('/admin/re_exam/manage_grant', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
-    try {
-      const payload = requestPayload(request);
-      const result = await operationsService.grantReExam(
-        requestUserId(request),
-        toStringValue(payload.exam_id),
-        toStringArray(payload.user_ids),
       );
       reply.code(200).send(result);
     } catch (error: unknown) {

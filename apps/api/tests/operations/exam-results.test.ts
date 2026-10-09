@@ -4,6 +4,7 @@ import {
   computeExamResults,
   overallResult,
   type ResultAttempt,
+  type ResultReExam,
   type ResultSitting,
   type ResultStudent,
 } from '../../src/operations/exam-results.js';
@@ -29,6 +30,7 @@ const attempt = (userId: number, examId: number, score: number, opts: Partial<Re
   submitted: true,
   startTime: new Date('2026-08-10T14:00:00Z'),
   endTime: new Date('2026-08-10T14:40:00Z'),
+  createdAt: new Date('2026-08-10T14:00:00Z'),
   ...opts,
 });
 
@@ -139,5 +141,51 @@ describe('overallResult precedence', () => {
     expect(overallResult(['pass', 'pending', 'fail'])).toBe('pending');
     expect(overallResult(['fail', 'absent'])).toBe('failed');
     expect(overallResult([])).toBe('pending');
+  });
+});
+
+describe('a re-exam replaces the original paper for that subject', () => {
+  // Sheba sat Child Psychology on 11 Aug and saved 0 answers; TTII schedules a
+  // re-exam on 20 Aug, decided on the 15th.
+  const reExam = (closed = false): ResultReExam => ({
+    id: 7, examId: 24, userId: 1, scheduledAt: new Date('2026-08-15T06:00:00Z'),
+    date: '2026-08-20', startTime: '10:00', endTime: '11:30', closed,
+  });
+  const original = (): ResultAttempt => attempt(1, 24, 0, { skipped: 70 });
+  const reExamPaper = (score: number): ResultAttempt => attempt(1, 24, score, {
+    startTime: new Date('2026-08-20T04:30:00Z'),
+    endTime: new Date('2026-08-20T05:30:00Z'),
+    createdAt: new Date('2026-08-20T04:30:00Z'),
+  });
+
+  test('until it is sat the subject is re-exam pending, not the old fail', () => {
+    const sheet = computeExamResults([sitting(23), sitting(24)], [student(1)], [attempt(1, 23, 68), original()], [reExam()]);
+    const cell = sheet.students[0]?.sittings[1];
+
+    expect(cell).toMatchObject({ status: 'reexam', score: null, previousScore: 0, reExam: { state: 'scheduled', date: '2026-08-20' } });
+    expect(sheet.students[0]?.overall).toBe('reexam');
+    expect(sheet.totals.reexam).toBe(1);
+    expect(sheet.subjects[1]?.reexam).toBe(1);
+  });
+
+  test('once sat, the re-exam mark counts and the original is kept as the previous mark', () => {
+    const sheet = computeExamResults([sitting(24)], [student(1)], [original(), reExamPaper(66)], [reExam()]);
+    const cell = sheet.students[0]?.sittings[0];
+
+    expect(cell).toMatchObject({ status: 'pass', score: 66, previousScore: 0, reExam: { state: 'completed' } });
+    expect(cell?.flag).toBeNull();
+    expect(sheet.students[0]?.overall).toBe('passed');
+  });
+
+  test('a re-exam window that passes unused is absent', () => {
+    const sheet = computeExamResults([sitting(24)], [student(1)], [original()], [reExam(true)]);
+
+    expect(sheet.students[0]?.sittings[0]).toMatchObject({ status: 'absent', reExam: { state: 'missed' }, previousScore: 0 });
+  });
+
+  test('another student on the same subject is unaffected', () => {
+    const sheet = computeExamResults([sitting(24)], [student(1), student(2)], [original(), attempt(2, 24, 50)], [reExam()]);
+
+    expect(sheet.students[1]?.sittings[0]).toMatchObject({ status: 'pass', reExam: null, previousScore: null });
   });
 });

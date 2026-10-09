@@ -15,13 +15,18 @@
 //   - Overall: every sitting passed → passed. Any sitting failed → failed.
 //     Missed some sittings without failing any → incomplete. Missed every
 //     sitting → absent. Anything still to be held → pending.
+//   - A re-exam (TTII 2026-10-09) replaces the original paper for that
+//     subject: until it is sat the subject is RE-EXAM PENDING, then the
+//     re-exam paper's mark counts (the original stays visible as the previous
+//     mark); a re-exam window that passes unused is ABSENT.
 //   - An attempt that saved under 10% of its answers is FLAGGED: production
 //     had papers submitted 1–5 minutes in with 0–2 answers, next to 60s/70 on
 //     the same student's other subjects. Flags never change the result — they
 //     tell staff to check before publishing.
 
-export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only';
-export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only';
+export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam';
+export type OverallResult = 'passed' | 'failed' | 'incomplete' | 'absent' | 'pending' | 'marks_only' | 'reexam';
+export type ReExamState = 'scheduled' | 'completed' | 'missed';
 
 /** Below this share of answered questions an attempt is flagged for review. */
 export const LOW_ANSWER_SHARE = 0.1;
@@ -56,6 +61,30 @@ export interface ResultAttempt {
   submitted: boolean;
   startTime: Date | null;
   endTime: Date | null;
+  /** When the attempt was started; decides whether it belongs to a re-exam. */
+  createdAt: Date | null;
+}
+
+/** The re-exam governing one (student, sitting) — the newest not cancelled. */
+export interface ResultReExam {
+  id: number;
+  examId: number;
+  userId: number;
+  scheduledAt: Date;
+  /** YYYY-MM-DD and HH:MM, IST wall clock. */
+  date: string;
+  startTime: string;
+  endTime: string;
+  /** True once the re-exam window (plus the auto-submit grace) has passed. */
+  closed: boolean;
+}
+
+export interface SittingReExam {
+  id: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+  state: ReExamState;
 }
 
 export interface StudentSittingResult {
@@ -69,6 +98,9 @@ export interface StudentSittingResult {
   questionCount: number | null;
   minutesTaken: number | null;
   flag: string | null;
+  reExam: SittingReExam | null;
+  /** The original paper's mark when a re-exam has replaced it. */
+  previousScore: number | null;
 }
 
 export interface StudentResult {
@@ -97,6 +129,7 @@ export interface SubjectSummary {
   failed: number;
   absent: number;
   pending: number;
+  reexam: number;
   averageMarks: number;
   passPercentage: number;
 }
@@ -108,6 +141,7 @@ export interface ResultTotals {
   incomplete: number;
   absent: number;
   pending: number;
+  reexam: number;
   flagged: number;
   /** Passed as a share of those with a decided result (absent excluded). */
   passPercentage: number;
@@ -147,26 +181,11 @@ function lowAnswerFlag(answered: number, questionCount: number, minutes: number 
   return `Only ${answered} of ${questionCount} answers saved${time} — possible technical issue`;
 }
 
-export function sittingResult(sitting: ResultSitting, attempts: ResultAttempt[]): StudentSittingResult {
-  const base = {
-    examId: sitting.examId,
-    totalMarks: sitting.totalMarks,
-    passMarks: sitting.passMarks,
-  };
-  const attempt = countingAttempt(attempts);
-  if (!attempt) {
-    return {
-      ...base,
-      status: sitting.closed ? 'absent' : 'pending',
-      score: null,
-      attemptId: null,
-      answered: null,
-      questionCount: null,
-      minutesTaken: null,
-      flag: null,
-    };
-  }
-
+function scoredCell(
+  base: Pick<StudentSittingResult, 'examId' | 'totalMarks' | 'passMarks'>,
+  sitting: ResultSitting,
+  attempt: ResultAttempt,
+): StudentSittingResult {
   const answered = Math.max(0, attempt.questionCount - attempt.skipped);
   const minutes = minutesBetween(attempt.startTime, attempt.endTime);
   const status: SittingStatus = sitting.passMarks === null
@@ -181,12 +200,71 @@ export function sittingResult(sitting: ResultSitting, attempts: ResultAttempt[])
     questionCount: attempt.questionCount,
     minutesTaken: minutes,
     flag: lowAnswerFlag(answered, attempt.questionCount, minutes),
+    reExam: null,
+    previousScore: null,
+  };
+}
+
+function unscoredCell(
+  base: Pick<StudentSittingResult, 'examId' | 'totalMarks' | 'passMarks'>,
+  status: SittingStatus,
+): StudentSittingResult {
+  return {
+    ...base,
+    status,
+    score: null,
+    attemptId: null,
+    answered: null,
+    questionCount: null,
+    minutesTaken: null,
+    flag: null,
+    reExam: null,
+    previousScore: null,
+  };
+}
+
+export function sittingResult(
+  sitting: ResultSitting,
+  attempts: ResultAttempt[],
+  reExam: ResultReExam | null = null,
+): StudentSittingResult {
+  const base = {
+    examId: sitting.examId,
+    totalMarks: sitting.totalMarks,
+    passMarks: sitting.passMarks,
+  };
+
+  if (!reExam) {
+    const attempt = countingAttempt(attempts);
+    if (!attempt) return unscoredCell(base, sitting.closed ? 'absent' : 'pending');
+    return scoredCell(base, sitting, attempt);
+  }
+
+  // Under a re-exam only papers started since it was scheduled count; the
+  // original paper is kept as the previous mark.
+  const floor = reExam.scheduledAt.getTime();
+  const belongs = (a: ResultAttempt): boolean => (a.createdAt?.getTime() ?? -Infinity) >= floor;
+  const reAttempt = countingAttempt(attempts.filter(belongs));
+  const original = countingAttempt(attempts.filter((a) => !belongs(a)));
+  const info = (state: ReExamState): SittingReExam => ({
+    id: reExam.id, date: reExam.date, startTime: reExam.startTime, endTime: reExam.endTime, state,
+  });
+  const previousScore = original ? original.score : null;
+
+  if (reAttempt) {
+    return { ...scoredCell(base, sitting, reAttempt), reExam: info('completed'), previousScore };
+  }
+  return {
+    ...unscoredCell(base, reExam.closed ? 'absent' : 'reexam'),
+    reExam: info(reExam.closed ? 'missed' : 'scheduled'),
+    previousScore,
   };
 }
 
 export function overallResult(statuses: SittingStatus[]): OverallResult {
   if (statuses.length === 0) return 'pending';
   if (statuses.includes('pending')) return 'pending';
+  if (statuses.includes('reexam')) return 'reexam';
   if (statuses.every((s) => s === 'absent')) return 'absent';
   if (statuses.includes('fail')) return 'failed';
   if (statuses.includes('absent')) return 'incomplete';
@@ -211,6 +289,7 @@ function summariseSubject(sitting: ResultSitting, cells: StudentSittingResult[])
     failed,
     absent: cells.filter((c) => c.status === 'absent').length,
     pending: cells.filter((c) => c.status === 'pending').length,
+    reexam: cells.filter((c) => c.status === 'reexam').length,
     averageMarks: scored.length > 0
       ? round1(scored.reduce((sum, c) => sum + (c.score ?? 0), 0) / scored.length)
       : 0,
@@ -222,7 +301,9 @@ export function computeExamResults(
   sittings: ResultSitting[],
   students: ResultStudent[],
   attempts: ResultAttempt[],
+  reExams: ResultReExam[] = [],
 ): ExamResultSheet {
+  const reExamByKey = new Map(reExams.map((r) => [`${r.userId}:${r.examId}`, r]));
   const attemptsByKey = new Map<string, ResultAttempt[]>();
   for (const a of attempts) {
     const key = `${a.userId}:${a.examId}`;
@@ -233,7 +314,10 @@ export function computeExamResults(
 
   const maxMarks = sittings.reduce((sum, s) => sum + s.totalMarks, 0);
   const studentResults: StudentResult[] = students.map((student) => {
-    const cells = sittings.map((s) => sittingResult(s, attemptsByKey.get(`${student.userId}:${s.examId}`) ?? []));
+    const cells = sittings.map((s) => {
+      const key = `${student.userId}:${s.examId}`;
+      return sittingResult(s, attemptsByKey.get(key) ?? [], reExamByKey.get(key) ?? null);
+    });
     const obtained = cells.reduce((sum, c) => sum + (c.score ?? 0), 0);
     return {
       userId: student.userId,
@@ -269,6 +353,7 @@ export function computeExamResults(
       incomplete,
       absent: count('absent'),
       pending: count('pending'),
+      reexam: count('reexam'),
       flagged: studentResults.filter((r) => r.flagged).length,
       passPercentage: decided > 0 ? Math.round((passed / decided) * 100) : 0,
     },
