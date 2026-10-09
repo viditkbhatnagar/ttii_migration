@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { AUTO_SUBMIT_GRACE_MS, examWindowCloseInstant } from '../assessment/assessment-service.js';
 import { findActiveReExamsForExams, withReExamWindow } from '../assessment/re-exam-window.js';
-import { examQuestionIds, isExamPaper } from './exam-paper.js';
+import { isExamPaper, lessonQuizIds } from './exam-paper.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
 import {
@@ -294,11 +294,11 @@ export class ExamResultsService {
           select: { id: true, exam_id: true, user_id: true, score: true, question_no: true, skip: true, submit_status: true, start_time: true, end_time: true, created_at: true, question_id: true },
         })
       : [];
-    // Lesson-quiz attempts share exam_attempt and its id space; keep papers only.
-    const paperQuestions = await examQuestionIds(this.prisma, sittingIds);
+    // Lesson-quiz attempts share exam_attempt and its id space; keep papers only (exam-paper.ts).
+    const quizIds = await lessonQuizIds(this.prisma, sittingIds);
     const attempts: ResultAttempt[] = attemptRows
       .filter((a) => a.exam_id !== null && a.user_id !== null)
-      .filter((a) => isExamPaper(a.question_id, paperQuestions.get(a.exam_id as number)))
+      .filter((a) => isExamPaper(a.question_id, quizIds.get(a.exam_id as number)))
       .map((a) => ({
         attemptId: a.id,
         examId: a.exam_id as number,

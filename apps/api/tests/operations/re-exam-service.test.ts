@@ -40,7 +40,7 @@ interface AttemptRow {
   submit_status: boolean;
   created_at: Date;
   start_time: Date;
-  /** Locked question ids; the sitting's questions are 9001/9002. */
+  /** Locked question ids: a paper locks question_bank ids (9001/9002), a legacy quiz its quiz ids. */
   question_id?: string;
 }
 
@@ -153,8 +153,9 @@ function makeService(w: World): ReExamService {
         );
       },
     },
-    exam_questions: {
-      findMany: () => Promise.resolve([{ exam_id: SITTING_ID, question_id: 9001 }, { exam_id: SITTING_ID, question_id: 9002 }]),
+    // Legacy lesson 24's quiz questions: the id space a quiz attempt on "24" locks.
+    quiz: {
+      findMany: () => Promise.resolve([{ id: 55, lesson_file_id: SITTING_ID }, { id: 56, lesson_file_id: SITTING_ID }]),
     },
   } as unknown as PrismaClient;
   const email = {
@@ -378,4 +379,15 @@ describe('review fixes (2026-10-09)', () => {
 
     expect(w.reExams[0]?.notes).toBe('Technical issue on 11 Aug');
   });
+});
+
+test('a genuine paper still counts after the exam\'s questions were replaced', async () => {
+  // The exam editor hard-deletes and re-inserts exam_questions, so a paper sat
+  // before an edit locks ids the exam no longer lists. It is still a paper.
+  const w = world({ allocated: [174], students: [world().students[0]!] });
+  const service = makeService(w);
+  await service.schedule(1, input({ userIds: [174] }));
+  w.attempts.push({ id: 980, exam_id: SITTING_ID, user_id: 174, score: 40, submit_status: true, created_at: ist(2026, 10, 20, 10), start_time: ist(2026, 10, 20, 10), question_id: JSON.stringify(['7001', '7002']) });
+
+  expect(await service.cancel(1)).toMatchObject({ status: 0 });
 });

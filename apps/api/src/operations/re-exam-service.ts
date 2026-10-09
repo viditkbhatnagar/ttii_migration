@@ -8,7 +8,7 @@ import {
 import { NOT_CANCELLED, withReExamWindow, type ActiveReExam } from '../assessment/re-exam-window.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import type { EmailProvider } from '../integrations/contracts.js';
-import { examQuestionIds, isExamPaper } from './exam-paper.js';
+import { isExamPaper, lessonQuizIds } from './exam-paper.js';
 
 // Re-examination (TTII 2026-10-09). Schedules, moves, cancels and lists
 // re-exams: one subject sitting re-opened for one student in a window of its
@@ -205,11 +205,11 @@ export class ReExamService {
     }
 
     // Their papers on this sitting (lesson-quiz rows sharing the id space excluded).
-    const paperQuestions = await examQuestionIds(this.prisma, [sitting.id]);
+    const quizIds = await lessonQuizIds(this.prisma, [sitting.id]);
     const papers = (await this.prisma.exam_attempt.findMany({
       where: { exam_id: sitting.id, user_id: { in: userIds }, deleted_at: null },
       select: { user_id: true, submit_status: true, created_at: true, question_id: true },
-    })).filter((a) => isExamPaper(a.question_id, paperQuestions.get(sitting.id)));
+    })).filter((a) => isExamPaper(a.question_id, quizIds.get(sitting.id)));
 
     // Plan every student before writing anything, so a refusal leaves no half-done batch.
     type Plan = { student: (typeof students)[number]; existingId: number | null };
@@ -309,12 +309,12 @@ export class ReExamService {
     });
     if (!row) return { status: 0, message: 'Re-exam not found.' };
     if (row.status === 'cancelled') return { status: 0, message: 'This re-exam is already cancelled.' };
-    const paperQuestions = await examQuestionIds(this.prisma, [row.exam_id]);
+    const quizIds = await lessonQuizIds(this.prisma, [row.exam_id]);
     const started = row.created_at
       ? (await this.prisma.exam_attempt.findMany({
           where: { exam_id: row.exam_id, user_id: row.user_id, deleted_at: null, created_at: { gte: row.created_at } },
           select: { question_id: true },
-        })).filter((a) => isExamPaper(a.question_id, paperQuestions.get(row.exam_id))).length
+        })).filter((a) => isExamPaper(a.question_id, quizIds.get(row.exam_id))).length
       : 0;
     if (started > 0) return { status: 0, message: 'The student has already started this re-exam, so it cannot be cancelled.' };
     await this.prisma.exam_re_examinations.update({ where: { id: row.id }, data: { status: 'cancelled' } });
@@ -338,8 +338,8 @@ export class ReExamService {
         select: { id: true, exam_id: true, user_id: true, score: true, submit_status: true, created_at: true, start_time: true, question_id: true },
       }),
     ]);
-    const paperQuestions = await examQuestionIds(this.prisma, sittingIds);
-    const papers = attempts.filter((a) => a.exam_id !== null && isExamPaper(a.question_id, paperQuestions.get(a.exam_id)));
+    const quizIds = await lessonQuizIds(this.prisma, sittingIds);
+    const papers = attempts.filter((a) => a.exam_id !== null && isExamPaper(a.question_id, quizIds.get(a.exam_id)));
     const parentIds = [...new Set(sittings.map((s) => s.parent_exam_id).filter((v): v is number => v !== null))];
     const scheduleIds = [...new Set(sittings.map((s) => s.exam_subject_id).filter((v): v is number => v !== null))];
     const [parents, schedules] = await Promise.all([
