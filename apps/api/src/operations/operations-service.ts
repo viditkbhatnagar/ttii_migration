@@ -1265,6 +1265,9 @@ function parseApprovalRowId(rowId: string): { applicationId: string; index: numb
   return { applicationId: m[1] ?? rowId, index: m[2] ? Number(m[2]) : 0 };
 }
 
+/** Compare-and-swap retries for a centre wallet credit before giving up. */
+const FUND_CREDIT_CAS_ATTEMPTS = 5;
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -16243,18 +16246,35 @@ export class OperationsService {
         },
       });
 
-      const centreRow = await tx.centres.findFirst({ where: { id: request.centre_id } });
-      const currentBalance = Number(centreRow?.wallet_balance ?? '0') || 0;
+      // wallet_balance is a VarChar, so it cannot be incremented in SQL. A
+      // compare-and-swap on the exact string read stops two approvals for the
+      // same centre (different requests) from overwriting each other's credit.
+      //
+      // Touch the row first: the UPDATE waits for any other transaction holding
+      // it, and under InnoDB REPEATABLE READ a row this transaction has updated
+      // reads at its latest committed version, so the read below is current
+      // (a plain re-read would keep returning the old snapshot).
       const addAmount = Number(request.amount) || 0;
-      await tx.centres.update({
+      await tx.centres.updateMany({
         where: { id: request.centre_id },
-        data: {
-          wallet_balance: String(currentBalance + addAmount),
-          updated_by: toIntId(actorUserId),
-          updated_at: now,
-        },
+        data: { updated_by: toIntId(actorUserId), updated_at: now },
       });
-      return true;
+      for (let attempt = 0; attempt < FUND_CREDIT_CAS_ATTEMPTS; attempt += 1) {
+        const centreRow = await tx.centres.findFirst({ where: { id: request.centre_id } });
+        const readBalance = centreRow?.wallet_balance ?? null;
+        const currentBalance = Number(readBalance ?? '0') || 0;
+        const swapped = await tx.centres.updateMany({
+          where: { id: request.centre_id, wallet_balance: readBalance },
+          data: {
+            wallet_balance: String(currentBalance + addAmount),
+            updated_by: toIntId(actorUserId),
+            updated_at: now,
+          },
+        });
+        if (swapped.count > 0) return true;
+      }
+      // Throwing rolls back the claim and the wallet_transactions row too.
+      throw new Error('The centre wallet was being updated at the same time. Please try again.');
     });
 
     if (!credited) return this.fundRequestAlreadyProcessed(requestId);

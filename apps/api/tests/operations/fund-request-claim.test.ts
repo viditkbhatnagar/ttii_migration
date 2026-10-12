@@ -10,11 +10,13 @@ import { OperationsService } from '../../src/operations/operations-service.js';
 
 interface FundRow { id: number; centre_id: number; amount: string; status: string; deleted_at: Date | null }
 
-function makeWorld(opts: { loseClaim?: boolean } = {}) {
+function makeWorld(opts: { loseClaim?: boolean; casLosses?: number } = {}) {
   const requests: FundRow[] = [{ id: 7, centre_id: 28, amount: '25000', status: 'pending', deleted_at: null }];
   const centre = { id: 28, wallet_balance: '50000' };
   const credits: Array<Record<string, unknown>> = [];
   let claims = 0;
+  let casLossesLeft = opts.casLosses ?? 0;
+  let casAttempts = 0;
 
   const fund = {
     // A snapshot, like a real read: a later write by someone else does not change it.
@@ -40,15 +42,38 @@ function makeWorld(opts: { loseClaim?: boolean } = {}) {
     wallet_transactions: { create: ({ data }: { data: Record<string, unknown> }) => { credits.push(data); return Promise.resolve({ id: credits.length }); } },
     centres: {
       findFirst: () => Promise.resolve({ ...centre }),
-      update: ({ data }: { data: { wallet_balance: string } }) => { centre.wallet_balance = data.wallet_balance; return Promise.resolve(centre); },
+      updateMany: ({ where, data }: { where: { id: number; wallet_balance?: string | null }; data: { wallet_balance?: string } }) => {
+        if (where.id !== centre.id) return Promise.resolve({ count: 0 });
+        if (!('wallet_balance' in where)) return Promise.resolve({ count: 1 }); // the row-lock touch
+        casAttempts += 1;
+        // `casLosses`: another approval credits 1,000 between our read and our swap.
+        if (casLossesLeft > 0) {
+          casLossesLeft -= 1;
+          centre.wallet_balance = String(Number(centre.wallet_balance) + 1000);
+          return Promise.resolve({ count: 0 });
+        }
+        if (centre.wallet_balance !== where.wallet_balance) return Promise.resolve({ count: 0 });
+        centre.wallet_balance = data.wallet_balance ?? centre.wallet_balance;
+        return Promise.resolve({ count: 1 });
+      },
     },
   };
   const prisma = {
     ...tx,
-    $transaction: <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
+    // Rolls the request and the credits back when the callback throws, like a real transaction.
+    $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => {
+      const saved = { requests: requests.map((r) => ({ ...r })), credits: credits.length };
+      try {
+        return await fn(tx);
+      } catch (err) {
+        requests.splice(0, requests.length, ...saved.requests);
+        credits.length = saved.credits;
+        throw err;
+      }
+    },
   } as unknown as PrismaClient;
 
-  return { service: new OperationsService(prisma), requests, centre, credits, claimCount: () => claims };
+  return { service: new OperationsService(prisma), requests, centre, credits, claimCount: () => claims, casAttempts: () => casAttempts };
 }
 
 describe('fund request approve / reject are claim-first', () => {
@@ -107,5 +132,24 @@ describe('fund request approve / reject are claim-first', () => {
     const w = makeWorld();
     expect(await w.service.rejectFundRequest('1', '7')).toEqual({ status: 1, message: 'Fund request rejected.' });
     expect(w.requests[0]?.status).toBe('rejected');
+  });
+
+  test('a lost wallet compare-and-swap re-reads and credits on top of the other credit', async () => {
+    const w = makeWorld({ casLosses: 1 });
+    const res = await w.service.approveFundRequest('1', '7');
+    expect(res).toEqual({ status: 1, message: 'Fund request approved and wallet credited.' });
+    expect(w.casAttempts()).toBe(2);
+    // 50,000 + the concurrent 1,000 + this request's 25,000 — nothing lost.
+    expect(w.centre.wallet_balance).toBe('76000');
+    expect(w.credits).toHaveLength(1);
+  });
+
+  test('gives up after five lost swaps and rolls the whole approval back', async () => {
+    const w = makeWorld({ casLosses: 5 });
+    await expect(w.service.approveFundRequest('1', '7')).rejects.toThrow('Please try again.');
+    expect(w.casAttempts()).toBe(5);
+    expect(w.requests[0]?.status).toBe('pending');
+    expect(w.credits).toHaveLength(0);
+    expect(w.centre.wallet_balance).toBe('55000'); // only the other approvals' credits
   });
 });
