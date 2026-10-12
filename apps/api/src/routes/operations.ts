@@ -10,6 +10,7 @@ import { AnnouncementService, type AnnouncementInput } from '../operations/annou
 import { ExamAdminService } from '../operations/exam-admin-service.js';
 import { ExamCalendarService } from '../operations/exam-calendar-service.js';
 import { ExamDashboardService } from '../operations/exam-dashboard-service.js';
+import { QuestionBankService, toIdList, type QuestionKindFilter } from '../operations/question-bank-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ExamSubmissionsService } from '../operations/exam-submissions-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
@@ -57,6 +58,7 @@ interface RegisterOperationsRoutesOptions {
   examCalendarService?: ExamCalendarService;
   examDashboardService?: ExamDashboardService;
   examSubmissionsService?: ExamSubmissionsService;
+  questionBankService?: QuestionBankService;
   reExamService?: ReExamService;
   adminSearchService?: AdminSearchService;
   storage?: StorageProvider;
@@ -403,6 +405,7 @@ export function registerOperationsRoutes(
   const examCalendarService = options.examCalendarService ?? new ExamCalendarService();
   const examDashboardService = options.examDashboardService ?? new ExamDashboardService();
   const examSubmissionsService = options.examSubmissionsService ?? new ExamSubmissionsService();
+  const questionBankService = options.questionBankService ?? new QuestionBankService();
   const reExamService = options.reExamService ?? new ReExamService();
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
 
@@ -2035,6 +2038,61 @@ export function registerOperationsRoutes(
       const subjectId = toStringValue(payload.subject_id);
       const courseId = toStringValue(payload.course_id) || undefined;
       const result = await operationsService.deleteQuestionsBySubject(requestUserId(request), subjectId, courseId);
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  // TTII 2026-10-12 — Question Bank in Naji's design (question-bank-service):
+  // every subject (empty ones too) with counts + KPIs + server-side filters,
+  // one subject's header, and bulk move / bulk delete that keep and report
+  // questions used in a published exam.
+  app.get('/admin/question_bank/overview', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const kind = toStringValue(payload.q_type);
+      const data = await questionBankService.overview({
+        courseId: toInteger(payload.course_id),
+        q: toStringValue(payload.q).slice(0, 200),
+        qType: (['mcq', 'tf', 'descriptive'].includes(kind) ? kind : '') as QuestionKindFilter,
+        createdBy: toInteger(payload.created_by),
+        recent: toStringValue(payload.recent) === '1',
+      });
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.get('/admin/question_bank/subject', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const data = await questionBankService.subject(toInteger(requestPayload(request).subject_id));
+      if (!data) {
+        reply.code(200).send({ status: 0, message: 'Subject not found.', data: null });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/question_bank/bulk-move', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const actor = toInteger(requestUserId(request));
+      const result = await questionBankService.bulkMove(actor > 0 ? actor : null, toIdList(payload.ids), toInteger(payload.subject_id));
+      reply.code(200).send(result);
+    } catch (error: unknown) {
+      sendOperationsError(reply, error);
+    }
+  });
+
+  app.post('/admin/question_bank/bulk-delete', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const actor = toInteger(requestUserId(request));
+      const result = await questionBankService.bulkDelete(actor > 0 ? actor : null, toIdList(requestPayload(request).ids));
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);

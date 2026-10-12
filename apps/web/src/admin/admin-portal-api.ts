@@ -1419,6 +1419,34 @@ export class AdminPortalApi {
     });
   }
 
+  // TTII 2026-10-12 — Question Bank in Naji's design (question-bank-service).
+  async loadQuestionBankOverview(
+    authToken: string,
+    filters: { courseId?: string; q?: string; qType?: string; createdBy?: string; recent?: boolean } = {},
+  ): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/question_bank/overview', authToken, {
+      ...(filters.courseId ? { course_id: filters.courseId } : {}),
+      ...(filters.q ? { q: filters.q } : {}),
+      ...(filters.qType ? { q_type: filters.qType } : {}),
+      ...(filters.createdBy ? { created_by: filters.createdBy } : {}),
+      ...(filters.recent ? { recent: '1' } : {}),
+    });
+    return payload.data ?? null;
+  }
+
+  async loadQuestionBankSubject(authToken: string, subjectId: string): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/question_bank/subject', authToken, { subject_id: subjectId });
+    return payload.data ?? null;
+  }
+
+  async bulkMoveQuestions(authToken: string, ids: number[], subjectId: number): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/bulk-move', authToken, { ids, subject_id: subjectId });
+  }
+
+  async bulkDeleteQuestions(authToken: string, ids: number[]): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/bulk-delete', authToken, { ids });
+  }
+
   // ─── Phase 2: Exams ────────────────────────────────────────────────────
 
   async loadAdminExams(
@@ -1481,8 +1509,14 @@ export class AdminPortalApi {
   }
 
   // Naji 2026-05-09 — Question Bank bulk upload.
-  async bulkAddQuestions(authToken: string, rows: Record<string, unknown>[]): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/question_bank/bulk-add', authToken, { rows });
+  // `dryRun` validates every row and reports ok / invalid / duplicate without
+  // writing (the upload preview).
+  async bulkAddQuestions(
+    authToken: string,
+    rows: Record<string, unknown>[],
+    opts: { dryRun?: boolean } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/question_bank/bulk-add', authToken, { rows, ...(opts.dryRun ? { dry_run: '1' } : {}) });
   }
 
   // TTII 2026-10-09 — Re-examination: one subject re-opened for one student
