@@ -67,7 +67,7 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
         const url = asString(v);
         if (!url) return <span className="text-slate-400">—</span>;
         return (
-          <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#8F2774] hover:underline">
+          <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
             View <ExternalLink className="size-3" aria-hidden="true" />
           </a>
         );
@@ -87,7 +87,7 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
-          <ShieldCheck aria-hidden="true" className="size-5 text-[#8F2774]" />
+          <ShieldCheck aria-hidden="true" className="size-5 text-primary" />
           Payment Approval
         </h1>
         <p className="mt-1 text-sm text-slate-500">

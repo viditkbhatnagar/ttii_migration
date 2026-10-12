@@ -22,7 +22,7 @@ export function DashboardLoader({
   const heights = [70, 90, 80, 50, 30, 25, 35, 55, 75]; // pre-set bar heights
   const colourClass =
     tone === 'primary'
-      ? ['bg-[#8F2774]', 'bg-[#a13d8a]/85', 'bg-[#a13d8a]/70', 'bg-[#a13d8a]/55', 'bg-[#a13d8a]/40']
+      ? ['bg-ttii-primary', 'bg-ttii-primary/85', 'bg-ttii-primary/70', 'bg-ttii-primary/55', 'bg-ttii-primary/40']
       : tone === 'theme'
         ? [
             'bg-[var(--primary)]',

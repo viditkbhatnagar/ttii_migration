@@ -255,7 +255,7 @@ export default function SubjectsPage({ api, session, onNavigate }: AdminPageProp
         <button
           type="button"
           onClick={() => onNavigate(`/admin/subjects/view/${asString(row.id)}`)}
-          className="text-left font-medium text-[#8F2774] hover:underline"
+          className="text-left font-medium text-primary hover:underline"
         >
           {asString(v) || '—'}
         </button>

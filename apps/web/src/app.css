@@ -287,6 +287,14 @@
   --color-warning-soft: oklch(0.96 0.06 85);
   --color-info: oklch(0.65 0.16 235);
   --color-info-soft: oklch(0.95 0.05 235);
+  /* The older admin pages use the fixed ttii-* colour names (bg-ttii-primary,
+     bg-ttii-page-bg, ...). Point them at the theme so they recolour with it. */
+  --color-ttii-primary: var(--admin-brand);
+  --color-ttii-page-bg: var(--background);
+  --color-ttii-navbar: var(--admin-brand);
+  --color-ttii-sidebar-active: var(--admin-brand);
+  --color-ttii-table-header: var(--muted);
+  --color-ttii-table-header-text: var(--muted-foreground);
   font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 }
 .admin-theme body {

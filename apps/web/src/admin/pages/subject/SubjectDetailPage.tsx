@@ -366,8 +366,8 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#f5f3ff]">
-              <BookOpen aria-hidden="true" className="size-5 text-[#8F2774]" />
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft">
+              <BookOpen aria-hidden="true" className="size-5 text-primary" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900">{subject.title || 'Subject'}</h1>
@@ -475,7 +475,7 @@ export default function SubjectDetailPage({ api, session, onNavigate }: AdminPag
                   <button
                     type="button"
                     onClick={() => setContentDialog({ lesson, asset: null })}
-                    className="inline-flex items-center gap-1 rounded-full bg-[#8F2774]/10 px-3 py-1 text-xs font-semibold text-[#8F2774] transition-colors hover:bg-[#8F2774]/20"
+                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
                   >
                     <Plus aria-hidden="true" className="size-3" /> Add Content
                   </button>
@@ -693,7 +693,7 @@ function BackLink({ onNavigate }: { onNavigate: (href: string) => void }) {
     <button
       type="button"
       onClick={() => onNavigate('/admin/subjects/index')}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-[#8F2774]"
+      className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-primary"
     >
       <ArrowLeft aria-hidden="true" className="size-4" /> Back to Subjects
     </button>

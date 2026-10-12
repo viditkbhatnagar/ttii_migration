@@ -81,8 +81,8 @@ const HERO_STATS: HeroStatDef[] = [
     countKey: 'upcoming_classes_count',
     trendKey: 'classes_trend',
     icon: Calendar,
-    iconBg: 'bg-[#f5f3ff]',
-    iconColour: 'text-[#8F2774]',
+    iconBg: 'bg-primary-soft',
+    iconColour: 'text-primary',
     sparkColour: '#8F2774',
     sublabel: (d) => {
       const c = asNumber(d.upcoming_classes_count);
@@ -148,7 +148,7 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
       {/* Header (Naji 2026-05-07 — sparkle icon + welcome subtitle) */}
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Sparkles aria-hidden="true" className="size-6 text-[#8F2774]" />
+          <Sparkles aria-hidden="true" className="size-6 text-primary" />
           Admin Dashboard
         </h1>
         <p className="mt-1 text-sm text-slate-500">Overview and controls &middot; Welcome back!</p>
@@ -166,7 +166,7 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
               type="button"
               onClick={() => onNavigate(stat.href)}
               aria-label={`${value} ${stat.label}`}
-              className="group flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-[#8F2774]/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8F2774] focus-visible:ring-offset-2"
+              className="group flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className={`flex size-10 items-center justify-center rounded-xl ${stat.iconBg}`}>
@@ -175,7 +175,7 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
                 <TrendChip percent={trend.trendPercent} />
               </div>
               <div>
-                <p className="text-sm font-medium text-[#8F2774]">{stat.label}</p>
+                <p className="text-sm font-medium text-primary">{stat.label}</p>
                 <p className="mt-1 text-3xl font-bold text-slate-900">{value}</p>
                 <p className="mt-1 text-xs text-slate-500">{stat.sublabel(data ?? {})}</p>
               </div>
@@ -193,8 +193,8 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
         <Card className="border-slate-200 bg-white">
           <CardContent className="p-5">
             <div className="mb-4 flex items-center justify-between">
-              <SectionTitle accent="from-[#8F2774] to-[#F06543]" title="Enrollment Trend" />
-              <span className="rounded-full bg-[#f5f3ff] px-3 py-1 text-xs font-medium text-[#8F2774]">
+              <SectionTitle accent="from-primary to-[#F06543]" title="Enrollment Trend" />
+              <span className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">
                 Last 6 months
               </span>
             </div>
@@ -205,7 +205,7 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
         <Card className="border-slate-200 bg-white">
           <CardContent className="p-5">
             <div className="mb-4 flex items-center justify-between">
-              <SectionTitle accent="from-[#8F2774] to-[#F06543]" title="Student Progress Snapshot" />
+              <SectionTitle accent="from-primary to-[#F06543]" title="Student Progress Snapshot" />
             </div>
             <ProgressSnapshot dist={progressDist} />
             <p className="mt-4 border-t border-slate-100 pt-3 text-center text-xs text-slate-500">
@@ -217,13 +217,13 @@ export default function DashboardPage({ api, session, onNavigate }: AdminPagePro
 
       {/* Recently Joined Students */}
       <div className="space-y-2">
-        <SectionTitle accent="from-[#8F2774] to-[#F06543]" title="Recently Joined Students" />
+        <SectionTitle accent="from-primary to-[#F06543]" title="Recently Joined Students" />
         <AdminDataTable columns={STUDENT_COLUMNS} rows={recentStudents} searchable exportable />
       </div>
 
       {/* Upcoming Activities */}
       <div className="space-y-2">
-        <SectionTitle accent="from-[#8F2774] to-[#F06543]" title="Upcoming Activities" />
+        <SectionTitle accent="from-primary to-[#F06543]" title="Upcoming Activities" />
         <AdminDataTable columns={EVENT_COLUMNS} rows={upcomingEvents} searchable exportable />
       </div>
     </div>
@@ -237,7 +237,7 @@ function SectionTitle({ accent, title }: { accent: string; title: string }) {
   return (
     <div className="flex items-center gap-2">
       <span aria-hidden="true" className={`block h-5 w-1 rounded-full bg-gradient-to-b ${accent}`} />
-      <h2 className="text-base font-semibold text-[#8F2774]">{title}</h2>
+      <h2 className="text-base font-semibold text-primary">{title}</h2>
     </div>
   );
 }
