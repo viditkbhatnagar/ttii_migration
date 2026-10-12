@@ -1,289 +1,299 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Card, CardContent } from '@/components/ui/card';
+import { Building2, Eye, Mail, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, asString, toRecords, formatCurrency } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import { nextSort, pageSlice, type SortDir } from '../cohorts/list-model.js';
+import { ExportButtons } from '../cohorts/list-ui.js';
+import { FilterSelect, ListPager, SortHead } from '../students/list-chrome.js';
+import {
+  EMPTY_CENTRE_FILTERS,
+  centreCsvRows,
+  filterCentres,
+  rupees,
+  sortCentres,
+  stateOptions,
+  tallyFundRequests,
+  toCentreRows,
+  type CentreFilters,
+  type CentreRow,
+  type CentreSortKey,
+} from './centre-list-model.js';
+import { usePendingPatches } from './use-pending-patches.js';
+import { useRowSelection } from './use-row-selection.js';
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
-];
+// Centre Directory (TTII 2026-10-12), rebuilt after Naji's CentreDirectoryModule:
+// filter card, export + search toolbar, sortable paged table with a "…" menu.
+// Every action of the old page survives: Add, View (name link + menu), Edit,
+// Resend Login Email (confirm) and Delete (confirm). Fund Requests are counted
+// from the Centre Payments feed — the centres list never returned them.
+
+const PAGE_SIZE = 8;
+const FIELD_LABEL = 'text-[11px] font-medium text-muted-foreground';
 
 export default function CentreDirectoryPage({ api, session, onNavigate }: AdminPageProps) {
-  const [filterCentreId, setFilterCentreId] = useState('');
-  const [filterName, setFilterName] = useState('');
-  const [filterContact, setFilterContact] = useState('');
-  const [filterPhone, setFilterPhone] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterState, setFilterState] = useState('');
-  const [filterCity, setFilterCity] = useState('');
-  const [appliedCentreId, setAppliedCentreId] = useState('');
-  const [appliedName, setAppliedName] = useState('');
-  const [appliedContact, setAppliedContact] = useState('');
-  const [appliedPhone, setAppliedPhone] = useState('');
-  const [appliedStatus, setAppliedStatus] = useState('');
-  const [appliedState, setAppliedState] = useState('');
-  const [appliedCity, setAppliedCity] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Record<string, unknown> | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const confirm = useConfirm();
+  const [filters, setFilters] = useState<CentreFilters>(EMPTY_CENTRE_FILTERS);
+  const [sort, setSort] = useState<{ key: CentreSortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const selection = useRowSelection();
 
   const { data, loading, error, reload } = useAdminPageData(
-    () => api.loadCentres(session.token),
+    async () => {
+      const [centres, payments] = await Promise.all([
+        api.loadCentres(session.token),
+        // The fund-request counts are a side column: a failure here must not hide the directory.
+        api.loadAdminCentrePayments(session.token).catch(() => null),
+      ]);
+      return { rows: toCentreRows(centres), fundRequests: payments ? payments.fundRequests : null };
+    },
     [],
+    'admin:centres:directory',
   );
+  // A deleted centre leaves the list at once; reload() revalidates in the background.
+  const removed = usePendingPatches<true>(data);
+  const isRemoved = removed.get;
+  const rows = useMemo(() => (data?.rows ?? []).filter((c) => !isRemoved(c.id)), [data, isRemoved]);
+  const tallies = useMemo(() => tallyFundRequests(data?.fundRequests ?? []), [data]);
+  const hasTallies = data?.fundRequests != null;
+  const states = useMemo(() => stateOptions(rows), [rows]);
+  const filtered = useMemo(
+    () => sortCentres(filterCentres(rows, filters), sort.key, sort.dir, tallies),
+    [rows, filters, sort, tallies],
+  );
+  const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
 
-  const rows = useMemo(() => {
-    const all = toRecords(data);
-    return all.filter((row) => {
-      if (appliedCentreId && !asString(row.centre_id).toLowerCase().includes(appliedCentreId.toLowerCase())) return false;
-      if (appliedName && !asString(row.centre_name).toLowerCase().includes(appliedName.toLowerCase())) return false;
-      if (appliedContact && !asString(row.contact_person).toLowerCase().includes(appliedContact.toLowerCase())) return false;
-      if (appliedPhone && !asString(row.phone).toLowerCase().includes(appliedPhone.toLowerCase())) return false;
-      if (appliedStatus && asString(row.status).toLowerCase() !== appliedStatus.toLowerCase()) return false;
-      if (appliedState && asString(row.state).toLowerCase() !== appliedState.toLowerCase()) return false;
-      if (appliedCity && !asString(row.city).toLowerCase().includes(appliedCity.toLowerCase())) return false;
-      return true;
-    });
-  }, [data, appliedCentreId, appliedName, appliedContact, appliedPhone, appliedStatus, appliedState, appliedCity]);
+  const set = (patch: Partial<CentreFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters(EMPTY_CENTRE_FILTERS); setPage(1); };
+  const onSort = (k: CentreSortKey) => setSort((s) => nextSort(s, k));
+  const view = (c: CentreRow) => onNavigate(`/admin/centres/view/${c.id}`);
 
-  const filters: FilterField[] = [
-    {
-      key: 'centre_id',
-      label: 'Centre ID',
-      type: 'text',
-      value: filterCentreId,
-      placeholder: 'Search by centre ID',
-      onChange: setFilterCentreId,
-    },
-    {
-      key: 'centre_name',
-      label: 'Centre Name',
-      type: 'text',
-      value: filterName,
-      placeholder: 'Search by centre name',
-      onChange: setFilterName,
-    },
-    {
-      key: 'contact_person',
-      label: 'Contact Name',
-      type: 'text',
-      value: filterContact,
-      placeholder: 'Search by contact name',
-      onChange: setFilterContact,
-    },
-    {
-      key: 'phone',
-      label: 'Contact Phone',
-      type: 'text',
-      value: filterPhone,
-      placeholder: 'Search by phone',
-      onChange: setFilterPhone,
-    },
-    {
-      key: 'state',
-      label: 'State',
-      type: 'select',
-      value: filterState,
-      options: INDIAN_STATES.map((s) => ({ label: s, value: s })),
-      onChange: setFilterState,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      type: 'select',
-      value: filterStatus,
-      placeholder: 'Select Status',
-      options: [
-        { label: 'Active', value: 'Active' },
-        { label: 'Inactive', value: 'Inactive' },
-      ],
-      onChange: setFilterStatus,
-    },
-  ];
+  const exportRows = selection.size > 0 ? filtered.filter((c) => selection.has(c.id)) : filtered;
+  const exportCsv = () => downloadCsv('centres.csv', toCsv(centreCsvRows(exportRows, tallies)));
 
-  const columns: DataTableColumn[] = [
-    {
-      key: 'centre_name',
-      label: 'Centre Name',
-      sortable: true,
-      render: (value, row) => (
-        <button
-          type="button"
-          className="text-left font-medium text-blue-600 hover:underline"
-          onClick={() => onNavigate('/admin/centres/view/' + asString(row.id))}
-        >
-          {asString(value)}
-        </button>
-      ),
-    },
-    { key: 'contact_person', label: 'Contact Person' },
-    { key: 'phone', label: 'Contact No' },
-    { key: 'email', label: 'Email' },
-    {
-      key: 'students_count',
-      label: 'Total Students',
-      sortable: true,
-      render: (value) => (value != null ? String(asNumber(value)) : '0'),
-    },
-    {
-      key: 'fund_request_count',
-      label: 'Fund Requests',
-      render: (value) => (value != null ? String(asNumber(value)) : '-'),
-    },
-    {
-      key: 'wallet_balance',
-      label: 'Wallet Balance',
-      sortable: true,
-      render: (value) => formatCurrency(value),
-    },
-  ];
-
-  // Naji UAT 2026-05-15 — Resend Login Email parity with every other
-  // user-directory page (Instructors / Counsellors / Associates / Admin
-  // Users). The backend listCentres now surfaces `linked_user_id` for
-  // the role_id=7 user that owns the centre, so we just route through
-  // the existing resendLoginCredentials endpoint.
-  const confirm = useConfirm();
-  const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {
-    const userId = asString(row.linked_user_id);
-    const centreName = asString(row.centre_name) || 'this centre';
-    if (!userId) {
+  // Naji UAT 2026-05-15 — Resend Login Email, same as every other user
+  // directory: listCentres surfaces the role-7 login as `linked_user_id`.
+  const resendLogin = async (c: CentreRow) => {
+    const centreName = c.name || 'this centre';
+    if (!c.linkedUserId) {
       toast.error(`No login is wired for ${centreName}. Edit the centre and re-save to provision one.`);
       return;
     }
-    if (!(await confirm({
+    const ok = await confirm({
       title: `Resend login email to "${centreName}"?`,
-      description: `A new temporary password will be generated and emailed to ${asString(row.linked_user_email) || asString(row.email)}. The previous password will stop working.`,
+      description: `A new temporary password will be generated and emailed to ${c.linkedUserEmail || c.email}. The previous password will stop working.`,
       confirmText: 'Resend',
       variant: 'default',
-    }))) return;
+    });
+    if (!ok) return;
     try {
-      const res = await api.resendLoginCredentials(session.token, userId);
+      const res = await api.resendLoginCredentials(session.token, c.linkedUserId);
       const message = typeof res.message === 'string' ? res.message : 'Login email sent.';
       if (res.status === 1) toast.success(message);
       else toast.error(message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send login email');
     }
-  }, [api, session.token, confirm]);
+  };
 
-  const actions: DataTableAction[] = [
-    {
-      label: 'View',
-      onClick: (row) => onNavigate('/admin/centres/view/' + asString(row.id)),
-    },
-    {
-      label: 'Edit',
-      onClick: (row) => onNavigate('/admin/centres/edit/' + asString(row.id)),
-    },
-    {
-      label: 'Resend Login Email',
-      onClick: (row) => { void handleResendCredentials(row); },
-    },
-    {
-      label: 'Delete',
+  const remove = async (c: CentreRow) => {
+    const ok = await confirm({
+      title: 'Delete Centre',
+      description: `Are you sure you want to delete ${c.name || 'this centre'}? This action cannot be undone.`,
+      confirmText: 'Delete',
       variant: 'destructive',
-      onClick: (row) => setDeleteTarget(row),
-    },
-  ];
-
-  const handleApply = () => {
-    setAppliedCentreId(filterCentreId);
-    setAppliedName(filterName);
-    setAppliedContact(filterContact);
-    setAppliedPhone(filterPhone);
-    setAppliedStatus(filterStatus);
-    setAppliedState(filterState);
-    setAppliedCity(filterCity);
-  };
-
-  const handleClear = () => {
-    setFilterCentreId('');
-    setFilterName('');
-    setFilterContact('');
-    setFilterPhone('');
-    setFilterStatus('');
-    setFilterState('');
-    setFilterCity('');
-    setAppliedCentreId('');
-    setAppliedName('');
-    setAppliedContact('');
-    setAppliedPhone('');
-    setAppliedStatus('');
-    setAppliedState('');
-    setAppliedCity('');
-  };
-
-  const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    });
+    if (!ok) return;
     try {
-      await api.deleteCentre(session.token, asString(deleteTarget.id));
-      setDeleteTarget(null);
+      const res = await api.deleteCentre(session.token, c.id);
+      const message = asString(res.message);
+      if (res.status === 0) {
+        toast.error(message || 'Failed to delete centre');
+        return;
+      }
+      toast.success(message || 'Centre deleted.');
+      removed.set(c.id, true);
+      selection.drop(c.id);
       reload();
-    } catch {
-      // silently handle error
-    } finally {
-      setDeleting(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete centre');
     }
-  }, [deleteTarget, api, session.token, reload]);
+  };
 
-  if (loading) {
-    return <PageLoader label="Loading centre directory..." />;
-  }
-
+  if (loading) return <PageLoader label="Loading centre directory..." />;
   if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-destructive">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Centre Directory" addLabel="+ Add Centres" onAdd={() => onNavigate('/admin/centres/add')} />
-      <AdminFilterBar filters={filters} onApply={handleApply} onClear={handleClear} />
-      <AdminDataTable columns={columns} rows={rows} actions={actions} />
+  const textFilter = (label: string, key: 'code' | 'name' | 'contact' | 'phone', placeholder: string) => (
+    <label className="block">
+      <span className={FIELD_LABEL}>{label}</span>
+      <Input placeholder={placeholder} value={filters[key]} onChange={(e) => set({ [key]: e.target.value })} className="mt-1" />
+    </label>
+  );
 
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleDelete();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Delete Centre</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-gray-600">
-              Are you sure you want to delete <strong>{deleteTarget ? asString(deleteTarget.centre_name) : ''}</strong>? This action cannot be undone.
-            </p>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
-              <Button type="submit" variant="destructive" disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+  return (
+    <div className="space-y-6">
+      <PageTitle
+        title="Centre Directory"
+        subtitle={`${filtered.length} of ${rows.length} centres`}
+        actions={(
+          <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/centres/add')}>
+            <Plus aria-hidden="true" className="size-4" /> Add Centres
+          </Button>
+        )}
+      />
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+          {textFilter('Centre ID', 'code', 'Search by centre ID')}
+          {textFilter('Centre Name', 'name', 'Search by centre name')}
+          {textFilter('Contact Name', 'contact', 'Search by contact name')}
+          {textFilter('Contact Phone', 'phone', 'Search by phone')}
+          <label className="block">
+            <span className={FIELD_LABEL}>State</span>
+            <FilterSelect
+              label="State"
+              value={filters.state}
+              onChange={(v) => set({ state: v })}
+              allLabel={states.length > 0 ? 'All States' : 'No state on file'}
+              options={states.map((s) => ({ value: s, label: s }))}
+              className="mt-1 w-full"
+            />
+          </label>
+          <label className="block">
+            <span className={FIELD_LABEL}>Status</span>
+            <FilterSelect
+              label="Status"
+              value={filters.status}
+              onChange={(v) => set({ status: v as CentreFilters['status'] })}
+              allLabel="All Status"
+              options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
+              className="mt-1 w-full"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button size="sm" variant="ghost" onClick={reset}>Clear</Button>
+        </div>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-4">
+          <ExportButtons
+            onCsv={exportCsv}
+            disabled={exportRows.length === 0}
+            csvLabel={selection.size > 0 ? `Export CSV (${selection.size})` : 'Export CSV'}
+          />
+          <div className="relative w-full md:w-64">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search centres" placeholder="Search…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+        </div>
+
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Building2}
+            title={rows.length === 0 ? 'No centres yet.' : 'No centres match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => onNavigate('/admin/centres/add')}>Add the first centre</Button>
+              : <Button variant="outline" size="sm" onClick={reset}>Clear filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10 print:hidden">
+                  <Checkbox
+                    aria-label="Select all centres on this page"
+                    checked={selection.allOf(current.map((c) => c.id))}
+                    onCheckedChange={() => selection.togglePage(current.map((c) => c.id))}
+                  />
+                </TableHead>
+                <TableHead className="w-10 text-xs">#</TableHead>
+                <SortHead label="Centre Name" k="name" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-xs">Contact Person</TableHead>
+                <TableHead className="text-xs">Contact No</TableHead>
+                <TableHead className="text-xs">Email</TableHead>
+                <SortHead label="Total Students" k="students" sortKey={sort.key} dir={sort.dir} onSort={onSort} className="text-right" />
+                <SortHead label="Fund Requests" k="fundRequests" sortKey={sort.key} dir={sort.dir} onSort={onSort} className="text-right" />
+                <SortHead label="Wallet Balance" k="walletBalance" sortKey={sort.key} dir={sort.dir} onSort={onSort} className="text-right" />
+                <TableHead className="text-right text-xs print:hidden">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((c, i) => {
+                const tally = tallies.get(c.id);
+                return (
+                  <TableRow key={c.id} className="hover:bg-muted/30">
+                    <TableCell className="print:hidden">
+                      <Checkbox aria-label={`Select ${c.name || c.code}`} checked={selection.has(c.id)} onCheckedChange={(v) => selection.toggle(c.id, v === true)} />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{(safePage - 1) * PAGE_SIZE + i + 1}</TableCell>
+                    <TableCell>
+                      <button type="button" onClick={() => view(c)} className="text-left text-sm font-medium text-primary hover:underline">
+                        {c.name || '—'}
+                      </button>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        {c.code ? <span className="font-mono text-[11px] text-muted-foreground">{c.code}</span> : null}
+                        {c.status === 'inactive' ? <Pill tone="slate" className="px-1.5 py-0 text-[10px]">Inactive</Pill> : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{c.contact || '—'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{c.phone || '—'}</TableCell>
+                    <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground">{c.email || '—'}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{c.students}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      {!hasTallies ? '—' : (
+                        <span className="inline-flex items-center justify-end gap-1.5">
+                          {tally?.total ?? 0}
+                          {tally && tally.pending > 0 ? <Pill tone="amber" className="px-1.5 py-0 text-[10px]">{tally.pending} pending</Pill> : null}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right text-sm font-medium tabular-nums">{rupees(c.walletBalance)}</TableCell>
+                    <TableCell className="text-right print:hidden">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${c.name || c.code}`}>
+                            <MoreHorizontal aria-hidden="true" className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => view(c)}><Eye aria-hidden="true" /> View</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onNavigate(`/admin/centres/edit/${c.id}`)}><Pencil aria-hidden="true" /> Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void resendLogin(c)}><Mail aria-hidden="true" /> Resend Login Email</DropdownMenuItem>
+                          <DropdownMenuItem variant="destructive" onClick={() => void remove(c)}><Trash2 aria-hidden="true" /> Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+        <ListPager page={safePage} pages={pages} shown={current.length} total={filtered.length} noun="entries" onPage={setPage} />
+      </Card>
     </div>
   );
 }

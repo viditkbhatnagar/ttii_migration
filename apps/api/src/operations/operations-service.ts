@@ -1265,6 +1265,9 @@ function parseApprovalRowId(rowId: string): { applicationId: string; index: numb
   return { applicationId: m[1] ?? rowId, index: m[2] ? Number(m[2]) : 0 };
 }
 
+/** Compare-and-swap retries for a centre wallet credit before giving up. */
+const FUND_CREDIT_CAS_ATTEMPTS = 5;
+
 export class OperationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
@@ -16216,6 +16219,12 @@ export class OperationsService {
     return { status: 1, message: 'Centre deleted successfully.' };
   }
 
+  // TTII 2026-10-12 — claim-first (same as the 2026-10-08 webhook fix). The
+  // status check used to sit outside the transaction, so two approvals of one
+  // request (a double click, two admins) both credited the wallet. The guarded
+  // updateMany on status 'pending' takes the row lock: the loser waits, sees
+  // count 0 and writes nothing. Returning before any write is safe; a
+  // `return false` AFTER a write would commit it.
   async approveFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
     const now = new Date();
 
@@ -16229,11 +16238,12 @@ export class OperationsService {
       return { status: 0, message: 'Fund request is already ' + request.status };
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.centre_fund_requests.update({
-        where: { id: toIntId(requestId) },
+    const credited = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.centre_fund_requests.updateMany({
+        where: { id: toIntId(requestId), status: 'pending', deleted_at: null },
         data: { status: 'approved', updated_by: toIntId(actorUserId), updated_at: now },
       });
+      if (claim.count === 0) return false; // lost the race — nothing written
 
       await tx.wallet_transactions.create({
         data: {
@@ -16247,19 +16257,38 @@ export class OperationsService {
         },
       });
 
-      const centreRow = await tx.centres.findFirst({ where: { id: request.centre_id } });
-      const currentBalance = Number(centreRow?.wallet_balance ?? '0') || 0;
+      // wallet_balance is a VarChar, so it cannot be incremented in SQL. A
+      // compare-and-swap on the exact string read stops two approvals for the
+      // same centre (different requests) from overwriting each other's credit.
+      //
+      // Touch the row first: the UPDATE waits for any other transaction holding
+      // it, and under InnoDB REPEATABLE READ a row this transaction has updated
+      // reads at its latest committed version, so the read below is current
+      // (a plain re-read would keep returning the old snapshot).
       const addAmount = Number(request.amount) || 0;
-      await tx.centres.update({
+      await tx.centres.updateMany({
         where: { id: request.centre_id },
-        data: {
-          wallet_balance: String(currentBalance + addAmount),
-          updated_by: toIntId(actorUserId),
-          updated_at: now,
-        },
+        data: { updated_by: toIntId(actorUserId), updated_at: now },
       });
+      for (let attempt = 0; attempt < FUND_CREDIT_CAS_ATTEMPTS; attempt += 1) {
+        const centreRow = await tx.centres.findFirst({ where: { id: request.centre_id } });
+        const readBalance = centreRow?.wallet_balance ?? null;
+        const currentBalance = Number(readBalance ?? '0') || 0;
+        const swapped = await tx.centres.updateMany({
+          where: { id: request.centre_id, wallet_balance: readBalance },
+          data: {
+            wallet_balance: String(currentBalance + addAmount),
+            updated_by: toIntId(actorUserId),
+            updated_at: now,
+          },
+        });
+        if (swapped.count > 0) return true;
+      }
+      // Throwing rolls back the claim and the wallet_transactions row too.
+      throw new Error('The centre wallet was being updated at the same time. Please try again.');
     });
 
+    if (!credited) return this.fundRequestAlreadyProcessed(requestId);
     return { status: 1, message: 'Fund request approved and wallet credited.' };
   }
 
@@ -16276,12 +16305,24 @@ export class OperationsService {
       return { status: 0, message: 'Fund request is already ' + request.status };
     }
 
-    await this.prisma.centre_fund_requests.update({
-      where: { id: toIntId(requestId) },
+    // Claim-first: only a still-pending request flips, so a concurrent approve wins cleanly.
+    const claim = await this.prisma.centre_fund_requests.updateMany({
+      where: { id: toIntId(requestId), status: 'pending', deleted_at: null },
       data: { status: 'rejected', updated_by: toIntId(actorUserId), updated_at: now },
     });
+    if (claim.count === 0) return this.fundRequestAlreadyProcessed(requestId);
 
     return { status: 1, message: 'Fund request rejected.' };
+  }
+
+  /** The "already processed" reply after losing a claim race (the same message as the up-front check). */
+  private async fundRequestAlreadyProcessed(requestId: string): Promise<Record<string, unknown>> {
+    const latest = await this.prisma.centre_fund_requests.findFirst({
+      where: { id: toIntId(requestId), deleted_at: null },
+      select: { status: true },
+    });
+    if (!latest) return { status: 0, message: 'Fund request not found' };
+    return { status: 0, message: 'Fund request is already ' + latest.status };
   }
 
   /**
