@@ -2842,6 +2842,67 @@ model cohort_courses {
   @@index([course_id])
 }
 
+/// Counsellor Management → Groups and Teams (Naji 2026-10-12). ORGANISATIONAL
+/// ONLY: nothing reads these to scope what a counsellor sees. A group holds
+/// teams; a team holds counsellors (role 9). Created by
+/// deploy/migrations/2026-10-12-counsellor-teams-groups.sql.
+model counsellor_groups {
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(120)
+  /// GRP-001 style, derived from the id on create.
+  code            String    @default("") @db.VarChar(40)
+  description     String?   @db.Text
+  manager_user_id Int?
+  /// 'active' | 'inactive'
+  status          String    @default("active") @db.VarChar(20)
+  created_by      Int?
+  updated_by      Int?
+  deleted_by      Int?
+  created_at      DateTime? @default(now()) @db.DateTime(0)
+  updated_at      DateTime? @db.DateTime(0)
+  deleted_at      DateTime? @db.DateTime(0)
+
+  @@index([deleted_at], map: "idx_counsellor_groups_deleted")
+  @@index([manager_user_id], map: "idx_counsellor_groups_manager")
+}
+
+model counsellor_teams {
+  id             Int       @id @default(autoincrement())
+  name           String    @db.VarChar(120)
+  /// TEAM-001 style, derived from the id on create.
+  code           String    @default("") @db.VarChar(40)
+  group_id       Int?
+  leader_user_id Int?
+  description    String?   @db.Text
+  /// 'active' | 'inactive'
+  status         String    @default("active") @db.VarChar(20)
+  created_by     Int?
+  updated_by     Int?
+  deleted_by     Int?
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+  updated_at     DateTime? @db.DateTime(0)
+  deleted_at     DateTime? @db.DateTime(0)
+
+  @@index([deleted_at], map: "idx_counsellor_teams_deleted")
+  @@index([group_id], map: "idx_counsellor_teams_group")
+  @@index([leader_user_id], map: "idx_counsellor_teams_leader")
+}
+
+/// One row per counsellor in a team. UNIQUE(user_id): a counsellor is in at
+/// most ONE team — the database refuses a second membership, so two admins
+/// adding the same person at once cannot both win. Removal is a hard DELETE
+/// (like cohort_courses), so a removed counsellor can be added again.
+model counsellor_team_members {
+  team_id    Int
+  user_id    Int
+  joined_at  DateTime? @default(now()) @db.DateTime(0)
+  created_by Int?
+
+  @@id([team_id, user_id])
+  @@unique([user_id], map: "uq_counsellor_team_members_user")
+  @@index([team_id], map: "idx_counsellor_team_members_team")
+}
+
 model course_subject {
   course_id  Int
   subject_id Int

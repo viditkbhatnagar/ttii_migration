@@ -91,6 +91,10 @@ const FeeSummaryPage = lazy(() => import('../pages/fee/FeeSummaryPage.js'));
 // Phase 4: CRM & Content pages
 const CounsellorsPage = lazy(() => import('../pages/counsellor/CounsellorsPage.js'));
 const CounsellorTargetPage = lazy(() => import('../pages/counsellor/CounsellorTargetPage.js'));
+const TeamsPage = lazy(() => import('../pages/teams/TeamsPage.js'));
+const TeamProfilePage = lazy(() => import('../pages/teams/TeamProfilePage.js'));
+const GroupsPage = lazy(() => import('../pages/groups/GroupsPage.js'));
+const GroupProfilePage = lazy(() => import('../pages/groups/GroupProfilePage.js'));
 const AssociatesPage = lazy(() => import('../pages/associates/AssociatesPage.js'));
 const DocumentRequestsPage = lazy(() => import('../pages/documents/DocumentRequestsPage.js'));
 const DocumentsIssuedPage = lazy(() => import('../pages/documents/DocumentsIssuedPage.js'));
@@ -238,6 +242,11 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Counsellors
   { path: '/admin/counsellor/index', pageComponent: CounsellorsPage, title: 'Counsellors Directory' },
   { path: '/admin/counsellor_target/index', pageComponent: CounsellorTargetPage, title: 'Counsellor Target' },
+  // TTII 2026-10-12 — Counsellor Management → Teams and Groups (organisational only).
+  { path: '/admin/teams/index', aliases: ['/admin/teams'], pageComponent: TeamsPage, title: 'Teams' },
+  { path: '/admin/teams/view/:id', pageComponent: TeamProfilePage, title: 'Team' },
+  { path: '/admin/groups/index', aliases: ['/admin/groups'], pageComponent: GroupsPage, title: 'Groups' },
+  { path: '/admin/groups/view/:id', pageComponent: GroupProfilePage, title: 'Group' },
 
   // Associates
   { path: '/admin/associates/index', pageComponent: AssociatesPage, title: 'Associates Directory' },

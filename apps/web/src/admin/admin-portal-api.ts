@@ -14,6 +14,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+/** A numeric or string id as text; '' for anything else. */
+function idText(value: unknown): string {
+  return typeof value === 'number' || typeof value === 'string' ? String(value) : '';
+}
+
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -2052,6 +2057,70 @@ export class AdminPortalApi {
   async loadStaffProfileStats(authToken: string, kind: 'counsellor' | 'associates', id: string): Promise<Record<string, unknown>> {
     const payload = await this.get<LegacyEnvelope<unknown>>(`/admin/${kind}/profile_stats`, authToken, { id });
     return asRecord(payload.data) ?? {};
+  }
+
+  // TTII 2026-10-12 — Counsellor Management → Teams and Groups (organisational
+  // only). Refusals come back as { status: 0, message } and throw an ApiError
+  // carrying that message; successes resolve to the server's message.
+  async loadCounsellorTeams(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/teams/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async loadCounsellorTeam(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/teams/view', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+  async loadCounsellorOrgOptions(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/teams/options', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async loadCounsellorMembership(authToken: string, userId: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/teams/membership', authToken, { user_id: userId });
+    return asRecord(payload.data) ?? {};
+  }
+  async saveCounsellorTeam(authToken: string, body: Record<string, unknown>): Promise<{ message: string; id: string }> {
+    const path = body.id ? '/admin/teams/update' : '/admin/teams/create';
+    const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
+    const data = asRecord(payload.data) ?? {};
+    return { message: payload.message ?? 'Saved.', id: idText(data.id) || idText(body.id) };
+  }
+  async deleteCounsellorTeam(authToken: string, id: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/teams/delete', authToken, { id });
+    return payload.message ?? 'Team deleted.';
+  }
+  async addCounsellorTeamMembers(authToken: string, teamId: string, userIds: string[]): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/teams/add_members', authToken, { team_id: teamId, user_ids: userIds });
+    return payload.message ?? 'Members added.';
+  }
+  async removeCounsellorTeamMember(authToken: string, teamId: string, userId: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/teams/remove_member', authToken, { team_id: teamId, user_id: userId });
+    return payload.message ?? 'Member removed.';
+  }
+  async loadCounsellorGroups(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/groups/index', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+  async loadCounsellorGroup(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/groups/view', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+  async saveCounsellorGroup(authToken: string, body: Record<string, unknown>): Promise<{ message: string; id: string }> {
+    const path = body.id ? '/admin/groups/update' : '/admin/groups/create';
+    const payload = await this.post<LegacyEnvelope<unknown>>(path, authToken, body);
+    const data = asRecord(payload.data) ?? {};
+    return { message: payload.message ?? 'Saved.', id: idText(data.id) || idText(body.id) };
+  }
+  async deleteCounsellorGroup(authToken: string, id: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/delete', authToken, { id });
+    return payload.message ?? 'Group deleted.';
+  }
+  async addCounsellorGroupTeams(authToken: string, groupId: string, teamIds: string[]): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/add_teams', authToken, { group_id: groupId, team_ids: teamIds });
+    return payload.message ?? 'Teams assigned.';
+  }
+  async removeCounsellorGroupTeam(authToken: string, groupId: string, teamId: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/remove_team', authToken, { group_id: groupId, team_id: teamId });
+    return payload.message ?? 'Team removed.';
   }
 
 

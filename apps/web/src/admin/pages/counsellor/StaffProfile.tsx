@@ -21,6 +21,7 @@ import {
   ActivityTab, ApplicationsTab, OverviewTab, PerformanceTab, StudentsTab, TargetsTab,
 } from './staff-profile-tabs.js';
 import type { StaffActions } from './use-staff-actions.js';
+import { CounsellorOrgLine } from '../teams/CounsellorOrgLine.js';
 
 // Counsellor / Associate profile (Naji's CounsellorProfile / AssociateProfile),
 // opened from the directory. Header with contact + the same actions the list
@@ -88,6 +89,7 @@ export function StaffProfile({ kind, row, api, token, targets, actions, onBack, 
                 <span className="inline-flex items-center gap-1"><Briefcase aria-hidden="true" className="size-3.5" /> {noun}</span>
                 {row.email ? <span className="inline-flex items-center gap-1"><Mail aria-hidden="true" className="size-3.5" /> {row.email}</span> : null}
                 {row.phone ? <span className="inline-flex items-center gap-1"><Phone aria-hidden="true" className="size-3.5" /> {row.phone}</span> : null}
+                {kind === 'counsellor' ? <CounsellorOrgLine api={api} token={token} userId={row.id} onNavigate={onNavigate} /> : null}
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <HeaderStat icon={Building2} label="Centre" value={row.centre || '—'} />
