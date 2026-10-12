@@ -26,8 +26,8 @@ import { STATE_LABEL, isChangeable, toReExamRows, type ReExamRow, type ReExamSta
 
 const STATE_TONE: Record<ReExamState, Tone> = {
   upcoming: 'blue',
-  open: 'violet',
-  in_progress: 'violet',
+  open: 'primary',
+  in_progress: 'primary',
   completed: 'emerald',
   missed: 'rose',
   cancelled: 'slate',
@@ -108,7 +108,7 @@ export default function ReExamPage({ api, session, onNavigate }: AdminPageProps)
 
   const movingCandidates = useCallback((): ReExamCandidate[] => (
     moving
-      ? [{ userId: moving.userId, name: moving.studentName, studentCode: moving.studentCode, note: STATE_LABEL[moving.state], tone: 'violet', preselect: true }]
+      ? [{ userId: moving.userId, name: moving.studentName, studentCode: moving.studentCode, note: STATE_LABEL[moving.state], tone: 'primary', preselect: true }]
       : []
   ), [moving]);
 
@@ -142,7 +142,7 @@ export default function ReExamPage({ api, session, onNavigate }: AdminPageProps)
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Upcoming" value={counts.upcoming} icon={Clock} tone="blue" active={kpi === 'upcoming'} onClick={() => toggleKpi('upcoming')} />
-        <KpiTile label="Open now" value={counts.live} icon={PlayCircle} tone="violet" active={kpi === 'live'} onClick={() => toggleKpi('live')} />
+        <KpiTile label="Open now" value={counts.live} icon={PlayCircle} tone="primary" active={kpi === 'live'} onClick={() => toggleKpi('live')} />
         <KpiTile label="Completed" value={counts.completed} icon={CheckCircle2} tone="emerald" active={kpi === 'completed'} onClick={() => toggleKpi('completed')} />
         <KpiTile label="Missed" value={counts.missed} icon={XCircle} tone="rose" active={kpi === 'missed'} onClick={() => toggleKpi('missed')} />
       </div>

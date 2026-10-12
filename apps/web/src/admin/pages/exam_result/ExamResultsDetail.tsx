@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { downloadCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { ScheduleReExamDialog, type ReExamCandidate, type ReExamWindowDraft } from '../re_exam/ScheduleReExamDialog.js';
@@ -24,19 +25,6 @@ import { StudentResultDialog } from './StudentResultDialog.js';
 // publish action, outcome tiles, then Student Results and Subject Summary tabs.
 
 type Tab = 'students' | 'subjects';
-
-function downloadCsv(filename: string, csv: string): void {
-  // Byte-order mark so Excel opens the UTF-8 names correctly.
-  const blob = new Blob([`${String.fromCharCode(0xfeff)}${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  // Revoked on the next tick: Safari cancels a download whose URL is revoked
-  // synchronously after click().
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
 
 function Notice({ tone, icon: Icon, children }: { tone: 'amber' | 'sky' | 'emerald'; icon: typeof Info; children: React.ReactNode }) {
   const cls = {
@@ -105,7 +93,7 @@ export function ExamResultsDetail({
     if (index < 0) return [];
     const target = reExamTarget?.student;
     if (target) {
-      return [{ userId: target.userId, name: target.name, studentCode: target.studentCode, note: 'Selected', tone: 'violet', preselect: true }];
+      return [{ userId: target.userId, name: target.name, studentCode: target.studentCode, note: 'Selected', tone: 'primary', preselect: true }];
     }
     return reExamCandidates(detail.students, index);
   }, [detail, reExamTarget]);
@@ -180,7 +168,7 @@ export function ExamResultsDetail({
             <StatBox label="Students" value={totals.students} tone="blue" />
             <StatBox label="Passed" value={totals.passed} tone="emerald" />
             <StatBox label="Failed" value={totals.failed} tone="rose" />
-            <StatBox label="Re-exam" value={totals.reexam} tone="violet" />
+            <StatBox label="Re-exam" value={totals.reexam} tone="primary" />
             <StatBox label="Incomplete" value={totals.incomplete} tone="amber" />
             <StatBox label="Absent" value={totals.absent} tone="slate" />
             <StatBox label="Pending" value={totals.pending} tone="blue" />

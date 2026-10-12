@@ -3,6 +3,7 @@
 // normalisers below read it defensively, so a missing field renders as a dash
 // rather than crashing the page.
 
+import { toCsv } from '@/lib/csv';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 
 export type SittingStatus = 'pass' | 'fail' | 'absent' | 'pending' | 'marks_only' | 'reexam';
@@ -268,13 +269,6 @@ export const STATUS_LABEL: Record<ExamResultsStatus, string> = {
 
 /** CSV of the result sheet — one row per student, one column per subject. */
 export function resultSheetCsv(detail: ExamResultsDetail): string {
-  const esc = (v: string | number): string => {
-    let s = String(v);
-    // A cell opening with = + - @ (or a tab/CR) is run as a formula by Excel;
-    // a leading apostrophe keeps it text. Numbers are never prefixed.
-    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
   const head = [
     'Student', 'Student ID',
     ...detail.sittings.map((s) => `${s.subjectTitle} (/${s.totalMarks})`),
@@ -291,5 +285,5 @@ export function resultSheetCsv(detail: ExamResultsDetail): string {
     OVERALL_LABEL[st.overall] ?? st.overall,
     st.sittings.map((c) => c.flag).filter(Boolean).join('; '),
   ]);
-  return [head, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+  return toCsv([head, ...rows]);
 }

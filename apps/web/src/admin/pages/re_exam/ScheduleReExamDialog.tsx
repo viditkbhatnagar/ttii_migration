@@ -8,6 +8,7 @@ import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { TONE, type Tone } from '../../shared/components/ui-tones.js';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 
@@ -23,7 +24,7 @@ export interface ReExamSubjectOption {
   date: string;
 }
 
-export type CandidateTone = 'rose' | 'amber' | 'slate' | 'violet' | 'emerald';
+export type CandidateTone = Tone;
 
 export interface ReExamCandidate {
   userId: number;
@@ -42,13 +43,6 @@ export interface ReExamWindowDraft {
   notes?: string;
 }
 
-const NOTE_TONE: Record<CandidateTone, string> = {
-  rose: 'border-rose-200 bg-rose-50 text-rose-700',
-  amber: 'border-amber-200 bg-amber-50 text-amber-700',
-  slate: 'border-slate-200 bg-slate-50 text-slate-600',
-  violet: 'border-primary/20 bg-primary/5 text-primary',
-  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-};
 
 function ymdLabel(ymd: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
@@ -210,7 +204,7 @@ export function ScheduleReExamDialog({
                         <span className="block truncate text-sm font-medium text-foreground">{c.name}</span>
                         <span className="block text-[11px] text-muted-foreground">{c.studentCode}</span>
                       </span>
-                      <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold', NOTE_TONE[c.tone])}>{c.note}</span>
+                      <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold', TONE[c.tone].pill)}>{c.note}</span>
                     </label>
                   </li>
                 ))}

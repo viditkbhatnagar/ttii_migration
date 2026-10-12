@@ -14,7 +14,7 @@ const SITTING_TONE: Record<string, Tone> = {
   absent: 'slate',
   pending: 'blue',
   marks_only: 'slate',
-  reexam: 'violet',
+  reexam: 'primary',
 };
 
 /** A subject can be re-examined once its sitting is over and it was not passed. */
