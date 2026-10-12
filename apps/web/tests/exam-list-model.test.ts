@@ -48,4 +48,20 @@ describe('instructionLines — rich text shown as text, never as HTML', () => {
     expect(instructionLines('<p>Log in 15 minutes early.</p><ul><li>Keep your ID &amp; admit card</li><li><script>x</script>No phones</li></ul>'))
       .toEqual(['Log in 15 minutes early.', 'Keep your ID & admit card', 'xNo phones']);
   });
+
+  test('named and numeric entities decode to text, once', () => {
+    expect(instructionLines('<p>Don&#39;t &quot;guess&quot; &apos;x&apos; &#x2014; 5 &lt; 6</p>')).toEqual(['Don\'t "guess" \'x\' — 5 < 6']);
+    expect(instructionLines('<p>&amp;lt;b&amp;gt; &#169; &#X41;</p>')).toEqual(['&lt;b&gt; © A']);
+    // Decoded markup stays text — it is never turned back into tags.
+    expect(instructionLines('<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>')).toEqual(['<script>alert(1)</script>']);
+  });
+
+  test('unknown or invalid entities are left as written', () => {
+    expect(instructionLines('<p>&bogus; &#0; &#xD800; &#99999999;</p>')).toEqual(['&bogus; &#0; &#xD800; &#99999999;']);
+  });
+
+  test('ordered lists keep their numbering; bullet lists do not', () => {
+    expect(instructionLines('<ol><li>Read</li><li>Write</li></ol><ul><li>Pen</li></ul><ol start="1"><li>Again</li></ol>'))
+      .toEqual(['1. Read', '2. Write', 'Pen', '1. Again']);
+  });
 });

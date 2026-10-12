@@ -66,24 +66,6 @@ export function AssignmentsPanel({
   const submissions = useMemo(() => toRecords(subsData?.submissions), [subsData]);
   const unsubmitted = useMemo(() => toRecords(subsData?.unsubmitted), [subsData]);
 
-  const deleteAssignment = async (a: Record<string, unknown>) => {
-    const ok = await confirm({
-      title: `Delete "${asString(a.title)}"?`,
-      description: 'Students will no longer see this assignment. This action cannot be undone.',
-      confirmText: 'Delete',
-      variant: 'destructive',
-    });
-    if (!ok) return;
-    try {
-      const res = await api.deleteAssignment(token, idOf(a));
-      toast.success(asString(res.message) || 'Assignment deleted');
-      setSelectedId(null);
-      onReload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete assignment');
-    }
-  };
-
   const deleteSubmissionFile = async (submissionId: string) => {
     const ok = await confirm({ title: 'Delete this submission file?', description: 'This action cannot be undone.', confirmText: 'Delete', variant: 'destructive' });
     if (!ok) return;
@@ -144,14 +126,9 @@ export function AssignmentsPanel({
                 <h3 className="text-lg font-semibold">{asString(selected.title)}</h3>
                 <p className="text-xs text-muted-foreground">Cohort: {cohortName}</p>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDialog({ kind: 'edit', row: selected })}>
-                  <Pencil aria-hidden="true" className="size-4" /> Edit
-                </Button>
-                <Button size="sm" variant="outline" className="gap-1.5 text-destructive" onClick={() => void deleteAssignment(selected)}>
-                  <Trash2 aria-hidden="true" className="size-4" /> Delete
-                </Button>
-              </div>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDialog({ kind: 'edit', row: selected })}>
+                <Pencil aria-hidden="true" className="size-4" /> Edit
+              </Button>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
