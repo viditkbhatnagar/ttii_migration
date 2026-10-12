@@ -1,290 +1,265 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Eye, MoreHorizontal, Pencil, Search, Trash2, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { useConfirm } from '@/components/confirm-dialog';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import {
+  EMPTY_COHORT_FILTERS,
+  STATUS_LABEL,
+  STATUS_TONE,
+  optionsFrom,
+  type CohortFilters,
+  type CohortTab,
+} from '../cohorts/cohort-list-model.js';
+import { nextSort, pageSlice, type SortDir } from '../cohorts/list-model.js';
+import { ExportButtons } from '../cohorts/list-ui.js';
+import { FilterSelect, ListPager, PillTab, SortHead } from '../students/list-chrome.js';
+import {
+  centreCohortCsvRows,
+  centreCohortTabCounts,
+  filterCentreCohorts,
+  sortCentreCohorts,
+  toCentreCohortRows,
+  type CentreCohortRow,
+  type CentreCohortSortKey,
+} from './centre-cohorts-model.js';
+import { useRowSelection } from './use-row-selection.js';
 
-const LANGUAGE_OPTIONS = [
-  { label: 'Malayalam', value: 'malayalam' },
-  { label: 'English', value: 'english' },
+// Centre Cohorts (TTII 2026-10-12), rebuilt after Naji's CentreCohortsModule:
+// filter card, Active / Completed / All tabs with counts, export + search
+// toolbar, sortable paged table with a "…" menu. The old page's View / Edit /
+// Delete (confirm) row actions and the Cohort ID link are kept.
+
+const PAGE_SIZE = 8;
+const FIELD_LABEL = 'text-[11px] font-medium text-muted-foreground';
+const TABS: Array<{ id: CohortTab; label: string }> = [
+  { id: 'active', label: 'Active' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'all', label: 'All' },
 ];
-
-function formatCohortMonth(value: unknown): string {
-  const str = asString(value);
-  if (!str) return '-';
-  const date = new Date(str.length === 7 ? `${str}-01` : str);
-  if (Number.isNaN(date.getTime())) return str;
-  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
-
-// Naji 2026-05-04: strip the hyphen from legacy cohort codes
-// ("C-75" → "C75"). Modern codes like "MMJUL26" pass through.
-function formatCohortCode(value: unknown): string {
-  const str = asString(value).trim();
-  if (!str) return '';
-  return str.replace(/^([A-Za-z]+)-(\d+)$/, '$1$2');
-}
 
 export default function CentreCohortsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
-  const [cohortMonth, setCohortMonth] = useState('');
-  const [filterCourse, setFilterCourse] = useState('');
-  const [filterSubject, setFilterSubject] = useState('');
-  const [filterLanguage, setFilterLanguage] = useState('');
-  const [filterInstructor, setFilterInstructor] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [activeTab, setActiveTab] = useState('active');
-
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
-  const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
+  // Naji 2026-05-04: Active / Completed / All, default Active.
+  const [filters, setFilters] = useState<CohortFilters>(EMPTY_COHORT_FILTERS);
+  const [sort, setSort] = useState<{ key: CentreCohortSortKey; dir: SortDir }>({ key: 'cohortId', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const selection = useRowSelection();
+  const [courses, setCourses] = useState<Array<{ value: string; label: string }>>([]);
 
   useEffect(() => {
-    Promise.all([
-      api.loadCourses(session.token),
-      api.loadInstructors(session.token),
-    ])
-      .then(([c, i]) => {
-        setCourses(c);
-        setInstructors(i);
-      })
-      .catch(() => {});
+    api.loadCourses(session.token)
+      .then((list) => setCourses(list.map((c) => ({ value: asString(c.id), label: asString(c.title) })).filter((c) => c.value && c.label)))
+      .catch(() => setCourses([]));
   }, [api, session.token]);
 
-  useEffect(() => {
-    if (filterCourse) {
-      api.loadSubjects(session.token, filterCourse).then(setSubjects).catch(() => {});
-    } else {
-      setSubjects([]);
-    }
-    setFilterSubject('');
-  }, [api, session.token, filterCourse]);
-
   const { data, loading, error, reload } = useAdminPageData(
-    () =>
-      api.loadAdminCohorts(session.token, {
-        ...(cohortMonth ? { cohortMonth } : {}),
-        ...(filterCourse ? { courseId: filterCourse } : {}),
-        ...(filterSubject ? { subjectId: filterSubject } : {}),
-        ...(filterLanguage ? { languageId: filterLanguage } : {}),
-        ...(filterInstructor ? { instructorId: filterInstructor } : {}),
-        ...(filterStatus ? { status: filterStatus } : {}),
-      }),
-    [cohortMonth, filterCourse, filterSubject, filterLanguage, filterInstructor, filterStatus],
+    async () => toCentreCohortRows(await api.loadAdminCohorts(session.token)),
+    [],
+    'admin:centres:cohorts',
+  );
+  const rows = useMemo(() => data ?? [], [data]);
+  const counts = useMemo(() => centreCohortTabCounts(rows, filters), [rows, filters]);
+  const filtered = useMemo(() => sortCentreCohorts(filterCentreCohorts(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
+  const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
+
+  const toOptions = (list: Array<{ id: string; label: string }>) => list.map((o) => ({ value: o.id, label: o.label }));
+  const subjects = useMemo(() => {
+    const scoped = filters.courseId ? rows.filter((c) => c.courseIds.includes(filters.courseId)) : rows;
+    return toOptions(optionsFrom(scoped, (c) => c.subjectId, (c) => c.subject));
+  }, [rows, filters.courseId]);
+  const languages = useMemo(() => toOptions(optionsFrom(rows, (c) => c.languageId, (c) => c.language)), [rows]);
+  const instructors = useMemo(() => toOptions(optionsFrom(rows, (c) => c.instructorId, (c) => c.instructor)), [rows]);
+  const months = useMemo(
+    () => toOptions(optionsFrom(rows, (c) => c.startYmd.slice(0, 7), (c) => c.month).sort((a, b) => b.id.localeCompare(a.id))),
+    [rows],
   );
 
-  const allRows = useMemo(() => toRecords(data), [data]);
+  const set = (patch: Partial<CohortFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters((f) => ({ ...EMPTY_COHORT_FILTERS, tab: f.tab })); setPage(1); };
+  const onSort = (k: CentreCohortSortKey) => setSort((s) => nextSort(s, k));
+  const view = (c: CentreCohortRow) => onNavigate(`/admin/cohorts/view/${c.id}`);
 
-  // Status is derived from start_date/end_date on the server
-  // (`derived_status`). Fall back to the legacy `status` field when the
-  // backend hasn't populated the derived value.
-  const cohortStatus = (r: Record<string, unknown>): string =>
-    (asString(r.derived_status) || asString(r.status) || 'active').toLowerCase();
+  const exportRows = selection.size > 0 ? filtered.filter((c) => selection.has(c.id)) : filtered;
+  const exportCsv = () => downloadCsv('centre-cohorts.csv', toCsv(centreCohortCsvRows(exportRows)));
 
-  const filteredRows = useMemo(() => {
-    if (activeTab === 'all') return allRows;
-    return allRows.filter((r) => cohortStatus(r) === activeTab);
-  }, [allRows, activeTab]);
-
-  // Naji 2026-05-04: Active / Completed / All order, default Active.
-  const tabs: AdminTab[] = useMemo(
-    () => [
-      { id: 'active', label: 'Active', count: allRows.filter((r) => cohortStatus(r) === 'active').length },
-      { id: 'completed', label: 'Completed', count: allRows.filter((r) => cohortStatus(r) === 'completed').length },
-      { id: 'all', label: 'All', count: allRows.length },
-    ],
-    [allRows],
-  );
-
-  const filterFields: FilterField[] = useMemo(
-    () => [
-      { key: 'cohortMonth', label: 'Cohort Date', type: 'month' as const, value: cohortMonth, onChange: setCohortMonth },
-      {
-        key: 'course',
-        label: 'Course',
-        type: 'select' as const,
-        value: filterCourse,
-        placeholder: 'Select Course',
-        options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-        onChange: setFilterCourse,
-      },
-      {
-        key: 'subject',
-        label: 'Subject',
-        type: 'select' as const,
-        value: filterSubject,
-        placeholder: 'Select subject',
-        options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
-        onChange: setFilterSubject,
-      },
-      {
-        key: 'language',
-        label: 'Language',
-        type: 'select' as const,
-        value: filterLanguage,
-        placeholder: 'Select language',
-        options: LANGUAGE_OPTIONS,
-        onChange: setFilterLanguage,
-      },
-      {
-        key: 'instructor',
-        label: 'Instructor',
-        type: 'select' as const,
-        value: filterInstructor,
-        placeholder: 'Select Instructor',
-        options: instructors.map((i) => ({
-          label: asString(i.name) || asString(i.full_name) || 'Unknown',
-          value: asString(i.id) || asString(i._id),
-        })),
-        onChange: setFilterInstructor,
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        type: 'select' as const,
-        value: filterStatus,
-        placeholder: 'Select Status',
-        options: [
-          { label: 'Active', value: 'active' },
-          { label: 'Completed', value: 'completed' },
-        ],
-        onChange: setFilterStatus,
-      },
-    ],
-    [cohortMonth, filterCourse, filterSubject, filterLanguage, filterInstructor, filterStatus, courses, subjects, instructors],
-  );
-
-  const handleClear = () => {
-    setCohortMonth('');
-    setFilterCourse('');
-    setFilterSubject('');
-    setFilterLanguage('');
-    setFilterInstructor('');
-    setFilterStatus('');
+  const remove = async (c: CentreCohortRow) => {
+    const ok = await confirm({
+      title: `Delete "${c.title || 'this cohort'}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.deleteCohort(session.token, c.id);
+      if (res.status === 0) {
+        toast.error(asString(res.message) || 'Failed to delete cohort');
+        return;
+      }
+      toast.success(asString(res.message) || 'Cohort deleted.');
+      selection.drop(c.id);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
+    }
   };
 
-  const handleDelete = useCallback(
-    async (row: Record<string, unknown>) => {
-      const id = asString(row._id) || asString(row.id);
-      const name = asString(row.title) || 'this cohort';
-      if (!(await confirm({
-        title: `Delete "${name}"?`,
-        description: 'This action cannot be undone.',
-        confirmText: 'Delete',
-        variant: 'destructive',
-      }))) return;
-      try {
-        await api.deleteCohort(session.token, id);
-        reload();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
-      }
-    },
-    [api, session.token, reload, confirm],
-  );
-
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      {
-        key: 'derived_status',
-        label: 'Status',
-        sortable: true,
-        render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
-      },
-      { key: 'centre_name', label: 'Centre', sortable: true, render: (v) => asString(v) || '-' },
-      // Naji 2026-05-05 clarification: keep BOTH columns.
-      //   Cohort ID  = "C{id}" derived from row.id (no hyphen)
-      //   Cohort Code = the editable cohort_id text field
-      {
-        key: 'cohort_row_id',
-        label: 'Cohort ID',
-        sortable: true,
-        render: (_v, row) => (
-          <button
-            type="button"
-            className="text-left font-medium text-blue-600 hover:underline"
-            onClick={() => onNavigate('/admin/cohorts/view/' + asString(row._id || row.id))}
-          >
-            {formatCohortCode(asString(row.cohort_row_id) || `C${asString(row.id)}`)}
-          </button>
-        ),
-      },
-      {
-        key: 'cohort_id',
-        label: 'Cohort Code',
-        sortable: true,
-        render: (v, row) => formatCohortCode(v) || asString(row.title) || '-',
-      },
-      {
-        key: 'cohort_date',
-        label: 'Cohort Date',
-        sortable: true,
-        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
-      },
-      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'language', label: 'Language', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'instructor_name', label: 'Instructor', sortable: true, render: (v) => asString(v) || '-' },
-      {
-        key: 'student_count',
-        label: 'No. of Students',
-        sortable: true,
-        render: (v) => (
-          <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-            {asNumber(v) || 0}
-          </span>
-        ),
-      },
-      {
-        key: 'live_class_count',
-        label: 'No. of Live Classes',
-        sortable: true,
-        render: (_v, row) => {
-          const count = asNumber(row.live_class_count) || asNumber(row.live_sessions_count) || 0;
-          return (
-            <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
-              {count}
-            </span>
-          );
-        },
-      },
-    ],
-    [onNavigate],
-  );
-
-  const actions: DataTableAction[] = useMemo(
-    () => [
-      { label: 'View', onClick: (row) => onNavigate('/admin/cohorts/view/' + asString(row._id || row.id)) },
-      { label: 'Edit', onClick: (row) => onNavigate('/admin/cohorts/edit/' + asString(row._id || row.id)) },
-      { label: 'Delete', variant: 'destructive', onClick: (row) => void handleDelete(row) },
-    ],
-    [onNavigate, handleDelete],
-  );
-
   if (loading) return <PageLoader label="Loading centre cohorts..." />;
-
   if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-destructive">
+          {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
+        </CardContent>
       </Card>
     );
   }
 
+  const select = (label: string, value: string, onChange: (v: string) => void, allLabel: string, options: Array<{ value: string; label: string }>) => (
+    <label className="block min-w-0">
+      <span className={FIELD_LABEL}>{label}</span>
+      <FilterSelect label={label} value={value} onChange={onChange} allLabel={allLabel} options={options} className="mt-1 w-full" />
+    </label>
+  );
+
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Centre Cohorts" />
-      <AdminFilterBar filters={filterFields} onApply={() => {}} onClear={handleClear} />
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
-      <AdminDataTable columns={columns} rows={filteredRows} actions={actions} />
+    <div className="space-y-6">
+      <PageTitle title="Centre Cohorts" subtitle="Cohorts across all learning centres." />
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+          {select('Cohort Date', filters.month, (v) => set({ month: v }), 'All Dates', months)}
+          {select('Course', filters.courseId, (v) => set({ courseId: v, subjectId: '' }), 'All Courses', courses)}
+          {select('Subject', filters.subjectId, (v) => set({ subjectId: v }), 'All Subjects', subjects)}
+          {select('Language', filters.languageId, (v) => set({ languageId: v }), 'All Languages', languages)}
+          {select('Instructor', filters.instructorId, (v) => set({ instructorId: v }), 'All Instructors', instructors)}
+          {select('Status', filters.status, (v) => set({ status: v as CohortFilters['status'] }), 'All Status', [
+            { value: 'active', label: 'Active' },
+            { value: 'completed', label: 'Completed' },
+            { value: 'upcoming', label: 'Upcoming' },
+          ])}
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button size="sm" variant="ghost" onClick={reset}>Clear</Button>
+        </div>
+      </Card>
+
+      <div role="group" aria-label="Cohort status" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
+        ))}
+      </div>
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-4">
+          <ExportButtons
+            onCsv={exportCsv}
+            disabled={exportRows.length === 0}
+            csvLabel={selection.size > 0 ? `Export CSV (${selection.size})` : 'Export CSV'}
+          />
+          <div className="relative w-full md:w-64">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search cohorts" placeholder="Search…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+        </div>
+
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={rows.length === 0 ? 'No cohorts yet.' : 'No cohorts match your filters.'}
+            action={rows.length === 0 ? undefined : <Button variant="outline" size="sm" onClick={reset}>Clear filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10 print:hidden">
+                  <Checkbox
+                    aria-label="Select all cohorts on this page"
+                    checked={selection.allOf(current.map((c) => c.id))}
+                    onCheckedChange={() => selection.togglePage(current.map((c) => c.id))}
+                  />
+                </TableHead>
+                <TableHead className="w-10 text-xs">#</TableHead>
+                <SortHead label="Status" k="status" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Centre" k="centre" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Cohort ID" k="cohortId" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Cohort Code" k="code" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Cohort Date" k="month" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Course" k="course" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Subject" k="subject" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Language" k="language" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Instructor" k="instructor" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="No. of Students" k="students" sortKey={sort.key} dir={sort.dir} onSort={onSort} className="text-right" />
+                <SortHead label="No. of Live Classes" k="liveClasses" sortKey={sort.key} dir={sort.dir} onSort={onSort} className="text-right" />
+                <TableHead className="text-right text-xs print:hidden">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((c, i) => (
+                <TableRow key={c.id} className="hover:bg-muted/30">
+                  <TableCell className="print:hidden">
+                    <Checkbox aria-label={`Select ${c.code || c.cohortId}`} checked={selection.has(c.id)} onCheckedChange={(v) => selection.toggle(c.id, v === true)} />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{(safePage - 1) * PAGE_SIZE + i + 1}</TableCell>
+                  <TableCell><Pill tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Pill></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{c.centre || '—'}</TableCell>
+                  <TableCell>
+                    <button type="button" onClick={() => view(c)} className="font-mono text-xs font-medium text-primary hover:underline">{c.cohortId}</button>
+                  </TableCell>
+                  <TableCell className="text-sm font-medium">{c.code || '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{c.month || '—'}</TableCell>
+                  <TableCell className="max-w-[240px] text-sm">
+                    {c.courses.length > 1 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {c.courses.map((t) => <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{t}</span>)}
+                      </div>
+                    ) : c.courses[0] || '—'}
+                  </TableCell>
+                  <TableCell className="max-w-[220px] text-sm text-muted-foreground">{c.subject || '—'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{c.language || '—'}</TableCell>
+                  <TableCell className="text-sm">{c.instructor || '—'}</TableCell>
+                  <TableCell className="text-right">
+                    <span className="inline-flex min-w-[28px] items-center justify-center rounded-full bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">{c.students}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="inline-flex min-w-[28px] items-center justify-center rounded-full bg-primary-soft px-2 py-0.5 text-xs font-semibold text-primary">{c.liveClasses}</span>
+                  </TableCell>
+                  <TableCell className="text-right print:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${c.code || c.cohortId}`}>
+                          <MoreHorizontal aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => view(c)}><Eye aria-hidden="true" /> View</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onNavigate(`/admin/cohorts/edit/${c.id}`)}><Pencil aria-hidden="true" /> Edit</DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => void remove(c)}><Trash2 aria-hidden="true" /> Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <ListPager page={safePage} pages={pages} shown={current.length} total={filtered.length} noun="entries" onPage={setPage} />
+      </Card>
     </div>
   );
 }
