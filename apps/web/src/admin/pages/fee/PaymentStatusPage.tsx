@@ -132,7 +132,7 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
       case 'mode': return <span className="text-sm">{r.mode || '-'}</span>;
       case 'to': return <span className="text-sm">{r.to || '-'}</span>;
       case 'status': return <Pill tone={STATUS_TONE[r.status] ?? 'slate'}>{r.status}</Pill>;
-      case 'action': return <RowAction row={r} tab={activeTab} onAction={setAction} onNavigate={onNavigate} />;
+      case 'action': return <RowAction row={r} tab={activeTab} busy={loading} onAction={setAction} onNavigate={onNavigate} />;
     }
   };
 
@@ -247,9 +247,10 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
   );
 }
 
+/** busy: a refetch is running — Mark Paid / Remind wait for fresh rows. */
 function RowAction({
-  row, tab, onAction, onNavigate,
-}: { row: PaymentRow; tab: PaymentTab; onAction: (a: PaymentAction) => void; onNavigate: (path: string) => void }) {
+  row, tab, busy, onAction, onNavigate,
+}: { row: PaymentRow; tab: PaymentTab; busy: boolean; onAction: (a: PaymentAction) => void; onNavigate: (path: string) => void }) {
   const kind = paymentRowAction(row, tab);
   if (kind === 'none') return null;
   if (kind === 'view_application') {
@@ -257,9 +258,9 @@ function RowAction({
   }
   return (
     <div className="inline-flex gap-1">
-      <Button variant="outline" size="sm" onClick={() => onAction({ type: 'mark_paid', row })}>Mark Paid</Button>
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => onAction({ type: 'mark_paid', row })}>Mark Paid</Button>
       {kind === 'mark_paid_and_remind' ? (
-        <Button variant="ghost" size="sm" onClick={() => onAction({ type: 'reminder', row })}>Remind</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAction({ type: 'reminder', row })}>Remind</Button>
       ) : null}
     </div>
   );

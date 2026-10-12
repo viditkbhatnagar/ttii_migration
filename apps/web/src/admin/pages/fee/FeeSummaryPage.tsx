@@ -32,7 +32,7 @@ import { DetailGrid, SummaryCard } from './fee-ui.js';
 // no enrolment-level reminder endpoint (reminders are per instalment, on
 // Payment Status).
 
-const STATUS_ORDER = ['Active', 'On Hold', 'Completed', 'Graduated', 'Inactive', 'Dropout'];
+const STATUS_ORDER = ['active', 'on hold', 'completed', 'graduated', 'inactive', 'dropout'];
 const STATUS_TONE: Record<string, Tone> = {
   active: 'emerald', 'on hold': 'amber', completed: 'blue', graduated: 'blue', inactive: 'slate', dropout: 'rose',
 };
@@ -54,7 +54,14 @@ export default function FeeSummaryPage({ api, session, onNavigate }: AdminPagePr
 
   const rows = useMemo(() => toFeeSummaryRows(data ?? []), [data]);
   const totals = useMemo(() => feeSummaryTotals(rows), [rows]);
-  const pills = useMemo(() => statusCounts(rows.map((r) => r.status), STATUS_ORDER), [rows]);
+  // Pill ids are lower-case so counts agree with the case-insensitive filter;
+  // the label is the first spelling seen in the data.
+  const pills = useMemo(() => statusCounts(rows.map((r) => r.status.toLowerCase()), STATUS_ORDER), [rows]);
+  const pillLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) if (!m.has(r.status.toLowerCase())) m.set(r.status.toLowerCase(), r.status);
+    return m;
+  }, [rows]);
   const options = useMemo(() => ({
     course: distinct(rows.map((r) => r.course)),
     offering: distinct(rows.filter((r) => !filters.course || r.course === filters.course).map((r) => r.offering)),
@@ -114,7 +121,7 @@ export default function FeeSummaryPage({ api, session, onNavigate }: AdminPagePr
 
       <div role="group" aria-label="Course status" className="flex flex-wrap gap-2">
         {pills.map((p) => (
-          <PillTab key={p.id} active={filters.status === p.id} label={p.id === 'all' ? 'All' : p.id} count={p.count} onClick={() => set({ status: p.id })} />
+          <PillTab key={p.id} active={filters.status === p.id} label={p.id === 'all' ? 'All' : pillLabel.get(p.id) ?? p.id} count={p.count} onClick={() => set({ status: p.id })} />
         ))}
       </div>
 

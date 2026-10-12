@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Download, ExternalLink, MoreHorizontal, Search, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -41,7 +41,13 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<ApprovalRow | null>(null);
   const [rejecting, setRejecting] = useState<ApprovalRow | null>(null);
-  const [rejectBusy, setRejectBusy] = useState(false);
+  // In-flight guard: a row's Approve AND Reject stay disabled from the moment a
+  // decision is sent until the request AND the list reload have finished, so a
+  // double click or a second menu cannot send it twice. The ref is the
+  // synchronous source of truth; the state drives the disabled buttons.
+  const busyRef = useRef<Set<string>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const awaitingReload = useRef<Set<string>>(new Set());
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.listPaymentApprovals(session.token),
@@ -65,37 +71,63 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
     else { setSortKey(k); setSortDir('asc'); }
   };
 
+  const claimRow = useCallback((id: string): boolean => {
+    if (busyRef.current.has(id)) return false;
+    busyRef.current = new Set(busyRef.current).add(id);
+    setBusyIds(busyRef.current);
+    return true;
+  }, []);
+  const releaseRows = useCallback((ids: Iterable<string>) => {
+    const next = new Set(busyRef.current);
+    for (const id of ids) next.delete(id);
+    busyRef.current = next;
+    setBusyIds(next);
+  }, []);
+  /** Success: keep the row locked until the reload below has landed. */
+  const reloadThenRelease = useCallback((id: string) => {
+    awaitingReload.current.add(id);
+    reload();
+  }, [reload]);
+  useEffect(() => {
+    if (loading || awaitingReload.current.size === 0) return;
+    const done = awaitingReload.current;
+    awaitingReload.current = new Set();
+    releaseRows(done);
+  }, [loading, data, error, releaseRows]);
+
   const handleApprove = useCallback(async (row: ApprovalRow) => {
+    if (busyRef.current.has(row.id)) return;
     const ok = await confirm({
       title: `Approve payment for ${row.name || 'this student'}?`,
       description: 'This confirms the manual payment and reflects it to the student (marks the application paid + sends confirmation).',
       confirmText: 'Approve',
     });
-    if (!ok) return;
+    if (!ok || !claimRow(row.id)) return;
     try {
       const res = await api.approvePayment(session.token, row.id);
       const m = asString((res as { message?: unknown }).message);
-      if ((res as { status?: number }).status === 1) { toast.success(m || 'Payment approved'); reload(); }
-      else toast.error(m || 'Could not approve.');
+      if ((res as { status?: number }).status === 1) { toast.success(m || 'Payment approved'); reloadThenRelease(row.id); }
+      else { toast.error(m || 'Could not approve.'); releaseRows([row.id]); }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not approve.');
+      releaseRows([row.id]);
     }
-  }, [api, session.token, confirm, reload]);
+  }, [api, session.token, confirm, claimRow, releaseRows, reloadThenRelease]);
 
   const handleReject = useCallback(async (reason: string) => {
     if (!rejecting) return;
-    setRejectBusy(true);
+    const id = rejecting.id;
+    if (!claimRow(id)) return;
     try {
-      const res = await api.rejectPayment(session.token, rejecting.id, reason);
+      const res = await api.rejectPayment(session.token, id, reason);
       const m = asString((res as { message?: unknown }).message);
-      if ((res as { status?: number }).status === 1) { toast.success(m || 'Payment rejected'); setRejecting(null); reload(); }
-      else toast.error(m || 'Could not reject.');
+      if ((res as { status?: number }).status === 1) { toast.success(m || 'Payment rejected'); setRejecting(null); reloadThenRelease(id); }
+      else { toast.error(m || 'Could not reject.'); releaseRows([id]); }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not reject.');
-    } finally {
-      setRejectBusy(false);
+      releaseRows([id]);
     }
-  }, [api, session.token, rejecting, reload]);
+  }, [api, session.token, rejecting, claimRow, releaseRows, reloadThenRelease]);
 
   if (loading && !data) return <PageLoader label="Loading payment approvals..." />;
 
@@ -204,8 +236,8 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
                             <DropdownMenuContent align="end" className="w-40">
                               <DropdownMenuItem onClick={() => setViewing(r)}>View Details</DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { void handleApprove(r); }}>Approve</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setRejecting(r)}>Reject</DropdownMenuItem>
+                              <DropdownMenuItem disabled={busyIds.has(r.id)} onClick={() => { void handleApprove(r); }}>Approve</DropdownMenuItem>
+                              <DropdownMenuItem disabled={busyIds.has(r.id)} className="text-destructive focus:text-destructive" onClick={() => setRejecting(r)}>Reject</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -222,11 +254,12 @@ export default function PaymentApprovalPage({ api, session }: AdminPageProps) {
 
       <ApprovalDetailsDialog
         row={viewing}
+        busy={viewing !== null && busyIds.has(viewing.id)}
         onClose={() => setViewing(null)}
         onApprove={(r) => { void handleApprove(r); }}
-        onReject={(r) => setRejecting(r)}
+        onReject={(r) => { if (!busyRef.current.has(r.id)) setRejecting(r); }}
       />
-      <RejectPaymentDialog row={rejecting} busy={rejectBusy} onCancel={() => setRejecting(null)} onConfirm={(reason) => { void handleReject(reason); }} />
+      <RejectPaymentDialog row={rejecting} busy={rejecting !== null && busyIds.has(rejecting.id)} onCancel={() => setRejecting(null)} onConfirm={(reason) => { void handleReject(reason); }} />
     </div>
   );
 }

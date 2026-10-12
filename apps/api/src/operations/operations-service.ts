@@ -12987,6 +12987,12 @@ export class OperationsService {
     if (!entry || entry.status !== 'pending_approval') {
       return { status: 0, message: 'This payment is not awaiting approval.' };
     }
+    // Claim-first (TTII 2026-10-12): the write below only lands if the row still
+    // holds the exact plan + status we just read. A second approve/reject racing
+    // this one waits on the row lock, re-checks the WHERE, matches nothing and
+    // returns without writing the ledger, recording an event or re-firing the
+    // payment_received notification. (See webhook-double-credit 2026-10-08.)
+    const claim = { id, deleted_at: null, payment_plan: app.payment_plan, payment_status: app.payment_status };
     const now = new Date();
     const nextLedger = ledger.map((e) =>
       e.index === index ? { ...e, status: 'approved' as const, decided_at: now.toISOString(), decided_by: actor } : e,
@@ -12996,8 +13002,8 @@ export class OperationsService {
     if (index === 0 && !alreadyEnrolled) {
       // Registration approval keeps the existing behavior: the application flips
       // to paid and the payment_received notification fires (the enrolment trigger).
-      await this.prisma.applications.update({
-        where: { id },
+      const claimed = await this.prisma.applications.updateMany({
+        where: claim,
         data: {
           stage: 'paid',
           payment_status: 'paid',
@@ -13008,6 +13014,7 @@ export class OperationsService {
           updated_by: actor,
         },
       });
+      if (claimed.count === 0) return { status: 0, message: 'This payment is not awaiting approval.' };
       await this.recordEvent(id, 'payment_approved', 'Registration payment approved by finance', actorUserId, {});
       await this.notifyApplicationEvent(id, 'payment_received');
     } else {
@@ -13015,8 +13022,8 @@ export class OperationsService {
       // only advances the ledger + the coarse rollup; it must NOT re-flip stage
       // or re-fire the enrolment notification.
       const rollup = rollupPaymentStatus(nextLedger);
-      await this.prisma.applications.update({
-        where: { id },
+      const claimed = await this.prisma.applications.updateMany({
+        where: claim,
         data: {
           ...(rollup ? { payment_status: rollup } : {}),
           payment_plan: JSON.stringify(planObj),
@@ -13024,6 +13031,7 @@ export class OperationsService {
           updated_by: actor,
         },
       });
+      if (claimed.count === 0) return { status: 0, message: 'This payment is not awaiting approval.' };
       await this.recordEvent(id, 'payment_approved', `${index === 0 ? 'Registration' : `Instalment ${index}`} payment approved by finance`, actorUserId, { instalment_index: index });
     }
     return { status: 1, message: 'Payment approved.' };
@@ -13056,8 +13064,10 @@ export class OperationsService {
     // Registration reject → 'payment_rejected' (existing behavior). A later
     // instalment reject leaves the app paid (registration is already settled).
     const rollup = rollupPaymentStatus(nextLedger);
-    await this.prisma.applications.update({
-      where: { id },
+    // Same claim-first guard as approve: a reject racing an approve (or a
+    // second reject) must not overwrite a decision that already landed.
+    const claimed = await this.prisma.applications.updateMany({
+      where: { id, deleted_at: null, payment_plan: app.payment_plan, payment_status: app.payment_status },
       data: {
         payment_status: index === 0 ? 'payment_rejected' : (rollup ?? 'payment_rejected'),
         payment_plan: JSON.stringify(planObj),
@@ -13065,6 +13075,7 @@ export class OperationsService {
         updated_by: actor,
       },
     });
+    if (claimed.count === 0) return { status: 0, message: 'This payment is not awaiting approval.' };
     await this.recordEvent(id, 'payment_rejected', `${index === 0 ? 'Registration' : `Instalment ${index}`} payment rejected by finance${reason ? `: ${reason}` : ''}`, actorUserId, { reason, instalment_index: index });
     return { status: 1, message: 'Payment rejected.' };
   }

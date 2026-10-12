@@ -18,8 +18,8 @@ const DIALOG_STYLE = { width: 'min(560px, calc(100vw - 2rem))', maxWidth: 'min(5
 const DIALOG_CLASS = 'flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>*]:min-w-0';
 
 export function ApprovalDetailsDialog({
-  row, onClose, onApprove, onReject,
-}: { row: ApprovalRow | null; onClose: () => void; onApprove: (r: ApprovalRow) => void; onReject: (r: ApprovalRow) => void }) {
+  row, busy, onClose, onApprove, onReject,
+}: { row: ApprovalRow | null; busy: boolean; onClose: () => void; onApprove: (r: ApprovalRow) => void; onReject: (r: ApprovalRow) => void }) {
   return (
     <Dialog open={row !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent style={DIALOG_STYLE} className={DIALOG_CLASS}>
@@ -58,8 +58,8 @@ export function ApprovalDetailsDialog({
         </div>
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" onClick={onClose}>Close</Button>
-          <Button variant="outline" className="text-destructive" onClick={() => { if (row) { onClose(); onReject(row); } }}>Reject</Button>
-          <Button onClick={() => { if (row) { onClose(); onApprove(row); } }}>Approve</Button>
+          <Button variant="outline" className="text-destructive" disabled={busy} onClick={() => { if (row) { onClose(); onReject(row); } }}>Reject</Button>
+          <Button disabled={busy} onClick={() => { if (row) { onClose(); onApprove(row); } }}>Approve</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
