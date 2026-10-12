@@ -131,7 +131,7 @@ export function MarkPaidDialog({ open, onOpenChange, api, token, applicationId, 
       </div>
       <div className="space-y-2">
         <Label htmlFor="mp-date">Date of Payment *</Label>
-        <DmyDateInput id="mp-date" value={date} onChange={setDate} minYear={thisYear - 2} maxYear={thisYear} />
+        <DmyDateInput id="mp-date" value={date} onChange={setDate} minYear={2015} maxYear={thisYear} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="mp-ref">Reference Number *</Label>

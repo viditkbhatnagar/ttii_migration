@@ -285,6 +285,18 @@ export function stageSteps(stage: string, events: AppEvent[]): StageStep[] {
   return steps;
 }
 
+/**
+ * dd/mm/yyyy of a DATE-ONLY value (`@db.Date` / plan due dates), read straight
+ * from its YYYY-MM-DD digits. Prisma sends these as `YYYY-MM-DDT00:00:00.000Z`;
+ * going through `new Date()` would show the previous day in a browser behind UTC.
+ * Anything that does not start with YYYY-MM-DD is returned as-is ('' for empty).
+ */
+export function formatDateOnly(value: unknown): string {
+  const s = asString(value).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+
 /** dd/mm/yyyy, hh:mm am/pm in the viewer's local time ('' when unparseable). */
 export function formatDateTime(value: string): string {
   if (!value) return '';

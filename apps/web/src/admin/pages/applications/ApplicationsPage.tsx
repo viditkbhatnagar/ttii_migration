@@ -40,8 +40,9 @@ import {
 // /admin/applications/index (listAdminApplications), with the stage applied
 // client-side. The old page showed listLeads rows on a stage tab while counting
 // from this endpoint, so a stage tab ignored the date / pipeline / status
-// filters and its count could disagree with its table. The Pipeline User filter
-// was never sent to the server at all; it now filters the rows by owner.
+// filters and its count could disagree with its table. The old page passed
+// pipelineUserId to loadApplications, but neither the API client nor the
+// endpoint used it, so that filter did nothing; it now filters rows by owner.
 
 const PAGE_SIZE = 10;
 const SELECT_CLASS = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
@@ -64,8 +65,7 @@ function PillTab({ active, label, count, onClick }: { active: boolean; label: st
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -240,7 +240,7 @@ export default function ApplicationsPage({ api, session, onNavigate }: AdminPage
         )}
       />
 
-      <div role="tablist" aria-label="Pipeline stage" className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Pipeline stage" className="flex flex-wrap gap-2">
         {STAGE_TABS.map((t) => (
           <PillTab key={t.id} active={filters.stage === t.id} label={t.label} count={counts[t.id]} onClick={() => setList({ stage: t.id })} />
         ))}

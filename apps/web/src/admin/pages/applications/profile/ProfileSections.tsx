@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { asString, formatDate, toRecords } from '../../../shared/utils/admin-data-utils.js';
 import { displayPhone } from '../application-list-model.js';
-import type { ApplicationDocument } from '../application-profile-model.js';
+import { formatDateOnly, type ApplicationDocument } from '../application-profile-model.js';
 
 // Building blocks of Naji's ApplicationProfile tabs: a titled section card with
 // an icon tile, label/value fields, and the Overview / Application / Documents
@@ -138,7 +138,7 @@ export function ApplicationTab({ app, educationPathway, verify }: { app: Record<
           <div className="flex-1">
             <FieldGrid>
               <Field label="Full Name" value={asString(app.name)} />
-              <Field label="Date of Birth" value={formatDate(app.date_of_birth)} />
+              <Field label="Date of Birth" value={formatDateOnly(app.date_of_birth)} />
               <Field label="Age" value={asString(app.age)} />
               <Field label="Gender" value={asString(app.gender)} />
               <Field label="Marital Status" value={asString(app.marital_status)} />

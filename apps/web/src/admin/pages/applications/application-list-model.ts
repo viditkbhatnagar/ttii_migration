@@ -169,10 +169,12 @@ export function sortApplications(rows: ApplicationRow[], k: ApplicationSortKey, 
   });
 }
 
+// The phone goes out without its leading '+': csvCell would otherwise prefix an
+// apostrophe (formula guard) and Excel would show it.
 export function exportTable(rows: ApplicationRow[]): Array<Array<string>> {
   return [
     ['Application ID', 'Application Date', 'Name', 'Course', 'Course Offering', 'Certificate Combination', 'Phone', 'E-mail', 'Pipeline', 'Pipeline User', 'Stage'],
-    ...rows.map((r) => [r.applicationId, r.dateLabel, r.name, r.course, r.offering, r.combination, r.phone, r.email, r.pipeline, r.owner, stageLabel(r.stage)]),
+    ...rows.map((r) => [r.applicationId, r.dateLabel, r.name, r.course, r.offering, r.combination, r.phone.replace(/^\+/, ''), r.email, r.pipeline, r.owner, stageLabel(r.stage)]),
   ];
 }
 

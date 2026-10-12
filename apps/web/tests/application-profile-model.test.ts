@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   allVerified,
   eventStage,
+  formatDateOnly,
   parseSavedPlan,
   planTotals,
   readVerified,
@@ -27,6 +28,16 @@ describe('stage actions (same rules as the old View page)', () => {
     expect(stageActions('enrolled', 'pending', admin)).toEqual(['mark_approved', 'download_pdf']);
     expect(stageActions('enrolled', 'approved', admin)).toEqual(['download_pdf']);
     expect(stageActions('rejected', 'rejected', admin)).toEqual(['download_pdf']);
+  });
+});
+
+describe('date-only values', () => {
+  test('read from the digits, never shifted by the browser timezone', () => {
+    expect(formatDateOnly('2026-09-01')).toBe('01/09/2026');
+    expect(formatDateOnly('1988-02-10T00:00:00.000Z')).toBe('10/02/1988');
+    expect(formatDateOnly('')).toBe('');
+    expect(formatDateOnly(null)).toBe('');
+    expect(formatDateOnly('Pending')).toBe('Pending');
   });
 });
 

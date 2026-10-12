@@ -71,7 +71,7 @@ describe('application filters', () => {
   test('export has a header row and one line per application', () => {
     const t = exportTable(rows.slice(0, 1));
     expect(t[0]?.[0]).toBe('Application ID');
-    expect(t[1]).toEqual(['TTII260101', rows[0]?.dateLabel, 'Asha Nair', 'Diploma', 'Oct 2026', '', '+91 9876543210', 'asha@example.com', 'Counsellor', 'Priya', 'Lead']);
+    expect(t[1]).toEqual(['TTII260101', rows[0]?.dateLabel, 'Asha Nair', 'Diploma', 'Oct 2026', '', '91 9876543210', 'asha@example.com', 'Counsellor', 'Priya', 'Lead']);
   });
 });
 

@@ -5,7 +5,7 @@ import { Pill } from '../../../shared/components/ui-kit.js';
 import type { Tone } from '../../../shared/components/ui-tones.js';
 import { asNumber, asString, formatDate, toRecords } from '../../../shared/utils/admin-data-utils.js';
 import {
-  paymentStatusLabel, planLines, planTotals, rowIsPaid, rowPaymentInfo, type SavedPlan,
+  formatDateOnly, paymentStatusLabel, planLines, planTotals, rowIsPaid, rowPaymentInfo, type SavedPlan,
 } from '../application-profile-model.js';
 import { Field, FieldGrid, Section } from './ProfileSections.js';
 
@@ -136,7 +136,7 @@ export function PaymentTab({
                         <td className="py-3 pr-3 text-right tabular-nums">₹{l.amount.toLocaleString('en-IN')}</td>
                         <td className="py-3 pr-3 text-right tabular-nums">{l.gstPercent}%</td>
                         <td className="py-3 pr-3 text-right font-semibold tabular-nums">{inr(l.inclusive)}</td>
-                        <td className="py-3 pr-3 text-muted-foreground">{formatDate(l.dueDate) || '-'}</td>
+                        <td className="py-3 pr-3 text-muted-foreground">{formatDateOnly(l.dueDate) || '-'}</td>
                         <td className="py-3 pr-3 text-right">
                           {rowIsPaid(plan, paymentStatus, i)
                             ? <PaidChip plan={plan} paymentStatus={paymentStatus} index={i} />
@@ -172,8 +172,8 @@ export function PaymentTab({
                     <tr key={i} className="border-b border-border/60 last:border-0">
                       <td className="py-3 pr-3 font-medium">{asString(p.installment_details) || '-'}</td>
                       <td className="py-3 pr-3 text-right tabular-nums">₹{asNumber(p.amount).toLocaleString('en-IN')}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{formatDate(p.due_date) || '-'}</td>
-                      <td className="py-3 pr-3 text-muted-foreground">{formatDate(p.paid_date) || '-'}</td>
+                      <td className="py-3 pr-3 text-muted-foreground">{formatDateOnly(p.due_date) || '-'}</td>
+                      <td className="py-3 pr-3 text-muted-foreground">{formatDateOnly(p.paid_date) || '-'}</td>
                       <td className="py-3 pr-3">{asString(p.payment_mode) || '-'}</td>
                       <td className="py-3 pr-3"><Pill tone={statusTone(asString(p.status).toLowerCase())}>{asString(p.status) || 'Pending'}</Pill></td>
                     </tr>
