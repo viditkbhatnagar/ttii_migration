@@ -168,16 +168,34 @@ export function sortExams(rows: ExamListRow[], key: ExamSortKey, dir: 'asc' | 'd
   });
 }
 
-/** Rich-text instructions as plain lines, without rendering HTML. */
+const NAMED_ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+/**
+ * Decode HTML entities to plain TEXT in one pass (so "&amp;lt;" stays "&lt;").
+ * The result is only ever rendered as text, never as HTML. Unknown names and
+ * out-of-range or surrogate code points are left as written.
+ */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]+);/gi, (whole, body: string) => {
+    if (body[0] !== '#') return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
+    const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+    const valid = Number.isInteger(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+    return valid ? String.fromCodePoint(code) : whole;
+  });
+}
+
+/** Rich-text instructions as plain lines, without rendering HTML. Ordered-list items keep their numbers. */
 export function instructionLines(html: string): string[] {
-  return html
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|li|div|h[1-6])>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+  const numbered = html.replace(/<ol\b[^>]*>([\s\S]*?)<\/ol>/gi, (_m, inner: string) => {
+    let n = 0;
+    return inner.replace(/<li\b[^>]*>/gi, () => `\n${(n += 1)}. `);
+  });
+  return decodeEntities(
+    numbered
+      .replace(/<\s*br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|li|div|h[1-6])>/gi, '\n')
+      .replace(/<[^>]*>/g, ''),
+  )
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
