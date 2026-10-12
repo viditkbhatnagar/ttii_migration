@@ -14,6 +14,7 @@ import { QuestionBankService, toIdList, type QuestionKindFilter } from '../opera
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ExamSubmissionsService } from '../operations/exam-submissions-service.js';
 import { StudentDirectoryService } from '../operations/student-directory-service.js';
+import { StaffProfileNotFoundError, StaffProfileService, type StaffRole } from '../operations/staff-profile-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -63,6 +64,7 @@ interface RegisterOperationsRoutesOptions {
   reExamService?: ReExamService;
   adminSearchService?: AdminSearchService;
   studentDirectoryService?: StudentDirectoryService;
+  staffProfileService?: StaffProfileService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -411,6 +413,7 @@ export function registerOperationsRoutes(
   const reExamService = options.reExamService ?? new ReExamService();
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
   const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
+  const staffProfileService = options.staffProfileService ?? new StaffProfileService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2123,6 +2126,26 @@ export function registerOperationsRoutes(
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
+
+  // TTII 2026-10-12 — Counsellor / Associate profile in Naji's design: the
+  // person's applications, converted students, monthly trend and activity
+  // (read-only; operations/staff-profile-service.ts). Admin/Subadmin only — a
+  // counsellor must not read a colleague's pipeline.
+  const sendStaffProfile = async (request: FastifyRequest, reply: FastifyReply, roleId: StaffRole): Promise<void> => {
+    try {
+      const payload = requestPayload(request);
+      const data = await staffProfileService.profile(toInteger(payload.id), roleId);
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) {
+      if (error instanceof StaffProfileNotFoundError) {
+        reply.code(404).send({ status: 0, message: error.message, data: {} });
+        return;
+      }
+      sendOperationsError(reply, error);
+    }
+  };
+  app.get('/admin/counsellor/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 9));
+  app.get('/admin/associates/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 10));
 
   // TTII 2026-10-12 — navbar global search in Naji's admin shell: a few
   // students + courses for the typed text (pages are matched on the client).

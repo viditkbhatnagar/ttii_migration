@@ -2047,6 +2047,13 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // TTII 2026-10-12 — read-only profile stats (applications, converted
+  // students, monthly trend, activity) for the Counsellor / Associate profile.
+  async loadStaffProfileStats(authToken: string, kind: 'counsellor' | 'associates', id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>(`/admin/${kind}/profile_stats`, authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
 
   async loadDocumentRequests(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/requests', authToken);
