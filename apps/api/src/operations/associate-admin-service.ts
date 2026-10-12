@@ -3,12 +3,11 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import {
-  ASSOCIATE_ROLE_ID, ASSOCIATE_STUDENT_TABS, DASHBOARD_TREND_MONTHS, buildTopPerformers, buildTrend, countByOwner,
-  displayEmail, isoOrEmpty, istMonthWindow, istYmd, tabCounts, toPositiveInt,
+  ASSOCIATE_ROLE_ID, ASSOCIATE_STUDENT_TABS, buildTopPerformers, countByOwner, displayEmail, isoOrEmpty, istMonthWindow,
+  istYmd, tabCounts, toPositiveInt, trendMonthWhere, trendMonths,
   type AssociateStudentTab, type TopPerformer, type TrendPoint,
 } from './associate-admin-model.js';
 import { SIGN_IN_EVENTS } from './people-admin-service.js';
-import { trendWindowStart } from './staff-profile-service.js';
 
 // Admin → Associate Management (Naji's design, TTII 2026-10-12): Dashboard,
 // Associate Students, Onboarding and the Commissions basis. READ-ONLY — every
@@ -124,23 +123,30 @@ export class AssociateAdminService {
   async dashboard(now: Date = new Date()): Promise<AssociateDashboard> {
     const associates = await this.liveAssociates();
     const ids = associates.map((a) => a.id);
-    const empty = buildTrend([], now);
+    const months = trendMonths(now);
     if (ids.length === 0) {
-      return { kpis: { total: 0, active: 0, leadsThisMonth: 0, enrolments: 0, enrolmentsThisMonth: 0 }, trend: empty, top: [] };
+      return {
+        kpis: { total: 0, active: 0, leadsThisMonth: 0, enrolments: 0, enrolmentsThisMonth: 0 },
+        trend: months.map((m) => ({ month: m.month, label: m.label, leads: 0, enrolments: 0 })),
+        top: [],
+      };
     }
-    const mine = { pipeline_user: { in: ids }, deleted_at: null };
-    const since = trendWindowStart(now, DASHBOARD_TREND_MONTHS);
-    const [referred, converted, trendRows] = await Promise.all([
+    const mine: Prisma.applicationsWhereInput = { pipeline_user: { in: ids }, deleted_at: null };
+    // Two COUNTs per IST month, aggregated in the database — no rows are loaded.
+    const [referred, converted, trend] = await Promise.all([
       this.prisma.applications.groupBy({ by: ['pipeline_user'], where: mine, _count: { id: true } }),
       this.prisma.applications.groupBy({ by: ['pipeline_user'], where: { ...mine, is_converted: 1 }, _count: { id: true } }),
-      this.prisma.applications.findMany({
-        where: { ...mine, OR: [{ created_at: { gte: since } }, { converted_at: { gte: since } }] },
-        select: { is_converted: true, created_at: true, converted_at: true },
-      }),
+      Promise.all(months.map(async (m): Promise<TrendPoint> => {
+        const w = trendMonthWhere(m);
+        const [leads, enrolments] = await Promise.all([
+          this.prisma.applications.count({ where: { AND: [mine, w.leads] } }),
+          this.prisma.applications.count({ where: { AND: [mine, w.enrolments] } }),
+        ]);
+        return { month: m.month, label: m.label, leads, enrolments };
+      })),
     ]);
     const referredBy = countByOwner(referred);
     const convertedBy = countByOwner(converted);
-    const trend = buildTrend(trendRows, now);
     const thisMonth = trend[trend.length - 1];
     const people = associates.map((a) => ({
       id: a.id,

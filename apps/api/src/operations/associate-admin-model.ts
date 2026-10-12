@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+
 import { istMonthKeys } from './staff-profile-service.js';
 
 // Admin → Associate Management in Naji's design (TTII 2026-10-12): the pure
@@ -73,32 +75,33 @@ export function conversionPct(enrolled: number, applications: number): number {
 
 export interface TrendPoint { month: string; label: string; leads: number; enrolments: number }
 
+export interface TrendMonth { month: string; label: string; gte: Date; lt: Date }
+
+/** The last `months` IST calendar months (oldest first) with their instant windows. */
+export function trendMonths(now: Date, months: number = DASHBOARD_TREND_MONTHS): TrendMonth[] {
+  return istMonthKeys(now, months).map((month) => {
+    const window = istMonthWindow(month);
+    return {
+      month,
+      label: `${MONTH_LABELS[Number(month.slice(5, 7)) - 1] ?? ''} ${month.slice(2, 4)}`,
+      gte: window?.gte ?? new Date(0),
+      lt: window?.lt ?? new Date(0),
+    };
+  });
+}
+
 /**
- * Leads by the IST month they were created; enrolments by the IST month of
- * conversion (created_at when converted_at is unset) — the associate profile's
- * trend rule, so the dashboard and the profile agree.
+ * The filters counted in the database for one trend month. Leads by the IST
+ * month they were created; enrolments by the IST month of conversion
+ * (created_at when converted_at is unset) — the associate profile's trend
+ * rule, so the dashboard and the profile agree.
  */
-export function buildTrend(
-  rows: Array<{ is_converted: number | null; created_at: Date | null; converted_at: Date | null }>,
-  now: Date,
-  months: number = DASHBOARD_TREND_MONTHS,
-): TrendPoint[] {
-  const keys = istMonthKeys(now, months);
-  const trend: TrendPoint[] = keys.map((month) => ({
-    month,
-    label: `${MONTH_LABELS[Number(month.slice(5, 7)) - 1] ?? ''} ${month.slice(2, 4)}`,
-    leads: 0,
-    enrolments: 0,
-  }));
-  const index = new Map(keys.map((k, i) => [k, i]));
-  for (const r of rows) {
-    const created = index.get(istYmd(r.created_at).slice(0, 7));
-    if (created !== undefined && trend[created]) trend[created].leads += 1;
-    if (r.is_converted !== 1) continue;
-    const enrolledOn = index.get(istYmd(r.converted_at ?? r.created_at).slice(0, 7));
-    if (enrolledOn !== undefined && trend[enrolledOn]) trend[enrolledOn].enrolments += 1;
-  }
-  return trend;
+export function trendMonthWhere(m: TrendMonth): { leads: Prisma.applicationsWhereInput; enrolments: Prisma.applicationsWhereInput } {
+  const window = { gte: m.gte, lt: m.lt };
+  return {
+    leads: { created_at: window },
+    enrolments: { is_converted: 1, OR: [{ converted_at: window }, { converted_at: null, created_at: window }] },
+  };
 }
 
 export interface TopPerformer { id: number; name: string; photo: string; applications: number; enrolled: number; conversion: number }

@@ -3,8 +3,8 @@ import { describe, expect, test, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
 import {
-  buildTopPerformers, buildTrend, classifyApplication, conversionPct, countByOwner, displayEmail, istMonthWindow,
-  istYmd, tabCounts, toPositiveInt,
+  buildTopPerformers, classifyApplication, conversionPct, countByOwner, displayEmail, istMonthWindow,
+  istYmd, tabCounts, toPositiveInt, trendMonthWhere, trendMonths,
 } from '../../src/operations/associate-admin-model.js';
 import { AssociateAdminService, STUDENT_EXPORT_CAP, tabWhere } from '../../src/operations/associate-admin-service.js';
 import { SIGN_IN_EVENTS } from '../../src/operations/people-admin-service.js';
@@ -52,17 +52,21 @@ describe('associate-admin-model', () => {
     ])).toEqual({ all: 11, lead: 5, applied: 2, enrolled: 3, rejected: 1 });
   });
 
-  test('buildTrend: six IST months, leads by created_at, enrolments by converted_at', () => {
-    const trend = buildTrend([
-      { is_converted: 0, created_at: new Date('2026-09-30T19:00:00Z'), converted_at: null }, // 1 Oct IST
-      { is_converted: 1, created_at: new Date('2026-08-10T05:00:00Z'), converted_at: new Date('2026-10-02T05:00:00Z') },
-      { is_converted: 1, created_at: new Date('2026-09-05T05:00:00Z'), converted_at: null }, // falls back to created
-      { is_converted: 0, created_at: new Date('2025-01-01T05:00:00Z'), converted_at: null }, // outside window
-    ], NOW);
-    expect(trend.map((t) => t.month)).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
-    expect(trend[5]).toEqual({ month: '2026-10', label: 'Oct 26', leads: 1, enrolments: 1 });
-    expect(trend[4]).toMatchObject({ leads: 1, enrolments: 1 });
-    expect(trend[3]).toMatchObject({ leads: 1, enrolments: 0 });
+  test('trendMonths: six IST months, oldest first, with IST-midnight windows', () => {
+    const months = trendMonths(NOW);
+    expect(months.map((t) => t.month)).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
+    expect(months[5]).toEqual({
+      month: '2026-10', label: 'Oct 26', gte: new Date('2026-09-30T18:30:00.000Z'), lt: new Date('2026-10-31T18:30:00.000Z'),
+    });
+  });
+
+  test('trendMonthWhere: leads by created_at; enrolments by converted_at, else created_at', () => {
+    const m = trendMonths(NOW)[5]!;
+    const window = { gte: m.gte, lt: m.lt };
+    expect(trendMonthWhere(m)).toEqual({
+      leads: { created_at: window },
+      enrolments: { is_converted: 1, OR: [{ converted_at: window }, { converted_at: null, created_at: window }] },
+    });
   });
 
   test('buildTopPerformers: only people with leads, most enrolments first, then conversion', () => {
@@ -107,19 +111,28 @@ describe('AssociateAdminService.dashboard', () => {
     const groupBy = vi.fn()
       .mockResolvedValueOnce([{ pipeline_user: 21, _count: { id: 5 } }, { pipeline_user: 22, _count: { id: 2 } }])
       .mockResolvedValueOnce([{ pipeline_user: 21, _count: { id: 2 } }]);
-    const findMany = vi.fn().mockResolvedValue([
-      { is_converted: 1, created_at: new Date('2026-10-01T05:00:00Z'), converted_at: new Date('2026-10-05T05:00:00Z') },
-      { is_converted: 0, created_at: new Date('2026-10-03T05:00:00Z'), converted_at: null },
-    ]);
+    // count() is called per month as (leads, enrolments); October is the last pair.
+    const count = vi.fn().mockImplementation((args: { where: { AND: Array<Record<string, unknown>> } }) => {
+      const cond = args.where.AND[1] ?? {};
+      const oct = JSON.stringify(cond).includes('"gte":"2026-09-30T18:30:00.000Z"');
+      if (!oct) return Promise.resolve(0);
+      return Promise.resolve('is_converted' in cond ? 1 : 2);
+    });
+    const findMany = vi.fn();
     const prisma = {
       users: { findMany: vi.fn().mockResolvedValue(ASSOCIATES) },
-      applications: { groupBy, findMany },
+      applications: { groupBy, count, findMany },
     } as unknown as PrismaClient;
     const out = await new AssociateAdminService(prisma).dashboard(NOW);
     expect(out.kpis).toEqual({ total: 2, active: 1, leadsThisMonth: 2, enrolments: 2, enrolmentsThisMonth: 1 });
     expect(groupBy.mock.calls[0]?.[0]).toMatchObject({ where: { pipeline_user: { in: [21, 22] }, deleted_at: null } });
     expect(groupBy.mock.calls[1]?.[0]).toMatchObject({ where: { is_converted: 1 } });
+    // Aggregated in the database: 2 counts per month, no application rows loaded.
+    expect(count).toHaveBeenCalledTimes(12);
+    expect(findMany).not.toHaveBeenCalled();
+    expect((count.mock.calls[0]?.[0] as { where: { AND: unknown[] } }).where.AND[0]).toEqual({ pipeline_user: { in: [21, 22] }, deleted_at: null });
     expect(out.trend).toHaveLength(6);
+    expect(out.trend[5]).toEqual({ month: '2026-10', label: 'Oct 26', leads: 2, enrolments: 1 });
     expect(out.top.map((t) => t.id)).toEqual([21, 22]);
     expect(out.top[0]).toMatchObject({ conversion: 40, photo: 'https://lms.teachersindia.in/uploads/a.png' });
   });

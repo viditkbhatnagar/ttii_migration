@@ -1,3 +1,4 @@
+import type { BarSeriesOption, EChartsOption } from 'echarts';
 import { asArray, asBoolean, asNumber, asRecord, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
 import type { Tone } from '../../shared/components/ui-tones.js';
 import { formatYmd } from '../counsellor/staff-model.js';
@@ -43,6 +44,55 @@ export function toDashboard(raw: Record<string, unknown>): AssociateDashboardDat
       id: asString(p.id), name: asString(p.name), photo: asString(p.photo),
       applications: asNumber(p.applications), enrolled: asNumber(p.enrolled), conversion: asNumber(p.conversion),
     })),
+  };
+}
+
+/**
+ * ECharts option for "Leads vs Enrolments": grouped bars, Leads in the muted
+ * token and Enrolments in the brand `primary` token. `colors` are the theme
+ * tokens resolved to rgb (a canvas cannot read CSS variables); a missing one
+ * falls back to ECharts' default rather than a hard-coded colour.
+ */
+export function trendChartOption(
+  trend: DashboardTrendPoint[],
+  colors: Partial<Record<'primary' | 'muted-foreground' | 'border' | 'card' | 'foreground', string>>,
+): EChartsOption {
+  const muted = colors['muted-foreground'];
+  const border = colors.border;
+  const bar = (name: string, data: number[], color: string | undefined): BarSeriesOption => ({
+    type: 'bar',
+    name,
+    data,
+    barMaxWidth: 28,
+    ...(color ? { itemStyle: { color, borderRadius: [4, 4, 0, 0] } } : { itemStyle: { borderRadius: [4, 4, 0, 0] } }),
+  });
+  return {
+    grid: { left: 36, right: 12, top: 32, bottom: 28 },
+    legend: { top: 0, right: 0, itemWidth: 12, itemHeight: 8, ...(muted ? { textStyle: { color: muted, fontSize: 12 } } : {}) },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      ...(colors.card ? { backgroundColor: colors.card } : {}),
+      ...(border ? { borderColor: border } : {}),
+      ...(colors.foreground ? { textStyle: { color: colors.foreground, fontSize: 12 } } : {}),
+    },
+    xAxis: {
+      type: 'category',
+      data: trend.map((t) => t.label),
+      axisTick: { show: false },
+      ...(border ? { axisLine: { lineStyle: { color: border } } } : {}),
+      axisLabel: { fontSize: 12, ...(muted ? { color: muted } : {}) },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { fontSize: 12, ...(muted ? { color: muted } : {}) },
+      splitLine: { lineStyle: { type: 'dashed', ...(border ? { color: border } : {}) } },
+    },
+    series: [
+      bar('Leads', trend.map((t) => t.leads), muted),
+      bar('Enrolments', trend.map((t) => t.enrolments), colors.primary),
+    ],
   };
 }
 
@@ -301,10 +351,24 @@ export interface CommRow {
   createdAt: string;
 }
 
-export interface CommList { rows: CommRow[]; tableMissing: boolean; truncated: boolean }
+export interface CommList {
+  rows: CommRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  counts: Record<CommChannelTab, number>;
+  staff: Array<{ id: string; name: string }>;
+  tableMissing: boolean;
+}
 
 export function toCommList(raw: Record<string, unknown>): CommList {
+  const c = asRecord(raw.counts) ?? {};
   return {
+    total: asNumber(raw.total),
+    page: Math.max(1, asNumber(raw.page)),
+    pageSize: Math.max(1, asNumber(raw.pageSize)),
+    counts: { all: asNumber(c.all), Call: asNumber(c.Call), WhatsApp: asNumber(c.WhatsApp), Email: asNumber(c.Email), Note: asNumber(c.Note) },
+    staff: toRecords(raw.staff).map((s) => ({ id: asString(s.id), name: asString(s.name) })),
     rows: asArray(raw.rows).map((x) => asRecord(x) ?? {}).map((r) => ({
       id: asString(r.id),
       associateId: asString(r.associateId),
@@ -317,36 +381,25 @@ export function toCommList(raw: Record<string, unknown>): CommList {
       createdAt: asString(r.createdAt),
     })),
     tableMissing: asBoolean(raw.tableMissing),
-    truncated: asBoolean(raw.truncated),
   };
 }
 
-/** IST month (YYYY-MM) an ISO instant falls in. */
-export function istMonthOf(iso: string): string {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? '' : new Date(t + IST_OFFSET_MS).toISOString().slice(0, 7);
-}
+/** List filters; paging, search and filtering all run on the server. */
+export interface CommFilters { channel: CommChannelTab; search: string; associate: string; direction: string; staffId: string; month: string; page: number }
+export const EMPTY_COMM_FILTERS: CommFilters = { channel: 'all', search: '', associate: '', direction: '', staffId: '', month: '', page: 1 };
 
-export interface CommFilters { channel: CommChannelTab; search: string; associate: string; direction: string; staff: string; month: string }
-export const EMPTY_COMM_FILTERS: CommFilters = { channel: 'all', search: '', associate: '', direction: '', staff: '', month: '' };
-
-export function filterComms(rows: CommRow[], f: CommFilters): CommRow[] {
-  const q = f.search.trim().toLowerCase();
-  return rows.filter((r) =>
-    (f.channel === 'all' || r.channel === f.channel)
-    && (!f.associate || r.associateId === f.associate)
-    && (!f.direction || r.direction === f.direction)
-    && (!f.staff || r.createdByName === f.staff)
-    && (!f.month || istMonthOf(r.createdAt) === f.month)
-    && (!q || `${r.associateName} ${r.subject} ${r.message}`.toLowerCase().includes(q)));
-}
-
-export function commCounts(rows: CommRow[]): Record<CommChannelTab, number> {
-  const out: Record<CommChannelTab, number> = { all: rows.length, Call: 0, WhatsApp: 0, Email: 0, Note: 0 };
-  for (const r of rows) {
-    if ((COMM_CHANNELS as readonly string[]).includes(r.channel)) out[r.channel as CommChannelTab] += 1;
-  }
-  return out;
+/** Query parameters for /admin/associates/communications/list. */
+export function commQueryParams(f: CommFilters, extra: { all?: boolean } = {}): Record<string, string> {
+  return {
+    page: String(f.page),
+    ...(f.channel !== 'all' ? { channel: f.channel } : {}),
+    ...(f.search.trim() ? { q: f.search.trim() } : {}),
+    ...(f.associate ? { associate_id: f.associate } : {}),
+    ...(f.direction ? { direction: f.direction } : {}),
+    ...(f.staffId ? { created_by: f.staffId } : {}),
+    ...(f.month ? { month: f.month } : {}),
+    ...(extra.all ? { all: '1' } : {}),
+  };
 }
 
 export function commCsvRows(rows: CommRow[]): string[][] {

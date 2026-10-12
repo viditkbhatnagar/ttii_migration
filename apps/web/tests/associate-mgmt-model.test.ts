@@ -2,9 +2,9 @@ import { describe, expect, test } from 'vitest';
 
 import {
   EMPTY_COMM_DRAFT, EMPTY_COMM_FILTERS, EMPTY_ONBOARDING_FILTERS, EMPTY_STUDENT_QUERY,
-  commCounts, commCsvRows, commissionBasisCsvRows, feeStatus, filterComms, filterOnboarding, formatInr, istMonthOf,
+  commCsvRows, commQueryParams, commissionBasisCsvRows, feeStatus, filterOnboarding, formatInr,
   monthOptions, onboardingCounts, onboardingTabOf, rowHref, studentCsvRows, studentQueryParams, toCommList, toDashboard,
-  toOnboardingRows, toStudentPage, validateCommDraft,
+  toOnboardingRows, toStudentPage, trendChartOption, validateCommDraft,
 } from '../src/admin/pages/associates/associate-mgmt-model';
 
 // Admin → Associate Management (Naji's design): pure view logic.
@@ -19,6 +19,19 @@ describe('dashboard', () => {
     expect(d.kpis).toEqual({ total: 5, active: 3, leadsThisMonth: 4, enrolments: 2, enrolmentsThisMonth: 1 });
     expect(d.top[0]).toMatchObject({ id: '21', conversion: 40 });
     expect(toDashboard({}).trend).toEqual([]);
+  });
+
+  test('trend chart: grouped bars, Leads in the muted token, Enrolments in primary', () => {
+    const trend = [{ month: '2026-09', label: 'Sep 26', leads: 3, enrolments: 1 }, { month: '2026-10', label: 'Oct 26', leads: 4, enrolments: 2 }];
+    const option = trendChartOption(trend, { primary: 'rgb(143, 39, 116)', 'muted-foreground': 'rgb(100, 116, 139)', border: 'rgb(226, 232, 240)' });
+    const series = option.series as Array<{ type: string; name: string; data: number[]; itemStyle: { color?: string } }>;
+    expect(series.map((s) => [s.type, s.name, s.data])).toEqual([['bar', 'Leads', [3, 4]], ['bar', 'Enrolments', [1, 2]]]);
+    expect(series[0]?.itemStyle.color).toBe('rgb(100, 116, 139)');
+    expect(series[1]?.itemStyle.color).toBe('rgb(143, 39, 116)');
+    expect((option.xAxis as { data: string[] }).data).toEqual(['Sep 26', 'Oct 26']);
+    // Unresolved tokens leave ECharts' defaults instead of inventing colours.
+    const bare = trendChartOption(trend, {}).series as Array<{ itemStyle: { color?: string } }>;
+    expect(bare[1]?.itemStyle.color).toBeUndefined();
   });
 });
 
@@ -106,24 +119,28 @@ describe('communications', () => {
       { id: 2, associateId: 21, associateName: 'Asha', channel: 'Email', direction: 'Outgoing', subject: 'Docs', message: 'Sent the list', createdByName: 'Majida', createdAt: '2026-09-30T19:00:00.000Z' },
       { id: 1, associateId: 22, associateName: 'Binu', channel: 'Call', direction: 'Incoming', subject: 'Batch', message: 'Asked about PG', createdByName: 'Risha', createdAt: '2026-09-20T05:00:00.000Z' },
     ],
+    total: 12, page: 2, pageSize: 10,
+    counts: { all: 12, Call: 5, WhatsApp: 0, Email: 7, Note: 0 },
+    staff: [{ id: 5, name: 'Majida' }],
     tableMissing: false,
-    truncated: false,
   });
 
-  test('parses, counts per channel and filters', () => {
+  test('parses the server page: rows, total, channel counts and staff options', () => {
     expect(list.rows).toHaveLength(2);
-    expect(commCounts(list.rows)).toEqual({ all: 2, Call: 1, WhatsApp: 0, Email: 1, Note: 0 });
-    expect(filterComms(list.rows, { ...EMPTY_COMM_FILTERS, channel: 'Call' }).map((r) => r.id)).toEqual(['1']);
-    expect(filterComms(list.rows, { ...EMPTY_COMM_FILTERS, associate: '21' }).map((r) => r.id)).toEqual(['2']);
-    expect(filterComms(list.rows, { ...EMPTY_COMM_FILTERS, staff: 'Risha', direction: 'Incoming' }).map((r) => r.id)).toEqual(['1']);
-    // 30 Sep 19:00 UTC is 1 Oct in IST.
-    expect(istMonthOf('2026-09-30T19:00:00.000Z')).toBe('2026-10');
-    expect(filterComms(list.rows, { ...EMPTY_COMM_FILTERS, month: '2026-10' }).map((r) => r.id)).toEqual(['2']);
-    expect(filterComms(list.rows, { ...EMPTY_COMM_FILTERS, search: 'pg' }).map((r) => r.id)).toEqual(['1']);
+    expect(list.rows[0]).toMatchObject({ id: '2', associateId: '21', createdByName: 'Majida' });
+    expect(list).toMatchObject({ total: 12, page: 2, pageSize: 10, tableMissing: false });
+    expect(list.counts).toEqual({ all: 12, Call: 5, WhatsApp: 0, Email: 7, Note: 0 });
+    expect(list.staff).toEqual([{ id: '5', name: 'Majida' }]);
+  });
+
+  test('query params carry only what is set (filters run on the server)', () => {
+    expect(commQueryParams(EMPTY_COMM_FILTERS)).toEqual({ page: '1' });
+    expect(commQueryParams({ channel: 'Call', search: ' pg ', associate: '21', direction: 'Incoming', staffId: '5', month: '2026-10', page: 3 }, { all: true }))
+      .toEqual({ page: '3', channel: 'Call', q: 'pg', associate_id: '21', direction: 'Incoming', created_by: '5', month: '2026-10', all: '1' });
   });
 
   test('table-missing payload parses to an empty, flagged list', () => {
-    expect(toCommList({ rows: [], tableMissing: true })).toEqual({ rows: [], tableMissing: true, truncated: false });
+    expect(toCommList({ rows: [], total: 0, tableMissing: true })).toMatchObject({ rows: [], total: 0, tableMissing: true });
   });
 
   test('CSV has a header and IST timestamps', () => {

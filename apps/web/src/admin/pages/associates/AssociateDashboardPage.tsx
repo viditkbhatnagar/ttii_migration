@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { ArrowRight, GraduationCap, IndianRupee, ShieldCheck, Trophy, UserCheck, UserPlus, Users } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { EChart } from '@/components/EChart';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
@@ -8,7 +8,8 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { PageTitle } from '../../shared/components/ui-kit.js';
 import { AssocAvatar, LoadError, StatCard } from './associate-mgmt-ui.js';
-import { toDashboard } from './associate-mgmt-model.js';
+import { toDashboard, trendChartOption, type DashboardTrendPoint } from './associate-mgmt-model.js';
+import { useThemeColors } from './use-theme-colors.js';
 
 // Admin → Associate Management → Dashboard, after Naji's
 // AssociateDashboardModule (TTII 2026-10-12). Real data only:
@@ -48,19 +49,7 @@ export default function AssociateDashboardPage({ api, session, onNavigate }: Adm
         <Card className="gap-0 border-border/70 p-5 shadow-[var(--shadow-soft)] lg:col-span-2">
           <h2 className="mb-4 text-sm font-semibold text-foreground">Leads vs Enrolments (last 6 months)</h2>
           {hasTrend ? (
-            <div className="h-64" role="img" aria-label="Leads and enrolments per month for the last six months">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={d.trend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="label" fontSize={12} stroke="var(--muted-foreground)" />
-                  <YAxis fontSize={12} stroke="var(--muted-foreground)" allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="leads" name="Leads" fill="var(--muted-foreground)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="enrolments" name="Enrolments" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <TrendChart trend={d.trend} />
           ) : (
             <p className="py-16 text-center text-sm text-muted-foreground">No associate leads in the last 6 months.</p>
           )}
@@ -109,6 +98,19 @@ export default function AssociateDashboardPage({ api, session, onNavigate }: Adm
           onClick={() => onNavigate('/admin/associates/onboarding')}
         />
       </div>
+    </div>
+  );
+}
+
+/** Leads vs Enrolments on the shared ECharts wrapper, coloured from the theme tokens. */
+function TrendChart({ trend }: { trend: DashboardTrendPoint[] }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const colors = useThemeColors(ref);
+  const option = useMemo(() => trendChartOption(trend, colors), [trend, colors]);
+  const summary = trend.map((t) => `${t.label}: ${t.leads} leads, ${t.enrolments} enrolments`).join('; ');
+  return (
+    <div ref={ref}>
+      <EChart option={option} className="h-64 w-full" ariaLabel={`Leads and enrolments per month for the last six months. ${summary}`} />
     </div>
   );
 }

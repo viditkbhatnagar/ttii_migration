@@ -2074,8 +2074,9 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
-  async loadAssociateCommunications(authToken: string): Promise<{ message: string; data: Record<string, unknown> }> {
-    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/associates/communications/list', authToken);
+  /** One page (or, with `all: '1'`, every match up to the server cap) of the communications log. */
+  async loadAssociateCommunications(authToken: string, query: Record<string, string>): Promise<{ message: string; data: Record<string, unknown> }> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/associates/communications/list', authToken, query);
     return { message: asString(payload.message), data: asRecord(payload.data) ?? {} };
   }
 

@@ -2199,9 +2199,20 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.get('/admin/associates/communications/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+  app.get('/admin/associates/communications/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
-      const data = await associateCommunicationsService.list();
+      const payload = requestPayload(request);
+      const data = await associateCommunicationsService.list({
+        channel: toStringValue(payload.channel),
+        associateId: toInteger(payload.associate_id) || undefined,
+        direction: toStringValue(payload.direction),
+        createdBy: toInteger(payload.created_by) || undefined,
+        month: toStringValue(payload.month),
+        search: toStringValue(payload.q),
+        page: toInteger(payload.page) || 1,
+        pageSize: toInteger(payload.page_size) || undefined,
+        all: toStringValue(payload.all) === '1',
+      });
       reply.code(200).send({ status: 1, message: data.tableMissing ? COMM_TABLE_MISSING_MESSAGE : 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

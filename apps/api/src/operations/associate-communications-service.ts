@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
-import { ASSOCIATE_ROLE_ID, isoOrEmpty, toPositiveInt } from './associate-admin-model.js';
+import { ASSOCIATE_ROLE_ID, isoOrEmpty, istMonthWindow, toPositiveInt } from './associate-admin-model.js';
 
 // Admin → Associate Management → Communications (Naji's design, TTII
 // 2026-10-12). A MANUAL log: staff record a call / WhatsApp / email / note with
@@ -18,8 +18,10 @@ export type CommDirection = (typeof COMM_DIRECTIONS)[number];
 
 export const COMM_SUBJECT_MAX = 255;
 export const COMM_MESSAGE_MAX = 5000;
-/** The list returns at most this many entries, newest first. */
-export const COMM_LIST_LIMIT = 2000;
+/** List paging: default and maximum page size, and the export cap. */
+export const COMM_PAGE_SIZE = 10;
+export const COMM_PAGE_SIZE_MAX = 100;
+export const COMM_EXPORT_CAP = 5000;
 
 export const COMM_TABLE_MISSING_MESSAGE =
   'The communications log is not set up yet (the associate_communications table has not been created). Nothing has been logged.';
@@ -46,12 +48,51 @@ export interface CommunicationRow {
   createdAt: string;
 }
 
+export type CommChannelCounts = Record<'all' | CommChannel, number>;
+
 export interface CommunicationList {
   rows: CommunicationRow[];
+  /** Entries matching every filter (all pages). */
+  total: number;
+  page: number;
+  pageSize: number;
+  /** Per-channel counts under every filter except the channel. */
+  counts: CommChannelCounts;
+  /** Staff who have logged anything, for the "Logged by" filter. */
+  staff: Array<{ id: number; name: string }>;
   /** True when the table does not exist yet (migration not run). */
   tableMissing: boolean;
-  /** True when there were more than COMM_LIST_LIMIT entries. */
-  truncated: boolean;
+}
+
+export interface CommunicationQuery {
+  channel?: string | undefined;
+  associateId?: number | undefined;
+  direction?: string | undefined;
+  createdBy?: number | undefined;
+  /** YYYY-MM (IST) the entry was logged in. */
+  month?: string | undefined;
+  search?: string | undefined;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  /** Export: every matching entry (up to COMM_EXPORT_CAP), ignoring page. */
+  all?: boolean | undefined;
+}
+
+const emptyCounts = (): CommChannelCounts => ({ all: 0, Call: 0, WhatsApp: 0, Email: 0, Note: 0 });
+
+export function emptyCommunicationList(tableMissing: boolean, pageSize: number = COMM_PAGE_SIZE): CommunicationList {
+  return { rows: [], total: 0, page: 1, pageSize, counts: emptyCounts(), staff: [], tableMissing };
+}
+
+/** Per-channel counts from a groupBy on channel. */
+export function channelCounts(groups: Array<{ channel: string; _count?: { id?: number } | null }>): CommChannelCounts {
+  const out = emptyCounts();
+  for (const g of groups) {
+    const n = g._count?.id ?? 0;
+    out.all += n;
+    if ((COMM_CHANNELS as readonly string[]).includes(g.channel)) out[g.channel as CommChannel] += n;
+  }
+  return out;
 }
 
 export type ValidationResult = { ok: true; value: CommunicationInput } | { ok: false; errors: Record<string, string> };
@@ -96,27 +137,70 @@ export class CommunicationTableMissingError extends Error {
 export class AssociateCommunicationsService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
-  async list(): Promise<CommunicationList> {
-    let entries;
-    try {
-      entries = await this.prisma.associate_communications.findMany({
-        where: { deleted_at: null },
-        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-        take: COMM_LIST_LIMIT + 1,
+  /** One page of the log, newest first, filtered and counted in the database. */
+  async list(query: CommunicationQuery = {}): Promise<CommunicationList> {
+    const pageSize = Math.min(COMM_PAGE_SIZE_MAX, Math.max(1, query.pageSize ?? COMM_PAGE_SIZE));
+    const page = Math.max(1, query.page ?? 1);
+    const filters: Prisma.associate_communicationsWhereInput[] = [{ deleted_at: null }];
+    if (query.associateId) filters.push({ associate_id: query.associateId });
+    if (query.direction && (COMM_DIRECTIONS as readonly string[]).includes(query.direction)) filters.push({ direction: query.direction });
+    if (query.createdBy) filters.push({ created_by: query.createdBy });
+    const window = query.month ? istMonthWindow(query.month) : null;
+    if (window) filters.push({ created_at: { gte: window.gte, lt: window.lt } });
+    const q = (query.search ?? '').trim().slice(0, 100);
+    if (q) {
+      // Associate names live on users, so match them first (bounded).
+      const named = await this.prisma.users.findMany({
+        where: { role_id: ASSOCIATE_ROLE_ID, name: { contains: q } },
+        select: { id: true },
+        take: 500,
       });
+      filters.push({
+        OR: [
+          { subject: { contains: q } },
+          { message: { contains: q } },
+          ...(named.length > 0 ? [{ associate_id: { in: named.map((u) => u.id) } }] : []),
+        ],
+      });
+    }
+    const channel = query.channel && (COMM_CHANNELS as readonly string[]).includes(query.channel) ? query.channel : '';
+    const listed: Prisma.associate_communicationsWhereInput = { AND: channel ? [...filters, { channel }] : filters };
+
+    let entries;
+    let total;
+    let groups;
+    let staffGroups;
+    try {
+      [entries, total, groups, staffGroups] = await Promise.all([
+        this.prisma.associate_communications.findMany({
+          where: listed,
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          skip: query.all ? 0 : (page - 1) * pageSize,
+          take: query.all ? COMM_EXPORT_CAP : pageSize,
+        }),
+        this.prisma.associate_communications.count({ where: listed }),
+        this.prisma.associate_communications.groupBy({ by: ['channel'], where: { AND: filters }, _count: { id: true } }),
+        this.prisma.associate_communications.groupBy({ by: ['created_by'], where: { deleted_at: null }, _count: { id: true } }),
+      ]);
     } catch (error: unknown) {
-      if (isTableMissingError(error)) return { rows: [], tableMissing: true, truncated: false };
+      if (isTableMissingError(error)) return emptyCommunicationList(true, pageSize);
       throw error;
     }
-    const truncated = entries.length > COMM_LIST_LIMIT;
-    const kept = entries.slice(0, COMM_LIST_LIMIT);
-    const userIds = [...new Set(kept.flatMap((e) => [e.associate_id, e.created_by ?? 0]).filter((id) => id > 0))];
+    const staffIds = staffGroups.map((g) => g.created_by ?? 0).filter((id) => id > 0);
+    const userIds = [...new Set([...entries.flatMap((e) => [e.associate_id, e.created_by ?? 0]), ...staffIds].filter((id) => id > 0))];
     const users = userIds.length > 0
       ? await this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
       : [];
     const nameOf = new Map(users.map((u) => [u.id, (u.name ?? '').trim()]));
     return {
-      rows: kept.map((e) => ({
+      total,
+      page,
+      pageSize,
+      counts: channelCounts(groups),
+      staff: staffIds
+        .map((id) => ({ id, name: nameOf.get(id) || `User #${id}` }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      rows: entries.map((e) => ({
         id: e.id,
         associateId: e.associate_id,
         associateName: nameOf.get(e.associate_id) || `Associate #${e.associate_id}`,
@@ -129,7 +213,6 @@ export class AssociateCommunicationsService {
         createdAt: isoOrEmpty(e.created_at),
       })),
       tableMissing: false,
-      truncated,
     };
   }
 
