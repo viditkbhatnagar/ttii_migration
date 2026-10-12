@@ -1,395 +1,323 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Download } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { CalendarRange, Download, Eye, MoreHorizontal, Pencil, Search, Users } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
+import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
 import { startAdminCall } from '../../shared/call-actions.js';
-// Naji UAT 2026-05-16 — title-case name-like fields on blur.
-import { titleCaseOnBlur, titleCaseEachWord } from '@/lib/text-format';
+import { formatYmd } from '../exam_result/exam-results-model.js';
+import { EditStudentDialog } from './EditStudentDialog.js';
+import { FilterSelect, ListPager, PillTab, SortHead } from './list-chrome.js';
+import { serverResult } from './student-view/student-view-model.js';
+import {
+  EMPTY_STUDENT_FILTERS, FEE_STATUS_TONE, distinctValues, filterStudents, initialsOf, sortStudents,
+  statusTone, studentCsvRows, tabCounts, toStudentRows,
+  type RangeFilter, type StudentFilters, type StudentRow, type StudentSortKey, type StudentTab,
+} from './students-list-model.js';
+
+// Admin → Students, rebuilt after Naji's StudentsModule (TTII 2026-10-12):
+// status pills, a filter card (search / course / offering / status / joined
+// range, then gender / city / owner), a sortable, selectable, paged table and
+// CSV export of the selection or the filtered list. Every action of the old
+// page survives: View, quick Edit (name + phone), Call, Enable / Disable login
+// (confirm before disabling), and Course as a server-side filter. Gender, City,
+// Offering, Owner and Joined come from the read-only directory_extras call; if
+// it fails the list still works and those cells read "—".
+
+const PAGE_SIZE = 10;
+const TABS: Array<{ id: StudentTab; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'Active', label: 'Active' },
+  { id: 'Inactive', label: 'Inactive' },
+];
+const RANGES: Array<{ value: RangeFilter; label: string }> = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '90', label: 'Last 90 days' },
+  { value: 'all', label: 'All time' },
+];
+
+const dash = (v: string) => v || '—';
 
 export default function StudentsPage({ api, session, onNavigate }: AdminPageProps) {
-  /* ── Filter state ────────────────────────────────────────────────────────── */
-  const [courseFilter, setCourseFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
-
-  /* ── Dialog state (Edit only) ───────────────────────────────────────────── */
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Record<string, unknown> | null>(null);
-  const [dialogName, setDialogName] = useState('');
-  const [dialogPhone, setDialogPhone] = useState('');
-  const [dialogSubmitting, setDialogSubmitting] = useState(false);
-
-  /* ── Dropdown options ────────────────────────────────────────────────────── */
-  const [courseOptions, setCourseOptions] = useState<{ label: string; value: string }[]>([]);
+  const confirm = useConfirm();
+  const [courseId, setCourseId] = useState('');
+  const [filters, setFilters] = useState<StudentFilters>(EMPTY_STUDENT_FILTERS);
+  const [sortKey, setSortKey] = useState<StudentSortKey>('joined');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<StudentRow | null>(null);
+  const [courses, setCourses] = useState<Array<{ value: string; label: string }>>([]);
+  const [extras, setExtras] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
-    void api.loadCourses(session.token).then((courses) => {
-      setCourseOptions(
-        courses.map((c) => ({ label: asString(c.title) || asString(c.course_title) || asString(c.name) || 'Untitled', value: asString(c._id) || asString(c.id) })),
-      );
-    });
+    api.loadCourses(session.token)
+      .then((list) => setCourses(list.map((c) => ({
+        label: asString(c.title) || asString(c.course_title) || asString(c.name) || 'Untitled',
+        value: asString(c._id) || asString(c.id),
+      }))))
+      .catch(() => setCourses([]));
+    // Optional enrichment: the list must still work if this is refused.
+    api.loadStudentDirectoryExtras(session.token).then(setExtras).catch(() => setExtras([]));
   }, [api, session.token]);
 
-  /* ── Data loading ───────────────────────────────────────────────────────── */
   const { data, loading, error, reload } = useAdminPageData(
-    () =>
-      api.loadStudents(session.token, {
-        ...(courseFilter ? { courseId: courseFilter } : {}),
-      }),
-    [courseFilter],
+    () => api.loadStudents(session.token, courseId ? { courseId } : {}),
+    [courseId],
   );
 
-  const allStudents = useMemo(() => toRecords(data), [data]);
+  const rows = useMemo(() => toStudentRows(data ?? [], extras), [data, extras]);
+  const counts = useMemo(() => tabCounts(filterStudents(rows, { ...filters, tab: 'all' })), [rows, filters]);
+  const filtered = useMemo(() => sortStudents(filterStudents(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+  const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Naji UAT 2026-05-13 — Inactive status is driven by the universal
-  // disabled_at toggle, not the legacy users.status field. Graduated /
-  // Dropped tabs were removed from the Students page (they belong on
-  // Enrolments).
-  const isInactive = (row: Record<string, unknown>): boolean => Boolean(row.disabled_at);
+  const options = useMemo(() => ({
+    offering: distinctValues(rows, (r) => r.offering),
+    gender: distinctValues(rows, (r) => r.gender),
+    city: distinctValues(rows, (r) => r.city),
+    owner: distinctValues(rows, (r) => r.owner),
+  }), [rows]);
+  const asOptions = (list: string[]) => list.map((v) => ({ value: v, label: v }));
 
-  /* ── Client-side tab + status filtering ──────────────────────────────────── */
-  const filteredStudents = useMemo(() => {
-    let list = allStudents;
+  const set = (patch: Partial<StudentFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters(EMPTY_STUDENT_FILTERS); setCourseId(''); setPage(1); };
+  const onSort = (k: StudentSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+  const view = (id: string) => onNavigate(`/admin/students/view/${id}`);
 
-    if (statusFilter === 'Active') list = list.filter((r) => !isInactive(r));
-    else if (statusFilter === 'Inactive') list = list.filter(isInactive);
+  const allOnPage = current.length > 0 && current.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((r) => next.delete(r.id));
+    else current.forEach((r) => next.add(r.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
 
-    if (activeTab === 'Active') list = list.filter((r) => !isInactive(r));
-    else if (activeTab === 'Inactive') list = list.filter(isInactive);
-
-    return list;
-  }, [allStudents, statusFilter, activeTab]);
-
-  /* ── Tabs ────────────────────────────────────────────────────────────────── */
-  const tabs: AdminTab[] = useMemo(
-    () => [
-      { id: 'all', label: 'All', count: allStudents.length },
-      { id: 'Active', label: 'Active', count: allStudents.filter((r) => !isInactive(r)).length },
-      { id: 'Inactive', label: 'Inactive', count: allStudents.filter(isInactive).length },
-    ],
-    [allStudents],
-  );
-
-  /* ── Filters (Course + Status only) ─────────────────────────────────────── */
-  const filters: FilterField[] = useMemo(
-    () => [
-      {
-        key: 'course',
-        label: 'Course',
-        type: 'select' as const,
-        value: courseFilter,
-        placeholder: 'All Courses',
-        options: courseOptions,
-        onChange: setCourseFilter,
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        type: 'select' as const,
-        value: statusFilter,
-        placeholder: 'All Statuses',
-        options: [
-          { label: 'Active', value: 'Active' },
-          { label: 'Inactive', value: 'Inactive' },
-        ],
-        onChange: setStatusFilter,
-      },
-    ],
-    [courseFilter, statusFilter, courseOptions],
-  );
-
-  const handleClearFilters = () => {
-    setCourseFilter('');
-    setStatusFilter('');
+  const exportCsv = () => {
+    const picked = selected.size > 0 ? filtered.filter((r) => selected.has(r.id)) : filtered;
+    downloadCsv('students_export.csv', toCsv(studentCsvRows(picked, formatYmd)));
   };
 
-  /* ── Dialog helpers (Edit only) ─────────────────────────────────────────── */
-  const openEditDialog = useCallback((student: Record<string, unknown>) => {
-    setSelectedStudent(student);
-    setDialogName(asString(student.name) || asString(student.student_name) || '');
-    setDialogPhone(asString(student.phone) || '');
-    setDialogSubmitting(false);
-    setEditDialogOpen(true);
-  }, []);
-
-  const closeDialog = () => {
-    setEditDialogOpen(false);
-    setSelectedStudent(null);
-  };
-
-  const handleEditSubmit = async () => {
-    if (!selectedStudent) return;
-    const studentId = asString(selectedStudent._id) || asString(selectedStudent.id);
-    if (!studentId) return;
-
-    setDialogSubmitting(true);
+  const toggleLogin = useCallback(async (row: StudentRow) => {
+    if (!row.id) return;
+    const name = row.name || 'this student';
+    if (!row.isInactive && !(await confirm({
+      title: `Disable ${name}?`,
+      description: 'They will be blocked from logging in until you re-enable them.',
+      confirmText: 'Disable',
+      variant: 'destructive',
+    }))) return;
     try {
-      await api.editStudentInfo(session.token, studentId, dialogName, dialogPhone);
-      closeDialog();
+      const res = await api.toggleUserStatus(session.token, row.id, row.isInactive);
+      const { ok, message } = serverResult(res, row.isInactive ? 'Student enabled.' : 'Student disabled.', 'Toggle failed');
+      if (!ok) { toast.error(message); return; }
+      toast.success(row.isInactive ? 'Student enabled.' : 'Student disabled.');
       reload();
-    } catch {
-      toast.error('Operation failed. Please try again.');
-    } finally {
-      setDialogSubmitting(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Toggle failed');
     }
-  };
+  }, [api, session.token, confirm, reload]);
 
-  /* ── Table columns ───────────────────────────────────────────────────────── */
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      {
-        key: 'student_id',
-        label: 'Student ID',
-        sortable: true,
-        render: (value: unknown, row: Record<string, unknown>) => asString(value) || asString(row.unique_student_id) || '-',
-      },
-      {
-        key: 'image',
-        label: 'Profile',
-        render: (value: unknown) => {
-          const src = asString(value);
-          return src ? (
-            <img loading="lazy" decoding="async" src={src} alt="" className="size-8 rounded-full object-cover" />
-          ) : (
-            <div className="flex size-8 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500">—</div>
-          );
-        },
-      },
-      {
-        key: 'name',
-        label: 'Name',
-        sortable: true,
-        render: (_value: unknown, row: Record<string, unknown>) => {
-          // Naji 2026-07-09 — legacy names are stored ALL-CAPS; always show Title Case.
-          const rawName = asString(row.name) || asString(row.student_name);
-          const name = rawName ? titleCaseEachWord(rawName) : 'N/A';
-          const id = asString(row._id) || asString(row.id);
-          return (
-            <span
-              className="cursor-pointer text-blue-600 hover:underline"
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); onNavigate(`/admin/students/view/${id}`); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') onNavigate(`/admin/students/view/${id}`); }}
-            >
-              {name}
-            </span>
-          );
-        },
-      },
-      { key: 'phone', label: 'Phone', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
-      {
-        key: 'user_email',
-        label: 'E-mail',
-        sortable: true,
-        // Naji 2026-05-12 — legacy `users.email` column was repurposed to
-        // store phone-with-country-code in the old PHP LMS. Actual email
-        // lives in `user_email`. Render that with `email` as a last-resort
-        // fallback only if it looks like an email (contains @).
-        render: (_value, row) => {
-          const userEmail = asString(row.user_email);
-          if (userEmail) return userEmail;
-          const legacyEmail = asString(row.email);
-          return legacyEmail.includes('@') ? legacyEmail : 'N/A';
-        },
-      },
-      { key: 'course_title', label: 'Courses', sortable: true, render: (value: unknown) => asString(value) || 'N/A' },
-      {
-        key: 'enrollment_count',
-        label: 'Enrollments',
-        sortable: true,
-        render: (value: unknown, row: Record<string, unknown>) => {
-          // Real count from the backend (`enrolment_count`); no fake `|| 1`.
-          const n = Number(row.enrolment_count ?? row.enrollment_count ?? value);
-          return <span>{Number.isFinite(n) ? n : 0}</span>;
-        },
-      },
-      {
-        key: 'status_label',
-        label: 'Status',
-        sortable: true,
-        render: (value: unknown, row: Record<string, unknown>) => {
-          // disabled_at takes precedence over status_label so a disabled
-          // student always reads as Inactive in the badge + the Inactive
-          // tab. Naji UAT 2026-05-13.
-          if (row.disabled_at) return <AdminStatusBadge status="Inactive" />;
-          const status = asString(value) || 'Active';
-          return <AdminStatusBadge status={status} />;
-        },
-      },
-    ],
-    [onNavigate],
-  );
-
-  const confirm = useConfirm();
-  const handleToggleStatus = useCallback(
-    async (row: Record<string, unknown>) => {
-      const id = asString(row._id) || asString(row.id);
-      if (!id) return;
-      const isDisabled = !!row.disabled_at;
-      const name = asString(row.name) || 'this student';
-      if (!isDisabled && !(await confirm({
-        title: `Disable ${name}?`,
-        description: 'They will be blocked from logging in until you re-enable them.',
-        confirmText: 'Disable',
-        variant: 'destructive',
-      }))) return;
-      try {
-        await api.toggleUserStatus(session.token, id, isDisabled);
-        toast.success(isDisabled ? 'Student enabled.' : 'Student disabled.');
-        reload();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Toggle failed');
-      }
-    },
-    [api, session.token, confirm, reload],
-  );
-
-  /* ── Actions (View + Edit + Enable/Disable) ─────────────────────────────── */
-  const actions: DataTableAction[] = useMemo(
-    () => [
-      {
-        label: 'View',
-        onClick: (row) => {
-          const id = asString(row._id) || asString(row.id);
-          onNavigate(`/admin/students/view/${id}`);
-        },
-      },
-      {
-        label: 'Edit',
-        onClick: (row) => openEditDialog(row),
-      },
-      {
-        label: 'Call',
-        onClick: (row) => {
-          void startAdminCall(api, session.token, asString(row.phone));
-        },
-      },
-      {
-        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
-        onClick: (row) => { void handleToggleStatus(row); },
-      },
-    ],
-    [onNavigate, openEditDialog, handleToggleStatus],
-  );
-
-  /* ── Export handler ──────────────────────────────────────────────────────── */
-  const handleExport = () => {
-    const headers = ['Student Name', 'Phone', 'Email', 'Course', 'Status'];
-    const csvRows = filteredStudents.map((row) => [
-      titleCaseEachWord(asString(row.name) || asString(row.student_name)),
-      asString(row.phone) || '',
-      asString(row.email) || '',
-      asString(row.course_title) || '',
-      asString(row.status_label) || '',
-    ]);
-    const csv = [headers, ...csvRows].map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'students_export.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  /* ── Loading state ───────────────────────────────────────────────────────── */
-  if (loading) {
-    return <PageLoader label="Loading students..." />;
-  }
-
+  if (loading) return <PageLoader label="Loading students..." />;
   if (error) {
     return (
       <Card>
         <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
   }
 
-  /* ── Render ──────────────────────────────────────────────────────────────── */
   return (
-    <div>
-      <AdminPageHeader title="Students">
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
-          <Download className="size-4" aria-hidden="true" />
-          Export
-        </Button>
-      </AdminPageHeader>
-
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={handleClearFilters}
+    <div className="space-y-6">
+      <PageTitle
+        title="Students"
+        subtitle={`${filtered.length} of ${rows.length} students`}
+        actions={(
+          <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={exportCsv}>
+            <Download aria-hidden="true" className="size-4" /> Export{selected.size ? ` (${selected.size})` : ''}
+          </Button>
+        )}
       />
 
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <div role="group" aria-label="Student status" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
+        ))}
+      </div>
 
-      <AdminDataTable
-        columns={columns}
-        rows={filteredStudents}
-        actions={actions}
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_200px_200px_150px_160px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search students" placeholder="Search by name, ID, email or phone…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+          <FilterSelect label="Course" value={courseId} onChange={(v) => { setCourseId(v); setPage(1); }} allLabel="All Courses" options={courses} />
+          <FilterSelect label="Offering" value={filters.offering} onChange={(v) => set({ offering: v })} allLabel="All Offerings" options={asOptions(options.offering)} />
+          <FilterSelect
+            label="Status"
+            value={filters.tab === 'all' ? '' : filters.tab}
+            onChange={(v) => set({ tab: (v || 'all') as StudentTab })}
+            allLabel="All Status"
+            options={[{ value: 'Active', label: 'Active' }, { value: 'Inactive', label: 'Inactive' }]}
+          />
+          <div className="relative">
+            <CalendarRange aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <select aria-label="Joined" value={filters.range} onChange={(e) => set({ range: e.target.value as RangeFilter })} className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm">
+              {RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[150px_180px_200px_1fr]">
+          <FilterSelect label="Gender" value={filters.gender} onChange={(v) => set({ gender: v })} allLabel="All Genders" options={asOptions(options.gender)} />
+          <FilterSelect label="City" value={filters.city} onChange={(v) => set({ city: v })} allLabel="All Cities" options={asOptions(options.city)} />
+          <FilterSelect label="Owner" value={filters.owner} onChange={(v) => set({ owner: v })} allLabel="All Owners" options={asOptions(options.owner)} />
+          <div className="flex items-center justify-end">
+            <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={rows.length === 0 ? 'No students yet.' : 'No students match your filters.'}
+            {...(rows.length === 0
+              ? { body: 'Students appear here once a lead is converted to an enrolment.' }
+              : { action: <Button variant="outline" size="sm" onClick={reset}>Reset filters</Button> })}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-10">
+                    <Checkbox aria-label="Select all on this page" checked={allOnPage} onCheckedChange={toggleAll} />
+                  </TableHead>
+                  <TableHead className="w-10 text-xs">#</TableHead>
+                  <SortHead label="Student ID" k="studentId" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Student" k="name" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Course" k="course" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Offering" k="offering" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="City" k="city" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Gender" k="gender" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Contact" k="phone" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Owner" k="owner" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Joined" k="joined" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Fee" k="feeStatus" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Status" k="status" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <TableHead className="text-right text-xs">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {current.map((r, i) => (
+                  <TableRow key={r.id} className="hover:bg-muted/30" data-state={selected.has(r.id) ? 'selected' : undefined}>
+                    <TableCell>
+                      <Checkbox aria-label={`Select ${r.name}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggleOne(r.id, v === true)} />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{String((page - 1) * PAGE_SIZE + i + 1).padStart(2, '0')}</TableCell>
+                    <TableCell className="whitespace-nowrap font-mono text-xs font-medium text-primary">{dash(r.studentId)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="size-8 shrink-0">
+                          {r.photo ? <AvatarImage src={r.photo} alt="" loading="lazy" /> : null}
+                          <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(r.name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <button type="button" className="block max-w-[220px] truncate text-left text-sm font-medium leading-tight hover:text-primary hover:underline" onClick={() => view(r.id)}>
+                            {r.name || 'N/A'}
+                          </button>
+                          <p className="max-w-[220px] truncate text-[11px] text-muted-foreground">{r.email || 'No email'}</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[200px] text-sm font-medium">
+                      <span className="line-clamp-2">{r.course || 'N/A'}</span>
+                      {r.enrolments > 1 ? <span className="text-[11px] font-normal text-muted-foreground">{r.enrolments} enrolments</span> : null}
+                    </TableCell>
+                    <TableCell className="max-w-[180px] truncate text-sm text-muted-foreground" title={r.offering}>{dash(r.offering)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{dash(r.city)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{dash(r.gender)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <p className="text-xs font-medium">{r.phone || 'N/A'}</p>
+                      <p className="max-w-[180px] truncate text-[11px] text-muted-foreground">{r.email}</p>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{dash(r.owner)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.joined) || '—'}</TableCell>
+                    <TableCell>{r.feeStatus ? <Pill tone={FEE_STATUS_TONE[r.feeStatus] ?? 'slate'}>{r.feeStatus}</Pill> : '—'}</TableCell>
+                    <TableCell><Pill tone={statusTone(r.statusLabel)}>{r.statusLabel}</Pill></TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="size-8" title="View" aria-label={`View ${r.name}`} onClick={() => view(r.id)}>
+                          <Eye aria-hidden="true" className="size-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8" title="Edit" aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>
+                          <Pencil aria-hidden="true" className="size-4" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="ghost" className="size-8" title="More" aria-label={`More actions for ${r.name}`}>
+                              <MoreHorizontal aria-hidden="true" className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => { void startAdminCall(api, session.token, r.phone); }}>Call</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onNavigate(`/admin/students/edit/${r.id}`)}>Edit full profile</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className={cn(!r.isInactive && 'text-destructive focus:text-destructive')}
+                              onClick={() => { void toggleLogin(r); }}
+                            >
+                              {r.isInactive ? 'Enable' : 'Disable'}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <ListPager page={page} pages={pages} shown={current.length} total={filtered.length} noun="students" onPage={setPage} />
+      </Card>
+
+      <EditStudentDialog
+        student={editing}
+        api={api}
+        token={session.token}
+        onClose={() => setEditing(null)}
+        onSaved={reload}
+        onOpenFullEdit={(id) => onNavigate(`/admin/students/edit/${id}`)}
       />
-
-      {/* ── Edit Student Dialog ──────────────────────────────────────────── */}
-      <Dialog open={editDialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleEditSubmit();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Edit Student</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <Label className="mb-1 text-sm">Name</Label>
-                <Input
-                  value={dialogName}
-                  onChange={(e) => setDialogName(e.target.value)}
-                  onBlur={titleCaseOnBlur(setDialogName)}
-                  placeholder="Student name"
-                />
-              </div>
-              <div>
-                <Label className="mb-1 text-sm">Phone</Label>
-                <Input
-                  value={dialogPhone}
-                  onChange={(e) => setDialogPhone(e.target.value)}
-                  placeholder="Phone number"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
-              <Button
-                type="submit"
-                className="bg-ttii-primary hover:bg-ttii-primary/90"
-                disabled={dialogSubmitting}
-              >
-                {dialogSubmitting ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

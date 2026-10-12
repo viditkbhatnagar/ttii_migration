@@ -13,6 +13,7 @@ import { ExamDashboardService } from '../operations/exam-dashboard-service.js';
 import { QuestionBankService, toIdList, type QuestionKindFilter } from '../operations/question-bank-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ExamSubmissionsService } from '../operations/exam-submissions-service.js';
+import { StudentDirectoryService } from '../operations/student-directory-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -61,6 +62,7 @@ interface RegisterOperationsRoutesOptions {
   questionBankService?: QuestionBankService;
   reExamService?: ReExamService;
   adminSearchService?: AdminSearchService;
+  studentDirectoryService?: StudentDirectoryService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -408,6 +410,7 @@ export function registerOperationsRoutes(
   const questionBankService = options.questionBankService ?? new QuestionBankService();
   const reExamService = options.reExamService ?? new ReExamService();
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
+  const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2107,6 +2110,16 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const courseId = toInteger(payload.course_id);
       const data = await examAdminService.list(courseId > 0 ? { courseId } : {});
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — Admin → Students in Naji's design: per-student Gender /
+  // City / Offering / Owner / Joined that /admin/students/index does not return
+  // (read-only; operations/student-directory-service.ts).
+  app.get('/admin/students/directory_extras', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await studentDirectoryService.extras();
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
