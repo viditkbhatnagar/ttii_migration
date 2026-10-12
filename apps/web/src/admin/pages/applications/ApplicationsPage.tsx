@@ -1,520 +1,363 @@
-import { useState, useMemo, useEffect } from 'react';
-import { toast } from 'sonner';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Eye, FileText, Inbox, Pencil, Plus, Search,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { downloadCsv, toCsv } from '@/lib/csv';
+import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, formatDate } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle } from '../../shared/components/ui-kit.js';
+import { StageBadge } from './StageBadge.js';
+import {
+  EMPTY_LIST_FILTERS,
+  STAGE_TABS,
+  exportTable,
+  filterApplications,
+  initials,
+  presetFromDate,
+  sortApplications,
+  stageCounts,
+  toApplicationRows,
+  type ApplicationFilters,
+  type ApplicationRow,
+  type ApplicationSortKey,
+  type DateRange,
+} from './application-list-model.js';
 
-// Lead → Enrolment workflow stage labels (Naji 2026-05-05).
-// Naji 2026-05-07: 'Enrolled' tab removed (once enrolled, the row moves
-// to the Students module so it doesn't belong here any more); 'All' moved
-// to the end so the funnel reads left-to-right in pipeline order.
-const STAGE_TABS: Array<{ id: string; label: string }> = [
-  { id: 'lead', label: 'Lead' },
-  { id: 'payment_pending', label: 'Payment Pending' },
-  { id: 'paid', label: 'Paid' },
-  { id: 'form_pending', label: 'Form Pending' },
-  { id: 'approval_waiting', label: 'Approval Waiting' },
-  { id: 'rejected', label: 'Rejected' },
-  { id: 'all', label: 'All' },
+// Learner Management → Applications (TTII 2026-10-12), rebuilt after Naji's
+// ApplicationsModule: stage pills with counts, a filter card, a sortable paged
+// table with row selection, and CSV export of the selection or the filtered list.
+//
+// One source of truth: rows AND pill counts both come from
+// /admin/applications/index (listAdminApplications), with the stage applied
+// client-side. The old page showed listLeads rows on a stage tab while counting
+// from this endpoint, so a stage tab ignored the date / pipeline / status
+// filters and its count could disagree with its table. The Pipeline User filter
+// was never sent to the server at all; it now filters the rows by owner.
+
+const PAGE_SIZE = 10;
+const SELECT_CLASS = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+const PIPELINE_OPTIONS = [
+  { label: 'Senders', value: 'senders' },
+  { label: 'Counsellors', value: '9' },
+  { label: 'Student Referral', value: 'student_referral' },
+  { label: 'Associates', value: '10' },
+];
+const STATUS_OPTIONS = [
+  { label: 'Pending', value: 'pending' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Rejected', value: 'rejected' },
 ];
 
-// 'form_submitted' no longer gets its own tab — the counsellor-approve step was
-// removed (Naji 2026-05-31), so applications now go straight to Approval Waiting.
-// Keep the label so any legacy application still parked at that stage renders
-// cleanly in the Stage column instead of showing the raw id.
-const STAGE_LABEL: Record<string, string> = {
-  ...Object.fromEntries(STAGE_TABS.filter((t) => t.id !== 'all').map((t) => [t.id, t.label])),
-  form_submitted: 'Form Submitted',
-};
+interface ServerFilters { range: DateRange; fromDate: string; toDate: string; courseId: string; pipelineRoleId: string; status: string }
+const EMPTY_SERVER: ServerFilters = { range: 'all', fromDate: '', toDate: '', courseId: '', pipelineRoleId: '', status: '' };
+
+function PillTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+        active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground',
+      )}
+    >
+      {label}
+      <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', active ? 'bg-white/20' : 'bg-muted text-muted-foreground')}>{count}</span>
+    </button>
+  );
+}
+
+function SortHead({
+  label, k, sortKey, dir, onSort,
+}: { label: string; k: ApplicationSortKey; sortKey: ApplicationSortKey; dir: 'asc' | 'desc'; onSort: (k: ApplicationSortKey) => void }) {
+  const active = sortKey === k;
+  const Icon = !active ? ArrowUpDown : dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <TableHead aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => onSort(k)} className={cn('inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium hover:text-foreground', active ? 'text-foreground' : 'text-muted-foreground')}>
+        {label} <Icon aria-hidden="true" className="size-3" />
+      </button>
+    </TableHead>
+  );
+}
+
+function ApplicationTableRow({
+  row, index, selected, showStage, onSelect, onView, onEdit,
+}: {
+  row: ApplicationRow; index: number; selected: boolean; showStage: boolean;
+  onSelect: (v: boolean) => void; onView: () => void; onEdit: () => void;
+}) {
+  return (
+    <TableRow className="group cursor-pointer hover:bg-muted/30" onClick={onView}>
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={selected} onCheckedChange={(v) => onSelect(v === true)} aria-label={`Select ${row.name || row.applicationId}`} />
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">{String(index).padStart(2, '0')}</TableCell>
+      <TableCell>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="whitespace-nowrap font-mono text-xs font-medium text-primary hover:underline">
+          {row.applicationId || '—'}
+        </button>
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{row.dateLabel || '—'}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {row.image ? <img src={row.image} alt="" className="size-full object-cover" loading="lazy" /> : initials(row.name)}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium leading-tight">{row.name || '—'}</p>
+            {row.location ? <p className="text-[11px] text-muted-foreground">{row.location}</p> : null}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="text-sm font-medium">{row.course || '—'}</TableCell>
+      <TableCell className="text-sm text-muted-foreground">{row.offering || '—'}</TableCell>
+      <TableCell className="text-sm text-muted-foreground">{row.combination || '—'}</TableCell>
+      <TableCell>
+        <p className="whitespace-nowrap text-xs font-medium">{row.phone || '—'}</p>
+        <p className="text-[11px] text-muted-foreground">{row.email}</p>
+      </TableCell>
+      <TableCell className="text-sm">{row.pipeline || '—'}</TableCell>
+      <TableCell className="text-sm text-muted-foreground">{row.owner || '—'}</TableCell>
+      {showStage ? <TableCell><StageBadge stage={row.stage} /></TableCell> : null}
+      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+        <div className="inline-flex items-center gap-1">
+          <Button size="icon" variant="ghost" className="size-8" title="View" aria-label={`View ${row.name || row.applicationId}`} onClick={onView}>
+            <Eye aria-hidden="true" className="size-4" />
+          </Button>
+          <Button size="icon" variant="ghost" className="size-8" title="Edit" aria-label={`Edit ${row.name || row.applicationId}`} onClick={onEdit}>
+            <Pencil aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
 
 export default function ApplicationsPage({ api, session, onNavigate }: AdminPageProps) {
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [courseId, setCourseId] = useState('');
-  const [pipelineRoleId, setPipelineRoleId] = useState('');
-  const [pipelineUserId, setPipelineUserId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  // Default to 'lead' — first non-empty stage and the natural starting point.
-  const [activeTab, setActiveTab] = useState('lead');
-  const [search, _setSearch] = useState('');
-  void _setSearch;
+  const [server, setServer] = useState<ServerFilters>(EMPTY_SERVER);
+  // Default to 'lead' — the first stage and the natural starting point.
+  const [filters, setFilters] = useState<ApplicationFilters>(EMPTY_LIST_FILTERS);
+  const [sortKey, setSortKey] = useState<ApplicationSortKey>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Payment-link dialog state. Replaces the old chained window.prompt
-  // flow with a proper modal — Naji 2026-05-05.
-  const [payDialog, setPayDialog] = useState<{
-    open: boolean;
-    rowId: string;
-    studentName: string;
-    mode: 'full' | 'installment';
-    totalRupees: string;
-    regRupees: string;
-    installments: string;
-    expiresInDays: string;
-  }>({
-    open: false, rowId: '', studentName: '', mode: 'full',
-    totalRupees: '', regRupees: '', installments: '3', expiresInDays: '7',
-  });
-  const [paySubmitting, setPaySubmitting] = useState(false);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _openPayDialog = (row: Record<string, unknown>) => {
-    setPayDialog({
-      open: true,
-      rowId: asString(row.id),
-      studentName: asString(row.name) || asString(row.user_email) || 'this lead',
-      mode: 'full',
-      totalRupees: '',
-      regRupees: '',
-      installments: '3',
-      expiresInDays: '7',
-    });
-  };
-
-  const submitPayDialog = async () => {
-    const totalRupees = Number(payDialog.totalRupees);
-    if (!Number.isFinite(totalRupees) || totalRupees <= 0) {
-      toast.error('Enter a valid total fee.');
-      return;
-    }
-    const total_amount_minor = Math.round(totalRupees * 100);
-    let registration_fee_minor: number | undefined;
-    const installments: Array<{ label: string; amount_minor: number; due_date: string }> = [];
-    if (payDialog.mode === 'installment') {
-      const regRupees = Number(payDialog.regRupees);
-      if (!Number.isFinite(regRupees) || regRupees <= 0) {
-        toast.error('Enter a valid registration fee.');
-        return;
-      }
-      registration_fee_minor = Math.round(regRupees * 100);
-      const n = Math.max(1, Math.min(12, Number(payDialog.installments) || 3));
-      const remainingRupees = totalRupees - regRupees;
-      if (remainingRupees > 0) {
-        const per = Math.floor(remainingRupees / n);
-        const today = new Date();
-        for (let i = 1; i <= n; i++) {
-          const due = new Date(today.getTime());
-          due.setMonth(due.getMonth() + i);
-          installments.push({
-            label: `Installment ${i} of ${n}`,
-            amount_minor: per * 100,
-            due_date: due.toISOString().slice(0, 10),
-          });
-        }
-      }
-    }
-    setPaySubmitting(true);
-    try {
-      const res = await api.generatePaymentLink(session.token, {
-        id: payDialog.rowId,
-        mode: payDialog.mode,
-        total_amount_minor,
-        ...(registration_fee_minor !== undefined ? { registration_fee_minor } : {}),
-        installments,
-        expires_in_days: Number(payDialog.expiresInDays) || 7,
-      });
-      const m = asString((res as { message?: unknown }).message) || '';
-      if ((res as { status?: number }).status === 1) {
-        toast.success(m || 'Payment link sent.');
-        setPayDialog((p) => ({ ...p, open: false }));
-      } else {
-        toast.error(m || 'Could not generate link.');
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed.');
-    } finally {
-      setPaySubmitting(false);
-    }
-  };
-
-  // Pull leads from the new pipeline endpoint AND the legacy endpoint;
-  // the legacy one still drives the existing filters / counts. Lead
-  // capture (Phase B) writes via /admin/leads/add but rows live in the
-  // same `applications` table, so the legacy /admin/applications/list
-  // already returns them — we only need the new endpoint when we want
-  // stage-scoped counts in the tabs.
-  const { data: leadsData, loading: leadsLoading } = useAdminPageData(
-    () =>
-      api.listLeads(session.token, {
-        ...(activeTab !== 'all' ? { stage: activeTab } : {}),
-        ...(courseId ? { course_id: courseId } : {}),
-        ...(search ? { search } : {}),
-      }),
-    [activeTab, courseId, search],
+  const fromDate = server.range === 'custom' ? server.fromDate : presetFromDate(server.range, new Date());
+  const toDate = server.range === 'custom' ? server.toDate : '';
+  const { data, loading, error, reload } = useAdminPageData(
+    () => api.loadApplications(session.token, {
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+      ...(server.courseId ? { courseId: server.courseId } : {}),
+      ...(server.pipelineRoleId ? { pipelineRoleId: server.pipelineRoleId } : {}),
+      ...(server.status ? { status: server.status } : {}),
+    }),
+    [fromDate, toDate, server.courseId, server.pipelineRoleId, server.status],
   );
+  const { data: pipelineUsersData } = useAdminPageData(() => api.loadPipelineUsers(session.token, 9), []);
 
-  const { data, loading, error } = useAdminPageData(
-    () =>
-      api.loadApplications(session.token, {
-        ...(fromDate ? { fromDate } : {}),
-        ...(toDate ? { toDate } : {}),
-        ...(courseId ? { courseId } : {}),
-        ...(pipelineRoleId ? { pipelineRoleId } : {}),
-        ...(pipelineUserId ? { pipelineUserId } : {}),
-        ...(statusFilter ? { status: statusFilter } : {}),
-      }),
-    [fromDate, toDate, courseId, pipelineRoleId, pipelineUserId, statusFilter],
-  );
-  void leadsLoading;
-  // Dev hint: when leadsData is non-empty we use it; falls back to
-  // the legacy applications payload during the migration window.
-  useEffect(() => { /* placeholder for eventual websocket refresh */ }, [leadsData]);
-
-  // Load pipeline users for filter dropdown
-  const { data: pipelineUsersData } = useAdminPageData(
-    () => api.loadPipelineUsers(session.token, 9),
-    [],
-  );
-  const pipelineUserOptions = useMemo(
-    () => (Array.isArray(pipelineUsersData) ? pipelineUsersData : []).map((u) => ({ label: asString(u.name), value: asString(u.id) })),
+  const rows = useMemo(() => toApplicationRows(data?.items ?? []), [data]);
+  const courses = useMemo(() => (data?.courses ?? []).filter((c) => c.id && c.title), [data]);
+  const offerings = useMemo(() => [...new Set(rows.map((r) => r.offering).filter(Boolean))].sort(), [rows]);
+  const pipelineUsers = useMemo(
+    () => (Array.isArray(pipelineUsersData) ? pipelineUsersData : []).map((u) => ({ id: asString(u.id), name: asString(u.name) })).filter((u) => u.id),
     [pipelineUsersData],
   );
+  const counts = useMemo(() => stageCounts(filterApplications(rows, { ...filters, stage: 'all' })), [rows, filters]);
+  const filtered = useMemo(() => sortApplications(filterApplications(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+  const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const showStage = filters.stage === 'all';
 
-  const items = useMemo(() => (data ? data.items : []), [data]);
-  const courseOptions = useMemo(() => (data?.courses ?? []).map(c => ({ label: c.title, value: c.id })), [data]);
-
-  // Prefer the new pipeline payload when the user picks a stage tab;
-  // fall back to the legacy items list when on the All tab so we still
-  // surface anything the legacy filters (date / pipeline user) returned.
-  const leadsItems = useMemo(() => (Array.isArray(leadsData) ? leadsData : []), [leadsData]);
-  const displayedItems = useMemo(() => {
-    if (activeTab === 'all') return items;
-    return leadsItems;
-  }, [items, leadsItems, activeTab]);
-
-  // Stage tab counts come from the legacy items (whole list, post-filter).
-  // Naji 2026-05-05: order is Active-first style — Lead first, Rejected last.
-  const stageCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const row of items) {
-      const stage = asString(row.stage) || 'lead';
-      counts[stage] = (counts[stage] ?? 0) + 1;
-    }
-    return counts;
-  }, [items]);
-
-  const tabs: AdminTab[] = useMemo(
-    () =>
-      STAGE_TABS.map((t) =>
-        t.id === 'all'
-          ? { id: t.id, label: t.label, count: items.length }
-          : { id: t.id, label: t.label, count: stageCounts[t.id] ?? 0 },
-      ),
-    [items.length, stageCounts],
-  );
-
-  const filters: FilterField[] = useMemo(
-    () => [
-      {
-        key: 'fromDate',
-        label: 'From Date',
-        type: 'date',
-        value: fromDate,
-        onChange: setFromDate,
-      },
-      {
-        key: 'toDate',
-        label: 'To Date',
-        type: 'date',
-        value: toDate,
-        onChange: setToDate,
-      },
-      {
-        key: 'courseId',
-        label: 'Course',
-        type: 'select',
-        value: courseId,
-        placeholder: 'All Courses',
-        options: courseOptions,
-        onChange: setCourseId,
-      },
-      {
-        key: 'pipelineRoleId',
-        label: 'Pipeline',
-        type: 'select',
-        value: pipelineRoleId,
-        placeholder: 'All Pipelines',
-        options: [
-          { label: 'Senders', value: 'senders' },
-          { label: 'Counsellors', value: '9' },
-          { label: 'Student Referral', value: 'student_referral' },
-          { label: 'Associates', value: '10' },
-        ],
-        onChange: setPipelineRoleId,
-      },
-      {
-        key: 'pipelineUserId',
-        label: 'Pipeline User',
-        type: 'select',
-        value: pipelineUserId,
-        placeholder: 'All Pipeline Users',
-        options: pipelineUserOptions,
-        onChange: setPipelineUserId,
-      },
-      {
-        key: 'statusFilter',
-        label: 'Status',
-        type: 'select',
-        value: statusFilter,
-        placeholder: 'All Status',
-        options: [
-          { label: 'Pending', value: 'pending' },
-          { label: 'Approved', value: 'approved' },
-          { label: 'Rejected', value: 'rejected' },
-        ],
-        onChange: setStatusFilter,
-      },
-    ],
-    [fromDate, toDate, courseId, pipelineRoleId, pipelineUserId, statusFilter, courseOptions, pipelineUserOptions],
-  );
-
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      {
-        key: 'application_id',
-        label: 'Application ID',
-        sortable: true,
-        render: (value) => asString(value) || '-',
-      },
-      {
-        key: 'created_at',
-        label: 'Application Date',
-        sortable: true,
-        render: (value) => formatDate(value),
-      },
-      {
-        key: 'name',
-        label: 'Name',
-        sortable: true,
-        render: (value, row) => (
-          <button
-            type="button"
-            className="text-left font-medium text-blue-600 hover:underline"
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigate('/admin/applications/view/' + asString(row._id || row.id));
-            }}
-          >
-            {asString(value) || '-'}
-          </button>
-        ),
-      },
-      { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'offering_title', label: 'Course Offering', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'combination_title', label: 'Combination', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'phone', label: 'Phone No', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'user_email', label: 'E-mail', sortable: true, render: (v) => asString(v) || '-' },
-      // Naji 2026-05-07: was reading `pipeline_role` which the backend
-      // payload doesn't carry — column was always blank. Use the actual
-      // `pipeline` text column.
-      { key: 'pipeline', label: 'Pipeline', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'pipeline_user_name', label: 'Pipeline User', sortable: true, render: (v) => asString(v) || '-' },
-      {
-        key: 'stage',
-        label: 'Stage',
-        render: (_v, row) => {
-          const stage = asString(row.stage) || 'lead';
-          return <AdminStatusBadge status={STAGE_LABEL[stage] ?? stage} />;
-        },
-      },
-    ],
-    [onNavigate],
-  );
-
-  // Naji 2026-05-07: row menu reduced to just View + Edit. The previous
-  // 7 stage-transition actions (Generate Payment Link / Mark Paid /
-  // Send Application Form Link / Counsellor Approve / Admin Approve &
-  // Enrol / Reject) move INTO the View page where they appear
-  // contextually based on the current stage.
-  const actions: DataTableAction[] = useMemo(
-    () => [
-      {
-        label: 'View',
-        onClick: (row) => onNavigate('/admin/applications/view/' + asString(row._id || row.id)),
-      },
-      {
-        label: 'Edit',
-        onClick: (row) => onNavigate('/admin/applications/edit/' + asString(row._id || row.id)),
-      },
-    ],
-    [onNavigate],
-  );
-
-  const handleClearFilters = () => {
-    setFromDate('');
-    setToDate('');
-    setCourseId('');
-    setPipelineRoleId('');
-    setPipelineUserId('');
-    setStatusFilter('');
+  const setList = (patch: Partial<ApplicationFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const setSrv = (patch: Partial<ServerFilters>) => { setServer((s) => ({ ...s, ...patch })); setPage(1); };
+  const clearFilters = () => { setServer(EMPTY_SERVER); setFilters((f) => ({ ...EMPTY_LIST_FILTERS, stage: f.stage })); setPage(1); };
+  const onSort = (k: ApplicationSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
   };
+  const view = (r: ApplicationRow) => onNavigate(`/admin/applications/view/${r.id}`);
+  const edit = (r: ApplicationRow) => onNavigate(`/admin/applications/edit/${r.id}`);
+  const toggle = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
+  const allOnPage = current.length > 0 && current.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected((prev) => {
+    const next = new Set(prev);
+    for (const r of current) { if (allOnPage) next.delete(r.id); else next.add(r.id); }
+    return next;
+  });
+  const selectedRows = filtered.filter((r) => selected.has(r.id));
+  const exportCsv = () => downloadCsv('applications.csv', toCsv(exportTable(selectedRows.length > 0 ? selectedRows : filtered)));
 
-  if (loading) {
-    return <PageLoader label="Loading applications..." />;
-  }
-
-  if (error) {
+  if (loading && !data) return <PageLoader label="Loading applications..." />;
+  if (error && !data) {
     return (
       <Card>
         <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
   }
 
+  const thisYear = new Date().getFullYear();
+  const stageCount = STAGE_TABS.length - 1;
   return (
-    <div>
-      <AdminPageHeader
+    <div className="space-y-6">
+      <PageTitle
         title="Applications"
-        addLabel="+ Add Lead"
-        onAdd={() => onNavigate('/admin/leads/add')}
-      >
-        {/* Naji 2026-05-07 — secondary action that opens the legacy multi-tab
-            Add Application form. The primary "Add Lead" button replaced
-            it on 2026-05-05; this keeps the longer-form path one click
-            away while the team trains on the new lead → enrolment flow. */}
-        <button
-          type="button"
-          onClick={() => onNavigate('/admin/applications/add')}
-          className="rounded-md border border-ttii-primary bg-white px-3 py-1.5 text-sm font-medium text-ttii-primary hover:bg-ttii-primary/5"
-        >
-          Add Application (full form)
-        </button>
-      </AdminPageHeader>
-
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={handleClearFilters}
+        subtitle={`${filtered.length} application${filtered.length === 1 ? '' : 's'} across ${stageCount} pipeline stages`}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={exportCsv}>
+              <FileText aria-hidden="true" className="size-4" /> {selectedRows.length > 0 ? `Export (${selectedRows.length})` : 'Export'}
+            </Button>
+            {/* Naji 2026-05-07 — the longer multi-tab form stays one click away. */}
+            <Button variant="outline" size="sm" onClick={() => onNavigate('/admin/applications/add')}>
+              Add Application (full form)
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/leads/add')}>
+              <Plus aria-hidden="true" className="size-4" /> Add Lead
+            </Button>
+          </>
+        )}
       />
 
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <div role="tablist" aria-label="Pipeline stage" className="flex flex-wrap gap-2">
+        {STAGE_TABS.map((t) => (
+          <PillTab key={t.id} active={filters.stage === t.id} label={t.label} count={counts[t.id]} onClick={() => setList({ stage: t.id })} />
+        ))}
+      </div>
 
-      <AdminDataTable
-        columns={columns}
-        rows={displayedItems}
-        actions={actions}
-      />
-
-      {/* Payment-link generator dialog (Naji 2026-05-05). Replaces the
-          earlier window.prompt chain with a real modal. */}
-      <Dialog open={payDialog.open} onOpenChange={(o) => setPayDialog((p) => ({ ...p, open: o }))}>
-        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>Generate Payment Link</DialogTitle>
-            <DialogDescription>
-              For {payDialog.studentName}. The student will receive an email with the payment link and the plan summary.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="w-full min-w-0 space-y-4">
-            <div className="space-y-2">
-              <Label>Payment mode</Label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className={`flex-1 rounded-md border px-3 py-2 text-sm ${payDialog.mode === 'full' ? 'border-ttii-primary bg-ttii-primary/5 font-semibold' : 'border-slate-200'}`}
-                  onClick={() => setPayDialog((p) => ({ ...p, mode: 'full' }))}
-                >
-                  Full Payment
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 rounded-md border px-3 py-2 text-sm ${payDialog.mode === 'installment' ? 'border-ttii-primary bg-ttii-primary/5 font-semibold' : 'border-slate-200'}`}
-                  onClick={() => setPayDialog((p) => ({ ...p, mode: 'installment' }))}
-                >
-                  Installment Plan
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="pay-total">Total course fee (INR)</Label>
-              <Input
-                id="pay-total"
-                type="number"
-                inputMode="decimal"
-                placeholder="e.g. 25000"
-                value={payDialog.totalRupees}
-                onChange={(e) => setPayDialog((p) => ({ ...p, totalRupees: e.target.value }))}
-              />
-            </div>
-
-            {payDialog.mode === 'installment' ? (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="pay-reg">Registration fee due now (INR)</Label>
-                  <Input
-                    id="pay-reg"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="e.g. 5000"
-                    value={payDialog.regRupees}
-                    onChange={(e) => setPayDialog((p) => ({ ...p, regRupees: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pay-installments">Number of remaining installments</Label>
-                  <Input
-                    id="pay-installments"
-                    type="number"
-                    min="1"
-                    max="12"
-                    value={payDialog.installments}
-                    onChange={(e) => setPayDialog((p) => ({ ...p, installments: e.target.value }))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Due dates are auto-set to monthly intervals from today.
-                  </p>
-                </div>
-              </>
-            ) : null}
-
-            <div className="space-y-2">
-              <Label htmlFor="pay-expires">Link expires in (days)</Label>
-              <Input
-                id="pay-expires"
-                type="number"
-                min="1"
-                max="30"
-                value={payDialog.expiresInDays}
-                onChange={(e) => setPayDialog((p) => ({ ...p, expiresInDays: e.target.value }))}
-              />
-            </div>
-
-            {payDialog.mode === 'installment' && payDialog.totalRupees && payDialog.regRupees ? (
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                <p className="font-semibold">Payment link will charge ₹{Number(payDialog.regRupees || '0').toLocaleString('en-IN')} now.</p>
-                <p className="mt-1 text-slate-500">
-                  Remaining ₹{Math.max(0, Number(payDialog.totalRupees || '0') - Number(payDialog.regRupees || '0')).toLocaleString('en-IN')} split across {payDialog.installments || '0'} monthly installments.
-                </p>
-              </div>
-            ) : null}
+      <Card className="gap-0 p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="relative md:col-span-2">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search applications" placeholder="Search by name, ID, email or phone…" className="pl-9" value={filters.search} onChange={(e) => setList({ search: e.target.value })} />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPayDialog((p) => ({ ...p, open: false }))} disabled={paySubmitting}>
-              Cancel
+          <select aria-label="Course" value={server.courseId} onChange={(e) => setSrv({ courseId: e.target.value })} className={SELECT_CLASS}>
+            <option value="">All Courses</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+          <select aria-label="Offering" value={filters.offering} onChange={(e) => setList({ offering: e.target.value })} className={SELECT_CLASS}>
+            <option value="">All Offerings</option>
+            {offerings.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <select aria-label="Stage" value={filters.stage} onChange={(e) => setList({ stage: e.target.value as ApplicationFilters['stage'] })} className={SELECT_CLASS}>
+            {STAGE_TABS.map((t) => <option key={t.id} value={t.id}>{t.id === 'all' ? 'All Stages' : t.label}</option>)}
+          </select>
+          <select aria-label="Pipeline" value={server.pipelineRoleId} onChange={(e) => setSrv({ pipelineRoleId: e.target.value })} className={SELECT_CLASS}>
+            <option value="">All Pipelines</option>
+            {PIPELINE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select aria-label="Pipeline user" value={filters.pipelineUserId} onChange={(e) => setList({ pipelineUserId: e.target.value })} className={SELECT_CLASS}>
+            <option value="">All Pipeline Users</option>
+            {pipelineUsers.map((u) => <option key={u.id} value={u.id}>{u.name || `User ${u.id}`}</option>)}
+          </select>
+          <select aria-label="Status" value={server.status} onChange={(e) => setSrv({ status: e.target.value })} className={SELECT_CLASS}>
+            <option value="">All Status</option>
+            {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select aria-label="Application date" value={server.range} onChange={(e) => setSrv({ range: e.target.value as DateRange })} className={SELECT_CLASS}>
+            <option value="all">All time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="custom">Custom range…</option>
+          </select>
+          {server.range === 'custom' ? (
+            <>
+              <DmyDateInput value={server.fromDate} onChange={(v) => setSrv({ fromDate: v })} placeholder="From dd/mm/yyyy" minYear={thisYear - 6} maxYear={thisYear} />
+              <DmyDateInput value={server.toDate} onChange={(v) => setSrv({ toDate: v })} placeholder="To dd/mm/yyyy" minYear={thisYear - 6} maxYear={thisYear} />
+            </>
+          ) : null}
+          <Button variant="outline" size="sm" className="h-9" onClick={clearFilters}>Clear filters</Button>
+        </div>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden p-0 shadow-sm" aria-busy={loading}>
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Inbox}
+            title={rows.length === 0 ? 'No applications yet.' : 'No applications match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => onNavigate('/admin/leads/add')}>Add the first lead</Button>
+              : <Button variant="outline" size="sm" onClick={() => { clearFilters(); setList({ stage: 'all' }); }}>Clear filters</Button>}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-10">
+                    <Checkbox checked={allOnPage} onCheckedChange={toggleAll} aria-label="Select all on this page" />
+                  </TableHead>
+                  <TableHead className="w-10 text-xs">#</TableHead>
+                  <SortHead label="Application ID" k="applicationId" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Date" k="date" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Student" k="name" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Course" k="course" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Offering" k="offering" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Certificate Combination" k="combination" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Contact" k="phone" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Pipeline" k="pipeline" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Owner" k="owner" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  {showStage ? <SortHead label="Stage" k="stage" sortKey={sortKey} dir={sortDir} onSort={onSort} /> : null}
+                  <TableHead className="text-right text-xs">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {current.map((r, i) => (
+                  <ApplicationTableRow
+                    key={r.id}
+                    row={r}
+                    index={(page - 1) * PAGE_SIZE + i + 1}
+                    selected={selected.has(r.id)}
+                    showStage={showStage}
+                    onSelect={(v) => toggle(r.id, v)}
+                    onView={() => view(r)}
+                    onEdit={() => edit(r)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+          <p className="text-xs text-muted-foreground">
+            Showing <span className="font-medium text-foreground">{current.length}</span> of{' '}
+            <span className="font-medium text-foreground">{filtered.length}</span> applications
+            {selectedRows.length > 0 ? <> · <span className="font-medium text-foreground">{selectedRows.length}</span> selected</> : null}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <ChevronLeft aria-hidden="true" className="size-4" /> Prev
             </Button>
-            <Button
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              onClick={() => { void submitPayDialog(); }}
-              disabled={paySubmitting || !payDialog.totalRupees}
-            >
-              {paySubmitting ? 'Generating...' : 'Generate & Email'}
+            <span className="px-2 text-xs text-muted-foreground">Page {page} of {pages}</span>
+            <Button variant="outline" size="sm" className="gap-1" disabled={page >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>
+              Next <ChevronRight aria-hidden="true" className="size-4" />
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

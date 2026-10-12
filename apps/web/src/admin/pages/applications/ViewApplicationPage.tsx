@@ -1,1363 +1,218 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Card, CardContent } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords, formatDate } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { useConfirm } from '@/components/confirm-dialog';
+import { asString } from '../../shared/utils/admin-data-utils.js';
 import { GeneratePaymentLinkDialog } from './GeneratePaymentLinkDialog.js';
+import {
+  allVerified as computeAllVerified,
+  isLeadStage,
+  parseSavedPlan,
+  readDocuments,
+  readVerified,
+  stageActions,
+  stageSteps,
+  toEvents,
+} from './application-profile-model.js';
+import { ActivityTimeline, StageHistory } from './profile/ActivityTabs.js';
+import { MarkPaidDialog, ReassignDialog, RejectDialog } from './profile/ProfileDialogs.js';
+import { ProfileHeader } from './profile/ProfileHeader.js';
+import { ApplicationTab, DocumentsTab, OverviewTab } from './profile/ProfileSections.js';
+import { PaymentTab } from './profile/PaymentTab.js';
 
-// Naji 2026-05-08 — until the applicant submits the form (`form_submitted`
-// onward), the View page shows only the fields actually captured at Add
-// Lead. Showing empty Personal/Qualification tabs early was confusing.
-// Stages where the Lead Snapshot view applies:
-const LEAD_STAGES = new Set(['lead', 'payment_pending', 'paid', 'form_pending']);
+// Learner Management → Applications → profile (TTII 2026-10-12), rebuilt after
+// Naji's ApplicationProfile: a header card with the stage's next steps and the
+// pipeline progress, then Overview / Payment / Application / Documents /
+// Activity Timeline / Stage History tabs. Every stage action, the verification
+// gate, the payment-plan dialog, Mark as Paid, Reject, Reopen, Reassign, the
+// application PDF and Delete are the ones the old View page had, on the same
+// endpoints.
 
-// Pipeline label -> role_id, mirroring AddApplicationPage's map and the
-// backend create-lead labels. Drives the Reassign dialog's user dropdown.
-const PIPELINE_ROLE_MAP: Record<string, number> = { Admin: 8, Counsellor: 9, Associate: 10 };
-const PIPELINE_OPTIONS = ['Admin', 'Counsellor', 'Associate'] as const;
-const reassignSelectClass =
-  'h-10 w-full rounded-md border border-input bg-white px-3 text-sm text-gray-900 disabled:cursor-not-allowed disabled:opacity-60';
+type ProfileTab = 'overview' | 'payment' | 'application' | 'documents' | 'timeline' | 'history';
 
-// Naji UAT 2026-05-31 — once the student submits, the View page shows a
-// single unified tab bar. Lead Snapshot / Payment Plan / Lead History stay
-// available through every stage; Basic Information / Qualification /
-// Documents surface the submitted detail; Payment History is kept at the
-// end so the financial records aren't lost.
-type UnifiedTab =
-  | 'snapshot'
-  | 'plan'
-  | 'history'
-  | 'basic'
-  | 'qualification'
-  | 'documents'
-  | 'payments';
-
-// Verification section keys (the three "stages" Naji refers to). Per-document
-// keys are computed as `doc:<index>` against the documents array.
-const VERIFY_SECTION_KEYS = ['basic', 'qualification', 'documents'] as const;
-
-type ApplicationDocument = {
-  name?: string;
-  label?: string;
-  url?: string;
-  document_type_id?: string | null;
-};
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-3 gap-2 border-b border-gray-100 py-2.5">
-      <span className="text-sm font-medium text-gray-500">{label}</span>
-      <span className="col-span-2 text-sm text-gray-900">{value || '-'}</span>
-    </div>
-  );
-}
-
-// Naji UAT 2026-05-31 — admin-only Verify toggle. Shows a green
-// "Verified ✓" pill once the key is in the verified set, otherwise an
-// outline "Verify" button. Clicking flips the key. `size="sm"` keeps it
-// compact enough to sit inline in a document row or a section header.
-function VerifyButton({
-  isVerified,
-  busy,
-  onToggle,
-  size = 'sm',
-}: {
-  isVerified: boolean;
-  busy: boolean;
-  onToggle: (next: boolean) => void;
-  size?: 'sm' | 'xs';
-}) {
-  const base = size === 'xs' ? 'h-7 px-2 text-xs' : 'h-8 px-3 text-xs';
-  if (isVerified) {
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        disabled={busy}
-        onClick={() => onToggle(false)}
-        className={`${base} border-emerald-300 bg-emerald-50 font-semibold text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800`}
-      >
-        Verified ✓
-      </Button>
-    );
-  }
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      disabled={busy}
-      onClick={() => onToggle(true)}
-      className={`${base} border-amber-300 font-semibold text-amber-700 hover:bg-amber-50`}
-    >
-      {busy ? 'Saving…' : 'Verify'}
-    </Button>
-  );
+function statusOf(res: unknown): { ok: boolean; message: string } {
+  const r = (res ?? {}) as { status?: unknown; message?: unknown };
+  return { ok: r.status === 1 || asString(r.status) === '1', message: asString(r.message) };
 }
 
 export default function ViewApplicationPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
-  // Naji 2026-05-09 / UAT 2026-05-31 — a single tab key drives both the
-  // lead-stage bar (Lead Snapshot / Payment Plan / Lead History) and the
-  // post-submission unified bar (the same three + Basic Information /
-  // Qualification / Documents / Payment History).
-  const [unifiedTab, setUnifiedTab] = useState<UnifiedTab>('snapshot');
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [payDialogOpen, setPayDialogOpen] = useState(false);
-  // Mark-as-Paid dialog state (Naji 2026-05-09 — replaces window.prompt).
+  const [tab, setTab] = useState<ProfileTab>('overview');
+  const [busy, setBusy] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
-  const [markPaidMode, setMarkPaidMode] = useState('cash');
-  const [markPaidAmount, setMarkPaidAmount] = useState('');
-  const [markPaidDate, setMarkPaidDate] = useState('');
-  const [markPaidReference, setMarkPaidReference] = useState('');
-  const [markPaidReceiptUrl, setMarkPaidReceiptUrl] = useState('');
-  const [markPaidUploading, setMarkPaidUploading] = useState(false);
-  // Naji UAT 2026-05-31 — which verification key is mid-flight (disables
-  // just that button while its toggle round-trips).
-  const [verifyBusyKey, setVerifyBusyKey] = useState<string | null>(null);
-  // Reassign-pipeline dialog. Lets an admin correct a lead's owner
-  // (pipeline + pipeline user) without the heavyweight Edit Application
-  // form, whose full validation blocks saving a bare lead. Naji 2026-07-08.
+  const [rejectOpen, setRejectOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const [reassignPipeline, setReassignPipeline] = useState('');
-  const [reassignUser, setReassignUser] = useState('');
-  const [reassignUsers, setReassignUsers] = useState<Record<string, unknown>[]>([]);
-  const [reassignUsersLoading, setReassignUsersLoading] = useState(false);
-  const [reassignSaving, setReassignSaving] = useState(false);
+  const [verifyBusyKey, setVerifyBusyKey] = useState<string | null>(null);
 
-  // Extract ID from URL path
   const applicationId = useMemo(() => {
     const parts = window.location.pathname.split('/');
     return parts[parts.length - 1] || '';
   }, []);
 
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.getApplication(session.token, applicationId),
+  const { data, loading, error, reload } = useAdminPageData(() => api.getApplication(session.token, applicationId), [applicationId]);
+  // Lead History events drive the Activity Timeline, the Stage History dates
+  // and the progress bar of a rejected application.
+  const { data: rawEvents, loading: eventsLoading, reload: reloadEvents } = useAdminPageData(
+    () => (applicationId ? api.listApplicationEvents(session.token, applicationId) : Promise.resolve([])),
     [applicationId],
   );
+  const refresh = useCallback(() => { reload(); reloadEvents(); }, [reload, reloadEvents]);
 
   const app = useMemo(() => {
     if (!data) return null;
     const record = data.application ?? data;
-    return typeof record === 'object' && record !== null ? record as Record<string, unknown> : null;
+    return typeof record === 'object' && record !== null ? (record as Record<string, unknown>) : null;
   }, [data]);
+  const events = useMemo(() => toEvents(Array.isArray(rawEvents) ? rawEvents : []), [rawEvents]);
+  const documents = useMemo(() => (app ? readDocuments(app) : []), [app]);
+  const verified = useMemo(() => (app ? readVerified(app) : new Set<string>()), [app]);
 
-  const payments = useMemo(() => toRecords(data?.payments), [data]);
-  const educationPathway = useMemo(() => toRecords(data?.education_pathway), [data]);
-
-  // Load pipeline-user options for the pipeline chosen in the reassign dialog.
-  // Cascades whenever the pipeline changes while the dialog is open.
-  useEffect(() => {
-    if (!reassignOpen || !reassignPipeline) {
-      setReassignUsers([]);
-      return;
-    }
-    const roleId = PIPELINE_ROLE_MAP[reassignPipeline];
-    if (!roleId) {
-      setReassignUsers([]);
-      return;
-    }
-    let cancelled = false;
-    setReassignUsersLoading(true);
-    void api
-      .loadPipelineUsers(session.token, roleId)
-      .then((rows) => {
-        if (cancelled) return;
-        const loaded = toRecords(rows);
-        setReassignUsers(loaded);
-        // Drop a stale prefilled owner (e.g. a since-deleted user absent from
-        // the list) so the dropdown and the Save guard stay in agreement.
-        setReassignUser((cur) => (cur && loaded.some((u) => asString(u.id) === cur) ? cur : ''));
-      })
-      .catch(() => {
-        if (!cancelled) setReassignUsers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setReassignUsersLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reassignOpen, reassignPipeline, api, session.token]);
-
-  const openReassign = useCallback(() => {
-    const currentPipeline = asString(app?.pipeline);
-    const prefill = (PIPELINE_OPTIONS as readonly string[]).includes(currentPipeline) ? currentPipeline : '';
-    setReassignPipeline(prefill);
-    // Keep the current owner selected only when its pipeline is prefilled, so
-    // the id in the dropdown matches a loaded (same-role) option.
-    setReassignUser(prefill ? asString(app?.pipeline_user) : '');
-    setReassignOpen(true);
-  }, [app]);
-
-  const submitReassign = useCallback(async () => {
-    if (!reassignPipeline) { toast.error('Please choose a pipeline.'); return; }
-    if (!reassignUser) { toast.error('Please choose a pipeline user.'); return; }
-    setReassignSaving(true);
+  // A stage action that posts {id} and reloads; toasts the server's message.
+  const runAction = useCallback(async (call: () => Promise<unknown>, okText: string, failText: string) => {
+    setBusy(true);
     try {
-      const res = await api.reassignApplicationPipeline(session.token, applicationId, reassignPipeline, reassignUser);
-      const ok = asString((res as { status?: unknown }).status) === '1' || (res as { status?: unknown }).status === 1;
-      if (ok) {
-        toast.success(asString((res as { message?: unknown }).message) || 'Pipeline reassigned.');
-        setReassignOpen(false);
-        reload();
-      } else {
-        toast.error(asString((res as { message?: unknown }).message) || 'Could not reassign pipeline.');
-      }
+      const { ok, message } = statusOf(await call());
+      if (ok) { toast.success(message || okText); refresh(); } else toast.error(message || failText);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reassign pipeline.');
+      toast.error(err instanceof Error ? err.message : failText);
     } finally {
-      setReassignSaving(false);
+      setBusy(false);
     }
-  }, [api, session.token, applicationId, reassignPipeline, reassignUser, reload]);
+  }, [refresh]);
 
-  // Naji UAT 2026-05-31 — uploaded documents (parsed server-side from the
-  // legacy biography JSON) for the Documents tab + the verification gate.
-  const documents = useMemo<ApplicationDocument[]>(() => {
-    const raw = app?.documents;
-    return Array.isArray(raw) ? (raw as ApplicationDocument[]) : [];
-  }, [app]);
-
-  // Verification state — the set of keys the admin has already verified.
-  // Section keys: 'basic' | 'qualification' | 'documents'. Document keys:
-  // 'doc:<index>'. Backward compatible: a null column → empty set.
-  const verified = useMemo<string[]>(() => {
-    const v = (app?.verification as { verified?: unknown } | undefined)?.verified;
-    return Array.isArray(v) ? v.map((k) => String(k)) : [];
-  }, [app]);
-  const verifiedSet = useMemo(() => new Set(verified), [verified]);
-  // Approval is gated until every section AND every document is verified.
-  const allVerified = useMemo(() => {
-    for (const key of VERIFY_SECTION_KEYS) {
-      if (!verifiedSet.has(key)) return false;
-    }
-    for (let i = 0; i < documents.length; i += 1) {
-      if (!verifiedSet.has(`doc:${i}`)) return false;
-    }
-    return true;
-  }, [verifiedSet, documents]);
-
-  // Naji 2026-05-09 — Lead History events. Fetched lazily when the
-  // Lead History tab is opened.
-  const [events, setEvents] = useState<Record<string, unknown>[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(false);
-  useEffect(() => {
-    if (!applicationId) return;
-    if (unifiedTab !== 'history') return;
-    let cancelled = false;
-    setEventsLoading(true);
-    void api.listApplicationEvents(session.token, applicationId)
-      .then((rows) => { if (!cancelled) setEvents(rows); })
-      .catch(() => { if (!cancelled) setEvents([]); })
-      .finally(() => { if (!cancelled) setEventsLoading(false); });
-    return () => { cancelled = true; };
-  }, [api, session.token, applicationId, unifiedTab]);
-
-  const handleApprove = useCallback(async () => {
-    if (!applicationId) return;
-    if (!(await confirm({
-      title: 'Approve this application?',
-      confirmText: 'Approve',
-      variant: 'default',
-    }))) return;
-    setSubmitting(true);
-    try {
-      await api.updateApplicationStatus(session.token, applicationId, 'approved');
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update status');
-    } finally {
-      setSubmitting(false);
-    }
-  }, [api, session.token, applicationId, reload, confirm]);
-
-  const handleRejectSubmit = useCallback(async () => {
-    if (!applicationId) return;
-    if (!rejectReason.trim()) {
-      toast.error('Please enter a reason for rejection.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      // Naji UAT 2026-07-27 — this used updateApplicationStatus, which writes
-      // only the `status` enum. Every screen (this badge, the pipeline stepper,
-      // the Applications tab counts, the dashboards) reads `stage`, so a
-      // rejected application sat on "Approval Waiting" forever. rejectApplication
-      // is the real stage-machine transition: stage='rejected' + rejected_at +
-      // rejected_by + reason + timeline event + notification.
-      const res = await api.rejectApplication(session.token, applicationId, rejectReason.trim());
-      const msg = typeof res.message === 'string' ? res.message : 'Application rejected.';
-      if (res.status === 1) {
-        toast.success(msg);
-        setRejectDialogOpen(false);
-        setRejectReason('');
-        reload();
-      } else {
-        toast.error(msg);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reject application');
-    } finally {
-      setSubmitting(false);
-    }
-  }, [api, session.token, applicationId, rejectReason, reload]);
-
-  // Naji 2026-07-29 — rejecting was a one-way door. A lead rejected for
-  // "registration fee not completed" landed on stage='rejected', which disables
-  // Send/Resend Link, so nobody could ever ask them to pay. Reopen restores the
-  // stage the application was rejected from.
-  const handleReopen = useCallback(async () => {
-    if (!applicationId) return;
-    setSubmitting(true);
-    try {
-      const res = await api.reopenApplication(session.token, applicationId);
-      const msg = typeof res.message === 'string' ? res.message : 'Application reopened.';
-      if (res.status === 1) {
-        toast.success(msg);
-        reload();
-      } else {
-        toast.error(msg);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reopen application');
-    } finally {
-      setSubmitting(false);
-    }
-  }, [api, session.token, applicationId, reload]);
-
-  const handleDelete = useCallback(async () => {
-    if (!applicationId) return;
-    if (!(await confirm({
-      title: 'Delete this application?',
-      description: 'This action cannot be undone.',
-      confirmText: 'Delete',
-      variant: 'destructive',
-    }))) return;
-    try {
-      await api.deleteApplication(session.token, applicationId);
-      onNavigate('/admin/applications');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete application');
-    }
-  }, [api, session.token, applicationId, onNavigate, confirm]);
-
-  // Naji 2026-05-07 — stage-transition handlers ported here from the
-  // applications row dropdown so the stage flow lives inside the View
-  // page contextually.
-  // Naji 2026-05-09 — opens the Mark-as-Paid dialog (Mode + Reference +
-  // Receipt). The actual API call lives in handleSubmitMarkPaid below.
-  const handleMarkPaid = useCallback(() => {
-    if (!applicationId) return;
-    setMarkPaidMode('cash');
-    setMarkPaidAmount('');
-    setMarkPaidDate(new Date().toISOString().slice(0, 10));
-    setMarkPaidReference('');
-    setMarkPaidReceiptUrl('');
-    setMarkPaidOpen(true);
-  }, [applicationId]);
-
-  const handleSubmitMarkPaid = useCallback(async () => {
-    if (!applicationId) return;
-    const amountNum = Number(markPaidAmount);
-    if (!(amountNum > 0)) { toast.error('Amount received is required.'); return; }
-    if (!markPaidReference.trim()) { toast.error('Reference number is required.'); return; }
-    if (!markPaidReceiptUrl.trim()) { toast.error('Receipt is required.'); return; }
-    setSubmitting(true);
-    try {
-      const res = await api.markApplicationPaid(session.token, applicationId, {
-        mode: markPaidMode,
-        amount: amountNum,
-        paidDate: markPaidDate,
-        reference: markPaidReference.trim(),
-        receipt_url: markPaidReceiptUrl,
-      });
-      if ((res as { status?: number }).status === 1) {
-        // Manual payments now go to Finance for approval — surface the server
-        // message ("…pending finance approval") rather than a hardcoded
-        // "Marked as paid" so the user knows it isn't reflected yet.
-        toast.success(asString((res as { message?: unknown }).message) || 'Manual payment recorded — pending finance approval.');
-        setMarkPaidOpen(false);
-        reload();
-      } else toast.error(asString((res as { message?: unknown }).message) || 'Could not mark paid.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed.');
-    } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, markPaidMode, markPaidAmount, markPaidDate, markPaidReference, markPaidReceiptUrl, reload]);
-
-  const handleReceiptUpload = useCallback(async (file: File) => {
-    setMarkPaidUploading(true);
-    try {
-      const res = await api.uploadFile(session.token, file);
-      setMarkPaidReceiptUrl(res.url);
-      toast.success('Receipt uploaded.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed.');
-    } finally {
-      setMarkPaidUploading(false);
-    }
-  }, [api, session.token]);
-
-  const handleSendFormLink = useCallback(async () => {
-    if (!applicationId) return;
-    setSubmitting(true);
-    try {
-      const res = await api.generateApplicationFormLink(session.token, applicationId, 7);
-      const m = asString((res as { message?: unknown }).message) || '';
-      if ((res as { status?: number }).status === 1) {
-        toast.success(m || 'Form link emailed to student.');
-        reload();
-      } else toast.error(m || 'Could not generate form link.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed.');
-    } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, reload]);
-
-  const handleAdminApproveAndEnrol = useCallback(async () => {
-    if (!applicationId) return;
-    setSubmitting(true);
-    try {
-      const res = await api.adminApproveApplication(session.token, applicationId);
-      const m = asString((res as { message?: unknown }).message) || '';
-      if ((res as { status?: number }).status === 1) {
-        toast.success(m || 'Enrolled.');
-        reload();
-      } else toast.error(m || 'Could not enrol.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to enrol.');
-    } finally { setSubmitting(false); }
-  }, [api, session.token, applicationId, reload]);
-
-  // Naji UAT 2026-05-31 — toggle one verification key (section or
-  // document). Optimistic-free: we just call the API and reload so the
-  // verified set + allVerified gate recompute from the server truth.
-  const handleToggleVerification = useCallback(async (key: string, nextVerified: boolean) => {
-    if (!applicationId) return;
+  const toggleVerification = useCallback(async (key: string, next: boolean) => {
     setVerifyBusyKey(key);
     try {
-      const res = await api.setApplicationVerification(session.token, applicationId, key, nextVerified);
-      if ((res as { status?: number }).status === 1) {
-        reload();
-      } else {
-        toast.error(asString((res as { message?: unknown }).message) || 'Could not update verification.');
-      }
+      const { ok, message } = statusOf(await api.setApplicationVerification(session.token, applicationId, key, next));
+      if (ok) refresh(); else toast.error(message || 'Could not update verification.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update verification.');
     } finally {
       setVerifyBusyKey(null);
     }
-  }, [api, session.token, applicationId, reload]);
+  }, [api, session.token, applicationId, refresh]);
 
-  // Naji 2026-05-08: Generate Payment Link now opens the rich dialog
-  // (offering-derived pricing, Full Payment vs Installment Plan with
-  // editable rows). The lightweight prompt-based fallback was removed.
-  const handleGeneratePaymentLink = useCallback(() => {
-    if (!applicationId) return;
-    setPayDialogOpen(true);
-  }, [applicationId]);
-
-  const paymentColumns: DataTableColumn[] = useMemo(
-    () => [
-      { key: 'installment_details', label: 'Installment' },
-      { key: 'amount', label: 'Amount', render: (v) => `₹${asNumber(v).toLocaleString()}` },
-      { key: 'due_date', label: 'Due Date', render: (v) => formatDate(v) },
-      { key: 'paid_date', label: 'Paid Date', render: (v) => formatDate(v) },
-      { key: 'payment_mode', label: 'Mode' },
-      {
-        key: 'status',
-        label: 'Status',
-        render: (v) => <AdminStatusBadge status={asString(v) || 'Pending'} />,
-      },
-    ],
-    [],
-  );
-
-  if (loading) {
-    return <PageLoader label="Loading application..." />;
-  }
-
+  if (loading && !data) return <PageLoader label="Loading application..." />;
   if (error || !app) {
     return (
       <Card>
         <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error || 'Application not found.'}
+          <div className="mt-4 flex justify-center gap-2">
+            <Button variant="outline" onClick={() => onNavigate('/admin/applications')}>Back to Applications</Button>
+            {error ? <Button variant="outline" onClick={reload}>Retry</Button> : null}
+          </div>
         </CardContent>
       </Card>
     );
   }
 
-  const currentStatus = asString(app.status) || 'pending';
   const stage = asString(app.stage) || 'lead';
-  const isLeadStage = LEAD_STAGES.has(stage);
-  // Naji UAT 2026-05-31 — application approve/reject is an Admin-only action
-  // (roles 1 Super Admin, 8/9 Admin). Counsellors no longer approve.
+  const status = asString(app.status) || 'pending';
+  const leadStage = isLeadStage(stage);
+  // Naji UAT 2026-05-31 — approve / reject / verify are Admin actions (1, 8, 9).
   const isAdmin = [1, 8, 9].includes(session.roleId);
-  // Reassigning lead ownership is an admin action (Super Admin / Admin only);
-  // counsellors don't reassign leads. Matches the backend role gate.
+  // Reassigning a lead's owner is Super Admin / Admin only (matches the backend gate).
   const canReassign = session.roleId === 1 || session.roleId === 8;
-
-  // Naji 2026-05-08 — Lead Snapshot also surfaces the payment plan
-  // summary so admins/counsellors can see at a glance that one was
-  // already created and don't recreate it.
-  type SavedPlan = {
-    mode?: string;
-    total_amount_minor?: number;
-    registration_fee_minor?: number | null;
-    installments?: Array<{
-      label: string;
-      amountMinor?: number;
-      dueDate?: string;
-      amount_minor?: number;
-      due_date?: string;
-      gstPercent?: number;
-      gst_percent?: number;
-    }>;
-    // Naji 2026-05-31 — manual (Mark Paid) payment details stashed by the
-    // server so the Payment Plan tab can show what was actually paid.
-    manual_payment?: {
-      mode?: string;
-      reference?: string;
-      receipt_url?: string;
-      note?: string;
-      marked_at?: string;
-    };
-    // Per-instalment payment ledger (index 0 = registration). Drives the
-    // per-row "Paid" chip (Naji 2026-07-09).
-    instalment_payments?: Array<{
-      index?: number;
-      status?: string;
-      amount_minor?: number | null;
-      mode?: string;
-      reference?: string;
-      receipt_url?: string | null;
-      paid_date?: string | null;
-      marked_at?: string;
-    }>;
-  };
-  const savedPlan: SavedPlan | null = (() => {
-    const raw = app.payment_plan;
-    if (raw === null || raw === undefined || raw === '') return null;
-    if (typeof raw === 'object') return raw as SavedPlan;
-    if (typeof raw === 'string') {
-      try { return JSON.parse(raw) as SavedPlan; } catch { return null; }
-    }
-    return null;
-  })();
-  const paymentLinkUrl = asString(app.payment_link_url);
+  const savedPlan = parseSavedPlan(app.payment_plan);
   const paymentStatus = asString(app.payment_status);
-  const hasPaymentPlan = savedPlan !== null || paymentLinkUrl !== '';
+  const hasPlan = savedPlan !== null || asString(app.payment_link_url) !== '';
+  const actions = stageActions(stage, status, { isAdmin });
+  const canEditPlan = actions.includes('generate_plan') || actions.includes('resend_plan');
+  const gateOpen = computeAllVerified(verified, documents.length);
+  const steps = stageSteps(stage, events);
+  const verifyProps = { isAdmin, verified, busyKey: verifyBusyKey, onToggle: (k: string, n: boolean) => void toggleVerification(k, n) };
+  // Lead stages show only what Add Lead captured; the submitted form adds two tabs.
+  const activeTab: ProfileTab = leadStage && (tab === 'application' || tab === 'documents') ? 'overview' : tab;
 
-  // Naji 2026-05-31 — Payment Plan must reflect the actual payment, not just a
-  // badge. A colour-coded status chip + a "Payment Received / Manual Payment
-  // Recorded" block (mode / reference / receipt / date) are shown in both the
-  // lead-stage Payment Plan tab and the non-lead inline card.
-  const manual = savedPlan?.manual_payment;
-  const paymentStatusBadge = paymentStatus ? (
-    <span className={`rounded-md px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${
-      paymentStatus === 'paid' ? 'bg-emerald-100 text-emerald-800'
-        : paymentStatus === 'pending_approval' ? 'bg-amber-100 text-amber-800'
-          : paymentStatus === 'payment_rejected' ? 'bg-red-100 text-red-700'
-            : 'bg-slate-100 text-slate-700'}`}>
-      {paymentStatus === 'pending_approval' ? 'Pending Approval'
-        : paymentStatus === 'payment_rejected' ? 'Rejected'
-          : paymentStatus.replace(/_/g, ' ')}
-    </span>
-  ) : null;
-  // Per-instalment payment ledger → per-row "Paid" chip in the schedule
-  // (Naji 2026-07-09: replaces the single aggregate "Payment Received" box).
-  const instalmentLedger = Array.isArray(savedPlan?.instalment_payments) ? savedPlan.instalment_payments : [];
-  const rowIsPaid = (i: number): boolean => {
-    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
-    if (e) return asString(e.status) === 'approved';
-    // Back-compat: a settled registration (paid online or a legacy single
-    // manual_payment) counts as the registration row (index 0).
-    return i === 0 && paymentStatus === 'paid';
-  };
-  const rowPaymentInfo = (i: number): { mode: string; reference: string; date: string; receipt: string } | null => {
-    const e = instalmentLedger.find((x) => Number(x.index ?? -1) === i);
-    if (e && asString(e.status) === 'approved') {
-      return {
-        mode: asString(e.mode),
-        reference: asString(e.reference),
-        date: e.paid_date ? asString(e.paid_date) : asString(e.marked_at),
-        receipt: asString(e.receipt_url),
-      };
-    }
-    if (i === 0 && manual && (asString(manual.reference) || asString(manual.mode))) {
-      return {
-        mode: asString(manual.mode),
-        reference: asString(manual.reference),
-        date: asString(manual.marked_at),
-        receipt: asString(manual.receipt_url),
-      };
-    }
-    if (i === 0 && paymentStatus === 'paid') {
-      return { mode: '', reference: '', date: '', receipt: '' };
-    }
-    return null;
+  const handlers = {
+    onBack: () => onNavigate('/admin/applications'),
+    onPlan: () => setPlanOpen(true),
+    onMarkPaid: () => setMarkPaidOpen(true),
+    onSendFormLink: () => void runAction(() => api.generateApplicationFormLink(session.token, applicationId, 7), 'Form link emailed to student.', 'Could not generate form link.'),
+    onAdminApprove: () => void runAction(() => api.adminApproveApplication(session.token, applicationId), 'Enrolled.', 'Could not enrol.'),
+    onReject: () => setRejectOpen(true),
+    onMarkApproved: async () => {
+      if (!(await confirm({ title: 'Approve this application?', confirmText: 'Approve', variant: 'default' }))) return;
+      void runAction(() => api.updateApplicationStatus(session.token, applicationId, 'approved'), 'Application approved.', 'Failed to update status');
+    },
+    // Streams GET /admin/applications/:id/pdf (available once the form is submitted).
+    onDownloadPdf: () => window.open(`/api/admin/applications/${applicationId}/pdf?auth_token=${encodeURIComponent(session.token)}`, '_blank'),
+    // Naji 2026-07-29 — reopen restores the stage the application was rejected from.
+    onReopen: () => void runAction(() => api.reopenApplication(session.token, applicationId), 'Application reopened.', 'Failed to reopen application'),
+    onReassign: () => setReassignOpen(true),
+    // Naji 2026-05-08 — at lead stages Edit opens the minimal Add Lead form in edit mode.
+    onEdit: () => onNavigate((leadStage ? '/admin/leads/edit/' : '/admin/applications/edit/') + applicationId),
+    onDelete: async () => {
+      if (!(await confirm({ title: 'Delete this application?', description: 'This action cannot be undone.', confirmText: 'Delete', variant: 'destructive' }))) return;
+      try {
+        const { ok, message } = statusOf(await api.deleteApplication(session.token, applicationId));
+        if (!ok) { toast.error(message || 'Failed to delete application'); return; }
+        toast.success(message || 'Application deleted.');
+        onNavigate('/admin/applications');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete application');
+      }
+    },
   };
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Application Detail">
-        <Button variant="outline" onClick={() => onNavigate('/admin/applications')}>
-          Back to Applications
-        </Button>
-      </AdminPageHeader>
+    <div className="space-y-6">
+      <ProfileHeader
+        app={app}
+        stage={stage}
+        steps={steps}
+        actions={actions}
+        busy={busy}
+        hasPlan={hasPlan}
+        allVerified={gateOpen}
+        canReassign={canReassign}
+        handlers={handlers}
+      />
 
-      {/* Status + Stage panel — Naji 2026-05-07: stage-transition actions
-          surface contextually here based on the current stage so the row
-          dropdown can stay clean (View + Edit only). */}
-      <Card>
-        <CardContent className="space-y-3 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-gray-600">Stage:</span>
-              <AdminStatusBadge status={asString(app.stage) || currentStatus} />
-              {/* Naji UAT 2026-07-27 — the column is `rejection_reason`; this
-                  read `reject_reason` (which never existed), so a rejection
-                  reason was never displayed. Keep the old key as a fallback. */}
-              {(asString(app.rejection_reason) || asString(app.reject_reason)) && (
-                <span className="text-sm text-red-600">
-                  Reason: {asString(app.rejection_reason) || asString(app.reject_reason)}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {stage === 'rejected' ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={submitting}
-                  onClick={() => { void handleReopen(); }}
-                  title="Puts the application back on the pipeline so a payment link can be sent again."
-                >
-                  Reopen Application
-                </Button>
-              ) : null}
-              {canReassign ? (
-                <Button size="sm" variant="outline" onClick={openReassign}>
-                  Reassign
-                </Button>
-              ) : null}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onNavigate(
-                  // Naji 2026-05-08 — at lead stages, the Edit button
-                  // opens the same minimal Add Lead form (in edit mode)
-                  // instead of the full multi-tab Add Application page.
-                  (isLeadStage ? '/admin/leads/edit/' : '/admin/applications/edit/') + applicationId,
-                )}
-              >
-                Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => void handleDelete()}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
+      <Tabs value={activeTab} onValueChange={(v) => setTab(v as ProfileTab)}>
+        <TabsList className="h-auto flex-wrap bg-muted/60">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="payment">Payment</TabsTrigger>
+          {!leadStage ? <TabsTrigger value="application">Application</TabsTrigger> : null}
+          {!leadStage ? <TabsTrigger value="documents">Documents</TabsTrigger> : null}
+          <TabsTrigger value="timeline">Activity Timeline</TabsTrigger>
+          <TabsTrigger value="history">Stage History</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview" className="mt-4">
+          <OverviewTab app={app} leadStage={leadStage} />
+        </TabsContent>
+        <TabsContent value="payment" className="mt-4">
+          <PaymentTab app={app} payments={data?.payments} plan={savedPlan} leadStage={leadStage} canEditPlan={canEditPlan} onEditPlan={() => setPlanOpen(true)} />
+        </TabsContent>
+        {!leadStage ? (
+          <TabsContent value="application" className="mt-4">
+            <ApplicationTab app={app} educationPathway={data?.education_pathway} verify={verifyProps} />
+          </TabsContent>
+        ) : null}
+        {!leadStage ? (
+          <TabsContent value="documents" className="mt-4">
+            <DocumentsTab documents={documents} verify={verifyProps} />
+          </TabsContent>
+        ) : null}
+        <TabsContent value="timeline" className="mt-4">
+          <ActivityTimeline events={events} loading={eventsLoading} />
+        </TabsContent>
+        <TabsContent value="history" className="mt-4">
+          <StageHistory steps={steps} />
+        </TabsContent>
+      </Tabs>
 
-          {/* Stage-contextual action row */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-            <span className="text-xs font-medium uppercase tracking-wider text-gray-400">Next steps</span>
-            {(() => {
-              const stage = asString(app.stage) || 'lead';
-              const buttons: React.ReactNode[] = [];
-              if (stage === 'lead') {
-                // Naji 2026-05-08 — once a plan has been saved, swap
-                // the primary button to "Edit / Resend Plan" so the
-                // admin doesn't recreate one. The dialog reopens with
-                // its existing state and "Send the Payment Link" still
-                // generates / re-emails the link.
-                buttons.push(
-                  <Button key="pay" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => handleGeneratePaymentLink()}>
-                    {hasPaymentPlan ? 'Edit / Resend Payment Plan' : 'Generate Payment Link'}
-                  </Button>,
-                );
-              }
-              // Naji 2026-05-09 — admins must be able to edit the plan
-              // and resend the link after the first send too (e.g. wrong
-              // email entered originally). Show the same dialog button
-              // alongside Mark as Paid through to form_pending.
-              if (stage === 'payment_pending' || stage === 'paid' || stage === 'form_pending') {
-                buttons.push(
-                  <Button key="resend" size="sm" variant="outline" disabled={submitting} onClick={() => handleGeneratePaymentLink()}>
-                    Edit / Resend Payment Plan
-                  </Button>,
-                );
-              }
-              if (stage === 'payment_pending') {
-                buttons.push(
-                  <Button key="paid" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleMarkPaid()}>
-                    Mark as Paid
-                  </Button>,
-                );
-              }
-              if (stage === 'paid' || stage === 'form_pending') {
-                buttons.push(
-                  <Button key="form" size="sm" disabled={submitting} className="bg-ttii-primary hover:bg-ttii-primary/90" onClick={() => void handleSendFormLink()}>
-                    {stage === 'form_pending' ? 'Resend Application Form Link' : 'Send Application Form Link'}
-                  </Button>,
-                );
-              }
-              // Admin Approve & Enrol — Naji 2026-05-31: shown for both the
-              // current approval_waiting stage and legacy form_submitted apps,
-              // and only to Admin (the counsellor-approve step is removed).
-              // UAT 2026-05-31 — disabled until every section + document is
-              // verified; a hint sits beside it while the gate is closed.
-              if ((stage === 'approval_waiting' || stage === 'form_submitted') && isAdmin) {
-                buttons.push(
-                  <Button
-                    key="aapp"
-                    size="sm"
-                    disabled={submitting || !allVerified}
-                    title={allVerified ? undefined : 'Verify all sections and documents to enable approval.'}
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={() => void handleAdminApproveAndEnrol()}
-                  >
-                    Admin Approve &amp; Enrol
-                  </Button>,
-                );
-                if (!allVerified) {
-                  buttons.push(
-                    <span key="aapp-hint" className="text-xs font-medium text-amber-600">
-                      Verify all sections and documents to enable approval.
-                    </span>,
-                  );
-                }
-              }
-              // Naji 2026-05-08 — Reject only makes sense once the applicant
-              // has submitted something. Naji 2026-05-31 — approve/reject is
-              // Admin-only, so gate it behind isAdmin too.
-              if (stage !== 'rejected' && stage !== 'enrolled' && !isLeadStage && isAdmin) {
-                buttons.push(
-                  <Button key="rej" size="sm" variant="destructive" disabled={submitting} onClick={() => setRejectDialogOpen(true)}>
-                    Reject
-                  </Button>,
-                );
-              }
-              if (currentStatus !== 'approved' && stage === 'enrolled') {
-                buttons.push(
-                  <Button key="appr" size="sm" disabled={submitting} className="bg-green-600 hover:bg-green-700" onClick={() => void handleApprove()}>
-                    Mark Approved
-                  </Button>,
-                );
-              }
-              // Naji UAT 2026-05-15 — Download the filled application as
-              // a PDF. Available once the public form has been submitted
-              // (so the data is actually present). Streams from
-              // /admin/applications/:id/pdf.
-              if (stage === 'form_submitted' || stage === 'approval_waiting' || stage === 'enrolled' || stage === 'rejected') {
-                buttons.push(
-                  <Button
-                    key="pdf"
-                    size="sm"
-                    variant="outline"
-                    disabled={submitting}
-                    onClick={() => {
-                      const url = `/api/admin/applications/${applicationId}/pdf?auth_token=${encodeURIComponent(session.token)}`;
-                      window.open(url, '_blank');
-                    }}
-                  >
-                    Download Application PDF
-                  </Button>,
-                );
-              }
-              if (buttons.length === 0) {
-                buttons.push(
-                  <span key="done" className="text-xs text-gray-500">No further stage actions available.</span>,
-                );
-              }
-              return buttons;
-            })()}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Naji 2026-05-09 / UAT 2026-05-31 — single unified tab bar. The
-          Lead Snapshot / Payment Plan / Lead History tabs stay available
-          through EVERY stage. After the student submits (non-lead stages)
-          three more tabs appear: Basic Information, Qualification, and
-          Documents — plus Payment History at the end so the financial
-          records aren't dropped. */}
-      {(() => {
-        const tabs: Array<{ id: UnifiedTab; label: string }> = [
-          { id: 'snapshot', label: 'Lead Snapshot' },
-          { id: 'plan', label: 'Payment Plan' },
-          { id: 'history', label: 'Lead History' },
-        ];
-        if (!isLeadStage) {
-          tabs.push(
-            { id: 'basic', label: 'Basic Information' },
-            { id: 'qualification', label: 'Qualification' },
-            { id: 'documents', label: 'Documents' },
-            { id: 'payments', label: 'Payment History' },
-          );
-        }
-        // If the URL/stage left us on a tab that isn't in the current set
-        // (e.g. an app slipped back to a lead stage), fall back to snapshot.
-        const activeId = tabs.some((t) => t.id === unifiedTab) ? unifiedTab : 'snapshot';
-        return (
-          <div className="flex flex-wrap gap-1 border-b border-gray-200">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`relative px-4 py-2 text-sm font-medium transition-colors ${
-                  activeId === t.id ? 'text-ttii-primary' : 'text-gray-500 hover:text-gray-700'
-                }`}
-                onClick={() => setUnifiedTab(t.id)}
-              >
-                {t.label}
-                {activeId === t.id ? (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-ttii-primary" />
-                ) : null}
-              </button>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* ── Lead Snapshot ──────────────────────────────────────────── */}
-      {unifiedTab === 'snapshot' && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Lead Snapshot</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Application ID" value={asString(app.application_id)} />
-                  <InfoRow label="Name" value={asString(app.name)} />
-                  <InfoRow
-                    label="Email"
-                    value={asString(app.user_email) || asString(app.email)}
-                  />
-                  <InfoRow
-                    label="Phone"
-                    value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
-                  />
-                  <InfoRow
-                    label="Source"
-                    value={
-                      asString(app.marketing_source_display) ||
-                      asString(app.marketing_source) ||
-                      asString(app.lead_source)
-                    }
-                  />
-                </div>
-                <div>
-                  <InfoRow label="Course" value={asString(app.course_title)} />
-                  <InfoRow label="Course Offering" value={asString(app.offering_title)} />
-                  <InfoRow label="Certificate Combination" value={asString(app.combination_title)} />
-                  <InfoRow label="Pipeline" value={asString(app.pipeline)} />
-                  <InfoRow label="Pipeline User" value={asString(app.pipeline_user_name)} />
-                  <InfoRow label="Created" value={formatDate(app.created_at)} />
-                </div>
-              </div>
-              {isLeadStage ? (
-                <p className="mt-4 text-xs text-gray-500">
-                  Full applicant details will appear here once the student submits the application form.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {/* Naji UAT 2026-05-31 — Enrolment & Fee details folded into the
-              Snapshot once the form is submitted so nothing is lost when
-              the old standalone tab was removed. */}
-          {!isLeadStage && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Enrolment &amp; Fee</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-x-8 md:grid-cols-2">
-                  <div>
-                    <InfoRow label="Course" value={asString(app.course_title)} />
-                    <InfoRow label="Course Offering" value={asString(app.offering_title)} />
-                    <InfoRow label="Batch" value={asString(app.batch_title)} />
-                    <InfoRow label="Enrolment Date" value={formatDate(app.enrollment_date)} />
-                    <InfoRow label="Mode of Study" value={asString(app.mode_of_study)} />
-                    <InfoRow label="Language" value={asString(app.language_name) || asString(app.preferred_language)} />
-                  </div>
-                  <div>
-                    <InfoRow label="Course Fee" value={asString(app.course_fee) ? `₹${asString(app.course_fee)}` : '-'} />
-                    <InfoRow label="Discount" value={asString(app.discount) ? `${asString(app.discount)}%` : '-'} />
-                    <InfoRow label="GST Applicability" value={asString(app.gst_applicability)} />
-                    <InfoRow label="Final Course Fee" value={asString(app.final_course_fee) ? `₹${asString(app.final_course_fee)}` : '-'} />
-                    <InfoRow label="Application Status" value={asString(app.status)} />
-                    <InfoRow label="Stage" value={asString(app.stage)} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* ── Payment Plan ───────────────────────────────────────────── */}
-      {unifiedTab === 'plan' && (
-        hasPaymentPlan ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-base">
-                <span>Payment Plan</span>
-                {paymentStatusBadge}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(() => {
-                // Compute totals from rows (preferred) so the displayed
-                // numbers match the saved per-row amounts even after edits.
-                const rows = Array.isArray(savedPlan?.installments) ? savedPlan.installments : [];
-                let excl = 0; let gst = 0; let incl = 0;
-                for (const r of rows) {
-                  const a = Number(r.amountMinor ?? r.amount_minor ?? 0) / 100;
-                  const g = Number(r.gstPercent ?? r.gst_percent ?? 0);
-                  const gAmt = a * (g / 100);
-                  excl += a; gst += gAmt; incl += a + gAmt;
-                }
-                const totalDisplay = incl > 0
-                  ? incl
-                  : (savedPlan?.total_amount_minor ? Number(savedPlan.total_amount_minor) / 100 : 0);
-                return (
-                  <div className="grid gap-x-8 md:grid-cols-2">
-                    <div>
-                      <InfoRow label="Mode" value={savedPlan?.mode === 'installment' ? 'Installment Plan' : 'Full Payment'} />
-                      <InfoRow
-                        label="Instalments Total"
-                        value={excl > 0 ? `₹${excl.toLocaleString('en-IN')}` : '-'}
-                      />
-                      <InfoRow
-                        label="GST"
-                        value={gst > 0 ? `₹${gst.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
-                      />
-                      <InfoRow
-                        label="Total Inc. GST"
-                        value={totalDisplay > 0 ? `₹${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
-                      />
-                      {savedPlan?.registration_fee_minor ? (
-                        <InfoRow
-                          label="Registration Fee"
-                          value={`₹${(Number(savedPlan.registration_fee_minor) / 100).toLocaleString('en-IN')}`}
-                        />
-                      ) : null}
-                    </div>
-                    <div>
-                      {paymentLinkUrl ? (
-                        <>
-                          <InfoRow label="Payment Link" value={paymentLinkUrl} />
-                          <InfoRow label="Expires" value={formatDate(app.payment_link_expires_at)} />
-                        </>
-                      ) : (
-                        <InfoRow label="Payment Link" value="Not sent yet (saved as draft)" />
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-              {Array.isArray(savedPlan?.installments) && savedPlan.installments.length > 0 ? (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-slate-100">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2">Description</th>
-                        <th className="px-3 py-2 text-right">Instalment (₹)</th>
-                        <th className="px-3 py-2 text-right">GST %</th>
-                        <th className="px-3 py-2 text-right">Inc. GST (₹)</th>
-                        <th className="px-3 py-2">Due</th>
-                        <th className="px-3 py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {savedPlan.installments.map((row, i) => {
-                        const amount = Number(row.amountMinor ?? row.amount_minor ?? 0) / 100;
-                        const gst = Number(row.gstPercent ?? row.gst_percent ?? 0);
-                        const incl = amount + (amount * gst) / 100;
-                        const due = asString(row.dueDate ?? row.due_date);
-                        return (
-                          <tr key={i}>
-                            <td className="px-3 py-2 text-gray-900">{asString(row.label) || '-'}</td>
-                            <td className="px-3 py-2 text-right text-gray-900">₹{amount.toLocaleString('en-IN')}</td>
-                            <td className="px-3 py-2 text-right text-gray-700">{gst}%</td>
-                            <td className="px-3 py-2 text-right font-medium text-gray-900">₹{incl.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                            <td className="px-3 py-2 text-gray-700">{formatDate(due) || '-'}</td>
-                            <td className="px-3 py-2">
-                              {rowIsPaid(i) ? (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-200"
-                                    >
-                                      Paid
-                                    </button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-64 text-sm">
-                                    {(() => {
-                                      const info = rowPaymentInfo(i);
-                                      if (!info) return <p className="text-gray-500">Payment recorded.</p>;
-                                      const hasAny = info.mode || info.reference || info.date || info.receipt;
-                                      return (
-                                        <div className="space-y-1.5">
-                                          <p className="font-semibold text-gray-900">Payment details</p>
-                                          {info.mode ? <p><span className="text-gray-500">Mode:</span> {info.mode}</p> : null}
-                                          {info.reference ? <p><span className="text-gray-500">Reference:</span> {info.reference}</p> : null}
-                                          {info.date ? <p><span className="text-gray-500">Date:</span> {formatDate(info.date) || info.date}</p> : null}
-                                          {info.receipt ? (
-                                            <a href={info.receipt} target="_blank" rel="noreferrer" className="inline-block font-medium text-ttii-primary hover:underline">View receipt</a>
-                                          ) : null}
-                                          {!hasAny ? <p className="text-gray-500">Paid online.</p> : null}
-                                        </div>
-                                      );
-                                    })()}
-                                  </PopoverContent>
-                                </Popover>
-                              ) : (
-                                <span className="text-xs text-gray-400">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-gray-500">
-              No payment plan created yet. Use the <strong>Generate Payment Link</strong> button above to create one.
-            </CardContent>
-          </Card>
-        )
-      )}
-
-      {/* ── Lead History ───────────────────────────────────────────── */}
-      {unifiedTab === 'history' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Lead History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {eventsLoading ? (
-              <p className="py-8 text-center text-sm text-gray-500">Loading timeline…</p>
-            ) : events.length === 0 ? (
-              <p className="py-8 text-center text-sm text-gray-500">No events recorded yet.</p>
-            ) : (
-              <ol className="relative ml-2 border-l border-gray-200">
-                {events.map((ev, i) => {
-                  const eventType = asString(ev.event_type);
-                  const description = asString(ev.description);
-                  const actorName = asString(ev.actor_name);
-                  const actorRole = asString(ev.actor_role_label);
-                  const ts = ev.created_at instanceof Date
-                    ? ev.created_at.toLocaleString('en-IN')
-                    : asString(ev.created_at)
-                      ? new Date(asString(ev.created_at)).toLocaleString('en-IN')
-                      : '';
-                  return (
-                    <li key={i} className="mb-4 ml-4">
-                      <span className="absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-white bg-ttii-primary" />
-                      <p className="text-sm font-medium text-gray-900">{description}</p>
-                      <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-gray-500">
-                        <span>{ts}</span>
-                        {actorName ? <span>by {actorName}{actorRole ? ` (${actorRole})` : ''}</span> : <span>System</span>}
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider">{eventType}</span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Basic Information [Personal and Contact] ───────────────── */}
-      {!isLeadStage && unifiedTab === 'basic' && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                <span>Basic Information</span>
-                {isAdmin ? (
-                  <VerifyButton
-                    isVerified={verifiedSet.has('basic')}
-                    busy={verifyBusyKey === 'basic'}
-                    onToggle={(next) => void handleToggleVerification('basic', next)}
-                  />
-                ) : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-6 md:flex-row md:items-start">
-                {/* Profile photo */}
-                <div className="flex shrink-0 flex-col items-center gap-2">
-                  {asString(app.image) ? (
-                    <img
-                      src={asString(app.image)}
-                      alt={asString(app.name) || 'Profile photo'}
-                      className="size-32 rounded-xl border border-gray-200 object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="flex size-32 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-2xl font-semibold text-gray-400">
-                      {(asString(app.name) || '?').slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                  <span className="text-xs text-gray-500">Profile Photo</span>
-                </div>
-
-                <div className="grid flex-1 gap-x-8 md:grid-cols-2">
-                  <div>
-                    <InfoRow label="Full Name" value={asString(app.name)} />
-                    <InfoRow label="Date of Birth" value={formatDate(app.date_of_birth)} />
-                    <InfoRow label="Age" value={asString(app.age)} />
-                    <InfoRow label="Gender" value={asString(app.gender)} />
-                    <InfoRow label="Nationality" value={asString(app.nationality_name) || asString(app.nationality)} />
-                    <InfoRow label="Marital Status" value={asString(app.marital_status)} />
-                  </div>
-                  <div>
-                    <InfoRow label="Father Name" value={asString(app.father_name)} />
-                    <InfoRow label="Mother Name" value={asString(app.mother_name)} />
-                    <InfoRow label="Guardian Name" value={asString(app.guardian_name)} />
-                    <InfoRow label="Aadhar No." value={asString(app.aadhar_no)} />
-                    <InfoRow label="Passport No." value={asString(app.passport_no)} />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Contact Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Email" value={asString(app.user_email) || asString(app.email)} />
-                  <InfoRow
-                    label="Phone"
-                    value={[asString(app.country_code), asString(app.phone)].filter(Boolean).join(' ').trim() || asString(app.phone)}
-                  />
-                  <InfoRow label="Alternate Phone" value={asString(app.second_phone)} />
-                  <InfoRow label="WhatsApp" value={asString(app.whatsapp_no)} />
-                </div>
-                <div>
-                  <InfoRow label="Country" value={asString(app.country_name) || asString(app.country) || asString(app.country_id)} />
-                  <InfoRow label="State" value={asString(app.state)} />
-                  <InfoRow label="District" value={asString(app.district)} />
-                  <InfoRow label="Permanent Address" value={asString(app.address)} />
-                  <InfoRow label="Correspondence Address" value={asString(app.native_address)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Qualification ──────────────────────────────────────────── */}
-      {!isLeadStage && unifiedTab === 'qualification' && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                <span>Qualification Details</span>
-                {isAdmin ? (
-                  <VerifyButton
-                    isVerified={verifiedSet.has('qualification')}
-                    busy={verifyBusyKey === 'qualification'}
-                    onToggle={(next) => void handleToggleVerification('qualification', next)}
-                  />
-                ) : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Highest Qualification" value={asString(app.highest_qualification)} />
-                  <InfoRow label="Specialization" value={asString(app.specialization)} />
-                  <InfoRow label="School / College" value={asString(app.institution_name)} />
-                  <InfoRow label="Year of Passing" value={asString(app.year_of_passing)} />
-                </div>
-                <div>
-                  <InfoRow label="Employment Status" value={asString(app.employment_status)} />
-                  <InfoRow label="Current Occupation" value={asString(app.current_occupation)} />
-                  <InfoRow label="Experience" value={asString(app.work_experience)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Education Pathway</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {educationPathway.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                      <tr>
-                        <th className="px-4 py-2.5">Qualification</th>
-                        <th className="px-4 py-2.5">Specialization</th>
-                        <th className="px-4 py-2.5">Institution</th>
-                        <th className="px-4 py-2.5">Board</th>
-                        <th className="px-4 py-2.5">Year</th>
-                        <th className="px-4 py-2.5">Marks</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {educationPathway.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-2.5 text-gray-900">{asString(row.qualification) || '-'}</td>
-                          <td className="px-4 py-2.5 text-gray-700">{asString(row.specialization) || '-'}</td>
-                          <td className="px-4 py-2.5 text-gray-700">{asString(row.institution) || '-'}</td>
-                          <td className="px-4 py-2.5 text-gray-700">{asString(row.board) || '-'}</td>
-                          <td className="px-4 py-2.5 text-gray-700">{asString(row.year_passed) || '-'}</td>
-                          <td className="px-4 py-2.5 text-gray-700">{asString(row.marks) || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="px-4 py-6 text-sm text-gray-400">No education pathway entries recorded.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Documents (NEW) ────────────────────────────────────────── */}
-      {!isLeadStage && unifiedTab === 'documents' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-              <span>Documents</span>
-              {isAdmin ? (
-                <VerifyButton
-                  isVerified={verifiedSet.has('documents')}
-                  busy={verifyBusyKey === 'documents'}
-                  onToggle={(next) => void handleToggleVerification('documents', next)}
-                />
-              ) : null}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {documents.length > 0 ? (
-              <ul className="divide-y divide-gray-100">
-                {documents.map((doc, idx) => {
-                  const docKey = `doc:${idx}`;
-                  const label = asString(doc.label) || asString(doc.name) || `Document ${idx + 1}`;
-                  const url = asString(doc.url);
-                  return (
-                    <li key={idx} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {verifiedSet.has(docKey) ? (
-                          <span className="inline-flex size-5 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">✓</span>
-                        ) : (
-                          <span className="inline-flex size-5 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-400">•</span>
-                        )}
-                        <span className="text-sm font-medium text-gray-900">{label}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {url ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm font-medium text-ttii-primary hover:underline"
-                          >
-                            View
-                          </a>
-                        ) : (
-                          <span className="text-xs text-gray-400">No file</span>
-                        )}
-                        {isAdmin ? (
-                          <VerifyButton
-                            size="xs"
-                            isVerified={verifiedSet.has(docKey)}
-                            busy={verifyBusyKey === docKey}
-                            onToggle={(next) => void handleToggleVerification(docKey, next)}
-                          />
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="py-6 text-center text-sm text-gray-400">No documents uploaded.</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Payment History ────────────────────────────────────────── */}
-      {!isLeadStage && unifiedTab === 'payments' && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Fee Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-x-8 md:grid-cols-2">
-                <div>
-                  <InfoRow label="Course Fee" value={asString(app.course_fee) ? `₹${asString(app.course_fee)}` : '-'} />
-                  <InfoRow label="Discount" value={asString(app.discount) ? `${asString(app.discount)}%` : '-'} />
-                </div>
-                <div>
-                  <InfoRow label="GST Applicability" value={asString(app.gst_applicability)} />
-                  <InfoRow label="Final Course Fee" value={asString(app.final_course_fee) ? `₹${asString(app.final_course_fee)}` : '-'} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Payment History</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {payments.length > 0 ? (
-                <AdminDataTable columns={paymentColumns} rows={payments} searchable={false} exportable={false} />
-              ) : (
-                <p className="py-6 text-center text-sm text-gray-400">No payment records found.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Reject Dialog with Reason */}
-      {/* Naji 2026-05-08 — rich Generate Payment Link dialog. Pulls
-          pricing from the application's offering / combination so the
-          breakdown is computed up-front. */}
+      {/* Naji 2026-05-08 — offering-priced Full / Installment plan; reopens with the saved plan. */}
       <GeneratePaymentLinkDialog
-        open={payDialogOpen}
-        onOpenChange={setPayDialogOpen}
+        open={planOpen}
+        onOpenChange={setPlanOpen}
         api={api}
         authToken={session.token}
         applicationId={applicationId}
@@ -1369,223 +224,21 @@ export default function ViewApplicationPage({ api, session, onNavigate }: AdminP
         initialGstPercent={Number(app.application_gst_percent ?? 18)}
         initialSavedPlan={savedPlan}
         paymentStatus={paymentStatus}
-        onSent={() => reload()}
+        onSent={refresh}
       />
-
-      {/* Mark as Paid dialog — Naji 2026-05-09 */}
-      <Dialog open={markPaidOpen} onOpenChange={setMarkPaidOpen}>
-        <DialogContent className="w-[min(480px,calc(100vw-2rem))] max-w-[min(480px,calc(100vw-2rem))]">
-          <DialogHeader>
-            <DialogTitle>Mark as Paid</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="mp-mode">Mode</Label>
-              <select
-                id="mp-mode"
-                value={markPaidMode}
-                onChange={(e) => setMarkPaidMode(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="cash">Cash</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="cheque">Cheque</option>
-                <option value="card">Card / POS</option>
-                <option value="upi">UPI</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mp-amount">Amount Received (₹) *</Label>
-              <input
-                id="mp-amount"
-                type="number"
-                min="1"
-                step="1"
-                value={markPaidAmount}
-                onChange={(e) => setMarkPaidAmount(e.target.value)}
-                placeholder="Actual amount received"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mp-date">Date of Payment *</Label>
-              <input
-                id="mp-date"
-                type="date"
-                value={markPaidDate}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setMarkPaidDate(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mp-ref">Reference Number *</Label>
-              <input
-                id="mp-ref"
-                type="text"
-                value={markPaidReference}
-                onChange={(e) => setMarkPaidReference(e.target.value)}
-                placeholder="e.g. Cheque no., Bank ref, UPI txn ID"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mp-receipt">Receipt *</Label>
-              {markPaidReceiptUrl ? (
-                <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                  <span className="truncate">Uploaded: {markPaidReceiptUrl.split('/').pop()}</span>
-                  <button type="button" className="text-xs text-emerald-700 underline" onClick={() => setMarkPaidReceiptUrl('')}>Replace</button>
-                </div>
-              ) : (
-                <input
-                  id="mp-receipt"
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleReceiptUpload(file);
-                  }}
-                  disabled={markPaidUploading}
-                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-ttii-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ttii-primary"
-                />
-              )}
-              {markPaidUploading ? <p className="text-xs text-gray-500">Uploading…</p> : null}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMarkPaidOpen(false)} disabled={submitting}>Cancel</Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => void handleSubmitMarkPaid()}
-              disabled={submitting || !(Number(markPaidAmount) > 0) || !markPaidReference.trim() || markPaidUploading}
-            >
-              {submitting ? 'Saving…' : 'Mark as Paid'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={rejectDialogOpen} onOpenChange={(open) => { if (!open) { setRejectDialogOpen(false); setRejectReason(''); } }}>
-        <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleRejectSubmit();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>Reject Application</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <p className="text-sm text-gray-600">
-                Are you sure you want to reject this application? Please provide a reason below.
-              </p>
-              <div>
-                <Label className="mb-1 text-sm">Reason for Rejection *</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Enter reason for rejection"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setRejectDialogOpen(false); setRejectReason(''); }}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="destructive"
-                disabled={submitting || !rejectReason.trim()}
-              >
-                {submitting ? 'Rejecting...' : 'Reject Application'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
+      <MarkPaidDialog open={markPaidOpen} onOpenChange={setMarkPaidOpen} api={api} token={session.token} applicationId={applicationId} onDone={refresh} />
+      <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} api={api} token={session.token} applicationId={applicationId} onDone={refresh} />
+      <ReassignDialog
         open={reassignOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setReassignOpen(false);
-            setReassignPipeline('');
-            setReassignUser('');
-            setReassignUsers([]);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reassign Pipeline</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-gray-600">
-              Currently{' '}
-              <span className="font-medium text-gray-900">{asString(app?.pipeline) || '-'}</span>
-              {asString(app?.pipeline_user_name) ? ` · ${asString(app?.pipeline_user_name)}` : ''}. Choose the
-              pipeline and user this lead should belong to.
-            </p>
-            <div className="space-y-2">
-              <Label className="text-sm">Pipeline *</Label>
-              <select
-                className={reassignSelectClass}
-                value={reassignPipeline}
-                onChange={(e) => { setReassignPipeline(e.target.value); setReassignUser(''); }}
-              >
-                <option value="">Select Pipeline</option>
-                {PIPELINE_OPTIONS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm">Pipeline User *</Label>
-              <select
-                className={reassignSelectClass}
-                value={reassignUser}
-                onChange={(e) => setReassignUser(e.target.value)}
-                disabled={!reassignPipeline || reassignUsersLoading}
-              >
-                <option value="">
-                  {!reassignPipeline
-                    ? 'Select a pipeline first'
-                    : reassignUsersLoading
-                      ? 'Loading users...'
-                      : 'Select Pipeline User'}
-                </option>
-                {reassignUsers.map((u) => {
-                  const uid = asString(u.id);
-                  return (
-                    <option key={uid} value={uid}>
-                      {asString(u.name) || asString(u.user_email) || uid}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => { setReassignOpen(false); setReassignPipeline(''); setReassignUser(''); setReassignUsers([]); }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void submitReassign()}
-              disabled={reassignSaving || reassignUsersLoading || !reassignPipeline || !reassignUser}
-            >
-              {reassignSaving ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setReassignOpen}
+        api={api}
+        token={session.token}
+        applicationId={applicationId}
+        onDone={refresh}
+        currentPipeline={asString(app.pipeline)}
+        currentUserId={asString(app.pipeline_user)}
+        currentUserName={asString(app.pipeline_user_name)}
+      />
     </div>
   );
 }
