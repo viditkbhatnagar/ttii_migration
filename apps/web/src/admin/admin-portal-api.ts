@@ -2233,6 +2233,33 @@ export class AdminPortalApi {
     };
   }
 
+  /** Navbar global search — a few students + courses for the typed text. */
+  async globalSearch(authToken: string, q: string): Promise<{
+    students: Array<{ id: string; name: string; studentId: string; contact: string; course: string }>;
+    courses: Array<{ id: string; title: string; code: string }>;
+  }> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/search/global', authToken, { q });
+    const data = asRecord(payload.data) ?? {};
+    return {
+      students: toRecords(data.students).map((s) => ({
+        id: asString(s.id),
+        name: asString(s.name),
+        studentId: asString(s.studentId),
+        contact: asString(s.contact),
+        course: asString(s.course),
+      })),
+      courses: toRecords(data.courses).map((c) => ({ id: asString(c.id), title: asString(c.title), code: asString(c.code) })),
+    };
+  }
+
+  /** The signed-in user's own password (`/profile/change_password`). */
+  async changeMyPassword(authToken: string, password: string, confirmPassword: string): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/profile/change_password', authToken, {
+      password,
+      confirm_password: confirmPassword,
+    });
+  }
+
   // ── Admin permissions (Track 3, 2026-04-30) ──────────────────────
   // Naji 2026-05-09 — overview for the Roles & Permissions page.
   async loadRolesPermissionsOverview(authToken: string): Promise<{
