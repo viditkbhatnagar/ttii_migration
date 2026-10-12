@@ -232,6 +232,67 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Admin portal theme: Naji new admin design (TTII 2026-10-12), his exact
+   Lovable tokens - background, greys, borders, radius, card shadows, status
+   colours. Set on the html element while the admin portal is open, so dialogs,
+   popovers and menus (portaled to body) get it too.
+   ONE brand colour: --admin-brand. Every brand shade below (soft, glow, hover,
+   accent, ring, sidebar) is mixed from it, so recolouring the whole admin is a
+   single edit here. Kept TTII magenta until Naji confirms the final colour
+   (his prototype uses oklch(0.55 0.21 295) violet). Keep this block free of
+   apostrophes - one in an app.css comment breaks the Tailwind v4 build. */
+.admin-theme {
+  --admin-brand: #8F2774;
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.005 285);
+  --foreground: oklch(0.18 0.03 280);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 280);
+  --primary: var(--admin-brand);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.01 285);
+  --secondary-foreground: oklch(0.25 0.04 285);
+  --muted: oklch(0.96 0.008 285);
+  --muted-foreground: oklch(0.5 0.02 285);
+  --accent: color-mix(in oklch, var(--admin-brand) 9%, white);
+  --accent-foreground: color-mix(in oklch, var(--admin-brand) 85%, black);
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.93 0.01 285);
+  --input: oklch(0.93 0.01 285);
+  --ring: var(--admin-brand);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.3 0.04 285);
+  --sidebar-primary: var(--admin-brand);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: color-mix(in oklch, var(--admin-brand) 9%, white);
+  --sidebar-accent-foreground: color-mix(in oklch, var(--admin-brand) 85%, black);
+  --sidebar-border: oklch(0.93 0.01 285);
+  --sidebar-ring: var(--admin-brand);
+  --shadow-soft: 0 1px 2px oklch(0.3 0.05 285 / 0.04), 0 4px 16px oklch(0.3 0.05 285 / 0.06);
+  --shadow-card: 0 1px 3px oklch(0.3 0.05 285 / 0.05), 0 8px 24px oklch(0.3 0.05 285 / 0.05);
+  --gradient-primary: linear-gradient(135deg, var(--admin-brand), color-mix(in oklch, var(--admin-brand) 70%, white));
+  /* The --color-* tokens his markup uses (bg-primary-soft, text-success, ...). */
+  --color-primary-soft: color-mix(in oklch, var(--admin-brand) 8%, white);
+  --color-primary-glow: color-mix(in oklch, var(--admin-brand) 70%, white);
+  --color-primary-hover: color-mix(in oklch, var(--admin-brand) 85%, black);
+  --color-surface: oklch(1 0 0);
+  --color-success: oklch(0.7 0.16 155);
+  --color-success-foreground: oklch(0.99 0 0);
+  --color-success-soft: oklch(0.95 0.06 155);
+  --color-warning: oklch(0.78 0.15 75);
+  --color-warning-foreground: oklch(0.35 0.12 75);
+  --color-warning-soft: oklch(0.96 0.06 85);
+  --color-info: oklch(0.65 0.16 235);
+  --color-info-soft: oklch(0.95 0.05 235);
+  font-family: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+.admin-theme body {
+  background: var(--background);
+}
+
 /* Counsellor portal adopts the EXACT Lovable (ttiicounsellor.lovable.app)
    design system. Overriding the base vars here cascades into every Tailwind /
    shadcn utility (bg-primary, bg-muted, border-border, rounded-*, …) inside the

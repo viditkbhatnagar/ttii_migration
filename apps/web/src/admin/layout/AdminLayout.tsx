@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { AuthSession } from '@ttii/frontend-core';
 import type { AdminPortalApi } from '../admin-portal-api.js';
 import { AdminLayoutProvider, useAdminLayout } from './AdminLayoutContext.js';
@@ -20,13 +20,22 @@ interface AdminLayoutInnerProps {
 function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: AdminLayoutInnerProps) {
   const { mobileSidebarOpen, closeMobileSidebar } = useAdminLayout();
 
+  // Naji admin design (2026-10-12): the theme lives on <html> while the admin
+  // portal is open, so dialogs, popovers and menus portaled to <body> get it
+  // too (a class on this div would not reach them). Removed on the way out so
+  // the student / centre / counsellor portals keep their own look.
+  useEffect(() => {
+    document.documentElement.classList.add('admin-theme');
+    return () => document.documentElement.classList.remove('admin-theme');
+  }, []);
+
   const handleNavigate = useCallback((href: string) => {
     closeMobileSidebar();
     onNavigate(href);
   }, [closeMobileSidebar, onNavigate]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-ttii-page-bg">
+    <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop Sidebar */}
       <AdminSidebar pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
 
