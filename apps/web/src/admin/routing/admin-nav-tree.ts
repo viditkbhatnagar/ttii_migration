@@ -174,6 +174,7 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     children: [
       { id: 'exams', label: 'Exams', href: '/admin/exam/index' },
       { id: 'exam-calendar', label: 'Exam Calendar', href: '/admin/exam/calendar' },
+      { id: 'exam-submissions', label: 'Exam Submissions', href: '/admin/exam/submissions' },
       { id: 're-examination', label: 'Re-Examination', href: '/admin/Re_exam/index' },
       { id: 'evaluation', label: 'Evaluation', href: '/admin/Exam_evaluation/index' },
       { id: 'result', label: 'Result', href: '/admin/Exam_result/index' },

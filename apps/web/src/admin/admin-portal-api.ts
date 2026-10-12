@@ -1668,6 +1668,21 @@ export class AdminPortalApi {
     return Array.isArray(payload.data) ? payload.data : [];
   }
 
+  /** Exam Submissions (TTII 2026-10-12): one row per allocated student per sitting, plus re-exam rows. */
+  async listExamSubmissions(authToken: string, from: string, to: string): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/exam_submissions/list', authToken, { from, to });
+    return payload.data ?? null;
+  }
+
+  /** Null when the sitting, or the student's allocation on it, is not found. */
+  async getExamSubmissionDetail(authToken: string, sittingId: number, userId: number): Promise<unknown> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/exam_submissions/detail', authToken, {
+      exam_id: String(sittingId),
+      user_id: String(userId),
+    });
+    return payload.data ?? null;
+  }
+
   async getExamOverview(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exams/overview', authToken, { exam_id: examId });
     return asRecord(payload.data) ?? null;

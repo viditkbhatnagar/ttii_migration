@@ -287,7 +287,7 @@ function endOfDay(dateValue: unknown): Date | null {
  * instead (see submitExamAttempt) — the student had until the deadline, not
  * after it.
  */
-const LATE_SUBMIT_GRACE_MS = 90 * 1000;
+export const LATE_SUBMIT_GRACE_MS = 90 * 1000;
 
 /**
  * TTII 2026-08-14: "the exam should be automatically submitted once the allotted

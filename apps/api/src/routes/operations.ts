@@ -9,6 +9,7 @@ import { AnnouncementService, type AnnouncementInput } from '../operations/annou
 import { ExamAdminService } from '../operations/exam-admin-service.js';
 import { ExamCalendarService } from '../operations/exam-calendar-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
+import { ExamSubmissionsService } from '../operations/exam-submissions-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -52,6 +53,7 @@ interface RegisterOperationsRoutesOptions {
   examResultsService?: ExamResultsService;
   examAdminService?: ExamAdminService;
   examCalendarService?: ExamCalendarService;
+  examSubmissionsService?: ExamSubmissionsService;
   reExamService?: ReExamService;
   storage?: StorageProvider;
   [key: string]: unknown;
@@ -395,6 +397,7 @@ export function registerOperationsRoutes(
   const examResultsService = options.examResultsService ?? new ExamResultsService();
   const examAdminService = options.examAdminService ?? new ExamAdminService();
   const examCalendarService = options.examCalendarService ?? new ExamCalendarService();
+  const examSubmissionsService = options.examSubmissionsService ?? new ExamSubmissionsService();
   const reExamService = options.reExamService ?? new ReExamService();
 
   const requireAuth = requireLegacyAuth(authService);
@@ -2048,6 +2051,33 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await examCalendarService.range(toStringValue(payload.from), toStringValue(payload.to));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — Exam → Exam Submissions: one row per allocated student
+  // per sitting (plus re-exam rows), classified in operations/exam-submissions.ts.
+  app.get('/admin/exam_submissions/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await examSubmissionsService.list({
+        from: toStringValue(payload.from),
+        to: toStringValue(payload.to),
+        examId: toInteger(payload.exam_id),
+        courseId: toInteger(payload.course_id),
+      });
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_submissions/detail', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await examSubmissionsService.detail(toInteger(payload.exam_id), toInteger(payload.user_id));
+      if (!data) {
+        reply.code(200).send({ status: 0, message: 'Submission not found.', data: null });
+        return;
+      }
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
