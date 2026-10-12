@@ -8,7 +8,7 @@ import { formatClock } from '../../shared/utils/ist-date.js';
 import { formatYmd } from '../exam_result/exam-results-model.js';
 import { ListPager, PillTab } from '../students/list-chrome.js';
 import {
-  assignmentState, cohortPhase, filterAssignments, filterCohorts, filterSessions, sessionPhase,
+  assignmentState, cappedNote, cohortPhase, filterAssignments, filterCohorts, filterSessions, sessionPhase,
   type AssignmentFilter, type AssignmentItem, type CohortItem, type CohortPhase, type SessionItem, type SessionPhase,
 } from './instructor-detail-model.js';
 
@@ -47,8 +47,12 @@ function SectionHead({ title, hint, search, onSearch, placeholder }: {
 
 const rowNo = (page: number, i: number) => String((page - 1) * PAGE_SIZE + i + 1).padStart(2, '0');
 
-export function CohortsScheduleTab({ cohorts, sessions, today, onOpenCohort }: {
-  cohorts: CohortItem[]; sessions: SessionItem[]; today: string; onOpenCohort: (id: number) => void;
+function CapNote({ text }: { text: string }) {
+  return text ? <p role="note" className="px-4 pt-3 text-xs text-muted-foreground">{text}</p> : null;
+}
+
+export function CohortsScheduleTab({ cohorts, cohortTotal, sessions, today, onOpenCohort }: {
+  cohorts: CohortItem[]; cohortTotal: number; sessions: SessionItem[]; today: string; onOpenCohort: (id: number) => void;
 }) {
   const [cSearch, setCSearch] = useState('');
   const [cPhase, setCPhase] = useState<'' | CohortPhase>('');
@@ -72,6 +76,7 @@ export function CohortsScheduleTab({ cohorts, sessions, today, onOpenCohort }: {
           onSearch={(v) => { setCSearch(v); cp.setPage(1); }}
           placeholder="Search cohorts"
         />
+        <CapNote text={cappedNote(cohorts.length, cohortTotal, 'cohorts (by start date)')} />
         <div role="group" aria-label="Cohort status" className="flex flex-wrap gap-2 px-4 pt-3">
           <PillTab active={cPhase === ''} label="All" count={cohorts.length} onClick={() => { setCPhase(''); cp.setPage(1); }} />
           {(['Ongoing', 'Upcoming', 'Completed'] as const).map((p) => (
@@ -192,7 +197,7 @@ const ASSIGNMENT_TABS: Array<{ id: AssignmentFilter; label: string }> = [
   { id: 'none', label: 'No submissions' },
 ];
 
-export function AssignmentsTab({ assignments }: { assignments: AssignmentItem[] }) {
+export function AssignmentsTab({ assignments, total }: { assignments: AssignmentItem[]; total: number }) {
   const [search, setSearch] = useState('');
   const [state, setState] = useState<AssignmentFilter>('');
   const shown = useMemo(() => filterAssignments(assignments, search, state), [assignments, search, state]);
@@ -208,6 +213,7 @@ export function AssignmentsTab({ assignments }: { assignments: AssignmentItem[] 
         onSearch={(v) => { setSearch(v); p.setPage(1); }}
         placeholder="Search assignments"
       />
+      <CapNote text={cappedNote(assignments.length, total, 'assignments (by due date)')} />
       <div role="group" aria-label="Evaluation status" className="flex flex-wrap gap-2 px-4 pt-3">
         {ASSIGNMENT_TABS.map((t) => (
           <PillTab key={t.id || 'all'} active={state === t.id} label={t.label} count={countOf(t.id)} onClick={() => { setState(t.id); p.setPage(1); }} />

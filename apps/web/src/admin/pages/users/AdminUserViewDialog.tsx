@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { istDateTime } from '../../shared/utils/ist-date.js';
 import { formatYmd } from '../exam_result/exam-results-model.js';
 import { initialsOf } from '../students/students-list-model.js';
-import type { AdminUserRow } from './admin-users-model.js';
+import { LAST_SIGN_IN_HINT, type AdminUserRow } from './admin-users-model.js';
 
 // Read-only summary of one admin account (Naji's ViewUserDialog). Edit and
 // Enable / Disable hand back to the page's own handlers (same confirm + toast).
@@ -22,7 +22,7 @@ export function AdminUserViewDialog({ user, onClose, onEdit, onToggle }: {
       ['Mobile', user.phone || '—'],
       ['Role', user.roleLabel],
       ['Status', user.status],
-      ['Last Sign-in', istDateTime(user.lastSignIn) || 'Never'],
+      ['Last Sign-in', istDateTime(user.lastSignIn) || 'None on record'],
       ['Created', formatYmd(user.created) || '—'],
     ]
     : [];
@@ -47,7 +47,7 @@ export function AdminUserViewDialog({ user, onClose, onEdit, onToggle }: {
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <dl className="divide-y divide-border rounded-xl border border-border">
                 {rows.map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                  <div key={k} title={k === 'Last Sign-in' ? LAST_SIGN_IN_HINT : undefined} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <dt className="text-muted-foreground">{k}</dt>
                     <dd className="min-w-0 truncate text-right font-medium text-foreground">{v}</dd>
                   </div>

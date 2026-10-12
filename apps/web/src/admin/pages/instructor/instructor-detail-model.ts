@@ -53,18 +53,50 @@ export interface AssignmentItem {
   pending: number;
 }
 
+/** Server totals over EVERY row; the cohort / assignment lists are capped (latest first). */
+export interface OverviewTotals {
+  cohorts: number;
+  assignments: number;
+  learners: number;
+  pendingEval: number;
+}
+
 export interface InstructorOverviewModel {
   profile: InstructorProfile;
   cohorts: CohortItem[];
   sessions: SessionItem[];
   assignments: AssignmentItem[];
+  totals: OverviewTotals;
+}
+
+/** "Showing latest 100 of 130" when a list was capped by the server, else ''. */
+export function cappedNote(shown: number, total: number, noun: string): string {
+  return total > shown ? `Showing latest ${shown} of ${total} ${noun}.` : '';
 }
 
 const ymdOf = (v: unknown) => /^\d{4}-\d{2}-\d{2}/.exec(asString(v))?.[0] ?? '';
 
 export function toInstructorOverview(raw: Record<string, unknown>): InstructorOverviewModel {
   const p = asRecord(raw.profile) ?? {};
+  const cohorts = toRecords(raw.cohorts);
+  const assignments = toRecords(raw.assignments);
+  const t = asRecord(raw.totals);
+  // An older API without totals: fall back to what the lists hold.
+  const totals: OverviewTotals = t
+    ? {
+      cohorts: asNumber(t.cohorts),
+      assignments: asNumber(t.assignments),
+      learners: asNumber(t.learners),
+      pendingEval: asNumber(t.pendingEval),
+    }
+    : {
+      cohorts: cohorts.length,
+      assignments: assignments.length,
+      learners: cohorts.reduce((s, c) => s + asNumber(c.learnerCount), 0),
+      pendingEval: assignments.reduce((s, a) => s + asNumber(a.pendingCount), 0),
+    };
   return {
+    totals,
     profile: {
       id: asString(p.id),
       name: asString(p.name),
@@ -78,7 +110,7 @@ export function toInstructorOverview(raw: Record<string, unknown>): InstructorOv
       disabled: p.disabled === true,
       createdAt: asString(p.createdAt),
     },
-    cohorts: toRecords(raw.cohorts).map((c) => ({
+    cohorts: cohorts.map((c) => ({
       id: asNumber(c.id),
       title: asString(c.title),
       code: asString(c.cohortCode),
@@ -97,7 +129,7 @@ export function toInstructorOverview(raw: Record<string, unknown>): InstructorOv
       cohortTitle: asString(s.cohortTitle),
       hasRecording: s.hasRecording === true,
     })),
-    assignments: toRecords(raw.assignments).map((a) => ({
+    assignments: assignments.map((a) => ({
       id: asNumber(a.id),
       title: asString(a.title),
       cohortTitle: asString(a.cohortTitle),
@@ -131,12 +163,13 @@ export interface InstructorStats {
   pendingEval: number;
 }
 
+/** Cohort / learner / evaluation figures come from the server totals, which cover the capped-off rows too. */
 export function instructorStats(m: InstructorOverviewModel, today: string): InstructorStats {
   return {
-    cohorts: m.cohorts.length,
-    learners: m.cohorts.reduce((s, c) => s + c.learners, 0),
+    cohorts: m.totals.cohorts,
+    learners: m.totals.learners,
     sessionsDone: m.sessions.filter((s) => sessionPhase(s, today) === 'Past').length,
-    pendingEval: m.assignments.reduce((s, a) => s + a.pending, 0),
+    pendingEval: m.totals.pendingEval,
   };
 }
 

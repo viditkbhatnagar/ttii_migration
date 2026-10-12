@@ -25,7 +25,7 @@ import { initialsOf } from '../students/students-list-model.js';
 import { AdminUserFormDialog } from './AdminUserFormDialog.js';
 import { AdminUserViewDialog } from './AdminUserViewDialog.js';
 import {
-  EMPTY_ADMIN_FILTERS, adminStatusCounts, adminUserCsvRows, filterAdminUsers, sortAdminUsers, toAdminUserRows,
+  EMPTY_ADMIN_FILTERS, LAST_SIGN_IN_HINT, adminStatusCounts, adminUserCsvRows, filterAdminUsers, sortAdminUsers, toAdminUserRows,
   type AccountStatus, type AccountTab, type AdminRoleFilter, type AdminSortKey, type AdminUserFilters, type AdminUserRow,
 } from './admin-users-model.js';
 
@@ -298,7 +298,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{r.phone || '—'}</TableCell>
                     <TableCell><Pill tone={ROLE_TONE[r.roleId] ?? 'slate'}>{r.roleLabel}</Pill></TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.created) || '—'}</TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{istDateTime(r.lastSignIn) || 'Never'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground" title={LAST_SIGN_IN_HINT}>{istDateTime(r.lastSignIn) || 'None on record'}</TableCell>
                     <TableCell><Pill tone={STATUS_TONE[r.status]}>{r.status}</Pill></TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex items-center gap-1">

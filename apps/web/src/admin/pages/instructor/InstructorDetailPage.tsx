@@ -108,8 +108,8 @@ export default function InstructorDetailPage({ api, session, onNavigate }: Admin
   const bio = biographyText(p.biography);
   const tabs: Array<{ id: Tab; label: string; count?: number; icon: LucideIcon }> = [
     { id: 'overview', label: 'Overview', icon: GraduationCap },
-    { id: 'cohorts', label: 'Cohorts & Schedule', count: model.cohorts.length, icon: Users },
-    { id: 'assignments', label: 'Assignments & Evaluation', count: model.assignments.length, icon: ClipboardList },
+    { id: 'cohorts', label: 'Cohorts & Schedule', count: model.totals.cohorts, icon: Users },
+    { id: 'assignments', label: 'Assignments & Evaluation', count: model.totals.assignments, icon: ClipboardList },
   ];
 
   return (
@@ -249,12 +249,13 @@ export default function InstructorDetailPage({ api, session, onNavigate }: Admin
       {tab === 'cohorts' && (
         <CohortsScheduleTab
           cohorts={model.cohorts}
+          cohortTotal={model.totals.cohorts}
           sessions={model.sessions}
           today={today}
           onOpenCohort={(cohortId) => onNavigate(`/admin/cohorts/view/${cohortId}`)}
         />
       )}
-      {tab === 'assignments' && <AssignmentsTab assignments={model.assignments} />}
+      {tab === 'assignments' && <AssignmentsTab assignments={model.assignments} total={model.totals.assignments} />}
 
       <InstructorFormDialog
         open={editOpen}

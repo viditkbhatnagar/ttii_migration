@@ -13,6 +13,10 @@ export type AdminSortKey = 'name' | 'phone' | 'role' | 'created' | 'lastSignIn' 
 
 export const ADMIN_ROLE_LABEL: Record<number, string> = { 1: 'Super Admin', 8: 'Admin' };
 
+/** What "Last Sign-in" is (auth audit log), so the column never claims more than that. */
+export const LAST_SIGN_IN_HINT =
+  'Latest successful password, Google/Microsoft or OTP sign-in. Role switches are not counted; "None on record" means no sign-in was logged.';
+
 export interface AdminUserRow {
   id: string;
   name: string;
@@ -25,7 +29,7 @@ export interface AdminUserRow {
   isDisabled: boolean;
   /** IST day the account was created (YYYY-MM-DD), '' when unknown. */
   created: string;
-  /** ISO instant of the newest sign-in, '' when none is on record. */
+  /** ISO instant of the newest logged sign-in (role switches excluded), '' when none is on record. */
   lastSignIn: string;
   raw: Record<string, unknown>;
 }

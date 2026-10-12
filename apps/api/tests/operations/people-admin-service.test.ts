@@ -3,7 +3,9 @@ import { describe, expect, test, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
 import {
+  OVERVIEW_ROW_CAP,
   PeopleAdminService,
+  SIGN_IN_EVENTS,
   SUMMARY_ROLE_IDS,
   buildRoleCounts,
   displayEmail,
@@ -43,15 +45,19 @@ describe('joinPhone', () => {
 });
 
 describe('PeopleAdminService', () => {
-  test('lastSignIns keys the newest session per Super Admin / Admin', async () => {
+  test('lastSignIns keys the newest real sign-in per Super Admin / Admin (role switches excluded)', async () => {
     const groupBy = vi.fn().mockResolvedValue([
       { user_id: 5, _max: { created_at: new Date('2026-10-10T04:30:00Z') } },
       { user_id: 6, _max: { created_at: null } },
     ]);
     const findMany = vi.fn().mockResolvedValue([{ id: 5 }, { id: 6 }]);
-    const prisma = { users: { findMany }, auth_session: { groupBy } } as unknown as PrismaClient;
+    const prisma = { users: { findMany }, auth_audit_log: { groupBy } } as unknown as PrismaClient;
     const out = await new PeopleAdminService(prisma).lastSignIns();
     expect(findMany.mock.calls[0]?.[0]).toMatchObject({ where: { deleted_at: null, role_id: { in: [1, 8] } } });
+    const where = (groupBy.mock.calls[0] as [{ where: { event: { in: string[] } } }])[0].where;
+    expect(where).toMatchObject({ user_id: { in: [5, 6] }, success: 1 });
+    expect(where.event.in).toEqual([...SIGN_IN_EVENTS]);
+    expect(where.event.in).not.toContain('ROLE_SWITCH_SUCCESS');
     expect(out).toEqual({ '5': '2026-10-10T04:30:00.000Z' });
   });
 
@@ -84,5 +90,24 @@ describe('PeopleAdminService', () => {
     expect(out?.cohorts).toEqual([]);
     expect(out?.liveClasses).toEqual([]);
     expect(out?.assignments).toEqual([]);
+    expect(out?.totals).toEqual({ cohorts: 0, assignments: 0, learners: 0, pendingEval: 0, sessions: 0 });
+  });
+
+  test('instructorOverview caps cohorts and assignments but totals cover every row', async () => {
+    const svc = new PeopleAdminService({
+      users: { findFirst: vi.fn().mockResolvedValue({ id: 42, status: 1, disabled_at: null, created_at: null }) },
+    } as unknown as PrismaClient);
+    const n = OVERVIEW_ROW_CAP + 30;
+    const cohorts = Array.from({ length: n }, (_, i) => ({ id: i, learnerCount: 2 }));
+    const assignments = Array.from({ length: n }, (_, i) => ({ id: i, pendingCount: 1 }));
+    const inner = (svc as unknown as { instructors: Record<string, unknown> }).instructors;
+    inner.listCohorts = vi.fn().mockResolvedValue(cohorts);
+    inner.listAssignments = vi.fn().mockResolvedValue(assignments);
+    inner.listLiveClasses = vi.fn().mockResolvedValue([]);
+    const out = await svc.instructorOverview(42);
+    expect(out?.cohorts).toHaveLength(OVERVIEW_ROW_CAP);
+    expect(out?.cohorts[0]).toMatchObject({ id: 0 });
+    expect(out?.assignments).toHaveLength(OVERVIEW_ROW_CAP);
+    expect(out?.totals).toEqual({ cohorts: n, assignments: n, learners: 2 * n, pendingEval: n, sessions: 0 });
   });
 });

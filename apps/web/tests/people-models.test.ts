@@ -6,7 +6,7 @@ import {
   qualificationOptions, sortInstructors, toInstructorRows, waNumber,
 } from '../src/admin/pages/instructor/instructor-list-model';
 import {
-  assignmentState, biographyText, cohortPhase, filterAssignments, filterCohorts, filterSessions,
+  assignmentState, biographyText, cappedNote, cohortPhase, filterAssignments, filterCohorts, filterSessions,
   instructorStats, sessionPhase, toInstructorOverview,
 } from '../src/admin/pages/instructor/instructor-detail-model';
 import {
@@ -128,6 +128,16 @@ describe('instructor detail model', () => {
     expect(model.assignments.map(assignmentState)).toEqual(['pending', 'none', 'done']);
     expect(filterAssignments(model.assignments, '', 'done').map((a) => a.id)).toEqual([22]);
     expect(model.assignments[1]?.totalMarks).toBeNull();
+  });
+
+  test('server totals (over capped-off rows too) drive the stats; cap note only when capped', () => {
+    const capped = toInstructorOverview({
+      profile: {}, cohorts: [{ id: 1, learnerCount: 5 }], liveClasses: [], assignments: [{ id: 2, pendingCount: 1 }],
+      totals: { cohorts: 130, assignments: 240, learners: 900, pendingEval: 37 },
+    });
+    expect(instructorStats(capped, today)).toEqual({ cohorts: 130, learners: 900, sessionsDone: 0, pendingEval: 37 });
+    expect(cappedNote(100, 130, 'cohorts')).toBe('Showing latest 100 of 130 cohorts.');
+    expect(cappedNote(3, 3, 'cohorts')).toBe('');
   });
 
   test('biography is shown as text, never markup', () => {

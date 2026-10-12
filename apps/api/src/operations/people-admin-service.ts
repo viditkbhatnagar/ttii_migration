@@ -17,6 +17,10 @@ import { InstructorService } from '../instructor/instructor-service.js';
 export const SUMMARY_ROLE_IDS = [1, 8, 3, 9, 7, 10, 2] as const;
 const ADMIN_ROLE_IDS = [1, 8];
 const INSTRUCTOR_ROLE_ID = 3;
+/** The auth_audit_log events written when a session is issued by an actual sign-in. */
+export const SIGN_IN_EVENTS = ['LOGIN_SUCCESS', 'SSO_LOGIN_SUCCESS', 'OTP_VERIFY_SUCCESS'] as const;
+/** The instructor overview returns at most this many rows per list (newest first). */
+export const OVERVIEW_ROW_CAP = 100;
 
 export interface RoleCount {
   roleId: number;
@@ -53,6 +57,17 @@ export interface InstructorOverview {
     hasRecording: boolean;
   }>;
   assignments: Awaited<ReturnType<InstructorService['listAssignments']>>;
+  /**
+   * Totals over EVERY row, not just the capped lists above, so the hero stats
+   * and "Showing latest N of M" stay true for instructors with long histories.
+   */
+  totals: {
+    cohorts: number;
+    assignments: number;
+    learners: number;
+    pendingEval: number;
+    sessions: number;
+  };
 }
 
 /** Merges the two groupBy results into one row per summary role (zeros included). */
@@ -104,16 +119,22 @@ export class PeopleAdminService {
     return buildRoleCounts(totals, disabled);
   }
 
-  /** userId → ISO instant of their newest session (password, OTP, SSO or role switch). */
+  /**
+   * userId → ISO instant of their newest successful SIGN-IN, from the auth
+   * audit log: password, Google/Microsoft or OTP login. auth_session cannot be
+   * used — a role switch also mints a session — and ROLE_SWITCH_SUCCESS is a
+   * separate audit event, so switches are not counted. Users with no audit
+   * row (sign-ins before audit logging began) are simply absent.
+   */
   async lastSignIns(): Promise<Record<string, string>> {
     const admins = await this.prisma.users.findMany({
       where: { deleted_at: null, role_id: { in: ADMIN_ROLE_IDS } },
       select: { id: true },
     });
     if (admins.length === 0) return {};
-    const rows = await this.prisma.auth_session.groupBy({
+    const rows = await this.prisma.auth_audit_log.groupBy({
       by: ['user_id'],
-      where: { user_id: { in: admins.map((a) => a.id) } },
+      where: { user_id: { in: admins.map((a) => a.id) }, event: { in: [...SIGN_IN_EVENTS] }, success: 1 },
       _max: { created_at: true },
     });
     const out: Record<string, string> = {};
@@ -156,7 +177,17 @@ export class PeopleAdminService {
         disabled: user.disabled_at !== null,
         createdAt: user.created_at ? user.created_at.toISOString() : null,
       },
-      cohorts,
+      // listCohorts is newest start date first, listAssignments newest due date
+      // first, so the cap keeps the latest of each. The InstructorService
+      // methods themselves (shared with the faculty portal) are unchanged.
+      cohorts: cohorts.slice(0, OVERVIEW_ROW_CAP),
+      totals: {
+        cohorts: cohorts.length,
+        assignments: assignments.length,
+        learners: cohorts.reduce((s, c) => s + c.learnerCount, 0),
+        pendingEval: assignments.reduce((s, a) => s + a.pendingCount, 0),
+        sessions: liveClasses.length,
+      },
       // Join / recording URLs are not needed by the admin overview, so they are dropped.
       liveClasses: liveClasses.map((c) => ({
         id: c.id,
@@ -169,7 +200,7 @@ export class PeopleAdminService {
         cohortTitle: c.cohortTitle,
         hasRecording: c.hasRecording,
       })),
-      assignments,
+      assignments: assignments.slice(0, OVERVIEW_ROW_CAP),
     };
   }
 }
