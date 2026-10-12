@@ -1663,6 +1663,11 @@ export class AdminPortalApi {
     return Array.isArray(rows) ? (rows as unknown[]) : [];
   }
 
+  async getExamCalendar(authToken: string, from: string, to: string): Promise<unknown[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_calendar/index', authToken, { from, to });
+    return Array.isArray(payload.data) ? (payload.data as unknown[]) : [];
+  }
+
   async getExamOverview(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
     const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exams/overview', authToken, { exam_id: examId });
     return asRecord(payload.data) ?? null;
