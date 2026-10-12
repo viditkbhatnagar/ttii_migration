@@ -92,6 +92,11 @@ const FeeSummaryPage = lazy(() => import('../pages/fee/FeeSummaryPage.js'));
 const CounsellorsPage = lazy(() => import('../pages/counsellor/CounsellorsPage.js'));
 const CounsellorTargetPage = lazy(() => import('../pages/counsellor/CounsellorTargetPage.js'));
 const AssociatesPage = lazy(() => import('../pages/associates/AssociatesPage.js'));
+const AssociateDashboardPage = lazy(() => import('../pages/associates/AssociateDashboardPage.js'));
+const AssociateOnboardingPage = lazy(() => import('../pages/associates/AssociateOnboardingPage.js'));
+const AssociateStudentsPage = lazy(() => import('../pages/associates/AssociateStudentsPage.js'));
+const AssociateCommissionsPage = lazy(() => import('../pages/associates/AssociateCommissionsPage.js'));
+const AssociateCommunicationsPage = lazy(() => import('../pages/associates/AssociateCommunicationsPage.js'));
 const DocumentRequestsPage = lazy(() => import('../pages/documents/DocumentRequestsPage.js'));
 const DocumentsIssuedPage = lazy(() => import('../pages/documents/DocumentsIssuedPage.js'));
 const DocumentsDeliveryPage = lazy(() => import('../pages/documents/DocumentsDeliveryPage.js'));
@@ -241,6 +246,12 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Associates
   { path: '/admin/associates/index', pageComponent: AssociatesPage, title: 'Associates Directory' },
+  // Associate Management in Naji's design (TTII 2026-10-12).
+  { path: '/admin/associates/dashboard', pageComponent: AssociateDashboardPage, title: 'Associate Dashboard' },
+  { path: '/admin/associates/onboarding', pageComponent: AssociateOnboardingPage, title: 'Associate Onboarding' },
+  { path: '/admin/associates/students', pageComponent: AssociateStudentsPage, title: 'Associate Students' },
+  { path: '/admin/associates/commissions', pageComponent: AssociateCommissionsPage, title: 'Commissions' },
+  { path: '/admin/associates/communications', pageComponent: AssociateCommunicationsPage, title: 'Communications' },
 
   // Exam
   { path: '/admin/exam/dashboard', pageComponent: ExamDashboardPage, title: 'Exam Dashboard' },

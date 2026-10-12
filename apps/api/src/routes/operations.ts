@@ -16,6 +16,11 @@ import { ExamSubmissionsService } from '../operations/exam-submissions-service.j
 import { StudentDirectoryService } from '../operations/student-directory-service.js';
 import { StaffProfileNotFoundError, StaffProfileService, type StaffRole } from '../operations/staff-profile-service.js';
 import { PeopleAdminService } from '../operations/people-admin-service.js';
+import { AssociateAdminService } from '../operations/associate-admin-service.js';
+import { ASSOCIATE_STUDENT_TABS, type AssociateStudentTab } from '../operations/associate-admin-model.js';
+import {
+  AssociateCommunicationsService, COMM_TABLE_MISSING_MESSAGE, CommunicationTableMissingError, CommunicationValidationError,
+} from '../operations/associate-communications-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -67,6 +72,8 @@ interface RegisterOperationsRoutesOptions {
   studentDirectoryService?: StudentDirectoryService;
   staffProfileService?: StaffProfileService;
   peopleAdminService?: PeopleAdminService;
+  associateAdminService?: AssociateAdminService;
+  associateCommunicationsService?: AssociateCommunicationsService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -417,6 +424,8 @@ export function registerOperationsRoutes(
   const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
   const staffProfileService = options.staffProfileService ?? new StaffProfileService();
   const peopleAdminService = options.peopleAdminService ?? new PeopleAdminService();
+  const associateAdminService = options.associateAdminService ?? new AssociateAdminService();
+  const associateCommunicationsService = options.associateCommunicationsService ?? new AssociateCommunicationsService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2149,6 +2158,70 @@ export function registerOperationsRoutes(
   };
   app.get('/admin/counsellor/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 9));
   app.get('/admin/associates/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 10));
+
+  // TTII 2026-10-12 — Associate Management in Naji's design. Read-only
+  // (operations/associate-admin-service.ts) except Log Communication, which
+  // only RECORDS a conversation that already happened and never sends anything
+  // (operations/associate-communications-service.ts). Admin/Subadmin only.
+  app.get('/admin/associates/dashboard_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await associateAdminService.dashboard();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/associates/students_list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const tab = toStringValue(payload.tab);
+      const sort = toStringValue(payload.sort);
+      const data = await associateAdminService.students({
+        associateId: toInteger(payload.associate_id) || undefined,
+        courseId: toInteger(payload.course_id) || undefined,
+        tab: (ASSOCIATE_STUDENT_TABS as readonly string[]).includes(tab) ? (tab as AssociateStudentTab) : 'all',
+        month: toStringValue(payload.month),
+        monthBy: toStringValue(payload.month_by) === 'enrolled' ? 'enrolled' : 'lead',
+        search: toStringValue(payload.q),
+        sort: sort === 'name' || sort === 'enrolled' ? sort : 'lead',
+        dir: toStringValue(payload.dir) === 'asc' ? 'asc' : 'desc',
+        page: toInteger(payload.page) || 1,
+        pageSize: toInteger(payload.page_size) || undefined,
+        all: toStringValue(payload.all) === '1',
+      });
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/associates/onboarding_list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await associateAdminService.onboarding();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/associates/communications/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await associateCommunicationsService.list();
+      reply.code(200).send({ status: 1, message: data.tableMissing ? COMM_TABLE_MISSING_MESSAGE : 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/associates/communications/add', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const data = await associateCommunicationsService.log(toInteger(requestUserId(request)), requestPayload(request));
+      reply.code(200).send({ status: 1, message: 'Communication logged.', data });
+    } catch (error: unknown) {
+      if (error instanceof CommunicationValidationError) {
+        reply.code(200).send({ status: 0, message: error.message, data: { errors: error.errors } });
+        return;
+      }
+      if (error instanceof CommunicationTableMissingError) {
+        reply.code(200).send({ status: 0, message: error.message, data: { tableMissing: true } });
+        return;
+      }
+      sendOperationsError(reply, error);
+    }
+  });
 
   // TTII 2026-10-12 — Instructors / Admin Users / Roles in Naji's design.
   // Read-only side-cars (operations/people-admin-service.ts); every write stays
