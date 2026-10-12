@@ -183,6 +183,11 @@ describe('the submissions list', () => {
   test('a range that ends before it starts is empty', async () => {
     expect((await makeService().list({ from: '2026-10-10', to: '2026-10-01' })).rows).toEqual([]);
   });
+
+  test('a range wider than a year is refused', async () => {
+    await expect(makeService().list({ from: '2020-01-01', to: '2026-10-01' })).rejects.toThrow(RangeError);
+    expect((await makeService().list({ from: '2025-10-12', to: '2026-10-12' })).from).toBe('2025-10-12');
+  });
 });
 
 describe('the submission detail', () => {

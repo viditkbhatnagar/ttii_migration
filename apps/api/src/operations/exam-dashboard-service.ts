@@ -41,6 +41,9 @@ const UPCOMING_DAYS = 30;
 const TREND_MONTHS = 6;
 const ACTIVITY_DAYS = 30;
 const ACTIVITY_LIMIT = 10;
+// The summary reads every exam's result sheet, so repeat views within a
+// minute share one build (and concurrent requests share one in-flight build).
+const SUMMARY_TTL_MS = 60_000;
 
 export interface ActivityItem {
   kind: ActivityKind;
@@ -76,6 +79,7 @@ export class ExamDashboardService {
   private readonly admin: ExamAdminService;
   private readonly results: ExamResultsService;
   private readonly calendar: ExamCalendarService;
+  private cached: { at: number; value: Promise<ExamDashboardSummary> } | null = null;
 
   constructor(
     private readonly prisma: PrismaClient = getPrismaClient(),
@@ -87,8 +91,18 @@ export class ExamDashboardService {
     this.calendar = options.calendar ?? new ExamCalendarService(prisma, { now: this.now });
   }
 
-  async summary(): Promise<ExamDashboardSummary> {
+  summary(): Promise<ExamDashboardSummary> {
     const nowMs = this.now().getTime();
+    if (this.cached && nowMs - this.cached.at < SUMMARY_TTL_MS) return this.cached.value;
+    const value = this.build(nowMs);
+    const entry = { at: nowMs, value };
+    this.cached = entry;
+    // A failed build is not cached: the next request tries again.
+    value.catch(() => { if (this.cached === entry) this.cached = null; });
+    return value;
+  }
+
+  private async build(nowMs: number): Promise<ExamDashboardSummary> {
     const today = istYmd(nowMs);
     const [{ rows }, bundles, upcomingItems, questionBank, activityRows] = await Promise.all([
       this.admin.list(),

@@ -39,6 +39,8 @@ const STUDENT_ROLE = 2;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
 const DEFAULT_LOOKBACK_DAYS = 30;
+// Widest window one request may ask for; an open-ended `to` counts from `from`.
+const MAX_RANGE_DAYS = 366;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const examSelect = {
@@ -230,6 +232,9 @@ export class ExamSubmissionsService {
     if (to && to < from) return { from, to, rows: [] };
     const fromDate = new Date(`${from}T00:00:00Z`);
     const toDate = to ? new Date(`${to}T00:00:00Z`) : null;
+    if (toDate && toDate.getTime() - fromDate.getTime() > MAX_RANGE_DAYS * DAY_MS) {
+      throw new RangeError(`Choose a date range of at most ${MAX_RANGE_DAYS} days.`);
+    }
 
     const [candidates, reExamsInRange] = await Promise.all([
       this.prisma.exam.findMany({

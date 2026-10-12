@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import {
   QuestionBankService,
+  isTrueFalseOptions,
   parseQuestionCode,
   questionCode,
   toIdList,
@@ -122,6 +123,14 @@ describe('question codes and ids', () => {
     expect(toIdList([3, '4', '4', -1, 'x', 0, 2.5])).toEqual([3, 4]);
     expect(toIdList('5,6')).toEqual([5, 6]);
     expect(toIdList(undefined)).toEqual([]);
+  });
+
+  test('True / False is read the same way as the page: any case or spacing, true then false', () => {
+    expect(isTrueFalseOptions('["True","False"]')).toBe(true);
+    expect(isTrueFalseOptions('[" true ","FALSE"]')).toBe(true);
+    expect(isTrueFalseOptions('["False","True"]')).toBe(false);
+    expect(isTrueFalseOptions('["True","False","Maybe"]')).toBe(false);
+    expect(isTrueFalseOptions('not json')).toBe(false);
   });
 });
 

@@ -38,7 +38,7 @@ export async function loadDescriptiveProgress(prisma: PrismaClient, attemptIds: 
   });
   const questionIds = answerKeys.map((a) => a.question_id).filter((v): v is number => v !== null);
   const descriptive = questionIds.length > 0
-    ? (await prisma.question_bank.findMany({ where: { id: { in: questionIds }, q_type: 1 }, select: { id: true } })).map((q) => q.id)
+    ? (await prisma.question_bank.findMany({ where: { id: { in: questionIds }, q_type: 1, deleted_at: null }, select: { id: true } })).map((q) => q.id)
     : [];
   if (descriptive.length === 0) return result;
   const [answers, grades] = await Promise.all([

@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
-import { normaliseQuestionText } from './question-rules.js';
+import { normaliseQuestionText, toArray } from './question-rules.js';
 import { publishedSentence, questionBankCourseScope, questionUsage } from './question-usage.js';
 
 // Question Bank in Naji's design (TTII 2026-10-12, QuestionBankModule).
@@ -61,7 +61,17 @@ export const RECENT_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_BULK = 500;
 /** How a True / False question is stored: an MCQ with exactly these options. */
-export const TRUE_FALSE_OPTIONS = ['["True","False"]', '["true","false"]', '["TRUE","FALSE"]'];
+/**
+ * True / False = exactly two options reading "true" then "false", in any case
+ * or spacing — the same rule as the page's isTrueFalse, so the filter and the
+ * row badges always agree.
+ */
+export function isTrueFalseOptions(raw: unknown): boolean {
+  const options = toArray(raw);
+  return options.length === 2
+    && String(options[0]).trim().toLowerCase() === 'true'
+    && String(options[1]).trim().toLowerCase() === 'false';
+}
 
 export function questionCode(id: number): string {
   return `Q-${String(id).padStart(5, '0')}`;
@@ -345,11 +355,13 @@ export class QuestionBankService {
     // or False and the text search need the options / title columns.
     let tf: Set<number> | null = null;
     if (kind === 'tf') {
+      // Narrowed in SQL by the word (each common spelling, so it does not
+      // depend on the column collation), then decided by the exact rule.
       const hits = await this.prisma.question_bank.findMany({
-        where: { AND: [base, { q_type: 0, options: { in: TRUE_FALSE_OPTIONS } }] },
-        select: { id: true },
+        where: { AND: [base, { q_type: 0, OR: ['true', 'True', 'TRUE'].map((w) => ({ options: { contains: w } })) }] },
+        select: { id: true, options: true },
       });
-      tf = new Set(hits.map((h) => h.id));
+      tf = new Set(hits.filter((h) => isTrueFalseOptions(h.options)).map((h) => h.id));
     }
     const passesOther = (r: StatRow): boolean => {
       if (kind === 'descriptive' && r.q_type !== 1) return false;

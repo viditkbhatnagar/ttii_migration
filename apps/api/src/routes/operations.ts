@@ -2150,7 +2150,13 @@ export function registerOperationsRoutes(
         courseId: toInteger(payload.course_id),
       });
       reply.code(200).send({ status: 1, message: 'success', data });
-    } catch (error: unknown) { sendOperationsError(reply, error); }
+    } catch (error: unknown) {
+      if (error instanceof RangeError) {
+        reply.code(400).send({ status: 0, message: error.message, data: {} });
+        return;
+      }
+      sendOperationsError(reply, error);
+    }
   });
 
   app.get('/admin/exam_submissions/detail', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {

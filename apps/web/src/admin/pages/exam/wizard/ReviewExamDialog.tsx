@@ -42,6 +42,11 @@ interface Props {
  * Everything is re-read from the server when the dialog opens, so it shows
  * what is SAVED, not what is on screen in an earlier step.
  */
+// When the summary cannot be read, publishing is still allowed — the server
+// re-checks sittings and questions on publish — but the admin is told the
+// emailed-student count is unknown.
+const SUMMARY_UNAVAILABLE = 'The exam summary could not be loaded, so this screen cannot show how many students will be notified. The server still checks the sittings and questions before publishing.';
+
 export function ReviewExamDialog({ open, onOpenChange, api, authToken, draft, courses, extras, publishing, onPublish }: Props) {
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [error, setError] = useState('');
@@ -123,7 +128,7 @@ export function ReviewExamDialog({ open, onOpenChange, api, authToken, draft, co
 
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-6 py-4">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={publishing}>Back to Edit</Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setConfirmOpen(true)} disabled={!summary || publishing}>
+            <Button size="sm" className="gap-1.5" onClick={() => setConfirmOpen(true)} disabled={(!summary && !error) || publishing}>
               <Send aria-hidden="true" className="size-4" /> {isPublished ? 'Update & Re-publish' : 'Publish Exam'}
             </Button>
           </div>
@@ -137,7 +142,7 @@ export function ReviewExamDialog({ open, onOpenChange, api, authToken, draft, co
               <Send aria-hidden="true" className="size-4 text-primary" /> {isPublished ? 'Re-publish this exam?' : 'Publish this exam?'}
             </DialogTitle>
             <DialogDescription>
-              {summary ? publishConfirmMessage(summary, isPublished, notifyEmail) : ''}
+              {summary ? publishConfirmMessage(summary, isPublished, notifyEmail) : SUMMARY_UNAVAILABLE}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-2 gap-2 sm:gap-2">
