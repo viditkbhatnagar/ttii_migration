@@ -106,8 +106,12 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
   const prisma = {
     exam: {
       findFirst: ({ where }: { where: { id: number } }) => Promise.resolve(rows.find((r) => r.id === where.id) ?? null),
-      findMany: ({ where }: { where: { parent_exam_id: number } }) =>
-        Promise.resolve(rows.filter((r) => r.parent_exam_id === where.parent_exam_id)),
+      // Sittings are loaded in one batch for every exam: parent_exam_id IN (...).
+      findMany: ({ where }: { where: { parent_exam_id: number | { in: number[] } } }) => {
+        const want = where.parent_exam_id;
+        const parents = typeof want === 'number' ? [want] : want.in;
+        return Promise.resolve(rows.filter((r) => parents.includes(r.parent_exam_id as number)));
+      },
       updateMany: (args: ExamRowUpdate) => {
         calls.push(args);
         const hit = rows.filter((r) => matches(args.where, r));
@@ -122,7 +126,7 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
         { id: 2, subject_title: 'Child Care and Health', total_marks: 70, pass_marks: 25 },
       ]),
     },
-    exam_student_allocations: { findMany: () => Promise.resolve([{ user_id: 142 }, { user_id: 143 }, { user_id: 137 }]) },
+    exam_student_allocations: { findMany: () => Promise.resolve([{ exam_id: PARENT_ID, user_id: 142 }, { exam_id: PARENT_ID, user_id: 143 }, { exam_id: PARENT_ID, user_id: 137 }]) },
     exam_courses: { findMany: () => Promise.resolve([]) },
     course: { findMany: () => Promise.resolve([]) },
     users: {
