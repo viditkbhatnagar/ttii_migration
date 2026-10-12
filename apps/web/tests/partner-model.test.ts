@@ -16,6 +16,7 @@ import {
   statusCounts,
   toCombinationRows,
   toPartnerRows,
+  validateCombination,
   validatePartner,
   type CombinationFilters,
 } from '../src/admin/pages/certificates/partner-model';
@@ -137,3 +138,38 @@ describe('partner detail', () => {
     expect(studentStatuses(students)).toEqual(['Active', 'completed']);
   });
 });
+
+describe('legacy records are never blocked', () => {
+  const legacy = toPartnerRows([
+    { id: '20', partner_code: 'TTII', name: 'Teachers Training Institute', status: 'active', position: -5 },
+  ], []);
+  const others = partners; // already holds a TTII / same-name partner
+
+  test('partner: unchanged duplicate code / name and negative order still save', () => {
+    const original = partnerFormFrom(legacy[0]!);
+    expect(validatePartner(original, others, original)).toEqual({});
+    expect(validatePartner({ ...original, position: '-1' }, others, original).position).toBeDefined();
+    expect(validatePartner({ ...original, name: 'MS University' }, others, original).name).toBeDefined();
+    expect(validatePartner(original, others, null).partner_code).toBeDefined();
+  });
+
+  const twin = toCombinationRows([
+    { id: '4', combination_code: 'TTII + MSU', course_id: '16', gst_applicable: true, gst_percent: 150, status: 'inactive', partners: [{ id: '10' }, { id: '11' }] },
+  ])[0]!;
+  const all = [...combos, twin];
+  const check = (o: Partial<{ code: string; courseId: string; partnerIds: string[]; gstPercent: string }> = {}) => ({
+    code: 'TTII + MSU', courseId: '16', partnerIds: ['10', '11'], gstApplicable: true, gstPercent: '150', ...o,
+  });
+
+  test('combination: an unchanged legacy duplicate with an out-of-range GST re-saves', () => {
+    expect(validateCombination(check(), twin, all)).toBe('');
+  });
+
+  test('combination: changing the set or the GST is checked; inactive rows still count', () => {
+    expect(validateCombination(check({ gstPercent: '120' }), twin, all)).toBe('GST % must be between 0 and 100');
+    expect(validateCombination(check({ gstPercent: '18', partnerIds: ['10'] }), twin, all)).toBe('');
+    expect(validateCombination(check({ gstPercent: '18' }), null, [combos[1]!, twin])).toBe('This combination of partners already exists for this course');
+    expect(validateCombination(check({ code: ' ' }), twin, all)).toBe('Combination code is required');
+  });
+});
+

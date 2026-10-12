@@ -73,7 +73,7 @@ export function PartnerFormDialog({
   const codeChanged = editing !== null && form.partner_code.trim() !== editing.code.trim();
 
   const submit = async () => {
-    const found = validatePartner(form, partners.filter((p) => p.id !== editing?.id));
+    const found = validatePartner(form, partners.filter((p) => p.id !== editing?.id), editing ? partnerFormFrom(editing) : null);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setSaving(true);

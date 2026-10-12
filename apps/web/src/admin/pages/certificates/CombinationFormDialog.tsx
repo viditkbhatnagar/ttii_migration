@@ -10,8 +10,8 @@ import { asString } from '../../shared/utils/admin-data-utils.js';
 import {
   buildCodeFromPartners,
   isActiveStatus,
-  isDuplicateCombination,
   normalizeCombinationCode,
+  validateCombination,
   type CombinationRow,
 } from './partner-model.js';
 
@@ -102,16 +102,12 @@ export function CombinationFormDialog({
   }));
 
   const submit = async () => {
-    if (!form.combination_code.trim()) { setError('Combination code is required'); return; }
-    if (isDuplicateCombination(rows, editing?.id ?? '', form.course_id, form.partner_ids)) {
-      setError('This combination of partners already exists for this course');
-      return;
-    }
-    const pct = Number(form.gst_percent);
-    if (form.gst_applicable && form.gst_percent.trim() !== '' && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
-      setError('GST % must be between 0 and 100');
-      return;
-    }
+    const problem = validateCombination(
+      { code: form.combination_code, courseId: form.course_id, partnerIds: form.partner_ids, gstApplicable: form.gst_applicable, gstPercent: form.gst_percent },
+      editing,
+      rows,
+    );
+    if (problem) { setError(problem); return; }
     setError('');
     setSaving(true);
     try {

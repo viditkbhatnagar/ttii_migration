@@ -137,12 +137,15 @@ export function announcementCsvRows(rows: AnnouncementRow[]): Array<Array<string
 }
 
 export function formFromRow(row: AnnouncementRow): AnnouncementForm {
+  // A legacy row with no stored channel opens with In-app ticked: the server
+  // writes in_app when none is sent, so that is what the row already means.
+  const noChannel = row.channels.length === 0;
   return {
     cohort_id: row.cohortId,
     title: row.title,
     content: row.content,
     audience_type: row.audienceType,
-    delivery_in_app: row.channels.includes('in_app'),
+    delivery_in_app: noChannel || row.channels.includes('in_app'),
     delivery_email: row.channels.includes('email'),
     delivery_whatsapp: row.channels.includes('whatsapp'),
     attachment_url: row.attachmentUrl,
@@ -152,13 +155,19 @@ export function formFromRow(row: AnnouncementRow): AnnouncementForm {
 
 export interface FormErrors { title?: string; content?: string; channels?: string; attachment?: string }
 
-export function validateAnnouncement(form: AnnouncementForm): FormErrors {
+/**
+ * Title + message are required (as before). The newer checks never block an
+ * edit of a legacy record: the attachment URL is checked only when it changed
+ * from the stored value (`original`), so an old relative path still saves.
+ */
+export function validateAnnouncement(form: AnnouncementForm, original: AnnouncementForm | null = null): FormErrors {
   const errors: FormErrors = {};
   if (!form.title.trim()) errors.title = 'Title is required';
   if (!form.content.trim()) errors.content = 'Message is required';
   if (!form.delivery_in_app && !form.delivery_email && !form.delivery_whatsapp) errors.channels = 'Choose at least one delivery channel';
   const url = form.attachment_url.trim();
-  if (url && !/^https?:\/\/\S+$/i.test(url)) errors.attachment = 'Enter a valid URL starting with http(s)://';
+  const urlChanged = original === null || url !== original.attachment_url.trim();
+  if (url && urlChanged && !/^https?:\/\/\S+$/i.test(url)) errors.attachment = 'Enter a valid URL starting with http(s)://';
   return errors;
 }
 

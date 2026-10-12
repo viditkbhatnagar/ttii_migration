@@ -87,3 +87,20 @@ describe('form + payload', () => {
     expect(switched.audience_user_ids).toBeUndefined();
   });
 });
+
+describe('legacy records are never blocked', () => {
+  test('a row with no stored channel opens with In-app ticked and validates', () => {
+    const form = formFromRow(rows[1]!);
+    expect(form.delivery_in_app).toBe(true);
+    expect(validateAnnouncement(form, formFromRow(rows[1]!)).channels).toBeUndefined();
+  });
+
+  test('an unchanged legacy attachment path saves; a changed one is checked', () => {
+    const [legacy] = toAnnouncementRows([{ id: '9', title: 'Old', content: 'x', attachment_url: 'uploads/circular.pdf', delivery_channels: ['in_app'] }]);
+    const original = formFromRow(legacy!);
+    expect(validateAnnouncement(original, original)).toEqual({});
+    expect(validateAnnouncement({ ...original, attachment_url: 'uploads/other.pdf' }, original).attachment).toBeDefined();
+    expect(validateAnnouncement(original, null).attachment).toBeDefined();
+  });
+});
+

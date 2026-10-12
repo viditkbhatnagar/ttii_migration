@@ -54,7 +54,7 @@ export function AnnouncementFormDialog({
     : cohorts;
 
   const submit = async () => {
-    const found = validateAnnouncement(form);
+    const found = validateAnnouncement(form, editing ? formFromRow(editing) : null);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setSaving(true);

@@ -123,16 +123,22 @@ export function partnerFormFrom(r: PartnerRow): PartnerForm {
 
 export type PartnerErrors = Partial<Record<'partner_code' | 'name' | 'position', string>>;
 
-/** Required fields (as before) plus Naji's duplicate / display-order checks against the loaded list. */
-export function validatePartner(form: PartnerForm, others: PartnerRow[]): PartnerErrors {
+/**
+ * Required fields (as before) plus Naji's duplicate / display-order checks
+ * against the loaded list. The newer checks never block an edit of a legacy
+ * record: each runs only when its field changed from the stored value
+ * (`original`; null = a new partner, so everything is checked).
+ */
+export function validatePartner(form: PartnerForm, others: PartnerRow[], original: PartnerForm | null = null): PartnerErrors {
   const e: PartnerErrors = {};
   const code = form.partner_code.trim();
   const name = form.name.trim();
+  const changed = (k: 'partner_code' | 'name' | 'position') => original === null || form[k].trim() !== original[k].trim();
   if (!code) e.partner_code = 'Partner Code is required';
-  else if (others.some((p) => p.code.trim().toLowerCase() === code.toLowerCase())) e.partner_code = 'This code is already used by another partner';
+  else if (changed('partner_code') && others.some((p) => p.code.trim().toLowerCase() === code.toLowerCase())) e.partner_code = 'This code is already used by another partner';
   if (!name) e.name = 'Partner Name is required';
-  else if (others.some((p) => p.name.trim().toLowerCase() === name.toLowerCase())) e.name = 'A partner with this name already exists';
-  if (form.position.trim() !== '') {
+  else if (changed('name') && others.some((p) => p.name.trim().toLowerCase() === name.toLowerCase())) e.name = 'A partner with this name already exists';
+  if (form.position.trim() !== '' && changed('position')) {
     const n = Number(form.position);
     if (!Number.isFinite(n) || n < 0) e.position = 'Display order must be 0 or more';
   }
@@ -257,9 +263,38 @@ export function buildCodeFromPartners(partners: Array<{ id: string; code: string
     .join(' + ');
 }
 
-/** True when another combination already pairs this course with exactly these partners. */
+/**
+ * True when another combination already pairs this course with exactly these
+ * partners. The list holds every non-deleted combination; inactive ones still
+ * count (the server keeps them, and they can be re-activated).
+ */
 export function isDuplicateCombination(rows: CombinationRow[], selfId: string, courseId: string, partnerIds: string[]): boolean {
   if (!courseId || partnerIds.length === 0) return false;
   const key = [...partnerIds].sort().join('|');
   return rows.some((r) => r.id !== selfId && r.courseId === courseId && r.partners.map((p) => p.id).sort().join('|') === key);
+}
+
+export interface CombinationCheck { code: string; courseId: string; partnerIds: string[]; gstApplicable: boolean; gstPercent: string }
+
+/**
+ * Error text for the combination form, or ''. The code stays required (as
+ * before); the duplicate and GST-range checks run only when their fields
+ * changed from the stored row (`original`; null = new), so a legacy record
+ * can always be re-saved as it is.
+ */
+export function validateCombination(form: CombinationCheck, original: CombinationRow | null, rows: CombinationRow[]): string {
+  if (!form.code.trim()) return 'Combination code is required';
+  const setChanged = original === null
+    || form.courseId !== original.courseId
+    || [...form.partnerIds].sort().join('|') !== original.partners.map((p) => p.id).sort().join('|');
+  if (setChanged && isDuplicateCombination(rows, original?.id ?? '', form.courseId, form.partnerIds)) {
+    return 'This combination of partners already exists for this course';
+  }
+  const pctText = form.gstPercent.trim();
+  const pctChanged = original === null || pctText !== (original.gstPercent === null ? '18' : String(original.gstPercent));
+  const pct = Number(pctText);
+  if (form.gstApplicable && pctText !== '' && pctChanged && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
+    return 'GST % must be between 0 and 100';
+  }
+  return '';
 }
