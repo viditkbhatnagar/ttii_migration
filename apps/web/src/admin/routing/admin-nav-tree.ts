@@ -130,30 +130,34 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
       { id: 'instructors-directory', label: 'Instructors Directory', href: '/admin/instructor/index' },
     ],
   },
+  // Naji's sidebar (2026-10-12): the old "Users", "Counsellors" and
+  // "Associates" groups became "Counsellor Management" and "Associate
+  // Management" here, right after Instructors, and "Administration" (User
+  // Management, Roles & Permissions, Audit Logs) just above Settings.
+  // Item ids must stay unique across the WHOLE tree: the sidebar highlights by
+  // item id, so a second 'dashboard' would also light up the top-level one.
   {
-    id: 'users-admin',
-    label: 'Users',
-    icon: 'Shield',
+    id: 'counsellor-management',
+    label: 'Counsellor Management',
+    icon: 'Headphones',
     children: [
-      { id: 'admin-users', label: 'Admin Users', href: '/admin/sub_admin/index' },
-      { id: 'roles-permissions', label: 'Roles & Permissions', href: '/admin/roles/index' },
+      { id: 'counsellors-directory', label: 'Counsellors', href: '/admin/counsellor/index' },
+      { id: 'counsellor-teams', label: 'Teams', href: '/admin/teams/index' },
+      { id: 'counsellor-groups', label: 'Groups', href: '/admin/groups/index' },
+      { id: 'counsellor-target', label: 'Targets', href: '/admin/counsellor_target/index' },
     ],
   },
   {
-    id: 'counsellors',
-    label: 'Counsellors',
-    icon: 'HeartHandshake',
-    children: [
-      { id: 'counsellors-directory', label: 'Counsellors Directory', href: '/admin/counsellor/index' },
-      { id: 'counsellor-target', label: 'Counsellor Target', href: '/admin/counsellor_target/index' },
-    ],
-  },
-  {
-    id: 'associates',
-    label: 'Associates',
+    id: 'associate-management',
+    label: 'Associate Management',
     icon: 'Handshake',
     children: [
-      { id: 'associates-directory', label: 'Associates Directory', href: '/admin/associates/index' },
+      { id: 'associates-dashboard', label: 'Dashboard', href: '/admin/associates/dashboard' },
+      { id: 'associates-directory', label: 'Associates', href: '/admin/associates/index' },
+      { id: 'associates-onboarding', label: 'Onboarding', href: '/admin/associates/onboarding' },
+      { id: 'associates-students', label: 'Associate Students', href: '/admin/associates/students' },
+      { id: 'associates-commissions', label: 'Commissions', href: '/admin/associates/commissions' },
+      { id: 'associates-communications', label: 'Communications', href: '/admin/associates/communications' },
     ],
   },
   // CRM, AI Mentor, Circulars: hidden on Naji's request 2026-05-07.
@@ -207,6 +211,16 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     ],
   },
   {
+    id: 'administration',
+    label: 'Administration',
+    icon: 'ShieldCheck',
+    children: [
+      { id: 'admin-users', label: 'User Management', href: '/admin/sub_admin/index' },
+      { id: 'roles-permissions', label: 'Roles & Permissions', href: '/admin/roles/index' },
+      { id: 'audit-logs', label: 'Audit Logs', href: '/admin/audit_logs/index' },
+    ],
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: 'Settings',
@@ -239,18 +253,44 @@ export function getNavTreeForRole(_roleId: number): readonly AdminNavEntry[] {
   return ADMIN_NAV_TREE;
 }
 
-export function findActiveNavIds(pathname: string): { groupId: string | null; itemId: string | null } {
+interface NavTarget {
+  groupId: string | null;
+  itemId: string;
+  href: string;
+}
+
+function navTargets(tree: readonly AdminNavEntry[]): NavTarget[] {
+  return tree.flatMap((entry): NavTarget[] =>
+    isNavGroup(entry)
+      ? entry.children.map((child) => ({ groupId: entry.id, itemId: child.id, href: child.href }))
+      : [{ groupId: null, itemId: entry.id, href: entry.href }],
+  );
+}
+
+/** '/admin/roles/index' → '/admin/roles/'; null for hrefs that are not a section's index page. */
+function sectionOf(href: string): string | null {
+  return href.endsWith('/index') ? href.slice(0, -'index'.length) : null;
+}
+
+/**
+ * The menu item (and its group) for a path. An exact match, or a path nested
+ * under an item's href, wins; otherwise a detail page highlights the index
+ * item of its section (/admin/roles/manage/5 → Roles & Permissions,
+ * /admin/associates/view/7 → Associates), so the sidebar keeps its place on
+ * pages that are not themselves in the menu.
+ */
+export function findActiveNavIds(
+  pathname: string,
+  tree: readonly AdminNavEntry[] = ADMIN_NAV_TREE,
+): { groupId: string | null; itemId: string | null } {
   const normalized = pathname.replace(/\/$/, '');
-  for (const entry of ADMIN_NAV_TREE) {
-    if (isNavGroup(entry)) {
-      for (const child of entry.children) {
-        if (normalized === child.href || normalized.startsWith(child.href + '/')) {
-          return { groupId: entry.id, itemId: child.id };
-        }
-      }
-    } else if (normalized === entry.href || normalized.startsWith(entry.href + '/')) {
-      return { groupId: null, itemId: entry.id };
-    }
-  }
+  const targets = navTargets(tree);
+  const direct = targets.find((t) => normalized === t.href || normalized.startsWith(t.href + '/'));
+  if (direct) return { groupId: direct.groupId, itemId: direct.itemId };
+  const inSection = targets.find((t) => {
+    const section = sectionOf(t.href);
+    return section !== null && normalized.startsWith(section);
+  });
+  if (inSection) return { groupId: inSection.groupId, itemId: inSection.itemId };
   return { groupId: null, itemId: null };
 }

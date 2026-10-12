@@ -178,7 +178,7 @@ export function RoleProfileDialog({
                   <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-12 text-center">
                     <Users2 aria-hidden="true" className="size-8 text-muted-foreground/50" />
                     <p className="text-sm font-semibold text-foreground">{users} {role.name.toLowerCase()} account{users === '1' ? '' : 's'}</p>
-                    <p className="max-w-md text-xs text-muted-foreground">They are managed in the {role.directoryLabel}.</p>
+                    <p className="max-w-md text-xs text-muted-foreground">They are managed on the {role.directoryLabel} page.</p>
                     <Button size="sm" variant="outline" onClick={() => { onClose(); onNavigate(role.directoryHref); }}>Open {role.directoryLabel}</Button>
                   </div>
                 ) : (

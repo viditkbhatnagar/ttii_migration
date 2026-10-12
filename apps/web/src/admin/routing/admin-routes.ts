@@ -126,6 +126,7 @@ const LanguagePage = lazy(() => import('../pages/language/LanguagePage.js'));
 // Phase 6: Additional pages
 const RolesPermissionsPage = lazy(() => import('../pages/roles/RolesPermissionsPage.js'));
 const ManagePermissionsPage = lazy(() => import('../pages/roles/ManagePermissionsPage.js'));
+const AuditLogsPage = lazy(() => import('../pages/audit_logs/AuditLogsPage.js'));
 const StudentPaymentsPage = lazy(() => import('../pages/student_payments/StudentPaymentsPage.js'));
 const EnquiriesPage = lazy(() => import('../pages/enquiries/EnquiriesPage.js'));
 const BooksLibraryPage = lazy(() => import('../pages/books/BooksLibraryPage.js'));
@@ -232,15 +233,15 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Both legacy paths now serve the unified Admin Users page (Naji
   // 2026-04-30 — merged Super Admin + Admin into one list with a Role
   // column). Keeping /admin/admin/index for back-compat with bookmarks.
-  { path: '/admin/admin/index', pageComponent: AdminUsersPage, title: 'Admin Users' },
-  { path: '/admin/sub_admin/index', pageComponent: AdminUsersPage, title: 'Admin Users' },
+  { path: '/admin/admin/index', pageComponent: AdminUsersPage, title: 'User Management' },
+  { path: '/admin/sub_admin/index', pageComponent: AdminUsersPage, title: 'User Management' },
 
   // Counsellors
-  { path: '/admin/counsellor/index', pageComponent: CounsellorsPage, title: 'Counsellors Directory' },
-  { path: '/admin/counsellor_target/index', pageComponent: CounsellorTargetPage, title: 'Counsellor Target' },
+  { path: '/admin/counsellor/index', pageComponent: CounsellorsPage, title: 'Counsellors' },
+  { path: '/admin/counsellor_target/index', pageComponent: CounsellorTargetPage, title: 'Counsellor Targets' },
 
   // Associates
-  { path: '/admin/associates/index', pageComponent: AssociatesPage, title: 'Associates Directory' },
+  { path: '/admin/associates/index', pageComponent: AssociatesPage, title: 'Associates' },
 
   // Exam
   { path: '/admin/exam/dashboard', pageComponent: ExamDashboardPage, title: 'Exam Dashboard' },
@@ -297,6 +298,8 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   // Phase 6: Additional pages
   { path: '/admin/roles/index', aliases: ['/admin/roles'], pageComponent: RolesPermissionsPage, title: 'Roles & Permissions' },
   { path: '/admin/roles/manage/:id', pageComponent: ManagePermissionsPage, title: 'Manage Permissions' },
+  // Administration → Audit Logs (Naji 2026-10-12): read-only sign-in + application history.
+  { path: '/admin/audit_logs/index', aliases: ['/admin/audit_logs'], pageComponent: AuditLogsPage, title: 'Audit Logs' },
   { path: '/admin/student_payments/index', aliases: ['/admin/student_payments'], pageComponent: StudentPaymentsPage, title: 'Student Payments' },
   { path: '/admin/enquiries/index', aliases: ['/admin/enquiries'], pageComponent: EnquiriesPage, title: 'Enquiries' },
   { path: '/admin/books/index', aliases: ['/admin/books'], pageComponent: BooksLibraryPage, title: 'Books Library' },

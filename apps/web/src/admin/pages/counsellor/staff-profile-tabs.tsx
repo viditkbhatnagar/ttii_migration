@@ -153,7 +153,7 @@ export function TargetsTab({ targets }: { targets: TargetRow[] }) {
   if (targets.length === 0) {
     return (
       <Card className="gap-0 border-border/70 p-0 shadow-[var(--shadow-soft)]">
-        <EmptyState icon={Target} title="No targets assigned yet." body="Assign one from Counsellors → Counsellor Target." />
+        <EmptyState icon={Target} title="No targets assigned yet." body="Assign one from Counsellor Management → Targets." />
       </Card>
     );
   }

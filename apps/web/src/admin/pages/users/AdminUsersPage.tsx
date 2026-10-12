@@ -177,7 +177,7 @@ export default function AdminUsersPage({ api, session }: AdminPageProps) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Administration</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">Admin Users</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">User Management</h1>
           <p className="mt-1 text-sm text-muted-foreground">Manage Super Admin and Admin accounts and their sign-in access.</p>
         </div>
         <div className="flex flex-wrap gap-2">

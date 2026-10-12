@@ -28,12 +28,12 @@ export interface RoleDef {
 }
 
 export const ROLE_DEFS: readonly RoleDef[] = [
-  { roleId: 1, name: 'Super Admin', description: 'Runs the admin portal; holds every admin permission.', portal: 'Admin portal (admin.teachersindia.in)', access: 'all', directoryHref: '/admin/sub_admin/index', directoryLabel: 'Admin Users' },
-  { roleId: 8, name: 'Admin', description: 'Runs the admin portal; permission grants are recorded per user.', portal: 'Admin portal (admin.teachersindia.in)', access: 'grants', directoryHref: '/admin/sub_admin/index', directoryLabel: 'Admin Users' },
+  { roleId: 1, name: 'Super Admin', description: 'Runs the admin portal; holds every admin permission.', portal: 'Admin portal (admin.teachersindia.in)', access: 'all', directoryHref: '/admin/sub_admin/index', directoryLabel: 'User Management' },
+  { roleId: 8, name: 'Admin', description: 'Runs the admin portal; permission grants are recorded per user.', portal: 'Admin portal (admin.teachersindia.in)', access: 'grants', directoryHref: '/admin/sub_admin/index', directoryLabel: 'User Management' },
   { roleId: 3, name: 'Instructor', description: 'Teaches cohorts in the faculty portal: live sessions and assignment grading.', portal: 'Faculty portal (admin.teachersindia.in)', access: 'role', directoryHref: '/admin/instructor/index', directoryLabel: 'Instructors Directory' },
-  { roleId: 9, name: 'Counsellor', description: 'Works leads and applications in the counsellor portal.', portal: 'Counsellor portal (admissions.teachersindia.in)', access: 'role', directoryHref: '/admin/counsellor/index', directoryLabel: 'Counsellors Directory' },
+  { roleId: 9, name: 'Counsellor', description: 'Works leads and applications in the counsellor portal.', portal: 'Counsellor portal (admissions.teachersindia.in)', access: 'role', directoryHref: '/admin/counsellor/index', directoryLabel: 'Counsellors' },
   { roleId: 7, name: 'Centre', description: 'A partner centre managing its own applications and students.', portal: 'Centre portal (admissions.teachersindia.in)', access: 'role', directoryHref: '/admin/centres/index', directoryLabel: 'Centre Directory' },
-  { roleId: 10, name: 'Associate', description: 'A referral partner working through the centre portal.', portal: 'Centre portal (admissions.teachersindia.in)', access: 'role', directoryHref: '/admin/associates/index', directoryLabel: 'Associates Directory' },
+  { roleId: 10, name: 'Associate', description: 'A referral partner working through the centre portal.', portal: 'Centre portal (admissions.teachersindia.in)', access: 'role', directoryHref: '/admin/associates/index', directoryLabel: 'Associates' },
   { roleId: 2, name: 'Student', description: 'A learner in the student portal.', portal: 'Student portal (learn.teachersindia.in)', access: 'role', directoryHref: '/admin/students/index', directoryLabel: 'Students' },
 ];
 
