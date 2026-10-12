@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ArrowLeft, Briefcase, Building2, CalendarDays, FileText, GraduationCap, Mail, MessageCircle, MoreHorizontal,
+  ArrowLeft, Briefcase, Building2, CalendarDays, FileText, GraduationCap, Mail, MoreHorizontal,
   Pencil, Phone, RefreshCw,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,7 +15,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { Pill } from '../../shared/components/ui-kit.js';
 import type { StaffKind } from './StaffFormDialog.js';
 import type { TargetRow } from './counsellor-target-model.js';
-import { formatYmd, initialsOf, telLink, whatsappLink, type StaffRow } from './staff-model.js';
+import { formatYmd, initialsOf, type StaffRow } from './staff-model.js';
 import { EMPTY_PROFILE_STATS, toProfileStats } from './staff-profile-model.js';
 import {
   ActivityTab, ApplicationsTab, OverviewTab, PerformanceTab, StudentsTab, TargetsTab,
@@ -59,8 +59,6 @@ export function StaffProfile({ kind, row, api, token, targets, actions, onBack, 
     { id: 'students', label: 'Students' },
     { id: 'activity', label: 'Activity Timeline' },
   ];
-  const tel = telLink(row.phone);
-  const wa = whatsappLink(row.phone);
   const conversion = stats.kpis.applications > 0 ? Math.round((stats.kpis.enrolled / stats.kpis.applications) * 100) : row.conversion;
   const viewApplication = (id: string) => onNavigate(`/admin/applications/view/${id}`);
 
@@ -99,8 +97,6 @@ export function StaffProfile({ kind, row, api, token, targets, actions, onBack, 
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {tel ? <Button variant="outline" size="sm" asChild><a href={tel}><Phone aria-hidden="true" className="mr-1.5 size-4" />Call</a></Button> : null}
-              {wa ? <Button variant="outline" size="sm" asChild><a href={wa} target="_blank" rel="noreferrer"><MessageCircle aria-hidden="true" className="mr-1.5 size-4" />WhatsApp</a></Button> : null}
               {row.email ? <Button variant="outline" size="sm" asChild><a href={`mailto:${row.email}`}><Mail aria-hidden="true" className="mr-1.5 size-4" />Email</a></Button> : null}
               <Button size="sm" className="gap-1.5" onClick={onEdit}><Pencil aria-hidden="true" className="size-4" />Edit Profile</Button>
               <DropdownMenu>
@@ -157,8 +153,8 @@ export function StaffProfile({ kind, row, api, token, targets, actions, onBack, 
           {tab === 'overview' ? <OverviewTab row={row} noun={noun} stats={data ? stats : { ...stats, kpis: { ...stats.kpis, applications: row.applications, enrolled: row.converted } }} /> : null}
           {tab === 'performance' ? <PerformanceTab stats={stats} /> : null}
           {tab === 'targets' && targets ? <TargetsTab targets={targets} /> : null}
-          {tab === 'applications' ? <ApplicationsTab apps={stats.applications} onView={viewApplication} /> : null}
-          {tab === 'students' ? <StudentsTab apps={stats.applications} onView={viewApplication} /> : null}
+          {tab === 'applications' ? <ApplicationsTab apps={stats.applications} total={stats.kpis.applications} onView={viewApplication} /> : null}
+          {tab === 'students' ? <StudentsTab apps={stats.applications} total={stats.kpis.applications} enrolled={stats.kpis.enrolled} onView={viewApplication} /> : null}
           {tab === 'activity' ? <ActivityTab activity={stats.activity} /> : null}
         </>
       )}

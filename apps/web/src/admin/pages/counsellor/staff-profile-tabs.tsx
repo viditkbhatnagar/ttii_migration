@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Activity, Building2, CheckCircle2, Eye, FileText, GraduationCap, Search, Target, TrendingUp, UserCheck,
 } from 'lucide-react';
@@ -80,15 +80,7 @@ export function OverviewTab({ row, noun, stats }: { row: StaffRow; noun: string;
 export function PerformanceTab({ stats }: { stats: ProfileStats }) {
   const { kpis } = stats;
   const conversion = kpis.applications > 0 ? Math.round((kpis.enrolled / kpis.applications) * 100) : 0;
-  const mix = useMemo(() => {
-    const by = new Map<string, { n: number; e: number }>();
-    for (const a of stats.applications) {
-      const key = a.course || 'No course';
-      const cur = by.get(key) ?? { n: 0, e: 0 };
-      by.set(key, { n: cur.n + 1, e: cur.e + (a.enrolled ? 1 : 0) });
-    }
-    return [...by.entries()].map(([course, v]) => ({ course, ...v })).sort((a, b) => b.n - a.n).slice(0, 8);
-  }, [stats.applications]);
+  const mix = stats.courseMix;
   const hasTrend = stats.trend.some((t) => t.applications > 0 || t.enrollments > 0);
 
   return (
@@ -128,10 +120,10 @@ export function PerformanceTab({ stats }: { stats: ProfileStats }) {
                 <li key={m.course}>
                   <div className="mb-1 flex justify-between gap-2 text-xs">
                     <span className="truncate" title={m.course}>{m.course}</span>
-                    <span className="shrink-0 text-muted-foreground">{m.e} enrolled / {m.n}</span>
+                    <span className="shrink-0 text-muted-foreground">{m.enrolled} enrolled / {m.applications}</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted">
-                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.round((m.n / Math.max(1, stats.applications.length)) * 100)}%` }} />
+                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.round((m.applications / Math.max(1, kpis.applications)) * 100)}%` }} />
                   </div>
                 </li>
               ))}
@@ -225,7 +217,7 @@ const APP_FILTERS: Array<{ id: ProfileAppFilter; label: string }> = [
   { id: 'rejected', label: 'Rejected' },
 ];
 
-export function ApplicationsTab({ apps, onView }: { apps: ProfileApplication[]; onView: (id: string) => void }) {
+export function ApplicationsTab({ apps, total, onView }: { apps: ProfileApplication[]; total: number; onView: (id: string) => void }) {
   const [filter, setFilter] = useState<ProfileAppFilter>('all');
   const [search, setSearch] = useState('');
   const shown = filterProfileApplications(apps, filter, search);
@@ -242,7 +234,10 @@ export function ApplicationsTab({ apps, onView }: { apps: ProfileApplication[]; 
         </div>
       </div>
       <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
-        <div className="border-b border-border px-4 py-3 text-sm font-semibold">{shown.length} application{shown.length === 1 ? '' : 's'} handled</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <p className="text-sm font-semibold">{shown.length} application{shown.length === 1 ? '' : 's'} handled</p>
+          {total > apps.length ? <p className="text-xs text-muted-foreground">Showing the latest {apps.length} of {total}</p> : null}
+        </div>
         {shown.length === 0 ? (
           <EmptyState icon={FileText} title={apps.length === 0 ? 'No applications yet.' : 'No applications match.'} />
         ) : (
@@ -287,11 +282,14 @@ export function ApplicationsTab({ apps, onView }: { apps: ProfileApplication[]; 
   );
 }
 
-export function StudentsTab({ apps, onView }: { apps: ProfileApplication[]; onView: (id: string) => void }) {
+export function StudentsTab({ apps, total, enrolled, onView }: { apps: ProfileApplication[]; total: number; enrolled: number; onView: (id: string) => void }) {
   const students = apps.filter((a) => a.enrolled);
   return (
     <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
-      <div className="border-b border-border px-4 py-3 text-sm font-semibold">{students.length} converted student{students.length === 1 ? '' : 's'}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <p className="text-sm font-semibold">{enrolled} converted student{enrolled === 1 ? '' : 's'}</p>
+        {total > apps.length ? <p className="text-xs text-muted-foreground">Showing those among the latest {apps.length} applications</p> : null}
+      </div>
       {students.length === 0 ? (
         <EmptyState icon={GraduationCap} title="No converted students yet." />
       ) : (

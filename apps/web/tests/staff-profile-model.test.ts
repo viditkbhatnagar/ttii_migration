@@ -15,6 +15,7 @@ const stats = toProfileStats({
     { id: '2', applicationId: '#2', name: 'Ravi', phone: '97', email: 'r@x.in', course: 'ECCE', stage: 'rejected', enrolled: false, created: '2026-10-02' },
     { id: '3', applicationId: '#3', name: 'Zoya', phone: '96', course: '', stage: '', enrolled: 'yes' },
   ],
+  courseMix: [{ course: 'Montessori', applications: '2', enrolled: 1 }],
   activity: [{ id: '9', type: 'link_sent', title: 'Payment link sent', student: 'Asha', at: '2026-10-02T04:30:00.000Z' }],
 });
 
@@ -22,9 +23,11 @@ describe('toProfileStats', () => {
   test('normalises the endpoint payload defensively', () => {
     expect(stats.kpis).toEqual({ applications: 3, pending: 1, enrolled: 1, rejected: 1, dropouts: 0 });
     expect(stats.trend).toHaveLength(1);
+    expect(stats.courseMix).toEqual([{ course: 'Montessori', applications: 2, enrolled: 1 }]);
     expect(stats.applications[2]).toMatchObject({ stage: 'lead', enrolled: false, enrollmentStatus: '', converted: '' });
     expect(stats.activity[0]?.title).toBe('Payment link sent');
     expect(toProfileStats(null).applications).toEqual([]);
+    expect(toProfileStats(null).courseMix).toEqual([]);
   });
 });
 

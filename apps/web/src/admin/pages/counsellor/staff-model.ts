@@ -203,14 +203,3 @@ export function staffCsvRows(rows: StaffRow[], extra?: { header: string; value: 
     }),
   ];
 }
-
-/** wa.me link for a stored phone ("+91 98765 43210" → digits only). */
-export function whatsappLink(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  return digits.length >= 10 ? `https://wa.me/${digits.length === 10 ? `91${digits}` : digits}` : '';
-}
-
-export function telLink(phone: string): string {
-  const cleaned = phone.replace(/[^\d+]/g, '');
-  return cleaned.replace(/\D/g, '').length >= 10 ? `tel:${cleaned}` : '';
-}

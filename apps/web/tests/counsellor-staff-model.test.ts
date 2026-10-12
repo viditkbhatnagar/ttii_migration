@@ -11,10 +11,8 @@ import {
   sortStaff,
   staffCounts,
   staffCsvRows,
-  telLink,
   toStaffRows,
   todayIstYmd,
-  whatsappLink,
 } from '../src/admin/pages/counsellor/staff-model';
 
 const rows = toStaffRows([
@@ -84,18 +82,10 @@ describe('filter, count, sort', () => {
   });
 });
 
-describe('export and links', () => {
+describe('export', () => {
   test('csv has a header plus one line per row and an optional extra column', () => {
     const csv = staffCsvRows(rows.slice(0, 1), { header: 'Active Target', value: () => 'Points 2/10 (20%)' });
     expect(csv[0]).toContain('Active Target');
     expect(csv[1]).toEqual(['12', 'Asha Menon', 'asha@ttii.in', '+91 9876543210', 'Kochi', '01/03/2026', 8, 3, 38, 'Active', 'Enabled', 'Points 2/10 (20%)']);
-  });
-
-  test('tel and WhatsApp links need a real number', () => {
-    expect(telLink('+91 98765 43210')).toBe('tel:+919876543210');
-    expect(telLink('123')).toBe('');
-    expect(whatsappLink('9876543210')).toBe('https://wa.me/919876543210');
-    expect(whatsappLink('+971 50 123 4567')).toBe('https://wa.me/971501234567');
-    expect(whatsappLink('')).toBe('');
   });
 });

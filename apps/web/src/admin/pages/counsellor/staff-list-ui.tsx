@@ -1,4 +1,4 @@
-import { Eye, Mail, MoreHorizontal, Pencil, Phone, Search, Users } from 'lucide-react';
+import { Eye, Mail, MoreHorizontal, Pencil, Search, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { TONE } from '../../shared/components/ui-tones.js';
 import { FilterSelect, ListPager, SortHead } from '../students/list-chrome.js';
 import { progressTone, type TargetRow } from './counsellor-target-model.js';
 import {
-  formatYmd, initialsOf, statusTone, telLink, whatsappLink,
+  formatYmd, initialsOf, statusTone,
   type StaffFilters, type StaffRow, type StaffSortKey,
 } from './staff-model.js';
 import type { StaffActions } from './use-staff-actions.js';
@@ -197,8 +197,6 @@ function StaffTableRow({ row: r, index, selected, onToggle, target, onView, onEd
   target: TargetRow | null | undefined;
   onView: () => void; onEdit: () => void; actions: StaffActions;
 }) {
-  const tel = telLink(r.phone);
-  const wa = whatsappLink(r.phone);
   return (
     <TableRow className="hover:bg-muted/30" data-state={selected ? 'selected' : undefined}>
       <TableCell><Checkbox aria-label={`Select ${r.name}`} checked={selected} onCheckedChange={(v) => onToggle(v === true)} /></TableCell>
@@ -240,11 +238,6 @@ function StaffTableRow({ row: r, index, selected, onToggle, target, onView, onEd
           <Button size="icon" variant="ghost" className="size-8" title="Edit" aria-label={`Edit ${r.name}`} onClick={onEdit}>
             <Pencil aria-hidden="true" className="size-4" />
           </Button>
-          {tel ? (
-            <Button size="icon" variant="ghost" className="size-8" title={`Call ${r.phone}`} aria-label={`Call ${r.name}`} asChild>
-              <a href={tel}><Phone aria-hidden="true" className="size-4" /></a>
-            </Button>
-          ) : null}
           {r.email ? (
             <Button size="icon" variant="ghost" className="size-8" title={`Email ${r.email}`} aria-label={`Email ${r.name}`} asChild>
               <a href={`mailto:${r.email}`}><Mail aria-hidden="true" className="size-4" /></a>
@@ -257,11 +250,6 @@ function StaffTableRow({ row: r, index, selected, onToggle, target, onView, onEd
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              {wa ? (
-                <DropdownMenuItem asChild>
-                  <a href={wa} target="_blank" rel="noreferrer">WhatsApp</a>
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuItem onClick={() => { void actions.resendCredentials(r); }}>Resend Login Email</DropdownMenuItem>
               <DropdownMenuItem onClick={onEdit}>Change Username/Password</DropdownMenuItem>
               <DropdownMenuSeparator />

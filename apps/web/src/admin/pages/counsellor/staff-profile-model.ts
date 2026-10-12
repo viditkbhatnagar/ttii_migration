@@ -21,10 +21,13 @@ export interface ProfileApplication {
 
 export interface ProfileTrendPoint { month: string; label: string; applications: number; enrollments: number }
 export interface ProfileActivity { id: string; type: string; title: string; student: string; at: string }
+export interface ProfileCourseMix { course: string; applications: number; enrolled: number }
 
 export interface ProfileStats {
   kpis: { applications: number; pending: number; enrolled: number; rejected: number; dropouts: number };
   trend: ProfileTrendPoint[];
+  courseMix: ProfileCourseMix[];
+  /** The latest applications only (the server caps the list; kpis are totals). */
   applications: ProfileApplication[];
   activity: ProfileActivity[];
 }
@@ -32,6 +35,7 @@ export interface ProfileStats {
 export const EMPTY_PROFILE_STATS: ProfileStats = {
   kpis: { applications: 0, pending: 0, enrolled: 0, rejected: 0, dropouts: 0 },
   trend: [],
+  courseMix: [],
   applications: [],
   activity: [],
 };
@@ -52,6 +56,11 @@ export function toProfileStats(raw: unknown): ProfileStats {
       label: asString(t.label),
       applications: asNumber(t.applications),
       enrollments: asNumber(t.enrollments),
+    })),
+    courseMix: toRecords(r.courseMix).map((c) => ({
+      course: asString(c.course),
+      applications: asNumber(c.applications),
+      enrolled: asNumber(c.enrolled),
     })),
     applications: toRecords(r.applications).map((a) => ({
       id: asString(a.id),
