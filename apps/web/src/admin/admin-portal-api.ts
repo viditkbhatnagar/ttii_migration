@@ -557,6 +557,13 @@ export class AdminPortalApi {
     return toRecords(payload.data);
   }
 
+  // TTII 2026-10-12 — Students list in Naji's design: Gender / City / Offering
+  // / Owner / Joined per student (read-only side-car to /admin/students/index).
+  async loadStudentDirectoryExtras(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/students/directory_extras', authToken);
+    return toRecords(payload.data);
+  }
+
   async loadCentres(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/centres/index', authToken);
     return toRecords(payload.data);
