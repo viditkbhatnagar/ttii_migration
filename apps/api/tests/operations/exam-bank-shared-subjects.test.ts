@@ -145,8 +145,13 @@ describe('deleting a subject\'s questions from the course-filtered Question Bank
     let deleteWhere: Record<string, unknown> = {};
     const prisma = {
       course_subject: { findMany: () => Promise.resolve([{ subject_id: CHILD_PSYCHOLOGY }, { subject_id: FOUNDATION_IT }]) },
+      exam_questions: { findMany: () => Promise.resolve([]) },
       question_bank: {
         groupBy: ({ where }: { where: Record<string, unknown> }) => { listWhere = where; return Promise.resolve([]); },
+        // 2026-10-12 — the delete first lists its candidates to keep any that
+        // sit in a published exam (none here).
+        findMany: ({ where }: { where: Record<string, unknown> }) =>
+          Promise.resolve(BANK.filter((r) => matchesWhere(r, where)).map((r) => ({ id: r.id }))),
         updateMany: ({ where }: { where: Record<string, unknown> }) => {
           deleteWhere = where;
           return Promise.resolve({ count: BANK.filter((r) => matchesWhere(r, where)).length });

@@ -38,6 +38,7 @@ import {
   type QuestionBankFilters,
   type ReviewInput,
   type QuestionBankInput,
+  type QuestionBankPatch,
   type TrainingVideoInput,
   type UpdateCentreInput,
   type UpdateSettingsInput,
@@ -1971,30 +1972,26 @@ export function registerOperationsRoutes(
     }
   });
 
+  // TTII 2026-10-12 — a PARTIAL edit: only the fields the client sent are
+  // written (editQuestion), so a form that omits title_file / hint_file /
+  // solution_file / category / is_equation no longer blanks them.
   app.post('/admin/question_bank/edit', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
-      const input: QuestionBankInput = {
-        courseId: toStringValue(payload.course_id),
-        subjectId: toStringValue(payload.subject_id),
-        lessonId: toStringValue(payload.lesson_id),
-        categoryId: toStringValue(payload.category_id),
-        type: toInteger(payload.type),
-        qType: toInteger(payload.q_type),
-        title: toStringValue(payload.title),
-        titleFile: toStringValue(payload.title_file),
-        hint: toStringValue(payload.hint),
-        hintFile: toStringValue(payload.hint_file),
-        solution: toStringValue(payload.solution),
-        solutionFile: toStringValue(payload.solution_file),
-        isEquation: toInteger(payload.is_equation),
-        numberOfOptions: toInteger(payload.number_of_options) || 4,
-        options: toStringValue(payload.options) || '[]',
-        correctAnswers: toStringValue(payload.correct_answers) || '[]',
-        rangeFrom: toStringValue(payload.range_from),
-        rangeTo: toStringValue(payload.range_to),
+      const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(payload, key);
+      const str = (key: string): string | undefined => (has(key) ? toStringValue(payload[key]) : undefined);
+      const patch: QuestionBankPatch = {
+        courseId: str('course_id'),
+        subjectId: str('subject_id'),
+        lessonId: str('lesson_id'),
+        qType: has('q_type') ? toInteger(payload.q_type) : undefined,
+        title: str('title'),
+        hint: str('hint'),
+        solution: str('solution'),
+        options: str('options'),
+        correctAnswers: str('correct_answers'),
       };
-      const result = await operationsService.editQuestion(requestUserId(request), toStringValue(payload.id), input);
+      const result = await operationsService.editQuestion(requestUserId(request), toStringValue(payload.id), patch);
       reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
@@ -2227,7 +2224,8 @@ export function registerOperationsRoutes(
           hint: toStringValue(r.hint) || undefined,
           solution: toStringValue(r.solution) || undefined,
         }));
-      const result = await operationsService.bulkAddQuestions(requestUserId(request), rows);
+      const dryRun = toStringValue(payload.dry_run) === '1' || payload.dry_run === true;
+      const result = await operationsService.bulkAddQuestions(requestUserId(request), rows, { dryRun });
       reply.code(200).send(result);
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

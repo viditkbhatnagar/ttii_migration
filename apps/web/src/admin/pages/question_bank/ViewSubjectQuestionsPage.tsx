@@ -121,10 +121,18 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
   const handleSave = useCallback(async () => {
     if (!subjectId) { toast.error('Missing subject.'); return; }
     if (!mTitle.trim()) { toast.error('Question text is required.'); return; }
+    // TTII 2026-10-12 — options are POSITIONAL. Filtering out blanks while
+    // keeping mCorrect's original index shifted the answer onto the wrong
+    // option (blank B + answer C saved D). Only trailing empty slots are
+    // dropped; a blank in the middle must be filled or removed.
+    let options: string[] = [];
     if (activeTab === 0) {
-      const filled = mOptions.filter((o) => o.trim().length > 0);
-      if (filled.length < 2) { toast.error('At least 2 options for MCQ.'); return; }
-      if (mCorrect === null) { toast.error('Mark the correct answer.'); return; }
+      options = mOptions.map((o) => o.trim());
+      while (options.length > 0 && options[options.length - 1] === '') options.pop();
+      const gap = options.findIndex((o) => o === '');
+      if (gap >= 0) { toast.error(`Option ${String.fromCharCode(65 + gap)} is empty — fill it in or remove it.`); return; }
+      if (options.length < 2) { toast.error('At least 2 options for MCQ.'); return; }
+      if (mCorrect === null || mCorrect >= options.length) { toast.error('Mark the correct answer.'); return; }
     }
     setSubmitting(true);
     try {
@@ -134,14 +142,21 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
         lessonId: mLessonId,
         qType: activeTab,
         title: mTitle.trim(),
-        numberOfOptions: activeTab === 0 ? mOptions.filter((o) => o.trim().length > 0).length : 0,
-        options: activeTab === 0 ? JSON.stringify(mOptions.filter((o) => o.trim().length > 0)) : '[]',
+        numberOfOptions: options.length,
+        options: JSON.stringify(options),
         correctAnswers: activeTab === 0 && mCorrect !== null ? JSON.stringify([mCorrect]) : '[]',
         hint: mHint.trim(),
         solution: mSolution.trim(),
       };
-      if (editingId) await api.editQuestion(session.token, editingId, payload);
-      else await api.addQuestion(session.token, payload);
+      const res = editingId
+        ? await api.editQuestion(session.token, editingId, payload)
+        : await api.addQuestion(session.token, payload);
+      // The server can refuse (invalid answer, or a question in a published
+      // exam) — that must not read as a success.
+      if ((res as { status?: number }).status !== 1) {
+        toast.error(asString((res as { message?: unknown }).message) || 'Could not save the question.');
+        return;
+      }
       toast.success(editingId ? 'Question updated.' : 'Question added.');
       setModalOpen(false);
       reloadQuestions();

@@ -3,6 +3,7 @@ import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
+import { normaliseQuestionText, shapeChanged, validateQuestionShape } from './question-rules.js';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -860,6 +861,19 @@ export type QuestionBankFilters = {
   subjectId?: string;
   lessonId?: string;
   qType?: number;
+};
+
+/** A partial question edit: only the fields present are written. */
+export type QuestionBankPatch = {
+  courseId?: string | undefined;
+  subjectId?: string | undefined;
+  lessonId?: string | undefined;
+  qType?: number | undefined;
+  title?: string | undefined;
+  hint?: string | undefined;
+  solution?: string | undefined;
+  options?: string | undefined;
+  correctAnswers?: string | undefined;
 };
 
 export type QuestionBankInput = {
@@ -4608,6 +4622,47 @@ export class OperationsService {
 
   // ─── Phase 2: Question Bank ─────────────────────────────────────────────────
 
+  /**
+   * TTII 2026-10-12 — where each question is used: the top-level exams (a
+   * sitting counts as its parent) that link it, and which of those are
+   * published. A published exam is graded against the question's CURRENT row
+   * at submit time, so editing its answer or deleting it silently changes a
+   * live paper — the guards below refuse exactly that.
+   */
+  private async questionUsage(questionIds: number[]): Promise<Map<number, { exams: Set<number>; published: string[] }>> {
+    const usage = new Map<number, { exams: Set<number>; published: string[] }>();
+    if (questionIds.length === 0) return usage;
+    const links = await this.prisma.exam_questions.findMany({
+      where: { question_id: { in: questionIds }, deleted_at: null },
+      select: { exam_id: true, question_id: true },
+    });
+    const examIds = [...new Set(links.map((l) => l.exam_id).filter((v): v is number => v !== null))];
+    if (examIds.length === 0) return usage;
+    const exams = await this.prisma.exam.findMany({
+      where: { id: { in: examIds }, deleted_at: null },
+      select: { id: true, parent_exam_id: true },
+    });
+    const topOf = new Map(exams.map((e) => [e.id, e.parent_exam_id ?? e.id]));
+    const tops = await this.prisma.exam.findMany({
+      where: { id: { in: [...new Set(topOf.values())] }, deleted_at: null },
+      select: { id: true, status: true, exam_code: true, title: true },
+    });
+    const topById = new Map(tops.map((t) => [t.id, t]));
+    for (const link of links) {
+      if (link.question_id === null || link.exam_id === null) continue;
+      const topId = topOf.get(link.exam_id);
+      const top = topId === undefined ? undefined : topById.get(topId);
+      if (!top) continue;
+      const entry = usage.get(link.question_id) ?? { exams: new Set<number>(), published: [] };
+      if (!entry.exams.has(top.id)) {
+        entry.exams.add(top.id);
+        if (top.status === 'published') entry.published.push(top.exam_code || top.title || `Exam ${top.id}`);
+      }
+      usage.set(link.question_id, entry);
+    }
+    return usage;
+  }
+
   async listQuestionBank(filters: QuestionBankFilters = {}): Promise<SqlRow[]> {
     const where: Record<string, unknown> = { deleted_at: null };
     // A shared subject's questions belong to every course it is linked to.
@@ -4622,10 +4677,11 @@ export class OperationsService {
     const subjectIds = [...new Set(questions.map(q => q.subject_id).filter((x): x is number => x !== null && x !== undefined))];
     const lessonIds = [...new Set(questions.map(q => q.lesson_id).filter((x): x is number => x !== null && x !== undefined))];
 
-    const [courses, subjects, lessons] = await Promise.all([
+    const [courses, subjects, lessons, usage] = await Promise.all([
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       subjectIds.length > 0 ? this.prisma.subject.findMany({ where: { id: { in: subjectIds } }, select: { id: true, title: true } }) : [],
       lessonIds.length > 0 ? this.prisma.lesson.findMany({ where: { id: { in: lessonIds } }, select: { id: true, title: true } }) : [],
+      this.questionUsage(questions.map((q) => q.id)),
     ]);
 
     const courseMap = new Map(courses.map(c => [c.id, c]));
@@ -4637,6 +4693,8 @@ export class OperationsService {
       course_title: qb.course_id ? courseMap.get(qb.course_id)?.title ?? null : null,
       subject_title: qb.subject_id ? subjectMap.get(qb.subject_id)?.title ?? null : null,
       lesson_title: qb.lesson_id ? lessonMap.get(qb.lesson_id)?.title ?? null : null,
+      used_in_exams: usage.get(qb.id)?.exams.size ?? 0,
+      used_in_published: usage.get(qb.id)?.published ?? [],
     })) as unknown as SqlRow[];
   }
 
@@ -4644,6 +4702,8 @@ export class OperationsService {
     if (!input.title.trim()) {
       return { status: 0, message: 'Question title is required.' };
     }
+    const shape = validateQuestionShape({ qType: input.qType ?? 0, options: input.options, correct: input.correctAnswers });
+    if (!shape.ok) return { status: 0, message: shape.message };
 
     const now = new Date();
 
@@ -4653,7 +4713,7 @@ export class OperationsService {
         subject_id: toNullableIntId(input.subjectId),
         lesson_id: toNullableIntId(input.lessonId),
         category_id: toNullableIntId(input.categoryId),
-        q_type: input.qType ?? 0,
+        q_type: shape.value.qType,
         title: input.title,
         title_file: input.titleFile ?? null,
         hint: input.hint ?? null,
@@ -4661,9 +4721,9 @@ export class OperationsService {
         solution: input.solution ?? null,
         solution_file: input.solutionFile ?? null,
         is_equation: input.isEquation === undefined ? null : !!input.isEquation,
-        number_of_options: input.numberOfOptions ?? 4,
-        options: input.options ?? '[]',
-        correct_answers: input.correctAnswers ?? '[]',
+        number_of_options: shape.value.options.length,
+        options: JSON.stringify(shape.value.options),
+        correct_answers: JSON.stringify(shape.value.correct),
         created_by: toNullableIntId(actorUserId),
         created_at: now,
         updated_at: now,
@@ -4673,44 +4733,82 @@ export class OperationsService {
     return { status: 1, message: 'Question added successfully.' };
   }
 
-  async editQuestion(actorUserId: string, questionId: string, input: QuestionBankInput): Promise<Record<string, unknown>> {
-    if (!input.title.trim()) {
+  /**
+   * TTII 2026-10-12 — a PARTIAL update. It used to write every column, so an
+   * edit from a form that did not carry title_file / hint_file / solution_file /
+   * category / is_equation blanked them (legacy questions lost their images).
+   * A question in a published exam keeps its type, options, answer and subject:
+   * changing them would regrade students who submit after the edit and not
+   * those before. Wording fixes are still allowed.
+   */
+  async editQuestion(actorUserId: string, questionId: string, patch: QuestionBankPatch): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(questionId);
+    const row = id ? await this.prisma.question_bank.findFirst({ where: { id, deleted_at: null } }) : null;
+    if (!row) return { status: 0, message: 'Question not found.' };
+    if (patch.title !== undefined && !patch.title.trim()) {
       return { status: 0, message: 'Question title is required.' };
     }
 
-    const now = new Date();
+    const data: Prisma.question_bankUpdateManyMutationInput = {
+      updated_by: toNullableIntId(actorUserId),
+      updated_at: new Date(),
+    };
+    if (patch.title !== undefined) data.title = patch.title;
+    if (patch.hint !== undefined) data.hint = patch.hint || null;
+    if (patch.solution !== undefined) data.solution = patch.solution || null;
+    if (patch.courseId !== undefined) data.course_id = toNullableIntId(patch.courseId);
+    if (patch.lessonId !== undefined) data.lesson_id = toNullableIntId(patch.lessonId);
 
-    await this.prisma.question_bank.updateMany({
-      where: { id: toIntId(questionId), deleted_at: null },
-      data: {
-        course_id: toNullableIntId(input.courseId),
-        subject_id: toNullableIntId(input.subjectId),
-        lesson_id: toNullableIntId(input.lessonId),
-        category_id: toNullableIntId(input.categoryId),
-        q_type: input.qType ?? 0,
-        title: input.title,
-        title_file: input.titleFile ?? null,
-        hint: input.hint ?? null,
-        hint_file: input.hintFile ?? null,
-        solution: input.solution ?? null,
-        solution_file: input.solutionFile ?? null,
-        is_equation: input.isEquation === undefined ? null : !!input.isEquation,
-        number_of_options: input.numberOfOptions ?? 4,
-        options: input.options ?? '[]',
-        correct_answers: input.correctAnswers ?? '[]',
-        updated_by: toNullableIntId(actorUserId),
-        updated_at: now,
-      },
-    });
+    const usage = (await this.questionUsage([row.id])).get(row.id);
+    const published = usage?.published ?? [];
+    const inPublished = published.length > 0
+      ? `This question is in ${published.length} published exam${published.length === 1 ? '' : 's'} (${published.join(', ')}).`
+      : '';
 
+    if (patch.subjectId !== undefined) {
+      const subjectId = toNullableIntId(patch.subjectId);
+      if (subjectId !== row.subject_id && inPublished) {
+        return { status: 0, message: `${inPublished} It cannot move to another subject.` };
+      }
+      data.subject_id = subjectId;
+    }
+
+    if (patch.qType !== undefined || patch.options !== undefined || patch.correctAnswers !== undefined) {
+      const next = validateQuestionShape({
+        qType: patch.qType ?? row.q_type ?? 0,
+        options: patch.options ?? row.options,
+        correct: patch.correctAnswers ?? row.correct_answers,
+      });
+      if (!next.ok) return { status: 0, message: next.message };
+      const current = validateQuestionShape({ qType: row.q_type ?? 0, options: row.options, correct: row.correct_answers });
+      const changed = !current.ok || shapeChanged(current.value, next.value);
+      if (changed && inPublished) {
+        return { status: 0, message: `${inPublished} Its answer and options cannot change; add a corrected copy instead.` };
+      }
+      data.q_type = next.value.qType;
+      data.options = JSON.stringify(next.value.options);
+      data.correct_answers = JSON.stringify(next.value.correct);
+      data.number_of_options = next.value.options.length;
+    }
+
+    await this.prisma.question_bank.updateMany({ where: { id: row.id, deleted_at: null }, data });
     return { status: 1, message: 'Question updated successfully.' };
   }
 
   async deleteQuestion(actorUserId: string, questionId: string): Promise<Record<string, unknown>> {
+    const id = toNullableIntId(questionId);
+    if (!id) return { status: 0, message: 'Question not found.' };
+    const published = (await this.questionUsage([id])).get(id)?.published ?? [];
+    if (published.length > 0) {
+      return {
+        status: 0,
+        message: `This question is in ${published.length} published exam${published.length === 1 ? '' : 's'} (${published.join(', ')}), so it cannot be deleted.`,
+      };
+    }
     const now = new Date();
 
     await this.prisma.question_bank.updateMany({
-      where: { id: toIntId(questionId), deleted_at: null },
+      where: { id, deleted_at: null },
       data: { deleted_by: toNullableIntId(actorUserId), deleted_at: now },
     });
 
@@ -4721,7 +4819,8 @@ export class OperationsService {
   // the Question Bank list. Uses the SAME course scope as the listing
   // (questionBankCourseScope, 2026-10-01) so it deletes exactly the rows the
   // row counted — for a subject shared between courses that is all of its
-  // questions, whichever course each was filed under.
+  // questions, whichever course each was filed under. TTII 2026-10-12 —
+  // questions in a published exam are kept and reported, never deleted.
   async deleteQuestionsBySubject(
     actorUserId: string,
     subjectId: string,
@@ -4734,14 +4833,22 @@ export class OperationsService {
       const cid = toNullableIntId(courseId);
       if (cid) Object.assign(where, await this.questionBankCourseScope([cid]));
     }
-    const result = await this.prisma.question_bank.updateMany({
+    const candidates = await this.prisma.question_bank.findMany({
       where: where as Prisma.question_bankWhereInput,
+      select: { id: true },
+    });
+    const usage = await this.questionUsage(candidates.map((c) => c.id));
+    const kept = candidates.filter((c) => (usage.get(c.id)?.published.length ?? 0) > 0).map((c) => c.id);
+    const result = await this.prisma.question_bank.updateMany({
+      where: (kept.length > 0 ? { ...where, NOT: { id: { in: kept } } } : where) as Prisma.question_bankWhereInput,
       data: { deleted_by: toNullableIntId(actorUserId), deleted_at: new Date() },
     });
     return {
       status: 1,
-      message: `${result.count} question(s) deleted.`,
-      data: { deleted: result.count },
+      message: kept.length > 0
+        ? `${result.count} question(s) deleted. ${kept.length} kept because they are in published exams.`
+        : `${result.count} question(s) deleted.`,
+      data: { deleted: result.count, kept: kept.length },
     };
   }
 
@@ -5480,6 +5587,14 @@ export class OperationsService {
   // row's error and surface it back to the UI. We also strip MCQ-only
   // fields server-side when q_type=1 so a Descriptive row carrying
   // leftover options can never persist orphan data.
+  /**
+   * TTII 2026-10-12 — every row passes the same rules as a single add
+   * (validateQuestionShape), and a question already in the bank for that
+   * subject — or twice in the same file — is skipped, not inserted again (a
+   * re-upload after a partial failure used to duplicate everything that had
+   * already gone in). `dryRun` validates and reports without writing, for the
+   * upload preview.
+   */
   async bulkAddQuestions(
     actorUserId: string,
     rows: Array<{
@@ -5489,53 +5604,100 @@ export class OperationsService {
       qType: number; // 0 = MCQ, 1 = Descriptive
       title: string;
       options?: string[] | undefined;
-      correctAnswers?: number[] | undefined; // indexes into options
+      correctAnswers?: number[] | undefined; // 0-based indexes into options
       hint?: string | undefined;
       solution?: string | undefined;
     }>,
+    opts: { dryRun?: boolean } = {},
   ): Promise<Record<string, unknown>> {
     const actor = toNullableIntId(actorUserId);
-    const valid = rows.filter((r) => r.title.trim().length > 0);
-    if (valid.length === 0) return { status: 0, message: 'No valid rows to upload.' };
+    if (rows.length === 0) return { status: 0, message: 'No rows to upload.' };
+
+    // Existing live questions in the subjects being uploaded, by normalised text.
+    const subjectIds = [...new Set(rows.map((r) => toNullableIntId(r.subjectId)).filter((v): v is number => v !== null))];
+    const existing = subjectIds.length > 0
+      ? await this.prisma.question_bank.findMany({
+          where: { subject_id: { in: subjectIds }, deleted_at: null },
+          select: { subject_id: true, title: true },
+        })
+      : [];
+    const seen = new Set(existing.map((q) => `${q.subject_id ?? 0}:${normaliseQuestionText(q.title ?? '')}`));
+
+    type RowReport = { row: number; title: string; status: 'ok' | 'invalid' | 'duplicate'; reason: string };
+    const report: RowReport[] = [];
+    const accepted: Array<{ index: number; data: Prisma.question_bankCreateManyInput }> = [];
     const now = new Date();
+    rows.forEach((r, i) => {
+      const title = r.title.trim();
+      const base = { row: i + 1, title: title.slice(0, 80) };
+      if (!title) {
+        report.push({ ...base, status: 'invalid', reason: 'The question text is empty.' });
+        return;
+      }
+      const shape = validateQuestionShape({ qType: r.qType ?? 0, options: r.options ?? [], correct: r.correctAnswers ?? [] });
+      if (!shape.ok) {
+        report.push({ ...base, status: 'invalid', reason: shape.message });
+        return;
+      }
+      const key = `${toNullableIntId(r.subjectId) ?? 0}:${normaliseQuestionText(title)}`;
+      if (seen.has(key)) {
+        report.push({ ...base, status: 'duplicate', reason: 'Already in the Question Bank for this subject.' });
+        return;
+      }
+      seen.add(key);
+      report.push({ ...base, status: 'ok', reason: '' });
+      accepted.push({
+        index: i,
+        data: {
+          course_id: toNullableIntId(r.courseId),
+          subject_id: toNullableIntId(r.subjectId),
+          lesson_id: toNullableIntId(r.lessonId),
+          q_type: shape.value.qType,
+          title,
+          number_of_options: shape.value.options.length,
+          options: JSON.stringify(shape.value.options),
+          correct_answers: JSON.stringify(shape.value.correct),
+          hint: r.hint ?? null,
+          solution: r.solution ?? null,
+          created_by: actor,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+    });
+
+    const invalid = report.filter((r) => r.status === 'invalid').length;
+    const duplicates = report.filter((r) => r.status === 'duplicate').length;
+    if (opts.dryRun) {
+      return {
+        status: 1,
+        message: `${accepted.length} ready to upload, ${duplicates} duplicate${duplicates === 1 ? '' : 's'}, ${invalid} with errors.`,
+        data: { ready: accepted.length, duplicates, invalid, report },
+      };
+    }
+
     let created = 0;
     const failures: Array<{ row: number; title: string; error: string }> = [];
-    for (let i = 0; i < valid.length; i++) {
-      const r = valid[i];
-      if (!r) continue;
-      const isDescriptive = (r.qType ?? 0) === 1;
-      const opts = isDescriptive ? [] : (r.options ?? []);
-      const correct = isDescriptive ? [] : (r.correctAnswers ?? []);
+    for (const { index, data } of accepted) {
       try {
-        await this.prisma.question_bank.create({
-          data: {
-            course_id: toNullableIntId(r.courseId),
-            subject_id: toNullableIntId(r.subjectId),
-            lesson_id: toNullableIntId(r.lessonId),
-            q_type: isDescriptive ? 1 : 0,
-            title: r.title.trim(),
-            number_of_options: opts.length,
-            options: JSON.stringify(opts),
-            correct_answers: JSON.stringify(correct),
-            hint: r.hint ?? null,
-            solution: r.solution ?? null,
-            created_by: actor,
-            created_at: now,
-            updated_at: now,
-          },
-        });
+        await this.prisma.question_bank.create({ data });
         created += 1;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error('[bulkAddQuestions] row %d (%s) failed: %s', i + 1, r.title.slice(0, 60), message);
-        failures.push({ row: i + 1, title: r.title.slice(0, 80), error: message });
+        console.error('[bulkAddQuestions] row %d failed: %s', index + 1, message);
+        failures.push({ row: index + 1, title: String(data.title ?? '').slice(0, 80), error: message });
       }
     }
-    const ok = failures.length === 0;
-    const summary = ok
-      ? `${created} question(s) uploaded.`
-      : `${created} of ${valid.length} uploaded — ${failures.length} failed.`;
-    return { status: ok ? 1 : 0, message: summary, data: { created, attempted: valid.length, failures } };
+    const skipped = invalid + duplicates;
+    const parts = [`${created} question${created === 1 ? '' : 's'} uploaded`];
+    if (duplicates > 0) parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped`);
+    if (invalid > 0) parts.push(`${invalid} with errors skipped`);
+    if (failures.length > 0) parts.push(`${failures.length} failed`);
+    return {
+      status: failures.length === 0 && created > 0 ? 1 : created > 0 ? 1 : 0,
+      message: `${parts.join(', ')}.`,
+      data: { created, attempted: rows.length, skipped, failures, report },
+    };
   }
 
   // Naji 2026-05-09 — Step 2: scheduling-suggestions returns one row

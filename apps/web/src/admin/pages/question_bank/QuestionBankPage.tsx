@@ -13,6 +13,7 @@ import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-uti
 import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
 import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
+import { parseQuestionCsvRow } from './question-csv.js';
 
 // Naji UAT 2026-05-18 — Question Bank reorganised by Subject. The page now
 // lists one row per subject with course chips + MCQ/Descriptive counts and a
@@ -182,37 +183,20 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
     const csvRows = parseCsv(text);
     if (csvRows.length < 2) { toast.error('CSV is empty.'); return; }
     const parsed: BulkRow[] = [];
+    const problems: string[] = [];
     for (let i = 1; i < csvRows.length; i++) {
       const r = csvRows[i];
       if (!r) continue;
-      const type = (r[0] ?? '').toLowerCase().trim();
-      const title = (r[1] ?? '').trim();
-      if (!title) continue;
-      if (type === 'mcq') {
-        const opts = [r[2], r[3], r[4], r[5]].map((v) => (v ?? '').trim()).filter((v) => v.length > 0);
-        const correctLetter = (r[6] ?? '').trim().toUpperCase();
-        const correctIdx = correctLetter ? correctLetter.charCodeAt(0) - 65 : -1;
-        // Risha UAT 2026-05-22 — hint/solution dropped from template;
-        // still tolerate them when present (legacy CSVs) but default
-        // to empty when the column is absent.
-        parsed.push({
-          qType: 0,
-          title,
-          options: opts,
-          correctAnswers: correctIdx >= 0 && correctIdx < opts.length ? [correctIdx] : [],
-          hint: (r[7] ?? '').trim(),
-          solution: (r[8] ?? '').trim(),
-        });
-      } else if (type === 'descriptive') {
-        parsed.push({
-          qType: 1,
-          title,
-          options: [],
-          correctAnswers: [],
-          hint: (r[7] ?? '').trim(),
-          solution: (r[8] ?? '').trim(),
-        });
-      }
+      // TTII 2026-10-12 — parseQuestionCsvRow maps the answer letter against
+      // the original columns (it used to shift past a blank option) and
+      // reports bad rows instead of dropping them without a word.
+      const result = parseQuestionCsvRow(r);
+      if (result.ok === 'skip') continue;
+      if (result.ok) parsed.push(result.row);
+      else problems.push(`Row ${i + 1}: ${result.reason}`);
+    }
+    if (problems.length > 0) {
+      toast.error(`${problems.length} row${problems.length === 1 ? '' : 's'} could not be read. ${problems.slice(0, 3).join(' ')}${problems.length > 3 ? ' …' : ''}`, { duration: 12000 });
     }
     if (parsed.length === 0) { toast.error('No valid rows in CSV.'); return; }
     setBulkRows(parsed);
@@ -238,9 +222,17 @@ export default function QuestionBankPage({ api, session, onNavigate }: AdminPage
       const res = await api.bulkAddQuestions(session.token, payload as unknown as Record<string, unknown>[]);
       const status = (res as { status?: number }).status;
       const message = asString((res as { message?: unknown }).message) || 'Uploaded.';
-      const data = (res as { data?: { failures?: Array<{ row: number; title: string; error: string }> } }).data;
+      const data = (res as { data?: { failures?: Array<{ row: number; title: string; error: string }>; skipped?: number; report?: Array<{ row: number; status: string; reason: string }> } }).data;
       const failures = Array.isArray(data?.failures) ? data.failures : [];
-      if (status === 1) {
+      // TTII 2026-10-12 — the server now skips duplicates and invalid rows
+      // and says why; anything skipped is a warning, not a plain success.
+      const skippedReasons = (data?.report ?? []).filter((r) => r.status !== 'ok').slice(0, 3).map((r) => `Row ${r.row}: ${r.reason}`);
+      if (status === 1 && skippedReasons.length > 0) {
+        toast.warning(`${message} ${skippedReasons.join(' ')}`, { duration: 12000 });
+        setBulkOpen(false);
+        setBulkRows([]);
+        reload();
+      } else if (status === 1) {
         toast.success(message);
         setBulkOpen(false);
         setBulkRows([]);
