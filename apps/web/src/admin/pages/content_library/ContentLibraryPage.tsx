@@ -1,1003 +1,241 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Eye, Check, Download, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, Upload as UploadIcon } from 'lucide-react';
-import { PageLoader } from '@/components/ui/page-loader';
-import { Card, CardContent } from '@/components/ui/card';
+import { Eye, FileStack, Pencil, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { FileUpload } from '../../shared/components/FileUpload.js';
-import { RichTextEditor } from '../../shared/components/RichTextEditor.js';
-import { SearchableSelect } from '../../shared/components/SearchableSelect.js';
-import { useConfirm } from '@/components/confirm-dialog';
-// Naji UAT 2026-05-16 — title-case name-like fields on blur.
-import { titleCaseEachWord } from '@/lib/text-format';
+import { EmptyState, Pill, type Tone } from '../../shared/components/ui-kit.js';
+import { toRecords } from '../../shared/utils/admin-data-utils.js';
+import {
+  allSelected, distinctValues, envelopeMessage, errorMessage, exportLabel, formatDmy, nextSort, pageSlice, rowsToExport, toggleId, togglePage, type SortDir,
+} from '../course/catalog-list-model.js';
+import { FILTER_CARD, ListHeader, LoadError, PAGE_CARD, Pager, RowActions, SELECT_CLASS, SelectCell, SortHead } from '../course/catalog-ui.js';
+import { AssetFormDialog } from './AssetFormDialog.js';
+import { AssetPreviewDialog } from './AssetPreviewDialog.js';
+import {
+  EMPTY_ASSET_FILTERS, EMPTY_ASSET_FORM, assetCsvRows, assetTypeOptions, buildLessonPicker, filterAssets, formFromAsset, sortAssets,
+  subjectTagChoices, toAssetRows, type AssetFilters, type AssetForm, type AssetRow, type AssetSortKey,
+} from './content-library-model.js';
 
-const selectClass =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+// Courses → Content Library (TTII 2026-10-12), rebuilt after Naji's
+// ContentLibraryModule. This is the content_asset store only (the Lesson
+// Builder's lesson_files are managed in the builder). Assets carry no publish
+// status, so the prototype's status pills and Status column are left out; the
+// Duration and Created On columns stay. Type now filters in the browser over
+// the same list instead of re-fetching per type.
 
-const typeColors: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  video: 'default', audio: 'secondary', article: 'outline', document: 'outline', quiz: 'destructive',
-};
+const PAGE_SIZE = 10;
 
-type CorrectAnswer = 'A' | 'B' | 'C' | 'D';
-
-interface QuestionForm {
-  question: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
-  correct_answer: CorrectAnswer;
-}
-
-interface AssetForm {
-  title: string;
-  summary: string;
-  asset_type: string;
-  subject_tag: string;
-  lesson_tag: string;
-  lesson_id: string;
-  language: string;
-  duration: string;
-  video_url: string;
-  attachment: string;
-  audio_file: string;
-  thumbnail: string;
-  tags: string;
-  time_limit_minutes: string;
-  attempts_allowed: string;
-  pass_marks: string;
-  shuffle_questions: boolean;
-  questions: QuestionForm[];
-}
-
-const emptyQuestion: QuestionForm = {
-  question: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A',
-};
-
-const emptyForm: AssetForm = {
-  title: '', summary: '', asset_type: 'video', subject_tag: '', lesson_tag: '', lesson_id: '', language: '',
-  duration: '', video_url: '', attachment: '', audio_file: '', thumbnail: '', tags: '',
-  time_limit_minutes: '', attempts_allowed: '', pass_marks: '', shuffle_questions: false,
-  questions: [],
-};
-
-// "Subject › Lesson" label for a lesson row from listAllLessonsAdmin. Two
-// lessons can share a title across subjects, so the subject prefix
-// disambiguates; collisions beyond that are handled by the caller.
-function lessonLabel(row: Record<string, unknown>): string {
-  const subject = asString(row.subject_title).trim();
-  const lesson = asString(row.title).trim() || `Lesson ${asString(row.id)}`;
-  return subject ? `${subject} › ${lesson}` : lesson;
-}
-
-function isDocPdf(url: string): boolean {
-  return /\.pdf($|\?)/i.test(url);
-}
-
-/** Tiny CSV parser that handles quoted fields with embedded commas + escaped
- * quotes ("" → "). Good enough for the bulk-upload format we've documented:
- *   question,option_a,option_b,option_c,option_d,correct_answer
- * Returns rows as string[][] — no header detection here, the caller decides. */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let current: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (src[i + 1] === '"') { field += '"'; i++; }
-        else { inQuotes = false; }
-      } else {
-        field += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        current.push(field);
-        field = '';
-      } else if (ch === '\n') {
-        current.push(field);
-        if (current.some((c) => c.trim() !== '')) rows.push(current);
-        current = [];
-        field = '';
-      } else {
-        field += ch;
-      }
-    }
-  }
-  if (field !== '' || current.length > 0) {
-    current.push(field);
-    if (current.some((c) => c.trim() !== '')) rows.push(current);
-  }
-  return rows;
-}
+const TYPE_TONE: Record<string, Tone> = { video: 'primary', audio: 'blue', article: 'slate', document: 'slate', quiz: 'amber' };
 
 export default function ContentLibraryPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState('');
-  const [form, setForm] = useState<AssetForm>(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [filterType, setFilterType] = useState('');
-  const [filterSubjectTag, setFilterSubjectTag] = useState('');
-  const [filterLessonTag, setFilterLessonTag] = useState('');
-  const [filterCreatedBy, setFilterCreatedBy] = useState('');
-  const [search, setSearch] = useState('');
-  const [previewAsset, setPreviewAsset] = useState<Record<string, unknown> | null>(null);
+  const [filters, setFilters] = useState<AssetFilters>(EMPTY_ASSET_FILTERS);
+  const [sort, setSort] = useState<{ key: AssetSortKey; dir: SortDir }>({ key: 'contentId', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [form, setForm] = useState<{ open: boolean; editId: string; initial: AssetForm }>({ open: false, editId: '', initial: EMPTY_ASSET_FORM });
+  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
 
-  const apiFilters = useMemo(() => {
-    // Backend currently only filters server-side by asset_type. The other
-    // filters apply client-side below.
-    const f: Record<string, string> = {};
-    if (filterType) f.asset_type = filterType;
-    return Object.keys(f).length > 0 ? f : undefined;
-  }, [filterType]);
-
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.listContentAssets(session.token, apiFilters),
-    [filterType],
-  );
+  const { data, loading, error, reload } = useAdminPageData(() => api.listContentAssets(session.token), []);
   const { data: languagesData } = useAdminPageData(() => api.loadLanguages(session.token), []);
   // Subjects + lessons (across all courses) power the Subject Tag / Lesson Tag
-  // dropdowns — Risha 2026-05-30 wanted both tag fields to be pick-from-list
-  // rather than free text.
+  // pickers — Risha 2026-05-30 wanted both pick-from-list.
   const { data: subjectsData } = useAdminPageData(() => api.listAllSubjects(session.token), []);
   const { data: lessonsData } = useAdminPageData(() => api.listAllLessonsAdmin(session.token), []);
 
-  const allRows = useMemo(() => toRecords(data), [data]);
+  const rows = useMemo(() => toAssetRows(data ?? []), [data]);
   const languages = useMemo(() => toRecords(languagesData), [languagesData]);
+  const subjectChoices = useMemo(() => subjectTagChoices(toRecords(subjectsData)), [subjectsData]);
+  const picker = useMemo(() => buildLessonPicker(toRecords(lessonsData)), [lessonsData]);
 
-  // Distinct subject titles for the Subject Tag dropdown.
-  const subjectOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const opts: string[] = [];
-    for (const row of toRecords(subjectsData)) {
-      const title = asString(row.title).trim();
-      if (title && !seen.has(title.toLowerCase())) {
-        seen.add(title.toLowerCase());
-        opts.push(title);
-      }
+  const typeOptions = useMemo(() => assetTypeOptions(rows), [rows]);
+  const subjectTags = useMemo(() => distinctValues(rows.map((r) => r.subjectTag)), [rows]);
+  const lessonTags = useMemo(() => distinctValues(rows.map((r) => r.lessonTag)), [rows]);
+  const creators = useMemo(() => distinctValues(rows.map((r) => r.createdBy)), [rows]);
+  const filtered = useMemo(() => sortAssets(filterAssets(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
+  const slice = pageSlice(filtered, page, PAGE_SIZE);
+  const pageIds = slice.current.map((a) => a.id);
+
+  const set = (patch: Partial<AssetFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const clear = () => { setFilters(EMPTY_ASSET_FILTERS); setPage(1); };
+  const onSort = (k: AssetSortKey) => setSort((s) => nextSort(s, k));
+  const closeForm = useCallback(() => setForm((f) => ({ ...f, open: false })), []);
+  const openAdd = () => setForm({ open: true, editId: '', initial: EMPTY_ASSET_FORM });
+
+  const openEdit = useCallback(async (a: AssetRow) => {
+    try {
+      const asset = await api.getContentAsset(session.token, a.id);
+      if (!asset) { toast.error('This asset could not be found.'); return; }
+      setForm({ open: true, editId: a.id, initial: formFromAsset(asset) });
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not load the asset.'));
     }
-    return opts;
-  }, [subjectsData]);
-
-  // Build the lesson option list + bidirectional maps between the display
-  // label ("Subject › Lesson") and the numeric lesson id. Labels are made
-  // unique by appending " · #id" only when the same label repeats, so the
-  // dropdown stays readable for the common (unique-title) case.
-  const { lessonOptions, labelToLessonId, lessonIdToLabel } = useMemo(() => {
-    const rows = toRecords(lessonsData);
-    const labelToId = new Map<string, string>();
-    const idToLabel = new Map<string, string>();
-    const seen = new Map<string, number>();
-    const opts: string[] = [];
-    for (const row of rows) {
-      const id = asString(row.id);
-      if (!id) continue;
-      let label = lessonLabel(row);
-      const count = seen.get(label) ?? 0;
-      seen.set(label, count + 1);
-      if (count > 0) label = `${label} · #${id}`;
-      opts.push(label);
-      labelToId.set(label, id);
-      idToLabel.set(id, label);
-    }
-    return { lessonOptions: opts, labelToLessonId: labelToId, lessonIdToLabel: idToLabel };
-  }, [lessonsData]);
-
-  // Quick lookups from lesson id → its lesson title / subject title, used to
-  // auto-fill the denormalized Lesson Tag + Subject Tag when a lesson is picked.
-  const { lessonIdToTitle, lessonIdToSubject } = useMemo(() => {
-    const title = new Map<string, string>();
-    const subject = new Map<string, string>();
-    for (const row of toRecords(lessonsData)) {
-      const id = asString(row.id);
-      title.set(id, asString(row.title));
-      subject.set(id, asString(row.subject_title));
-    }
-    return { lessonIdToTitle: title, lessonIdToSubject: subject };
-  }, [lessonsData]);
-
-  const rows = useMemo(() => {
-    return allRows.filter((r) => {
-      if (search) {
-        const s = search.toLowerCase();
-        const matches =
-          asString(r.title).toLowerCase().includes(s) ||
-          asString(r.content_id).toLowerCase().includes(s) ||
-          asString(r.tags).toLowerCase().includes(s);
-        if (!matches) return false;
-      }
-      if (filterSubjectTag && asString(r.subject_tag).toLowerCase() !== filterSubjectTag.toLowerCase()) return false;
-      if (filterLessonTag && asString(r.lesson_tag).toLowerCase() !== filterLessonTag.toLowerCase()) return false;
-      if (filterCreatedBy && asString(r.created_by_name).toLowerCase() !== filterCreatedBy.toLowerCase()) return false;
-      return true;
-    });
-  }, [allRows, search, filterSubjectTag, filterLessonTag, filterCreatedBy]);
-
-  const subjectTagOptions = useMemo(() => {
-    const set = new Set(allRows.map((r) => asString(r.subject_tag)).filter(Boolean));
-    return [...set].sort().map((t) => ({ label: t, value: t }));
-  }, [allRows]);
-  const lessonTagOptions = useMemo(() => {
-    const set = new Set(allRows.map((r) => asString(r.lesson_tag)).filter(Boolean));
-    return [...set].sort().map((t) => ({ label: t, value: t }));
-  }, [allRows]);
-  const createdByOptions = useMemo(() => {
-    const set = new Set(allRows.map((r) => asString(r.created_by_name)).filter(Boolean));
-    return [...set].sort().map((t) => ({ label: t, value: t }));
-  }, [allRows]);
-
-  const handleOpenAdd = useCallback(() => {
-    setEditId('');
-    setForm(emptyForm);
-    setShowForm(true);
-  }, []);
-
-  const handleOpenEdit = useCallback(async (row: Record<string, unknown>) => {
-    const id = asString(row.id);
-    const asset = await api.getContentAsset(session.token, id);
-    if (!asset) return;
-    const timeLimit = Number(asset.time_limit_seconds ?? 0);
-    const questionsRaw = Array.isArray(asset.questions) ? asset.questions as Record<string, unknown>[] : [];
-    const questions: QuestionForm[] = questionsRaw.map((q) => ({
-      question: asString(q.question),
-      option_a: asString(q.option_a),
-      option_b: asString(q.option_b),
-      option_c: asString(q.option_c),
-      option_d: asString(q.option_d),
-      correct_answer: (asString(q.correct_answer).toUpperCase() as CorrectAnswer) || 'A',
-    }));
-    setEditId(id);
-    setForm({
-      title: asString(asset.title),
-      summary: asString(asset.summary),
-      asset_type: asString(asset.asset_type) || 'video',
-      subject_tag: asString(asset.subject_tag),
-      lesson_tag: asString(asset.lesson_tag),
-      lesson_id: asString(asset.lesson_id),
-      language: asString(asset.language),
-      duration: asString(asset.duration),
-      video_url: asString(asset.video_url),
-      attachment: asString(asset.attachment),
-      audio_file: asString(asset.audio_file),
-      thumbnail: asString(asset.thumbnail),
-      tags: asString(asset.tags),
-      time_limit_minutes: timeLimit > 0 ? String(Math.floor(timeLimit / 60)) : '',
-      attempts_allowed: asString(asset.attempts_allowed),
-      pass_marks: asString(asset.pass_marks),
-      shuffle_questions: Boolean(asset.shuffle_questions),
-      questions,
-    });
-    setShowForm(true);
   }, [api, session.token]);
 
-  const handleSave = useCallback(async () => {
-    if (!form.title.trim()) return;
-    setSaving(true);
+  const openPreview = useCallback(async (a: AssetRow) => {
+    // Show the list row at once, then fetch the full asset so a quiz preview
+    // has its `questions` (the list only carries question_count).
+    setPreview(a.raw);
+    if (a.type !== 'quiz') return;
     try {
-      const timeLimitSec = form.time_limit_minutes ? Number(form.time_limit_minutes) * 60 : undefined;
-      const payload: Record<string, unknown> = {
-        title: form.title.trim(),
-        summary: form.summary.trim() || undefined,
-        asset_type: form.asset_type,
-        subject_tag: form.subject_tag.trim() || undefined,
-        lesson_tag: form.lesson_tag.trim() || undefined,
-        lesson_id: form.lesson_id ? Number(form.lesson_id) : null,
-        language: form.language || undefined,
-        duration: form.duration.trim() || undefined,
-        video_url: form.video_url.trim() || undefined,
-        attachment: form.attachment.trim() || undefined,
-        audio_file: form.audio_file.trim() || undefined,
-        thumbnail: form.thumbnail.trim() || undefined,
-        tags: form.tags.trim() || undefined,
-      };
-      if (form.asset_type === 'quiz') {
-        payload.time_limit_seconds = timeLimitSec;
-        payload.attempts_allowed = form.attempts_allowed ? Number(form.attempts_allowed) : undefined;
-        payload.pass_marks = form.pass_marks ? Number(form.pass_marks) : undefined;
-        payload.shuffle_questions = form.shuffle_questions;
-        payload.questions = form.questions
-          .filter((q) => q.question.trim())
-          .map((q, idx) => ({
-            question: q.question.trim(),
-            option_a: q.option_a,
-            option_b: q.option_b,
-            option_c: q.option_c,
-            option_d: q.option_d,
-            correct_answer: q.correct_answer,
-            sort_order: idx,
-          }));
-      }
-      if (editId) {
-        await api.updateContentAsset(session.token, editId, payload);
-      } else {
-        await api.createContentAsset(session.token, payload);
-      }
-      setShowForm(false);
-      setEditId('');
-      setForm(emptyForm);
-      reload();
-    } catch { /* ignore */ } finally { setSaving(false); }
-  }, [api, session.token, editId, form, reload]);
+      const full = await api.getContentAsset(session.token, a.id);
+      if (full) setPreview(full);
+    } catch { /* keep the row-level preview */ }
+  }, [api, session.token]);
 
-  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+  const remove = useCallback(async (a: AssetRow) => {
     if (!(await confirm({
-      title: `Delete asset "${asString(row.title)}"?`,
+      title: `Delete asset "${a.title}"?`,
       description: 'This action cannot be undone.',
       confirmText: 'Delete',
       variant: 'destructive',
     }))) return;
     try {
-      await api.deleteContentAsset(session.token, asString(row.id));
+      const res = await api.deleteContentAsset(session.token, a.id);
+      toast.success(envelopeMessage(res, 'Asset deleted.'));
+      setSelected((s) => toggleId(s, a.id, false));
       reload();
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not delete the asset.'));
+    }
   }, [api, session.token, reload, confirm]);
 
-  const handlePreview = useCallback(async (row: Record<string, unknown>) => {
-    // Show the list row immediately for fast feedback, then fetch the full
-    // asset so the quiz preview can render its nested `questions` array
-    // (which listAssets omits in favor of a question_count).
-    setPreviewAsset(row);
-    if (asString(row.asset_type) === 'quiz') {
-      try {
-        const full = await api.getContentAsset(session.token, asString(row.id));
-        if (full) setPreviewAsset(full);
-      } catch { /* keep the row-level preview */ }
-    }
-  }, [api, session.token]);
+  const exportCsv = () => downloadCsv('content-library.csv', toCsv(assetCsvRows(rowsToExport(filtered, selected))));
 
-  const updateQuestion = useCallback((index: number, patch: Partial<QuestionForm>) => {
-    setForm((prev) => ({
-      ...prev,
-      questions: prev.questions.map((q, i) => (i === index ? { ...q, ...patch } : q)),
-    }));
-  }, []);
-
-  const addQuestion = useCallback(() => {
-    setForm((prev) => ({ ...prev, questions: [...prev.questions, { ...emptyQuestion }] }));
-  }, []);
-
-  const removeQuestion = useCallback((index: number) => {
-    setForm((prev) => ({ ...prev, questions: prev.questions.filter((_, i) => i !== index) }));
-  }, []);
-
-  const moveQuestion = useCallback((index: number, dir: -1 | 1) => {
-    setForm((prev) => {
-      const next = [...prev.questions];
-      const target = index + dir;
-      if (target < 0 || target >= next.length) return prev;
-      const a = next[index];
-      const b = next[target];
-      if (!a || !b) return prev;
-      next[index] = b;
-      next[target] = a;
-      return { ...prev, questions: next };
-    });
-  }, []);
-
-  /** Bulk upload of quiz questions from a CSV. Naji 2026-04-30 — wants
-   * the same flow available for the Major Exam section, so the parser
-   * lives here as plain code we can lift into a shared util later. */
-  const bulkUploadInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleBulkQuestionUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const rows = parseCsv(text);
-        if (rows.length === 0) {
-          toast.error('CSV is empty.');
-          return;
-        }
-        // Skip the header row if it looks like one.
-        const first = rows[0];
-        const isHeader =
-          !!first &&
-          first.length >= 6 &&
-          first[0]!.toLowerCase().includes('question') &&
-          first[5]!.toLowerCase().startsWith('correct');
-        const data = isHeader ? rows.slice(1) : rows;
-
-        const parsed: QuestionForm[] = [];
-        const errors: string[] = [];
-        data.forEach((row, idx) => {
-          const lineNum = idx + (isHeader ? 2 : 1);
-          if (row.length < 6) {
-            errors.push(`Line ${lineNum}: expected 6 columns (question, A, B, C, D, correct), got ${row.length}.`);
-            return;
-          }
-          const [question, a, b, c, d, correctRaw] = row;
-          const correct = (correctRaw ?? '').trim().toUpperCase();
-          if (!question?.trim()) {
-            errors.push(`Line ${lineNum}: empty question.`);
-            return;
-          }
-          if (!['A', 'B', 'C', 'D'].includes(correct)) {
-            errors.push(`Line ${lineNum}: correct_answer must be A/B/C/D, got "${correctRaw}".`);
-            return;
-          }
-          parsed.push({
-            question: question.trim(),
-            option_a: (a ?? '').trim(),
-            option_b: (b ?? '').trim(),
-            option_c: (c ?? '').trim(),
-            option_d: (d ?? '').trim(),
-            correct_answer: correct as CorrectAnswer,
-          });
-        });
-
-        if (parsed.length === 0) {
-          toast.error(errors[0] ?? 'No valid questions found.');
-          return;
-        }
-
-        setForm((prev) => ({ ...prev, questions: [...prev.questions, ...parsed] }));
-        if (errors.length > 0) {
-          toast.warning(`${parsed.length} questions imported. ${errors.length} skipped: ${errors.slice(0, 2).join(' ')}${errors.length > 2 ? '…' : ''}`);
-        } else {
-          toast.success(`${parsed.length} questions imported.`);
-        }
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to parse CSV.');
-      } finally {
-        if (bulkUploadInputRef.current) bulkUploadInputRef.current.value = '';
-      }
-    },
-    [],
-  );
-
-  const handleDownloadCsvTemplate = useCallback(() => {
-    const sample =
-      'question,option_a,option_b,option_c,option_d,correct_answer\n' +
-      '"What is 2 + 2?",3,4,5,6,B\n' +
-      '"Capital of France?",Berlin,Madrid,Paris,Rome,C\n';
-    const blob = new Blob([sample], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'quiz-questions-template.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, []);
-
-  const columns: DataTableColumn[] = [
-    { key: 'content_id', label: 'Content ID', render: (v, row) => asString(v) || `CA-${asString(row.id).padStart(5, '0')}` },
-    { key: 'preview', label: 'Preview', render: (_v, row) => (
-      <button type="button" className="text-gray-400 hover:text-blue-600" title="Preview" aria-label="Preview content" onClick={() => { void handlePreview(row); }}>
-        <Eye className="h-4 w-4" aria-hidden="true" />
-      </button>
-    )},
-    { key: 'title', label: 'Title', sortable: true },
-    { key: 'asset_type', label: 'Type', render: (v) => (
-      <Badge variant={typeColors[String(v)] ?? 'secondary'}>{String(v)}</Badge>
-    )},
-    { key: 'subject_tag', label: 'Subject Tag', render: (v) => asString(v) || '-' },
-    { key: 'lesson_tag', label: 'Lesson Tag', render: (v) => asString(v) || '-' },
-    { key: 'duration', label: 'Duration', render: (v) => asString(v) || '-' },
-    { key: 'created_by_name', label: 'Created By', render: (v) => asString(v) || '-' },
-    { key: 'created_at', label: 'Created On', render: (v) => {
-      const str = asString(v);
-      if (!str) return '-';
-      const d = new Date(str);
-      return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
-    }},
-  ];
-
-  const actions: DataTableAction[] = [
-    { label: 'Preview', onClick: (row) => { void handlePreview(row); } },
-    { label: 'Edit', onClick: (row) => void handleOpenEdit(row) },
-    { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
-  ];
-
-  if (loading) {
-    return <PageLoader label="Loading content library..." />;
-  }
-
-  if (error) {
-    return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
-  }
-
-  const previewType = previewAsset ? asString(previewAsset.asset_type) : '';
-  const previewQuestions = previewAsset && Array.isArray(previewAsset.questions)
-    ? previewAsset.questions as Record<string, unknown>[]
-    : [];
+  if (loading) return <PageLoader label="Loading content library..." />;
+  if (error) return <LoadError error={error} onRetry={reload} />;
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Content Library" addLabel="+ New Asset" onAdd={handleOpenAdd} />
-
-      <AdminFilterBar
-        filters={
-          [
-            { key: 'search', label: 'Search', type: 'text' as const, value: search, placeholder: 'Title, ID, tags...', onChange: setSearch },
-            {
-              key: 'type',
-              label: 'Type',
-              type: 'select' as const,
-              value: filterType,
-              placeholder: 'All Types',
-              options: [
-                { label: 'Video', value: 'video' },
-                { label: 'Audio', value: 'audio' },
-                { label: 'Article', value: 'article' },
-                { label: 'Document', value: 'document' },
-                { label: 'Quiz', value: 'quiz' },
-              ],
-              onChange: setFilterType,
-            },
-            {
-              key: 'subject_tag',
-              label: 'Subject Tag',
-              type: 'select' as const,
-              value: filterSubjectTag,
-              placeholder: 'All Subjects',
-              options: subjectTagOptions,
-              onChange: setFilterSubjectTag,
-            },
-            {
-              key: 'lesson_tag',
-              label: 'Lesson Tag',
-              type: 'select' as const,
-              value: filterLessonTag,
-              placeholder: 'All Lessons',
-              options: lessonTagOptions,
-              onChange: setFilterLessonTag,
-            },
-            {
-              key: 'created_by',
-              label: 'Created By',
-              type: 'select' as const,
-              value: filterCreatedBy,
-              placeholder: 'Anyone',
-              options: createdByOptions,
-              onChange: setFilterCreatedBy,
-            },
-          ] as FilterField[]
-        }
-        onApply={() => {}}
-        onClear={() => {
-          setSearch('');
-          setFilterType('');
-          setFilterSubjectTag('');
-          setFilterLessonTag('');
-          setFilterCreatedBy('');
-        }}
+    <div className="space-y-6">
+      <ListHeader
+        title="Content Library"
+        shown={filtered.length}
+        total={rows.length}
+        noun="assets"
+        exportLabel={exportLabel(selected.size)}
+        onExport={exportCsv}
+        newLabel="New Asset"
+        onNew={openAdd}
       />
 
-      {allRows.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center">
-            <p className="text-sm font-medium text-slate-700">No content assets yet.</p>
-            <p className="mt-2 text-xs text-slate-500">
-              Click <strong>+ New Asset</strong> to add the first one. Legacy lesson content from
-              the old LMS lives under each course&apos;s Lessons section, not here — the Content
-              Library is a fresh standalone repository for reusable assets.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <AdminDataTable columns={columns} rows={rows} actions={actions} />
-      )}
-
-      {/* Add/Edit Asset Dialog */}
-      <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditId(''); setForm(emptyForm); } }}>
-        <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-[min(720px,calc(100vw-2rem))] max-h-[90vh] overflow-y-auto">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSave();
-            }}
-            className="w-full min-w-0"
-          >
-          <DialogHeader className="mb-5">
-            <DialogTitle>{editId ? 'Edit Asset' : 'New Content Asset'}</DialogTitle>
-          </DialogHeader>
-          <div className="w-full min-w-0 space-y-4">
-            <div className="space-y-1.5">
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, title: next })); }} placeholder="Asset title" />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>Type</Label>
-                <select className={selectClass} value={form.asset_type} onChange={(e) => setForm((f) => ({ ...f, asset_type: e.target.value }))}>
-                  <option value="video">Video</option>
-                  <option value="audio">Audio</option>
-                  <option value="article">Article</option>
-                  <option value="document">Document</option>
-                  <option value="quiz">Quiz</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Duration</Label>
-                <Input value={form.duration} onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} placeholder="e.g. 10:30" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Language</Label>
-                <select className={selectClass} value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}>
-                  <option value="">-- Any --</option>
-                  {languages.map((l) => <option key={asString(l.id)} value={asString(l.title)}>{asString(l.title)}</option>)}
-                </select>
-              </div>
-            </div>
-            {/* Risha UAT 2026-05-30 — both tag fields are now pick-from-list
-                dropdowns. The Lesson Tag dropdown spans every subject (labelled
-                "Subject › Lesson") and, on pick, stores the real lesson_id link
-                under the hood + auto-fills the Subject Tag. Free typing is still
-                allowed so legacy text tags keep working. */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <SearchableSelect
-                label="Subject Tag"
-                value={form.subject_tag}
-                options={subjectOptions}
-                placeholder="Choose or type a subject…"
-                onChange={(v) => setForm((f) => ({ ...f, subject_tag: v }))}
-              />
-              <SearchableSelect
-                label="Lesson Tag"
-                value={form.lesson_id ? (lessonIdToLabel.get(form.lesson_id) ?? form.lesson_tag) : form.lesson_tag}
-                options={lessonOptions}
-                placeholder="Choose or type a lesson…"
-                onChange={(label) => {
-                  const id = labelToLessonId.get(label);
-                  if (id) {
-                    // Picked a real lesson → store the link + fill both tags.
-                    setForm((f) => ({
-                      ...f,
-                      lesson_id: id,
-                      lesson_tag: lessonIdToTitle.get(id) || label,
-                      subject_tag: lessonIdToSubject.get(id) || f.subject_tag,
-                    }));
-                  } else {
-                    // Free-typed text that doesn't match a lesson → keep it as
-                    // a plain text tag and drop any previous hard link.
-                    setForm((f) => ({ ...f, lesson_tag: label, lesson_id: '' }));
-                  }
-                }}
-              />
-            </div>
-            {form.asset_type === 'video' && (
-              <div className="space-y-1.5">
-                <Label>Video URL</Label>
-                <Input value={form.video_url} onChange={(e) => setForm((f) => ({ ...f, video_url: e.target.value }))} placeholder="https://..." />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>Thumbnail / Banner Image (optional)</Label>
-              <FileUpload
-                value={form.thumbnail}
-                onChange={(url) => setForm((f) => ({ ...f, thumbnail: url }))}
-                onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
-                accept="image/*"
-                placeholder="Upload an image or paste a URL"
-              />
-            </div>
-            {form.asset_type === 'audio' && (
-              <div className="space-y-1.5">
-                <Label>Audio File</Label>
-                <FileUpload
-                  value={form.audio_file}
-                  onChange={(url) => setForm((f) => ({ ...f, audio_file: url }))}
-                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
-                  accept="audio/*"
-                  placeholder="Upload audio or enter URL"
-                />
-              </div>
-            )}
-            {form.asset_type === 'document' && (
-              <div className="space-y-1.5">
-                <Label>File</Label>
-                <FileUpload
-                  value={form.attachment}
-                  onChange={(url) => setForm((f) => ({ ...f, attachment: url }))}
-                  onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
-                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*"
-                  placeholder="Upload file or enter URL"
-                />
-              </div>
-            )}
-            {form.asset_type === 'article' ? (
-              <div className="space-y-1.5">
-                <Label>Article Content</Label>
-                <RichTextEditor
-                  value={form.summary}
-                  onChange={(html) => setForm((f) => ({ ...f, summary: html }))}
-                  onUploadImage={async (file) => {
-                    const r = await api.uploadFile(session.token, file);
-                    return r.url;
-                  }}
-                />
-              </div>
-            ) : form.asset_type !== 'quiz' ? (
-              <div className="space-y-1.5">
-                <Label>Summary</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={form.summary}
-                  onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
-                />
-              </div>
-            ) : null}
-            <div className="space-y-1.5">
-              <Label>Tags (comma-separated)</Label>
-              <Input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="e.g. montessori, child-development" />
-            </div>
-
-            {form.asset_type === 'quiz' && (
-              <div className="space-y-4 rounded-md border p-4">
-                <div className="font-medium">Quiz Settings</div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="quiz-time">Time Limit (min)</Label>
-                    <Input id="quiz-time" type="number" min="0" value={form.time_limit_minutes} onChange={(e) => setForm((f) => ({ ...f, time_limit_minutes: e.target.value }))} placeholder="0" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="quiz-attempts">Attempts</Label>
-                    <Input id="quiz-attempts" type="number" min="1" value={form.attempts_allowed} onChange={(e) => setForm((f) => ({ ...f, attempts_allowed: e.target.value }))} placeholder="1" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="quiz-pass">Pass Marks</Label>
-                    <Input id="quiz-pass" type="number" min="0" value={form.pass_marks} onChange={(e) => setForm((f) => ({ ...f, pass_marks: e.target.value }))} placeholder="0" />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="size-4 rounded border-slate-300"
-                    checked={form.shuffle_questions}
-                    onChange={(e) => setForm((f) => ({ ...f, shuffle_questions: e.target.checked }))}
-                  />
-                  <span>Shuffle questions for each attempt</span>
-                </label>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-medium">
-                    Questions ({form.questions.length})
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleDownloadCsvTemplate}
-                      className="text-xs text-slate-500 underline-offset-2 hover:underline"
-                    >
-                      Download CSV template
-                    </button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => bulkUploadInputRef.current?.click()}
-                    >
-                      <UploadIcon className="mr-1 h-3 w-3" /> Bulk Upload
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={addQuestion}>
-                      <Plus className="mr-1 h-3 w-3" /> Add Question
-                    </Button>
-                    <input
-                      ref={bulkUploadInputRef}
-                      type="file"
-                      accept=".csv,text/csv"
-                      aria-label="Upload quiz questions CSV"
-                      className="hidden"
-                      onChange={(e) => { void handleBulkQuestionUpload(e); }}
-                    />
-                  </div>
-                </div>
-
-                {form.questions.length === 0 ? (
-                  <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-                    No questions added yet.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {form.questions.map((q, idx) => (
-                      <div key={idx} className="rounded-md border p-3 space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="text-xs font-semibold text-muted-foreground">Q{idx + 1}</div>
-                          <div className="flex gap-1">
-                            <Button type="button" size="icon" variant="ghost" aria-label="Move question up" onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}>
-                              <ChevronUp className="h-3 w-3" aria-hidden="true" />
-                            </Button>
-                            <Button type="button" size="icon" variant="ghost" aria-label="Move question down" onClick={() => moveQuestion(idx, 1)} disabled={idx === form.questions.length - 1}>
-                              <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                            </Button>
-                            <Button type="button" size="icon" variant="ghost" aria-label="Remove question" onClick={() => removeQuestion(idx)}>
-                              <Trash2 className="h-3 w-3 text-red-600" aria-hidden="true" />
-                            </Button>
-                          </div>
-                        </div>
-                        <textarea
-                          className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={q.question}
-                          placeholder="Question text"
-                          onChange={(e) => updateQuestion(idx, { question: e.target.value })}
-                        />
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {(['A', 'B', 'C', 'D'] as CorrectAnswer[]).map((letter) => {
-                            const key = `option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d';
-                            return (
-                              <label key={letter} className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="radio"
-                                  name={`correct-${idx}`}
-                                  checked={q.correct_answer === letter}
-                                  onChange={() => updateQuestion(idx, { correct_answer: letter })}
-                                />
-                                <span className="w-4 font-semibold">{letter}</span>
-                                <Input
-                                  value={q[key]}
-                                  onChange={(e) => updateQuestion(idx, { [key]: e.target.value } as Partial<QuestionForm>)}
-                                  placeholder={`Option ${letter}`}
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+      <Card className={FILTER_CARD}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_auto_auto_auto_auto_auto]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search assets" placeholder="Title, ID, tags…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
           </div>
-          <DialogFooter className="mt-6 gap-2">
-            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditId(''); setForm(emptyForm); }} disabled={saving}>Cancel</Button>
-            <Button type="submit" disabled={saving || !form.title.trim()}>
-              {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
-            </Button>
-          </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          <select aria-label="Type" className={`${SELECT_CLASS} capitalize xl:w-36`} value={filters.type} onChange={(e) => set({ type: e.target.value })}>
+            <option value="">All Types</option>
+            {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select aria-label="Subject Tag" className={`${SELECT_CLASS} xl:w-48`} value={filters.subjectTag} onChange={(e) => set({ subjectTag: e.target.value })}>
+            <option value="">All Subjects</option>
+            {subjectTags.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select aria-label="Lesson Tag" className={`${SELECT_CLASS} xl:w-48`} value={filters.lessonTag} onChange={(e) => set({ lessonTag: e.target.value })}>
+            <option value="">All Lessons</option>
+            {lessonTags.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select aria-label="Created By" className={`${SELECT_CLASS} xl:w-36`} value={filters.createdBy} onChange={(e) => set({ createdBy: e.target.value })}>
+            <option value="">Anyone</option>
+            {creators.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={clear}>
+            <X aria-hidden="true" className="size-4" /> Clear
+          </Button>
+        </div>
+      </Card>
 
-      {/* Unified Preview Dialog */}
-      <Dialog open={!!previewAsset} onOpenChange={(open) => { if (!open) setPreviewAsset(null); }}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{asString(previewAsset?.title)}</DialogTitle>
-          </DialogHeader>
-          {previewType === 'video' && (
-            <div className="aspect-video w-full">
-              {(() => {
-                const url = asString(previewAsset?.video_url);
-                if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No video URL set.</p>;
-                if (/\.mp4($|\?)/i.test(url) || /\.webm($|\?)/i.test(url) || /\.mov($|\?)/i.test(url)) {
-                  return <video src={url} controls className="h-full w-full" />;
-                }
-                // Vimeo: https://vimeo.com/123 or https://player.vimeo.com/...
-                const vimeo = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-                if (vimeo) {
-                  return <iframe src={`https://player.vimeo.com/video/${vimeo[1]}`} className="h-full w-full" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />;
-                }
-                // YouTube: youtu.be/X, youtube.com/watch?v=X, youtube.com/embed/X
-                const yt =
-                  url.match(/youtu\.be\/([\w-]+)/) ||
-                  url.match(/youtube\.com\/watch\?v=([\w-]+)/) ||
-                  url.match(/youtube\.com\/embed\/([\w-]+)/);
-                if (yt) {
-                  return <iframe src={`https://www.youtube.com/embed/${yt[1]}`} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />;
-                }
-                return <iframe src={url} className="h-full w-full" allow="fullscreen" />;
-              })()}
-            </div>
-          )}
-          {previewType === 'audio' && (
-            <div className="py-4">
-              {asString(previewAsset?.audio_file) ? (
-                <audio src={asString(previewAsset?.audio_file)} controls className="w-full" />
-              ) : (
-                <p className="text-center text-sm text-muted-foreground">No audio file uploaded.</p>
-              )}
-            </div>
-          )}
-          {previewType === 'document' && (
-            <div className="space-y-3">
-              {(() => {
-                const url = asString(previewAsset?.attachment) || asString(previewAsset?.download_url);
-                if (!url) return <p className="py-6 text-center text-sm text-muted-foreground">No file uploaded.</p>;
-                // Render the inline viewer for PDFs and any non-Office URL (the
-                // upload often strips the .pdf suffix, so don't gate purely on
-                // extension — only Office formats can't be iframed). Always offer
-                // "Open in new tab" since some hosts force-download in an iframe.
-                const isOffice = /\.(docx?|pptx?|xlsx?)($|\?)/i.test(url);
-                const showInline = isDocPdf(url) || !isOffice;
-                return (
-                  <>
-                    {showInline ? (
-                      <iframe src={url} title="Document preview" className="h-[60vh] w-full rounded border" />
-                    ) : (
-                      <p className="py-6 text-center text-sm text-muted-foreground">
-                        Inline preview isn&apos;t available for this format — open or download below.
-                      </p>
-                    )}
-                    <div className="flex justify-end gap-2">
-                      <Button asChild variant="outline" size="sm">
-                        <a href={url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="mr-2 h-4 w-4" /> Open in new tab
-                        </a>
-                      </Button>
-                      <Button asChild variant="default" size="sm">
-                        <a href={url} target="_blank" rel="noopener noreferrer" download>
-                          <Download className="mr-2 h-4 w-4" /> Download
-                        </a>
-                      </Button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-          {previewType === 'article' && (
-            <div
-              className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: asString(previewAsset?.summary) }}
-            />
-          )}
-          {previewType === 'quiz' && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                {Number(previewAsset?.time_limit_seconds ?? 0) > 0 && (
-                  <Badge variant="secondary">Time: {Math.floor(Number(previewAsset?.time_limit_seconds) / 60)}m</Badge>
-                )}
-                <Badge variant="secondary">Attempts: {asString(previewAsset?.attempts_allowed) || '—'}</Badge>
-                <Badge variant="secondary">Pass Marks: {asString(previewAsset?.pass_marks) || '—'}</Badge>
-                <Badge variant="secondary">Shuffle: {previewAsset?.shuffle_questions ? 'Yes' : 'No'}</Badge>
-                <Badge variant="secondary">{previewQuestions.length} question{previewQuestions.length === 1 ? '' : 's'}</Badge>
-              </div>
-              {previewQuestions.length === 0 ? (
-                <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-                  No questions added.
-                </p>
-              ) : (
-                <ol className="space-y-3">
-                  {previewQuestions.map((q, idx) => {
-                    const correct = asString(q.correct_answer).toUpperCase();
-                    return (
-                      <li key={idx} className="rounded border p-3">
-                        <div className="mb-2 text-sm font-semibold">Q{idx + 1}. {asString(q.question)}</div>
-                        <ul className="space-y-1">
-                          {(['A', 'B', 'C', 'D'] as CorrectAnswer[]).map((letter) => {
-                            const key = `option_${letter.toLowerCase()}` as 'option_a' | 'option_b' | 'option_c' | 'option_d';
-                            const text = asString(q[key]);
-                            if (!text) return null;
-                            const isCorrect = letter === correct;
-                            return (
-                              <li key={letter} className={`flex items-start gap-2 text-sm ${isCorrect ? 'text-green-700' : ''}`}>
-                                {isCorrect ? <Check className="mt-0.5 h-4 w-4" /> : <span className="w-4" />}
-                                <span className="w-4 font-semibold">{letter}.</span>
-                                <span>{text}</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <Card className={PAGE_CARD}>
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={FileStack}
+            title="No content assets yet."
+            body="Click New Asset to add the first one. Legacy lesson content from the old LMS lives under each course's Lessons section, not here — the Content Library is a standalone repository for reusable assets."
+            action={<Button size="sm" onClick={openAdd}>New Asset</Button>}
+          />
+        ) : slice.current.length === 0 ? (
+          <EmptyState icon={FileStack} title="No assets match your filters." action={<Button variant="outline" size="sm" onClick={clear}>Clear filters</Button>} />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10">
+                  <SelectCell label="Select all assets on this page" checked={allSelected(selected, pageIds)} onChange={() => setSelected((s) => togglePage(s, pageIds))} />
+                </TableHead>
+                <TableHead className="w-10 text-xs">#</TableHead>
+                <SortHead label="Content ID" k="contentId" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-xs">Preview</TableHead>
+                <SortHead label="Title" k="title" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Type" k="type" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Subject Tag" k="subjectTag" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Lesson Tag" k="lessonTag" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Duration" k="duration" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Created By" k="createdBy" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Created On" k="createdAt" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-right text-xs">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {slice.current.map((a, i) => (
+                <TableRow key={a.id} className="hover:bg-muted/30">
+                  <TableCell>
+                    <SelectCell label={`Select ${a.title}`} checked={selected.has(a.id)} onChange={(on) => setSelected((s) => toggleId(s, a.id, on))} />
+                  </TableCell>
+                  <TableCell className="text-xs font-medium text-primary">{(slice.page - 1) * PAGE_SIZE + i + 1}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{a.contentId}</TableCell>
+                  <TableCell>
+                    <Button size="icon" variant="ghost" className="size-8" aria-label={`Preview ${a.title}`} onClick={() => void openPreview(a)}>
+                      <Eye aria-hidden="true" className="size-4 text-muted-foreground" />
+                    </Button>
+                  </TableCell>
+                  <TableCell className="max-w-[280px] text-sm">
+                    <button type="button" onClick={() => void openPreview(a)} className="text-left font-medium text-primary hover:underline">{a.title}</button>
+                  </TableCell>
+                  <TableCell><Pill tone={TYPE_TONE[a.type] ?? 'slate'} className="capitalize">{a.type || '—'}</Pill></TableCell>
+                  <TableCell className="max-w-[200px] truncate text-sm" title={a.subjectTag}>{a.subjectTag || '—'}</TableCell>
+                  <TableCell className="max-w-[200px] truncate text-sm" title={a.lessonTag}>{a.lessonTag || '—'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{a.duration || '—'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{a.createdBy || '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDmy(a.createdAt) || '—'}</TableCell>
+                  <TableCell className="text-right">
+                    <RowActions
+                      name={a.title}
+                      actions={[
+                        { label: 'Preview', icon: Eye, onSelect: () => void openPreview(a) },
+                        { label: 'Edit', icon: Pencil, onSelect: () => void openEdit(a) },
+                        { label: 'Delete', icon: Trash2, destructive: true, onSelect: () => void remove(a) },
+                      ]}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {rows.length > 0 ? <Pager shown={slice.current.length} total={filtered.length} page={slice.page} pages={slice.pages} onPage={setPage} /> : null}
+      </Card>
+
+      <AssetFormDialog
+        open={form.open}
+        editId={form.editId}
+        initial={form.initial}
+        languages={languages}
+        subjectChoices={subjectChoices}
+        picker={picker}
+        api={api}
+        token={session.token}
+        onClose={closeForm}
+        onSaved={reload}
+      />
+      <AssetPreviewDialog asset={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
