@@ -1,367 +1,288 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Eye, FileText, MoreHorizontal, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { useConfirm } from '@/components/confirm-dialog';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import {
+  EMPTY_COHORT_FILTERS,
+  STATUS_LABEL,
+  STATUS_TONE,
+  cohortCsvRows,
+  cohortTabCounts,
+  filterCohorts,
+  filterCohortsIgnoringTab,
+  optionsFrom,
+  sortCohorts,
+  toCohortRows,
+  type CohortFilters,
+  type CohortRow,
+  type CohortSortKey,
+  type CohortTab,
+} from './cohort-list-model.js';
+import { CohortFormDialog } from './CohortFormDialog.js';
+import { nextSort, pageSlice, type SortDir } from './list-model.js';
+import { Pager, PillTab, SortHead } from './list-ui.js';
 
-const LANGUAGE_OPTIONS = [
-  { label: 'Malayalam', value: 'malayalam' },
-  { label: 'English', value: 'english' },
+// Cohorts (TTII 2026-10-12), rebuilt after Naji's CohortsModule: Active /
+// Completed / All pills, a filter card, a selectable sortable table with an
+// action menu, export, and the Add / Edit Cohort dialog. Filters now run on the
+// loaded rows — four of the old page's six filters were never read by the API.
+
+const PAGE_SIZE = 8;
+const SELECT_CLASS = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
+const TABS: Array<{ id: CohortTab; label: string }> = [
+  { id: 'active', label: 'Active' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'all', label: 'All' },
 ];
-
-function formatCohortMonth(value: unknown): string {
-  const str = asString(value);
-  if (!str) return '-';
-  // Try parsing as YYYY-MM or full date
-  const date = new Date(str.length === 7 ? `${str}-01` : str);
-  if (Number.isNaN(date.getTime())) return str;
-  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
-
-// Naji 2026-05-04: legacy cohort codes were stored as "C-75", "C-1014".
-// He wants the hyphen stripped in display ("C75", "C1014"). Codes that
-// don't match the legacy pattern (e.g. new "MMJUL26" format) pass
-// through untouched.
-function formatCohortCode(value: unknown): string {
-  const str = asString(value).trim();
-  if (!str) return '';
-  return str.replace(/^([A-Za-z]+)-(\d+)$/, '$1$2');
-}
 
 export default function CohortsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
-  /* ── Filter state ────────────────────────────────────────────────── */
-  const [cohortMonth, setCohortMonth] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [subjectFilter, setSubjectFilter] = useState('');
-  const [languageFilter, setLanguageFilter] = useState('');
-  const [instructorFilter, setInstructorFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('active');
-
-  /* ── Dropdown options ────────────────────────────────────────────── */
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
-  const [instructors, setInstructors] = useState<Record<string, unknown>[]>([]);
+  const [filters, setFilters] = useState<CohortFilters>({ ...EMPTY_COHORT_FILTERS, tab: 'all' });
+  const [sort, setSort] = useState<{ key: CohortSortKey; dir: SortDir }>({ key: 'cohortId', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialog, setDialog] = useState<{ cohortId: string | null } | null>(null);
+  const [courses, setCourses] = useState<Array<{ id: string; label: string }>>([]);
 
   useEffect(() => {
-    Promise.all([
-      api.loadCourses(session.token),
-      api.loadInstructors(session.token),
-    ])
-      .then(([c, i]) => {
-        setCourses(c);
-        setInstructors(i);
-      })
-      .catch(() => {});
+    api.loadCourses(session.token)
+      .then((list) => setCourses(list.map((c) => ({ id: asString(c.id), label: asString(c.title) })).filter((c) => c.id && c.label)))
+      .catch(() => setCourses([]));
   }, [api, session.token]);
 
-  useEffect(() => {
-    if (courseFilter) {
-      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
-    } else {
-      setSubjects([]);
-    }
-    setSubjectFilter('');
-  }, [api, session.token, courseFilter]);
-
-  /* ── Data loading ────────────────────────────────────────────────── */
   const { data, loading, error, reload } = useAdminPageData(
-    () =>
-      api.loadAdminCohorts(session.token, {
-        ...(cohortMonth ? { cohortMonth } : {}),
-        ...(courseFilter ? { courseId: courseFilter } : {}),
-        ...(subjectFilter ? { subjectId: subjectFilter } : {}),
-        ...(languageFilter ? { languageId: languageFilter } : {}),
-        ...(instructorFilter ? { instructorId: instructorFilter } : {}),
-        ...(statusFilter ? { status: statusFilter } : {}),
-      }),
-    [cohortMonth, courseFilter, subjectFilter, languageFilter, instructorFilter, statusFilter],
+    async () => toCohortRows(await api.loadAdminCohorts(session.token)),
+    [],
+    'admin:cohorts:list',
+  );
+  const rows = useMemo(() => data ?? [], [data]);
+  const counts = useMemo(() => cohortTabCounts(filterCohortsIgnoringTab(rows, filters)), [rows, filters]);
+  const filtered = useMemo(() => sortCohorts(filterCohorts(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
+  const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
+
+  const subjects = useMemo(() => optionsFrom(rows, (c) => c.subjectId, (c) => c.subject), [rows]);
+  const languages = useMemo(() => optionsFrom(rows, (c) => c.languageId, (c) => c.language), [rows]);
+  const instructors = useMemo(() => optionsFrom(rows, (c) => c.instructorId, (c) => c.instructor), [rows]);
+  const months = useMemo(
+    () => optionsFrom(rows, (c) => c.startYmd.slice(0, 7), (c) => c.month).sort((a, b) => b.id.localeCompare(a.id)),
+    [rows],
   );
 
-  const allCohorts = useMemo(() => toRecords(data), [data]);
+  const set = (patch: Partial<CohortFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters((f) => ({ ...EMPTY_COHORT_FILTERS, tab: f.tab })); setPage(1); };
+  const view = (c: CohortRow) => onNavigate(`/admin/cohorts/view/${c.id}`);
 
-  /* ── Tab filtering (client-side) ─────────────────────────────────── */
-  // Status is derived from start_date/end_date on the server (`derived_status`).
-  // Fall back to legacy `status` when the field isn't present.
-  const cohortStatus = (c: Record<string, unknown>): string =>
-    (asString(c.derived_status) || asString(c.status) || 'active').toLowerCase();
+  const allOnPage = current.length > 0 && current.every((c) => selected.has(c.id));
+  const togglePage = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((c) => next.delete(c.id));
+    else current.forEach((c) => next.add(c.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id);
+    else next.delete(id);
+    return next;
+  });
 
-  const filteredCohorts = useMemo(() => {
-    if (activeTab === 'all') return allCohorts;
-    return allCohorts.filter((c) => cohortStatus(c) === activeTab);
-  }, [allCohorts, activeTab]);
+  const exportRows = selected.size > 0 ? filtered.filter((c) => selected.has(c.id)) : filtered;
+  const exportCsv = () => downloadCsv('cohorts.csv', toCsv(cohortCsvRows(exportRows)));
 
-  /* ── Tabs ────────────────────────────────────────────────────────── */
-  // Order: Active, Completed, All (Naji 2026-05-04).
-  const tabs: AdminTab[] = useMemo(
-    () => [
-      { id: 'active', label: 'Active', count: allCohorts.filter((c) => cohortStatus(c) === 'active').length },
-      { id: 'completed', label: 'Completed', count: allCohorts.filter((c) => cohortStatus(c) === 'completed').length },
-      { id: 'all', label: 'All', count: allCohorts.length },
-    ],
-    [allCohorts],
-  );
-
-  /* ── Filters ─────────────────────────────────────────────────────── */
-  const filters: FilterField[] = useMemo(
-    () => [
-      {
-        key: 'cohortMonth',
-        label: 'Cohort Date',
-        type: 'month' as const,
-        value: cohortMonth,
-        onChange: setCohortMonth,
-      },
-      {
-        key: 'course',
-        label: 'Course',
-        type: 'select' as const,
-        value: courseFilter,
-        placeholder: 'Select Course',
-        options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-        onChange: setCourseFilter,
-      },
-      {
-        key: 'subject',
-        label: 'Subject',
-        type: 'select' as const,
-        value: subjectFilter,
-        placeholder: 'Select subject',
-        options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
-        onChange: setSubjectFilter,
-      },
-      {
-        key: 'language',
-        label: 'Language',
-        type: 'select' as const,
-        value: languageFilter,
-        placeholder: 'Select language',
-        options: LANGUAGE_OPTIONS,
-        onChange: setLanguageFilter,
-      },
-      {
-        key: 'instructor',
-        label: 'Instructor',
-        type: 'select' as const,
-        value: instructorFilter,
-        placeholder: 'Select Instructor',
-        options: instructors.map((i) => ({
-          label: asString(i.name) || asString(i.full_name) || 'Unknown',
-          value: asString(i.id) || asString(i._id),
-        })),
-        onChange: setInstructorFilter,
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        type: 'select' as const,
-        value: statusFilter,
-        placeholder: 'Select Status',
-        options: [
-          { label: 'Active', value: 'active' },
-          { label: 'Completed', value: 'completed' },
-        ],
-        onChange: setStatusFilter,
-      },
-    ],
-    [cohortMonth, courseFilter, subjectFilter, languageFilter, instructorFilter, statusFilter, courses, subjects, instructors],
-  );
-
-  const handleClearFilters = () => {
-    setCohortMonth('');
-    setCourseFilter('');
-    setSubjectFilter('');
-    setLanguageFilter('');
-    setInstructorFilter('');
-    setStatusFilter('');
+  const remove = async (c: CohortRow) => {
+    const ok = await confirm({
+      title: `Delete "${c.title || c.code || c.cohortId}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.deleteCohort(session.token, c.id);
+      toast.success(asString(res.message) || 'Cohort deleted.');
+      setSelected((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
+    }
   };
 
-  /* ── Delete handler ──────────────────────────────────────────────── */
-  const handleDelete = useCallback(
-    async (row: Record<string, unknown>) => {
-      const id = asString(row._id) || asString(row.id);
-      const name = asString(row.title) || asString(row.cohort_id) || 'this cohort';
-      if (!(await confirm({
-        title: `Delete "${name}"?`,
-        description: 'This action cannot be undone.',
-        confirmText: 'Delete',
-        variant: 'destructive',
-      }))) return;
-      try {
-        await api.deleteCohort(session.token, id);
-        reload();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to delete cohort');
-      }
-    },
-    [api, session.token, reload, confirm],
-  );
-
-  /* ── Table columns ───────────────────────────────────────────────── */
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      {
-        key: 'derived_status',
-        label: 'Status',
-        sortable: true,
-        render: (_v, row) => <AdminStatusBadge status={cohortStatus(row)} />,
-      },
-      // Naji 2026-05-05 clarification: keep BOTH columns.
-      //   Cohort ID  = "C{id}" (auto-derived from row.id, no hyphen)
-      //   Cohort Code = the editable cohort_id text field (e.g. "CPMAY26")
-      {
-        key: 'cohort_row_id',
-        label: 'Cohort ID',
-        sortable: true,
-        render: (_v, row) => (
-          <button
-            type="button"
-            className="text-left font-medium text-blue-600 hover:underline"
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigate('/admin/cohorts/view/' + asString(row._id || row.id));
-            }}
-          >
-            {formatCohortCode(asString(row.cohort_row_id) || `C${asString(row.id)}`)}
-          </button>
-        ),
-      },
-      {
-        key: 'cohort_id',
-        label: 'Cohort Code',
-        sortable: true,
-        render: (value, row) => formatCohortCode(value) || asString(row.title) || '-',
-      },
-      {
-        key: 'cohort_date',
-        label: 'Cohort Date',
-        sortable: true,
-        render: (_v, row) => formatCohortMonth(row.cohort_date || row.cohort_month || row.start_date),
-      },
-      { key: 'subject_title', label: 'Subject', sortable: true, render: (v) => asString(v) || '-' },
-      {
-        // Naji 2026-08-19 — a cohort can be shared by several programs
-        // (PG + Diploma), so show all of them, not just the primary.
-        key: 'course_title',
-        label: 'Programs',
-        sortable: true,
-        render: (v, row) => {
-          const titles = Array.isArray(row.course_titles)
-            ? (row.course_titles as unknown[]).map((t) => asString(t)).filter(Boolean)
-            : [];
-          if (titles.length > 1) {
-            return (
-              <div className="flex flex-wrap gap-1">
-                {titles.map((t) => (
-                  <span
-                    key={t}
-                    className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            );
-          }
-          return titles[0] || asString(v) || '-';
-        },
-      },
-      {
-        key: 'language',
-        label: 'Language',
-        sortable: true,
-        render: (_v, row) => asString(row.language_title) || asString(row.language) || '-',
-      },
-      {
-        key: 'instructor_name',
-        label: 'Instructor',
-        sortable: true,
-        render: (v) => asString(v) || '-',
-      },
-      {
-        key: 'student_count',
-        label: 'No. of Students',
-        sortable: true,
-        render: (v) => (
-          <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-            {asNumber(v) || 0}
-          </span>
-        ),
-      },
-      {
-        key: 'live_class_count',
-        label: 'No. of Live Classes',
-        sortable: true,
-        render: (_v, row) => {
-          const count = asNumber(row.live_class_count) || asNumber(row.live_sessions_count) || 0;
-          return (
-            <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
-              {count}
-            </span>
-          );
-        },
-      },
-    ],
-    [onNavigate],
-  );
-
-  const actions: DataTableAction[] = useMemo(
-    () => [
-      {
-        label: 'View',
-        onClick: (row) => onNavigate('/admin/cohorts/view/' + asString(row._id || row.id)),
-      },
-      {
-        label: 'Edit',
-        onClick: (row) => onNavigate('/admin/cohorts/edit/' + asString(row._id || row.id)),
-      },
-      {
-        label: 'Delete',
-        variant: 'destructive',
-        onClick: (row) => {
-          void handleDelete(row);
-        },
-      },
-    ],
-    [onNavigate, handleDelete],
-  );
-
-  /* ── Loading / error ─────────────────────────────────────────────── */
-  if (loading) {
-    return <PageLoader label="Loading cohorts..." />;
-  }
-
+  if (loading) return <PageLoader label="Loading cohorts…" />;
   if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-destructive">
+          {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
+        </CardContent>
       </Card>
     );
   }
 
-  /* ── Render ──────────────────────────────────────────────────────── */
   return (
-    <div className="space-y-4">
-      <AdminPageHeader
+    <div className="space-y-6">
+      <PageTitle
         title="Cohorts"
-        addLabel="+ Add Cohorts"
-        onAdd={() => onNavigate('/admin/cohorts/add')}
+        subtitle={`${filtered.length} of ${rows.length} cohorts`}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={exportRows.length === 0} onClick={exportCsv}>
+              <FileText aria-hidden="true" className="size-4" /> {selected.size > 0 ? `Export (${selected.size})` : 'Export'}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setDialog({ cohortId: null })}>
+              <Plus aria-hidden="true" className="size-4" /> Add Cohort
+            </Button>
+          </>
+        )}
       />
 
-      <AdminFilterBar filters={filters} onApply={() => {}} onClear={handleClearFilters} />
+      <div role="tablist" aria-label="Cohort status" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
+        ))}
+      </div>
 
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_190px_180px_150px_170px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search cohorts" placeholder="Search by cohort, code, subject, course or instructor…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+          <select aria-label="Cohort date" className={SELECT_CLASS} value={filters.month} onChange={(e) => set({ month: e.target.value })}>
+            <option value="">All Dates</option>
+            {months.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
+          <select aria-label="Course" className={SELECT_CLASS} value={filters.courseId} onChange={(e) => set({ courseId: e.target.value })}>
+            <option value="">All Courses</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          <select aria-label="Subject" className={SELECT_CLASS} value={filters.subjectId} onChange={(e) => set({ subjectId: e.target.value })}>
+            <option value="">All Subjects</option>
+            {subjects.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <select aria-label="Language" className={SELECT_CLASS} value={filters.languageId} onChange={(e) => set({ languageId: e.target.value })}>
+            <option value="">All Languages</option>
+            {languages.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+          <select aria-label="Instructor" className={SELECT_CLASS} value={filters.instructorId} onChange={(e) => set({ instructorId: e.target.value })}>
+            <option value="">All Instructors</option>
+            {instructors.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
+          </select>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <select aria-label="Status" className={`${SELECT_CLASS} md:w-40`} value={filters.status} onChange={(e) => set({ status: e.target.value as CohortFilters['status'] })}>
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+            <option value="upcoming">Upcoming</option>
+          </select>
+          <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
+        </div>
+      </Card>
 
-      <AdminDataTable columns={columns} rows={filteredCohorts} actions={actions} />
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={rows.length === 0 ? 'No cohorts yet.' : 'No cohorts match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => setDialog({ cohortId: null })}>Add the first cohort</Button>
+              : <Button variant="outline" size="sm" onClick={reset}>Reset filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10">
+                  <Checkbox aria-label="Select all cohorts on this page" checked={allOnPage} onCheckedChange={togglePage} />
+                </TableHead>
+                <TableHead className="w-10 text-xs">#</TableHead>
+                <SortHead label="Status" k="status" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Cohort ID" k="cohortId" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Cohort Code" k="code" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Cohort Date" k="month" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Subject" k="subject" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Programs" k="course" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Language" k="language" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="Instructor" k="instructor" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} />
+                <SortHead label="No. of Students" k="students" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} className="text-right" />
+                <SortHead label="Live Classes" k="liveClasses" sortKey={sort.key} dir={sort.dir} onSort={(k) => setSort((s) => nextSort(s, k))} className="text-right" />
+                <TableHead className="text-right text-xs">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((c, i) => (
+                <TableRow key={c.id} className="hover:bg-muted/30">
+                  <TableCell>
+                    <Checkbox aria-label={`Select ${c.code}`} checked={selected.has(c.id)} onCheckedChange={(v) => toggleOne(c.id, v === true)} />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{String((safePage - 1) * PAGE_SIZE + i + 1).padStart(2, '0')}</TableCell>
+                  <TableCell><Pill tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Pill></TableCell>
+                  <TableCell>
+                    <button type="button" onClick={() => view(c)} className="font-mono text-xs font-medium text-primary hover:underline">{c.cohortId}</button>
+                  </TableCell>
+                  <TableCell className="text-sm font-medium">{c.code || '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{c.month || '—'}</TableCell>
+                  <TableCell className="max-w-[220px] text-sm">{c.subject || '—'}</TableCell>
+                  <TableCell className="max-w-[240px] text-sm text-muted-foreground">
+                    {c.courses.length > 1 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {c.courses.map((t) => <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">{t}</span>)}
+                      </div>
+                    ) : c.courses[0] || '—'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{c.language || '—'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{c.instructor || '—'}</TableCell>
+                  <TableCell className="text-right">
+                    <span className="inline-flex min-w-[28px] items-center justify-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{c.students}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className="inline-flex min-w-[28px] items-center justify-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-700">{c.liveClasses}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${c.code || c.cohortId}`}>
+                          <MoreHorizontal aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => view(c)}><Eye aria-hidden="true" /> View</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDialog({ cohortId: c.id })}><Pencil aria-hidden="true" /> Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => view(c)}><Users aria-hidden="true" /> Students</DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => void remove(c)}><Trash2 aria-hidden="true" /> Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <Pager page={safePage} pages={pages} shown={current.length} total={filtered.length} noun="cohorts" onPage={setPage} />
+      </Card>
+
+      <CohortFormDialog
+        open={dialog !== null}
+        cohortId={dialog?.cohortId ?? null}
+        api={api}
+        token={session.token}
+        onClose={() => setDialog(null)}
+        onSaved={() => { setDialog(null); reload(); }}
+      />
     </div>
   );
 }

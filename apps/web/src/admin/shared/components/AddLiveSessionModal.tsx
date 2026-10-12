@@ -22,6 +22,7 @@ import { Trash2, CalendarPlus, Library, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClassTimeInput } from '@/components/ui/class-time-input';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { titleCaseOnBlur } from '@/lib/text-format';
@@ -29,6 +30,10 @@ import {
   RecordedSessionLinkPanel,
   type RecordedSessionHistory, type RecordedSessionImportResult,
 } from './RecordedSessionLinkPanel.js';
+
+// dd/mm/yyyy entry (not the native date picker, which renders in the browser
+// locale); the stored value is still ISO yyyy-mm-dd.
+const THIS_YEAR = new Date().getFullYear();
 
 type SessionEntryInput = {
   sessionId: string;
@@ -541,7 +546,7 @@ export function AddLiveSessionModal({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="mb-1 text-xs">Date *</Label>
-                    <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                    <DmyDateInput value={date} onChange={setDate} minYear={THIS_YEAR - 1} maxYear={THIS_YEAR + 2} />
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">From Time *</Label>
@@ -565,11 +570,11 @@ export function AddLiveSessionModal({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="mb-1 text-xs">Start Date *</Label>
-                    <Input type="date" value={scheduleStart} onChange={(e) => setScheduleStart(e.target.value)} />
+                    <DmyDateInput value={scheduleStart} onChange={setScheduleStart} minYear={THIS_YEAR - 1} maxYear={THIS_YEAR + 2} />
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">End Date *</Label>
-                    <Input type="date" value={scheduleEnd} onChange={(e) => setScheduleEnd(e.target.value)} />
+                    <DmyDateInput value={scheduleEnd} onChange={setScheduleEnd} minYear={THIS_YEAR - 1} maxYear={THIS_YEAR + 2} />
                   </div>
                   <div>
                     <Label className="mb-1 text-xs">From Time *</Label>
