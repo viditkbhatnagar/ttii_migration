@@ -1,398 +1,242 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Upload, X } from 'lucide-react';
-import { PageLoader } from '@/components/ui/page-loader';
-import { Card, CardContent } from '@/components/ui/card';
+import { Building2, Eye, FileText, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { useConfirm } from '@/components/confirm-dialog';
-// Naji UAT 2026-05-16 — title-case name-like fields on blur.
-import { titleCaseEachWord } from '@/lib/text-format';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle } from '../../shared/components/ui-kit.js';
+import { nextSort, pageSlice, type SortDir } from '../cohorts/list-model.js';
+import { Pager, SortHead } from '../cohorts/list-ui.js';
+import {
+  filterPartners,
+  partnerCsvRows,
+  sortPartners,
+  statusCounts,
+  toCombinationRows,
+  toPartnerRows,
+  type PartnerFilters,
+  type PartnerRow,
+  type PartnerSortKey,
+} from './partner-model.js';
+import { PartnerLogo, StatusPill, StatusPills } from './partner-ui.js';
+import { PartnerFormDialog } from './PartnerFormDialog.js';
 
-const selectClass =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+// Partner Management → Certification Partners (TTII 2026-10-12), rebuilt after
+// Naji's CertificationPartnersModule: All / Active / Inactive pills, a filter
+// card, a selectable sortable table (row opens the partner page), export and
+// the New / Edit dialog. Kept: View (partner page), Edit, Delete with confirm.
 
-interface PartnerForm {
-  partner_code: string;
-  name: string;
-  short_name: string;
-  country: string;
-  description: string;
-  logo: string;
-  status: string;
-  position: string;
-}
-
-const emptyForm: PartnerForm = {
-  partner_code: '',
-  name: '',
-  short_name: '',
-  country: '',
-  description: '',
-  logo: '',
-  status: 'active',
-  position: '',
-};
+const PAGE_SIZE = 10;
+const SELECT_CLASS = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+const EMPTY_FILTERS: PartnerFilters = { tab: 'all', search: '', country: '' };
 
 export default function CertificationPartnersPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState('');
-  const [form, setForm] = useState<PartnerForm>(emptyForm);
-  const [saving, setSaving] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
-  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const [filters, setFilters] = useState<PartnerFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<{ key: PartnerSortKey; dir: SortDir }>({ key: 'position', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialog, setDialog] = useState<{ editing: PartnerRow | null } | null>(null);
 
-  const handleLogoUpload = useCallback(
-    async (file: File | null | undefined) => {
-      if (!file) return;
-      setUploadingLogo(true);
-      try {
-        const { url } = await api.uploadFile(session.token, file);
-        setForm((f) => ({ ...f, logo: url }));
-        toast.success('Logo uploaded.');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Logo upload failed.';
-        toast.error(message);
-      } finally {
-        setUploadingLogo(false);
-      }
-    },
-    [api, session.token],
-  );
-
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.listCertificationPartners(session.token),
-    [],
-  );
-  const rows = useMemo(() => toRecords(data), [data]);
-
-  const handleOpenAdd = useCallback(() => {
-    setEditId('');
-    setForm(emptyForm);
-    setShowForm(true);
+  const { data, loading, error, reload } = useAdminPageData(async () => {
+    const [partners, combos] = await Promise.all([
+      api.listCertificationPartners(session.token),
+      // Only feeds the Combinations count; the list still loads without it.
+      api.listCertificateCombinations(session.token).catch(() => [] as Record<string, unknown>[]),
+    ]);
+    return toPartnerRows(partners, toCombinationRows(combos));
   }, []);
 
-  const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
-    setEditId(asString(row.id));
-    const pos = row.position;
-    setForm({
-      partner_code: asString(row.partner_code),
-      name: asString(row.name),
-      short_name: asString(row.short_name),
-      country: asString(row.country),
-      description: asString(row.description),
-      logo: asString(row.logo),
-      status: asString(row.status) || 'active',
-      position: typeof pos === 'number' || typeof pos === 'string' ? String(pos) : '',
+  const rows = useMemo(() => data ?? [], [data]);
+  const countries = useMemo(() => [...new Set(rows.map((r) => r.country).filter(Boolean))].sort(), [rows]);
+  const counts = useMemo(() => statusCounts(filterPartners(rows, { ...filters, tab: 'all' })), [rows, filters]);
+  const filtered = useMemo(() => sortPartners(filterPartners(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
+  const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
+
+  const set = (patch: Partial<PartnerFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const onSort = (k: PartnerSortKey) => setSort((s) => nextSort(s, k));
+  const view = (p: PartnerRow) => onNavigate(`/admin/partners/view/${p.id}`);
+
+  const allOnPage = current.length > 0 && current.every((p) => selected.has(p.id));
+  const togglePage = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((p) => next.delete(p.id));
+    else current.forEach((p) => next.add(p.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+  const exportRows = selected.size > 0 ? filtered.filter((p) => selected.has(p.id)) : filtered;
+
+  const remove = async (p: PartnerRow) => {
+    const ok = await confirm({
+      title: `Delete partner "${p.name}"?`,
+      description: p.combinations > 0
+        ? `${p.combinations} certificate combination${p.combinations === 1 ? '' : 's'} list this partner. This action cannot be undone.`
+        : 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
     });
-    setShowForm(true);
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (!form.partner_code.trim() || !form.name.trim()) return;
-    setSaving(true);
+    if (!ok) return;
     try {
-      const payload: Record<string, unknown> = {
-        partner_code: form.partner_code.trim(),
-        name: form.name.trim(),
-        short_name: form.short_name.trim(),
-        country: form.country.trim(),
-        description: form.description.trim(),
-        logo: form.logo.trim(),
-        status: form.status,
-      };
-      if (form.position.trim() !== '') {
-        const n = Number(form.position);
-        if (Number.isFinite(n)) payload.position = n;
-      }
-      if (editId) await api.updateCertificationPartner(session.token, editId, payload);
-      else await api.createCertificationPartner(session.token, payload);
-      setShowForm(false);
-      setEditId('');
-      setForm(emptyForm);
+      const res = await api.deleteCertificationPartner(session.token, p.id);
+      toast.success(asString(res.message) || 'Partner deleted.');
+      setSelected((prev) => { const next = new Set(prev); next.delete(p.id); return next; });
       reload();
-    } catch {
-      /* ignore */
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete partner');
     }
-  }, [api, session.token, editId, form, reload]);
-
-  const handleDelete = useCallback(
-    async (row: Record<string, unknown>) => {
-      if (
-        !(await confirm({
-          title: `Delete partner "${asString(row.name)}"?`,
-          description: 'This action cannot be undone.',
-          confirmText: 'Delete',
-          variant: 'destructive',
-        }))
-      )
-        return;
-      try {
-        await api.deleteCertificationPartner(session.token, asString(row.id));
-        reload();
-      } catch {
-        /* ignore */
-      }
-    },
-    [api, session.token, reload, confirm],
-  );
-
-  const columns: DataTableColumn[] = [
-    {
-      key: 'logo',
-      label: 'Logo',
-      render: (v) => {
-        const url = asString(v);
-        return url ? (
-          <img src={url} alt="" className="h-12 w-12 rounded border border-slate-200 bg-white object-contain p-0.5" />
-        ) : (
-          <div className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-slate-200 bg-slate-50 text-[10px] text-slate-400">
-            no logo
-          </div>
-        );
-      },
-    },
-    { key: 'partner_code', label: 'Code', sortable: true },
-    { key: 'name', label: 'Name', sortable: true },
-    { key: 'country', label: 'Country' },
-    {
-      key: 'description',
-      label: 'Description',
-      className: 'max-w-md whitespace-normal align-top',
-      render: (v) => {
-        const text = asString(v);
-        if (!text) return <span className="text-slate-400">—</span>;
-        return (
-          <p
-            title={text}
-            className="line-clamp-3 break-words text-sm leading-snug text-slate-700"
-          >
-            {text}
-          </p>
-        );
-      },
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      render: (v) => {
-        const s = asString(v) || 'active';
-        return (
-          <span
-            className={
-              s === 'active'
-                ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700'
-                : 'rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-700'
-            }
-          >
-            {s}
-          </span>
-        );
-      },
-    },
-  ];
-
-  const actions: DataTableAction[] = [
-    // Naji UAT 2026-05-22 — View opens the partner detail page (Courses /
-    // Students / Liability tabs). Edit and Delete behave as before.
-    { label: 'View', onClick: (row) => onNavigate(`/admin/partners/view/${asString(row.id)}`) },
-    { label: 'Edit', onClick: (row) => handleOpenEdit(row) },
-    { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
-  ];
+  };
 
   if (loading) return <PageLoader label="Loading certification partners..." />;
-  if (error)
+  if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-destructive">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
+  }
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Certification Partners" addLabel="Add Partner" onAdd={handleOpenAdd} />
-      <AdminDataTable columns={columns} rows={rows} actions={actions} />
+    <div className="space-y-6">
+      <PageTitle
+        title="Certification Partners"
+        subtitle="Academic partners and certification authorities that award certificates"
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={exportRows.length === 0}
+              onClick={() => downloadCsv('certification-partners.csv', toCsv(partnerCsvRows(exportRows)))}
+            >
+              <FileText aria-hidden="true" className="size-4" /> {selected.size > 0 ? `Export (${selected.size})` : 'Export'}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setDialog({ editing: null })}>
+              <Plus aria-hidden="true" className="size-4" /> Add Partner
+            </Button>
+          </>
+        )}
+      />
 
-      <Dialog
-        open={showForm}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowForm(false);
-            setEditId('');
-            setForm(emptyForm);
-          }
-        }}
-      >
-        <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-[min(560px,calc(100vw-2rem))] overflow-hidden">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSave();
-            }}
-            className="w-full min-w-0"
+      <StatusPills label="Partner status" value={filters.tab} counts={counts} onChange={(tab) => set({ tab })} />
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-[1fr_200px_160px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search partners" placeholder="Search by code, name, country or description…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+          <select aria-label="Country" className={SELECT_CLASS} value={filters.country} onChange={(e) => set({ country: e.target.value })}>
+            <option value="">All Countries</option>
+            {countries.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select
+            aria-label="Status"
+            className={SELECT_CLASS}
+            value={filters.tab}
+            onChange={(e) => set({ tab: e.target.value === 'active' || e.target.value === 'inactive' ? e.target.value : 'all' })}
           >
-            <DialogHeader className="mb-5">
-              <DialogTitle>{editId ? 'Edit Partner' : 'New Certification Partner'}</DialogTitle>
-            </DialogHeader>
-            {/* Spec order: Partner Code → Partner Name → Partner Short Name → Country → Description → Logo. Status appended at the end. */}
-            <div className="w-full min-w-0 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-code">Partner Code *</Label>
-                <Input
-                  id="partner-code"
-                  value={form.partner_code}
-                  onChange={(e) => setForm((f) => ({ ...f, partner_code: e.target.value }))}
-                  placeholder="e.g. AAP-US"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-name">Partner Name *</Label>
-                <Input
-                  id="partner-name"
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, name: next })); }}
-                  placeholder="e.g. American Academy of Pediatrics"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-short">Partner Short Name</Label>
-                <Input
-                  id="partner-short"
-                  value={form.short_name}
-                  onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))}
-                  placeholder="e.g. AAP"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-country">Country</Label>
-                <Input
-                  id="partner-country"
-                  value={form.country}
-                  onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
-                  onBlur={(e) => { const next = titleCaseEachWord(e.target.value); if (next !== e.target.value) setForm((f) => ({ ...f, country: next })); }}
-                  placeholder="e.g. United States"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="partner-desc">Description</Label>
-                <textarea
-                  id="partner-desc"
-                  rows={3}
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Short description"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Logo</Label>
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => void handleLogoUpload(e.target.files?.[0])}
-                />
-                {form.logo ? (
-                  <div className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                    <img src={form.logo} alt="" className="h-12 w-12 shrink-0 rounded border border-white bg-white object-contain p-0.5" />
-                    <div className="min-w-0 flex-1 truncate text-xs text-slate-500" title={form.logo}>
-                      {form.logo}
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => logoInputRef.current?.click()}
-                      disabled={uploadingLogo}
-                    >
-                      {uploadingLogo ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
-                      Replace
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="shrink-0"
-                      onClick={() => setForm((f) => ({ ...f, logo: '' }))}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => logoInputRef.current?.click()}
-                    disabled={uploadingLogo}
-                  >
-                    {uploadingLogo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                    Upload Logo
-                  </Button>
-                )}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="partner-status">Status</Label>
-                  <select
-                    id="partner-status"
-                    className={selectClass}
-                    value={form.status}
-                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="partner-position">Display Order</Label>
-                  <Input
-                    id="partner-position"
-                    type="number"
-                    value={form.position}
-                    onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
-                    placeholder="Auto"
-                  />
-                  <p className="text-xs text-slate-400">
-                    Lower numbers show first. Leave blank to auto-append at the end.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <DialogFooter className="mt-6 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditId('');
-                  setForm(emptyForm);
-                }}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving || !form.partner_code.trim() || !form.name.trim()}>
-                {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Building2}
+            title={rows.length === 0 ? 'No certification partners yet.' : 'No partners match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => setDialog({ editing: null })}>Add the first partner</Button>
+              : <Button variant="outline" size="sm" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>Reset filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10">
+                  <Checkbox aria-label="Select all partners on this page" checked={allOnPage} onCheckedChange={togglePage} />
+                </TableHead>
+                <SortHead label="#" k="position" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-xs">Logo</TableHead>
+                <SortHead label="Code" k="code" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Name" k="name" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Country" k="country" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Description" k="description" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Combinations" k="combinations" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Status" k="status" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-right text-xs">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((p, i) => (
+                <TableRow key={p.id} className="cursor-pointer hover:bg-muted/30" onClick={() => view(p)}>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Checkbox aria-label={`Select ${p.code || p.name}`} checked={selected.has(p.id)} onCheckedChange={(v) => toggleOne(p.id, v === true)} />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{(safePage - 1) * PAGE_SIZE + i + 1}</TableCell>
+                  <TableCell><PartnerLogo logo={p.logo} code={p.code} /></TableCell>
+                  <TableCell className="font-mono text-xs font-semibold">{p.code}</TableCell>
+                  <TableCell className="text-sm font-medium">{p.name}</TableCell>
+                  <TableCell className="text-sm">{p.country || '—'}</TableCell>
+                  <TableCell className="max-w-md whitespace-normal">
+                    <p title={p.description} className="line-clamp-2 break-words text-xs text-muted-foreground">{p.description || '—'}</p>
+                  </TableCell>
+                  <TableCell className="text-sm">{p.combinations}</TableCell>
+                  <TableCell><StatusPill status={p.status} /></TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${p.code || p.name}`}>
+                          <MoreHorizontal aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => view(p)}><Eye aria-hidden="true" /> View</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDialog({ editing: p })}><Pencil aria-hidden="true" /> Edit</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" onClick={() => void remove(p)}><Trash2 aria-hidden="true" /> Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <Pager page={safePage} pages={pages} shown={current.length} total={filtered.length} noun="partners" onPage={setPage} />
+      </Card>
+
+      <PartnerFormDialog
+        open={dialog !== null}
+        editing={dialog?.editing ?? null}
+        partners={rows}
+        api={api}
+        token={session.token}
+        onClose={() => setDialog(null)}
+        onSaved={() => { setDialog(null); reload(); }}
+      />
     </div>
   );
 }

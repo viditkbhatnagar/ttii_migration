@@ -1,411 +1,299 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { PageLoader } from '@/components/ui/page-loader';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Eye, FileText, Layers, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { useConfirm } from '@/components/confirm-dialog';
+import { EmptyState, PageTitle } from '../../shared/components/ui-kit.js';
+import { DetailsDialog } from '../../shared/components/DetailsDialog.js';
+import { nextSort, pageSlice, type SortDir } from '../cohorts/list-model.js';
+import { Pager, SortHead } from '../cohorts/list-ui.js';
+import {
+  combinationCsvRows,
+  filterCombinations,
+  gstLabel,
+  sortCombinations,
+  statusCounts,
+  statusLabel,
+  toCombinationRows,
+  type CombinationFilters,
+  type CombinationRow,
+  type CombinationSortKey,
+} from './partner-model.js';
+import { Chip, StatusPill, StatusPills } from './partner-ui.js';
+import { CombinationFormDialog, type Option, type PartnerOption } from './CombinationFormDialog.js';
 
-const selectClass =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+// Partner Management → Certificate Combinations (TTII 2026-10-12), rebuilt
+// after Naji's CertificateCombinationsModule: status pills, a filter card
+// (program / course / partner / GST), a selectable sortable table, export, a
+// read-only View dialog and the New / Edit dialog. Kept: Edit, Delete + confirm.
 
-interface CombinationForm {
-  combination_code: string;
-  program_id: string;
-  course_id: string;
-  partner_ids: string[];
-  gst_applicable: boolean;
-  gst_percent: string;
-  status: string;
-}
-
-const emptyForm: CombinationForm = {
-  combination_code: '',
-  program_id: '',
-  course_id: '',
-  partner_ids: [],
-  gst_applicable: true,
-  gst_percent: '18',
-  status: 'active',
-};
-
-function generateCombinationCode(): string {
-  const ts = Date.now().toString(36).toUpperCase().slice(-6);
-  return `CC-${ts}`;
-}
-
-// Naji UAT 2026-05-14 — the Combination dropdown showed both
-// "TTII + KHDA" and "TTII+KHDA" because the auto-generated code wasn't
-// canonicalised. Collapse any whitespace around `+` to a single ` + `
-// so every code is written in the same shape — backend save normalises
-// too, and existing rows get backfilled with the same regex.
-function normalizeCombinationCode(value: string): string {
-  return value.trim().replace(/\s*\+\s*/g, ' + ');
-}
-
-function buildCodeFromPartners(
-  partners: Record<string, unknown>[],
-  selectedIds: string[],
-): string {
-  const order = new Map<string, number>();
-  partners.forEach((p, idx) => order.set(asString(p.id), idx));
-  const tokens = selectedIds
-    .slice()
-    .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
-    .map((id) => {
-      const p = partners.find((x) => asString(x.id) === id);
-      if (!p) return '';
-      const code = typeof p.partner_code === 'string' ? p.partner_code.trim() : '';
-      const short = typeof p.short_name === 'string' ? p.short_name.trim() : '';
-      return code || short;
-    })
-    .filter(Boolean);
-  return tokens.length > 0 ? tokens.join(' + ') : '';
-}
+const PAGE_SIZE = 10;
+const SELECT_CLASS = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+const EMPTY_FILTERS: CombinationFilters = { tab: 'all', search: '', programId: '', courseId: '', partnerId: '', gst: '' };
 
 export default function CertificateCombinationsPage({ api, session }: AdminPageProps) {
   const confirm = useConfirm();
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState('');
-  const [form, setForm] = useState<CombinationForm>(emptyForm);
-  const [saving, setSaving] = useState(false);
+  const [filters, setFilters] = useState<CombinationFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<{ key: CombinationSortKey; dir: SortDir }>({ key: 'course', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialog, setDialog] = useState<{ editing: CombinationRow | null } | null>(null);
+  const [viewing, setViewing] = useState<CombinationRow | null>(null);
 
   const { data, loading, error, reload } = useAdminPageData(
-    () => api.listCertificateCombinations(session.token),
+    async () => toCombinationRows(await api.listCertificateCombinations(session.token)),
     [],
   );
   const { data: programsData } = useAdminPageData(() => api.listPrograms(session.token), []);
   const { data: coursesData } = useAdminPageData(() => api.loadCourses(session.token), []);
-  const { data: partnersData } = useAdminPageData(
-    () => api.listCertificationPartners(session.token),
-    [],
+  const { data: partnersData } = useAdminPageData(() => api.listCertificationPartners(session.token), []);
+
+  const rows = useMemo(() => data ?? [], [data]);
+  const programs: Option[] = useMemo(
+    () => toRecords(programsData)
+      .map((p) => ({ id: asString(p.id), label: asString(p.name) || asString(p.title) || asString(p.code) }))
+      .filter((p) => p.id),
+    [programsData],
   );
+  const courses: Option[] = useMemo(
+    () => toRecords(coursesData)
+      .map((c) => ({ id: asString(c.id), label: asString(c.title), programId: asString(c.category_id) }))
+      .filter((c) => c.id),
+    [coursesData],
+  );
+  const partners: PartnerOption[] = useMemo(
+    () => toRecords(partnersData)
+      .map((p) => ({ id: asString(p.id), code: asString(p.partner_code), name: asString(p.name), shortName: asString(p.short_name), status: asString(p.status) || 'active' }))
+      .filter((p) => p.id),
+    [partnersData],
+  );
+  // Filter dropdowns list only what the combinations actually use.
+  const usedPrograms = useMemo(() => uniqueOptions(rows.map((r) => ({ id: r.programId, label: r.program }))), [rows]);
+  const usedCourses = useMemo(() => uniqueOptions(rows.map((r) => ({ id: r.courseId, label: r.course }))), [rows]);
+  const usedPartners = useMemo(() => uniqueOptions(rows.flatMap((r) => r.partners.map((p) => ({ id: p.id, label: p.code || p.name })))), [rows]);
 
-  const rows = useMemo(() => toRecords(data), [data]);
-  const programs = useMemo(() => toRecords(programsData), [programsData]);
-  const courses = useMemo(() => toRecords(coursesData), [coursesData]);
-  const partners = useMemo(() => toRecords(partnersData), [partnersData]);
+  const counts = useMemo(() => statusCounts(filterCombinations(rows, { ...filters, tab: 'all' })), [rows, filters]);
+  const filtered = useMemo(() => sortCombinations(filterCombinations(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
+  const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
 
-  const handleOpenAdd = useCallback(() => {
-    setEditId('');
-    setForm({ ...emptyForm, combination_code: generateCombinationCode() });
-    setShowForm(true);
-  }, []);
+  const set = (patch: Partial<CombinationFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const onSort = (k: CombinationSortKey) => setSort((s) => nextSort(s, k));
 
-  // Naji 2026-05-14 — when partner checkboxes change, auto-populate the
-  // combination code as `Code1 + Code2 + …` from the picked partners so
-  // every new combination is written in the canonical spaced form. The
-  // admin can still edit the field after if they want a custom code.
-  useEffect(() => {
-    if (!showForm) return;
-    if (form.partner_ids.length === 0) return;
-    const next = buildCodeFromPartners(partners, form.partner_ids);
-    if (!next) return;
-    setForm((f) => (f.combination_code === next ? f : { ...f, combination_code: next }));
-  }, [form.partner_ids, partners, showForm]);
+  const allOnPage = current.length > 0 && current.every((r) => selected.has(r.id));
+  const togglePage = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((r) => next.delete(r.id));
+    else current.forEach((r) => next.add(r.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+  const exportRows = selected.size > 0 ? filtered.filter((r) => selected.has(r.id)) : filtered;
 
-  const handleOpenEdit = useCallback((row: Record<string, unknown>) => {
-    setEditId(asString(row.id));
-    const partnersList = Array.isArray(row.partners) ? (row.partners as Record<string, unknown>[]) : [];
-    setForm({
-      combination_code: asString(row.combination_code),
-      program_id: asString(row.program_id),
-      course_id: asString(row.course_id),
-      partner_ids: partnersList.map((p) => asString(p.id)),
-      gst_applicable: row.gst_applicable !== false && row.gst_applicable !== 0,
-      gst_percent: row.gst_percent == null ? '18' : String(row.gst_percent as number),
-      status: asString(row.status) || 'active',
+  const remove = async (r: CombinationRow) => {
+    const ok = await confirm({
+      title: `Delete combination "${r.code}"?`,
+      description: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'destructive',
     });
-    setShowForm(true);
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (!form.combination_code.trim()) return;
-    setSaving(true);
+    if (!ok) return;
     try {
-      const payload: Record<string, unknown> = {
-        combination_code: normalizeCombinationCode(form.combination_code),
-        program_id: form.program_id || undefined,
-        course_id: form.course_id || undefined,
-        partner_ids: form.partner_ids,
-        gst_applicable: form.gst_applicable,
-        gst_percent: form.gst_applicable ? Number(form.gst_percent) || 18 : 0,
-        status: form.status,
-      };
-      if (editId) await api.updateCertificateCombination(session.token, editId, payload);
-      else await api.createCertificateCombination(session.token, payload);
-      setShowForm(false);
-      setEditId('');
-      setForm(emptyForm);
+      const res = await api.deleteCertificateCombination(session.token, r.id);
+      toast.success(asString(res.message) || 'Combination deleted.');
+      setSelected((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
       reload();
-    } catch {
-      /* ignore */
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete combination');
     }
-  }, [api, session.token, editId, form, reload]);
-
-  const handleDelete = useCallback(
-    async (row: Record<string, unknown>) => {
-      if (
-        !(await confirm({
-          title: `Delete combination "${asString(row.combination_code)}"?`,
-          description: 'This action cannot be undone.',
-          confirmText: 'Delete',
-          variant: 'destructive',
-        }))
-      )
-        return;
-      try {
-        await api.deleteCertificateCombination(session.token, asString(row.id));
-        reload();
-      } catch {
-        /* ignore */
-      }
-    },
-    [api, session.token, reload, confirm],
-  );
-
-  const togglePartner = useCallback((partnerId: string) => {
-    setForm((f) => ({
-      ...f,
-      partner_ids: f.partner_ids.includes(partnerId)
-        ? f.partner_ids.filter((id) => id !== partnerId)
-        : [...f.partner_ids, partnerId],
-    }));
-  }, []);
-
-  const columns: DataTableColumn[] = [
-    { key: 'combination_code', label: 'Code', sortable: true },
-    { key: 'program_title', label: 'Program', render: (v) => asString(v) || '—' },
-    { key: 'course_title', label: 'Course', render: (v) => asString(v) || '—' },
-    {
-      key: 'partners',
-      label: 'Partners',
-      render: (v) => {
-        const list = Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
-        if (list.length === 0) return <span className="text-slate-400">—</span>;
-        return (
-          <div className="flex flex-wrap gap-1">
-            {list.slice(0, 3).map((p, idx) => (
-              <span key={asString(p.id) + idx} className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                {asString(p.partner_code) || asString(p.name)}
-              </span>
-            ))}
-            {list.length > 3 ? <span className="text-xs text-slate-500">+{list.length - 3}</span> : null}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'gst_applicable',
-      label: 'GST',
-      render: (v, row) => {
-        const pct = row.gst_percent;
-        const pctText = typeof pct === 'number' || typeof pct === 'string' ? String(pct) : '18';
-        return v ? `Yes (${pctText}%)` : 'No';
-      },
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      render: (v) => {
-        const s = asString(v) || 'active';
-        return (
-          <span
-            className={
-              s === 'active'
-                ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700'
-                : 'rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-700'
-            }
-          >
-            {s}
-          </span>
-        );
-      },
-    },
-  ];
-
-  const actions: DataTableAction[] = [
-    { label: 'Edit', onClick: (row) => handleOpenEdit(row) },
-    { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
-  ];
+  };
 
   if (loading) return <PageLoader label="Loading certificate combinations..." />;
-  if (error)
+  if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+        <CardContent role="alert" className="py-8 text-center text-sm text-destructive">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
+  }
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Certificate Combinations" addLabel="Create Combination" onAdd={handleOpenAdd} />
-      <AdminDataTable columns={columns} rows={rows} actions={actions} />
+    <div className="space-y-6">
+      <PageTitle
+        title="Certificate Combinations"
+        subtitle="Partner combinations students can choose when they apply or enroll in a course"
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={exportRows.length === 0}
+              onClick={() => downloadCsv('certificate-combinations.csv', toCsv(combinationCsvRows(exportRows)))}
+            >
+              <FileText aria-hidden="true" className="size-4" /> {selected.size > 0 ? `Export (${selected.size})` : 'Export'}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => setDialog({ editing: null })}>
+              <Plus aria-hidden="true" className="size-4" /> Create Combination
+            </Button>
+          </>
+        )}
+      />
 
-      <Dialog
-        open={showForm}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowForm(false);
-            setEditId('');
-            setForm(emptyForm);
-          }
-        }}
-      >
-        <DialogContent className="w-[min(640px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))] overflow-hidden">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSave();
-            }}
-            className="w-full min-w-0"
+      <StatusPills label="Combination status" value={filters.tab} counts={counts} onChange={(tab) => set({ tab })} />
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_180px_200px_150px_130px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search combinations" placeholder="Search by code, program, course or partner…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+          <select aria-label="Program" className={SELECT_CLASS} value={filters.programId} onChange={(e) => set({ programId: e.target.value })}>
+            <option value="">All Programs</option>
+            {usedPrograms.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+          <select aria-label="Course" className={SELECT_CLASS} value={filters.courseId} onChange={(e) => set({ courseId: e.target.value })}>
+            <option value="">All Courses</option>
+            {usedCourses.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          <select aria-label="Partner" className={SELECT_CLASS} value={filters.partnerId} onChange={(e) => set({ partnerId: e.target.value })}>
+            <option value="">All Partners</option>
+            {usedPartners.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+          <select
+            aria-label="GST"
+            className={SELECT_CLASS}
+            value={filters.gst}
+            onChange={(e) => set({ gst: e.target.value === 'yes' || e.target.value === 'no' ? e.target.value : '' })}
           >
-            <DialogHeader className="mb-5">
-              <DialogTitle>{editId ? 'Edit Combination' : 'New Certificate Combination'}</DialogTitle>
-            </DialogHeader>
-            {/* Spec order: Program → Course → Choose Multiple Partners → Combination Code (Auto) → GST Applicability + If Yes (%). Status appended at the end. */}
-            <div className="w-full min-w-0 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="combo-program">Program</Label>
-                <select
-                  id="combo-program"
-                  className={selectClass}
-                  value={form.program_id}
-                  onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}
-                >
-                  <option value="">— Select Program —</option>
-                  {programs.map((p) => (
-                    <option key={asString(p.id)} value={asString(p.id)}>
-                      {asString(p.name) || asString(p.title) || asString(p.code)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="combo-course">Course</Label>
-                <select
-                  id="combo-course"
-                  className={selectClass}
-                  value={form.course_id}
-                  onChange={(e) => setForm((f) => ({ ...f, course_id: e.target.value }))}
-                >
-                  <option value="">— Select Course —</option>
-                  {courses.map((c) => (
-                    <option key={asString(c.id)} value={asString(c.id)}>
-                      {asString(c.title)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Combination (Choose Multiple Partners)</Label>
-                {partners.length === 0 ? (
-                  <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
-                    No certification partners yet. Add them under <em>Course → Certification Partners</em> first.
-                  </p>
-                ) : (
-                  <div className="max-h-40 space-y-1 overflow-auto rounded border border-slate-200 p-2">
-                    {partners.map((p) => {
-                      const id = asString(p.id);
-                      const checked = form.partner_ids.includes(id);
-                      return (
-                        <label
-                          key={id}
-                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-slate-50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => togglePartner(id)}
-                            className="h-4 w-4"
-                          />
-                          <span className="text-sm">
-                            {asString(p.partner_code)} — {asString(p.name)}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="combo-code">Combination Code (auto)</Label>
-                <Input
-                  id="combo-code"
-                  value={form.combination_code}
-                  onChange={(e) => setForm((f) => ({ ...f, combination_code: e.target.value }))}
-                  placeholder="CC-XXXXXX"
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>GST Applicability</Label>
-                  <label className="flex h-10 items-center gap-2 rounded-md border border-input bg-background px-3">
-                    <input
-                      type="checkbox"
-                      checked={form.gst_applicable}
-                      onChange={(e) => setForm((f) => ({ ...f, gst_applicable: e.target.checked }))}
-                      className="h-4 w-4"
-                    />
-                    <span className="text-sm">{form.gst_applicable ? 'Yes' : 'No'}</span>
-                  </label>
-                </div>
-                {form.gst_applicable ? (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="combo-gst-pct">GST % (default 18)</Label>
-                    <Input
-                      id="combo-gst-pct"
-                      type="number"
-                      step="0.01"
-                      value={form.gst_percent}
-                      onChange={(e) => setForm((f) => ({ ...f, gst_percent: e.target.value }))}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="combo-status">Status</Label>
-                <select
-                  id="combo-status"
-                  className={selectClass}
-                  value={form.status}
-                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            </div>
-            <DialogFooter className="mt-6 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditId('');
-                  setForm(emptyForm);
-                }}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving || !form.combination_code.trim()}>
-                {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+            <option value="">GST: All</option>
+            <option value="yes">GST: Yes</option>
+            <option value="no">GST: No</option>
+          </select>
+        </div>
+      </Card>
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title={rows.length === 0 ? 'No certificate combinations yet.' : 'No combinations match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => setDialog({ editing: null })}>Create the first combination</Button>
+              : <Button variant="outline" size="sm" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>Reset filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-10">
+                  <Checkbox aria-label="Select all combinations on this page" checked={allOnPage} onCheckedChange={togglePage} />
+                </TableHead>
+                <TableHead className="w-10 text-xs">#</TableHead>
+                <SortHead label="Code" k="code" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Program" k="program" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Course" k="course" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Partners" k="partners" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="GST" k="gst" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <SortHead label="Status" k="status" sortKey={sort.key} dir={sort.dir} onSort={onSort} />
+                <TableHead className="text-right text-xs">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((r, i) => (
+                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setViewing(r)}>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Checkbox aria-label={`Select ${r.code}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggleOne(r.id, v === true)} />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{(safePage - 1) * PAGE_SIZE + i + 1}</TableCell>
+                  <TableCell className="text-sm font-semibold">{r.code}</TableCell>
+                  <TableCell className="text-sm">{r.program || '—'}</TableCell>
+                  <TableCell className="max-w-[240px] text-sm">{r.course || '—'}</TableCell>
+                  <TableCell>
+                    {r.partners.length === 0 ? <span className="text-muted-foreground">—</span> : (
+                      <div className="flex flex-wrap gap-1">{r.partners.map((p) => <Chip key={p.id}>{p.code || p.name}</Chip>)}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">{gstLabel(r)}</TableCell>
+                  <TableCell><StatusPill status={r.status} /></TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${r.code}`}>
+                          <MoreHorizontal aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setViewing(r)}><Eye aria-hidden="true" /> View</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setDialog({ editing: r })}><Pencil aria-hidden="true" /> Edit</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" onClick={() => void remove(r)}><Trash2 aria-hidden="true" /> Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <Pager page={safePage} pages={pages} shown={current.length} total={filtered.length} noun="combinations" onPage={setPage} />
+      </Card>
+
+      <CombinationFormDialog
+        open={dialog !== null}
+        editing={dialog?.editing ?? null}
+        rows={rows}
+        programs={programs}
+        courses={courses}
+        partners={partners}
+        api={api}
+        token={session.token}
+        onClose={() => setDialog(null)}
+        onSaved={() => { setDialog(null); reload(); }}
+      />
+
+      <DetailsDialog
+        open={viewing !== null}
+        title={viewing?.code ?? ''}
+        subtitle={viewing?.course || 'No course'}
+        onClose={() => setViewing(null)}
+        rows={viewing ? [
+          { label: 'Program', value: viewing.program },
+          { label: 'Course', value: viewing.course },
+          { label: 'Partners', value: viewing.partners.map((p) => (p.code ? `${p.code} — ${p.name}` : p.name)).join('\n') },
+          { label: 'GST', value: gstLabel(viewing) },
+          { label: 'Status', value: statusLabel(viewing.status) },
+        ] : []}
+        footer={viewing ? (
+          <Button variant="outline" className="gap-1.5" onClick={() => { const v = viewing; setViewing(null); setDialog({ editing: v }); }}>
+            <Pencil aria-hidden="true" className="size-4" /> Edit
+          </Button>
+        ) : null}
+      />
     </div>
   );
+}
+
+function uniqueOptions(list: Array<{ id: string; label: string }>): Array<{ id: string; label: string }> {
+  const map = new Map<string, string>();
+  for (const o of list) if (o.id && !map.has(o.id)) map.set(o.id, o.label || `#${o.id}`);
+  return [...map].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
