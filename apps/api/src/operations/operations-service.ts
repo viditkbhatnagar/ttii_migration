@@ -16205,6 +16205,12 @@ export class OperationsService {
     return { status: 1, message: 'Centre deleted successfully.' };
   }
 
+  // TTII 2026-10-12 — claim-first (same as the 2026-10-08 webhook fix). The
+  // status check used to sit outside the transaction, so two approvals of one
+  // request (a double click, two admins) both credited the wallet. The guarded
+  // updateMany on status 'pending' takes the row lock: the loser waits, sees
+  // count 0 and writes nothing. Returning before any write is safe; a
+  // `return false` AFTER a write would commit it.
   async approveFundRequest(actorUserId: string, requestId: string): Promise<Record<string, unknown>> {
     const now = new Date();
 
@@ -16218,11 +16224,12 @@ export class OperationsService {
       return { status: 0, message: 'Fund request is already ' + request.status };
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.centre_fund_requests.update({
-        where: { id: toIntId(requestId) },
+    const credited = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.centre_fund_requests.updateMany({
+        where: { id: toIntId(requestId), status: 'pending', deleted_at: null },
         data: { status: 'approved', updated_by: toIntId(actorUserId), updated_at: now },
       });
+      if (claim.count === 0) return false; // lost the race — nothing written
 
       await tx.wallet_transactions.create({
         data: {
@@ -16247,8 +16254,10 @@ export class OperationsService {
           updated_at: now,
         },
       });
+      return true;
     });
 
+    if (!credited) return this.fundRequestAlreadyProcessed(requestId);
     return { status: 1, message: 'Fund request approved and wallet credited.' };
   }
 
@@ -16265,12 +16274,24 @@ export class OperationsService {
       return { status: 0, message: 'Fund request is already ' + request.status };
     }
 
-    await this.prisma.centre_fund_requests.update({
-      where: { id: toIntId(requestId) },
+    // Claim-first: only a still-pending request flips, so a concurrent approve wins cleanly.
+    const claim = await this.prisma.centre_fund_requests.updateMany({
+      where: { id: toIntId(requestId), status: 'pending', deleted_at: null },
       data: { status: 'rejected', updated_by: toIntId(actorUserId), updated_at: now },
     });
+    if (claim.count === 0) return this.fundRequestAlreadyProcessed(requestId);
 
     return { status: 1, message: 'Fund request rejected.' };
+  }
+
+  /** The "already processed" reply after losing a claim race (the same message as the up-front check). */
+  private async fundRequestAlreadyProcessed(requestId: string): Promise<Record<string, unknown>> {
+    const latest = await this.prisma.centre_fund_requests.findFirst({
+      where: { id: toIntId(requestId), deleted_at: null },
+      select: { status: true },
+    });
+    if (!latest) return { status: 0, message: 'Fund request not found' };
+    return { status: 0, message: 'Fund request is already ' + latest.status };
   }
 
   /**

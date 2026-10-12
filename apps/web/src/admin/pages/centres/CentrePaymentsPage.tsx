@@ -16,6 +16,8 @@ import { ExportButtons } from '../cohorts/list-ui.js';
 import { FilterSelect, ListPager, PillTab } from '../students/list-chrome.js';
 import {
   EMPTY_PAYMENT_FILTERS,
+  alreadyStatusOf,
+  withSettledStatus,
   filterFundRequests,
   filterWalletTxns,
   fundRequestCsvRows,
@@ -29,6 +31,7 @@ import {
   type PaymentFilters,
   type WalletSortKey,
 } from './centre-payments-model.js';
+import { usePendingPatches } from './use-pending-patches.js';
 import { FundDecisionDialog, FundRequestTable, WalletTxnTable, type FundDecision } from './centre-payments-tables.js';
 
 // Centre Payments (TTII 2026-10-12), rebuilt after Naji's CentrePaymentsModule:
@@ -60,9 +63,13 @@ export default function CentrePaymentsPage({ api, session }: AdminPageProps) {
     'admin:centres:payments',
   );
 
+  // A decided request shows its new status (no buttons) at once; reload() only
+  // revalidates in the background, and a live button there invited a duplicate.
+  const settled = usePendingPatches<string>(data);
+  const settledStatus = settled.get;
   const fund = useMemo(
-    () => sortFundRequests(filterFundRequests(data?.fund ?? [], filters), fundSort.key, fundSort.dir),
-    [data, filters, fundSort],
+    () => sortFundRequests(filterFundRequests(withSettledStatus(data?.fund ?? [], settledStatus), filters), fundSort.key, fundSort.dir),
+    [data, settledStatus, filters, fundSort],
   );
   const wallet = useMemo(
     () => sortWalletTxns(filterWalletTxns(data?.wallet ?? [], filters), walletSort.key, walletSort.dir),
@@ -94,8 +101,14 @@ export default function CentrePaymentsPage({ api, session }: AdminPageProps) {
         ? await api.approveFundRequest(session.token, row.id)
         : await api.rejectFundRequest(session.token, row.id);
       const message = asString(res.message);
-      if (res.status === 0) toast.error(message || `Could not ${action} the fund request.`);
-      else toast.success(message || (action === 'approve' ? 'Fund request approved.' : 'Fund request rejected.'));
+      if (res.status === 0) {
+        toast.error(message || `Could not ${action} the fund request.`);
+        const current = alreadyStatusOf(message);
+        if (current) settled.set(row.id, current);
+      } else {
+        toast.success(message || (action === 'approve' ? 'Fund request approved.' : 'Fund request rejected.'));
+        settled.set(row.id, action === 'approve' ? 'approved' : 'rejected');
+      }
       setDecision(null);
       reload();
     } catch (err) {

@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest';
 
 import {
   EMPTY_PAYMENT_FILTERS,
+  alreadyStatusOf,
+  withSettledStatus,
   filterFundRequests,
   filterWalletTxns,
   fundRequestCsvRows,
@@ -69,5 +71,20 @@ describe('wallet transaction rows', () => {
     expect(filterWalletTxns(wallet, { ...EMPTY_PAYMENT_FILTERS, search: 'enrollment' }).map((r) => r.id)).toEqual(['9']);
     expect(sortWalletTxns(wallet, 'date', 'asc').map((r) => r.id)).toEqual(['9', '10']);
     expect(walletTxnCsvRows(wallet)[1]).toEqual(['upCarrera Education', '10', 'Credit', 25000, '19/01/2026', 'Fund request approved #1']);
+  });
+});
+
+describe('settled status after a decision', () => {
+  test('a decided request shows its new status until the refetch lands', () => {
+    const settled = withSettledStatus(fund, (id) => (id === '2' ? 'approved' : undefined));
+    expect(settled.map((r) => r.status)).toEqual(['approved', 'approved', 'rejected']);
+    expect(settled[0]).toBe(fund[0]);
+    expect(filterFundRequests(settled, { ...EMPTY_PAYMENT_FILTERS, status: 'pending' })).toHaveLength(0);
+  });
+
+  test('reads the status out of an "already processed" reply', () => {
+    expect(alreadyStatusOf('Fund request is already approved')).toBe('approved');
+    expect(alreadyStatusOf('Fund request is already rejected')).toBe('rejected');
+    expect(alreadyStatusOf('Fund request not found')).toBeNull();
   });
 });

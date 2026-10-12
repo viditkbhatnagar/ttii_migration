@@ -34,6 +34,7 @@ import {
   type CentreCohortRow,
   type CentreCohortSortKey,
 } from './centre-cohorts-model.js';
+import { usePendingPatches } from './use-pending-patches.js';
 import { useRowSelection } from './use-row-selection.js';
 
 // Centre Cohorts (TTII 2026-10-12), rebuilt after Naji's CentreCohortsModule:
@@ -69,7 +70,10 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
     [],
     'admin:centres:cohorts',
   );
-  const rows = useMemo(() => data ?? [], [data]);
+  // A deleted cohort leaves the list at once; reload() revalidates in the background.
+  const removed = usePendingPatches<true>(data);
+  const isRemoved = removed.get;
+  const rows = useMemo(() => (data ?? []).filter((c) => !isRemoved(c.id)), [data, isRemoved]);
   const counts = useMemo(() => centreCohortTabCounts(rows, filters), [rows, filters]);
   const filtered = useMemo(() => sortCentreCohorts(filterCentreCohorts(rows, filters), sort.key, sort.dir), [rows, filters, sort]);
   const { current, pages, page: safePage } = pageSlice(filtered, page, PAGE_SIZE);
@@ -110,6 +114,7 @@ export default function CentreCohortsPage({ api, session, onNavigate }: AdminPag
         return;
       }
       toast.success(asString(res.message) || 'Cohort deleted.');
+      removed.set(c.id, true);
       selection.drop(c.id);
       reload();
     } catch (err) {

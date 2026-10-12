@@ -74,6 +74,20 @@ export function istYmdOf(value: unknown): string {
   return Number.isNaN(ms) ? '' : new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** The status named by a "Fund request is already approved" reply, or null. */
+export function alreadyStatusOf(message: string): FundStatus | null {
+  const m = /already (approved|rejected|pending)\b/i.exec(message);
+  return m ? (m[1]!.toLowerCase() as FundStatus) : null;
+}
+
+/** Rows with any locally-settled status applied (until the refetch lands). */
+export function withSettledStatus(rows: FundRequestRow[], settled: (id: string) => string | undefined): FundRequestRow[] {
+  return rows.map((r) => {
+    const status = settled(r.id);
+    return status && status !== r.status ? { ...r, status } : r;
+  });
+}
+
 export function toFundRequestRows(data: Record<string, unknown>[]): FundRequestRow[] {
   return data
     .map((r) => {

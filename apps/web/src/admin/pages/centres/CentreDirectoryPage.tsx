@@ -30,6 +30,7 @@ import {
   type CentreRow,
   type CentreSortKey,
 } from './centre-list-model.js';
+import { usePendingPatches } from './use-pending-patches.js';
 import { useRowSelection } from './use-row-selection.js';
 
 // Centre Directory (TTII 2026-10-12), rebuilt after Naji's CentreDirectoryModule:
@@ -60,7 +61,10 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
     [],
     'admin:centres:directory',
   );
-  const rows = useMemo(() => data?.rows ?? [], [data]);
+  // A deleted centre leaves the list at once; reload() revalidates in the background.
+  const removed = usePendingPatches<true>(data);
+  const isRemoved = removed.get;
+  const rows = useMemo(() => (data?.rows ?? []).filter((c) => !isRemoved(c.id)), [data, isRemoved]);
   const tallies = useMemo(() => tallyFundRequests(data?.fundRequests ?? []), [data]);
   const hasTallies = data?.fundRequests != null;
   const states = useMemo(() => stateOptions(rows), [rows]);
@@ -120,6 +124,7 @@ export default function CentreDirectoryPage({ api, session, onNavigate }: AdminP
         return;
       }
       toast.success(message || 'Centre deleted.');
+      removed.set(c.id, true);
       selection.drop(c.id);
       reload();
     } catch (err) {
