@@ -59,9 +59,9 @@ export const ADMIN_NAV_TREE: readonly AdminNavEntry[] = [
     // students/courses (not the partners).
     children: [
       { id: 'offerings', label: 'Course Offerings', href: '/admin/offerings/index' },
-      { id: 'programs', label: 'Program', href: '/admin/programs/index' },
-      { id: 'course-directory', label: 'Course', href: '/admin/course/index' },
-      { id: 'subjects', label: 'Subject', href: '/admin/subjects/index' },
+      { id: 'programs', label: 'Programs', href: '/admin/programs/index' },
+      { id: 'course-directory', label: 'Courses', href: '/admin/course/index' },
+      { id: 'subjects', label: 'Subjects', href: '/admin/subjects/index' },
       { id: 'lessons', label: 'Lessons', href: '/admin/course_new/index' },
       { id: 'content-library', label: 'Content Library', href: '/admin/content-library/index' },
       { id: 'completion-policies', label: 'Completion Policies', href: '/admin/completion-policies/index' },

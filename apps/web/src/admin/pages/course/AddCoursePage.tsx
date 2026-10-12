@@ -1,20 +1,31 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArrowLeft } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { PageLoader } from '@/components/ui/page-loader';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
 import { FileUpload } from '../../shared/components/FileUpload.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
+import { Field, SELECT_CLASS as selectClass, TEXTAREA_CLASS as textareaClass } from './catalog-ui.js';
 
-const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
-const textareaClass = 'flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+// Add / Edit Course in Naji's design (CoursesModule › AddCourseForm, TTII
+// 2026-10-12): breadcrumb header, "Course Details" and "Required Documents"
+// sections. Same fields, validation and payload as before.
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card className="gap-0 border-border/70 p-6 shadow-[var(--shadow-soft)]">
+      <h3 className="mb-5 text-base font-semibold">{title}</h3>
+      {children}
+    </Card>
+  );
+}
 
 interface FormState {
   title: string;
@@ -271,7 +282,9 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
     } finally {
       setSaving(false);
     }
-  }, [form, isEdit, courseId, api, session.token, onNavigate]);
+  // requiredDocIds is read when saving: without it here a document ticked
+  // after the last field edit was saved from a stale set.
+  }, [form, isEdit, courseId, api, session.token, onNavigate, requiredDocIds]);
 
   if (loading) {
     return <PageLoader label="Loading add course..." />;
@@ -280,244 +293,210 @@ export default function AddCoursePage({ api, session, onNavigate }: AdminPagePro
   const categoryList = (categories ?? []);
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title={isEdit ? 'Edit Course' : 'Add Course'}>
-        <Button variant="outline" onClick={() => onNavigate('/admin/course/index')}>
-          Cancel
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">Dashboard › Courses › {isEdit ? 'Edit Course' : 'Add Course'}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">{isEdit ? 'Edit Course' : 'Add Course'}</h1>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/course/index')}>
+          <ArrowLeft aria-hidden="true" className="size-4" /> Cancel
         </Button>
-      </AdminPageHeader>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Course Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Basic Info */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>Course Code *</Label>
-              <Input value={form.course_code} onChange={(e) => set('course_code', e.target.value)} placeholder="e.g. PGDTT-001" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Course Title *</Label>
-              <Input value={form.title} onChange={(e) => set('title', e.target.value)} onBlur={titleCaseOnBlur((value) => set('title', value))} placeholder="Enter course title" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Course Short Name *</Label>
-              <Input value={form.short_name} onChange={(e) => set('short_name', e.target.value)} placeholder="e.g. PGDM" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Course Level</Label>
-              <select className={selectClass} value={form.level} onChange={(e) => set('level', e.target.value)}>
-                <option value="">Select Level</option>
-                <option value="Beginner">Beginner</option>
-                <option value="Intermediate">Intermediate</option>
-                <option value="Advanced">Advanced</option>
-              </select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Course Version *</Label>
-              <Input value={form.version} onChange={(e) => set('version', e.target.value)} placeholder="e.g. 1.0" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Course Category *</Label>
-              <select className={selectClass} value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
-                <option value="">Choose Category</option>
-                {categoryList.map((cat) => (
-                  <option key={asString(cat.id)} value={asString(cat.id)}>{asString(cat.name)}</option>
+      <Section title="Course Details">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Course Code" htmlFor="course-code" required>
+            <Input id="course-code" value={form.course_code} onChange={(e) => set('course_code', e.target.value)} placeholder="e.g. PGDTT-001" />
+          </Field>
+          <Field label="Course Title" htmlFor="course-title" required>
+            <Input id="course-title" value={form.title} onChange={(e) => set('title', e.target.value)} onBlur={titleCaseOnBlur((value) => set('title', value))} placeholder="Enter course title" />
+          </Field>
+          <Field label="Course Short Name" htmlFor="course-short" required>
+            <Input id="course-short" value={form.short_name} onChange={(e) => set('short_name', e.target.value)} placeholder="e.g. PGDM" />
+          </Field>
+          <Field label="Course Level" htmlFor="course-level">
+            <select id="course-level" className={selectClass} value={form.level} onChange={(e) => set('level', e.target.value)}>
+              <option value="">Select Level</option>
+              <option value="Beginner">Beginner</option>
+              <option value="Intermediate">Intermediate</option>
+              <option value="Advanced">Advanced</option>
+            </select>
+          </Field>
+          <Field label="Course Version" htmlFor="course-version" required>
+            <Input id="course-version" value={form.version} onChange={(e) => set('version', e.target.value)} placeholder="e.g. 1.0" />
+          </Field>
+          <Field label="Course Category" htmlFor="course-category" required>
+            <select id="course-category" className={selectClass} value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
+              <option value="">Choose Category</option>
+              {categoryList.map((cat) => (
+                <option key={asString(cat.id)} value={asString(cat.id)}>{asString(cat.name)}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Course Duration" htmlFor="course-duration" required>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Input
+                id="course-duration"
+                type="number"
+                min="1"
+                value={form.duration_count}
+                onChange={(e) => set('duration_count', e.target.value)}
+                placeholder="e.g. 1"
+              />
+              <select
+                aria-label="Duration unit"
+                className={`${selectClass} w-28`}
+                value={form.duration_unit}
+                onChange={(e) => set('duration_unit', e.target.value)}
+              >
+                {DURATION_UNITS.map((u) => (
+                  <option key={u} value={u}>{u}</option>
                 ))}
               </select>
             </div>
-            <div className="grid gap-2">
-              <Label>Course Duration *</Label>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.duration_count}
-                  onChange={(e) => set('duration_count', e.target.value)}
-                  placeholder="e.g. 1"
-                />
-                <select
-                  className={selectClass}
-                  style={{ width: 'auto', paddingRight: '2rem' }}
-                  value={form.duration_unit}
-                  onChange={(e) => set('duration_unit', e.target.value)}
-                >
-                  {DURATION_UNITS.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Total Learning Hours *</Label>
-              <Input type="number" min="0" value={form.total_learning_hours} onChange={(e) => set('total_learning_hours', e.target.value)} placeholder="e.g. 120" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Language *</Label>
-              <select className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
-                <option value="">Select Language</option>
-                <option value="English">English</option>
-                <option value="Hindi">Hindi</option>
-                <option value="Malayalam">Malayalam</option>
-                <option value="Tamil">Tamil</option>
-                <option value="Kannada">Kannada</option>
-                <option value="Telugu">Telugu</option>
-              </select>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Course Description *</Label>
-              <textarea
-                className={textareaClass}
-                value={form.description}
-                onChange={(e) => set('description', e.target.value)}
-                placeholder="Write the course overview as a paragraph"
-              />
-              <p className="text-xs text-gray-500">Paragraph format. Shown to students on the course page.</p>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Learning Outcome (one point per line)</Label>
-              <textarea
-                className={textareaClass}
-                value={form.outcomes}
-                onChange={(e) => set('outcomes', e.target.value)}
-                placeholder={'• Develop classroom management skills\n• Design age-appropriate lesson plans\n• Assess student progress effectively'}
-              />
-              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Who Should Enroll (one point per line)</Label>
-              <textarea
-                className={textareaClass}
-                value={form.features}
-                onChange={(e) => set('features', e.target.value)}
-                placeholder={'• Aspiring teachers preparing for classroom roles\n• Working professionals upgrading qualifications\n• Parents looking to teach foundational skills'}
-              />
-              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Prerequisites (one point per line)</Label>
-              <textarea
-                className={textareaClass}
-                value={form.requirements}
-                onChange={(e) => set('requirements', e.target.value)}
-                placeholder={'• Bachelor\'s degree in any discipline\n• Basic English communication\n• Access to a computer with internet'}
-              />
-              <p className="text-xs text-gray-500">Each line becomes a bullet point shown to students.</p>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Course Thumbnail</Label>
-              <FileUpload
-                value={form.thumbnail}
-                onChange={(url) => set('thumbnail', url)}
-                onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
-                accept="image/*"
-                placeholder="Upload thumbnail image"
-              />
-              <p className="text-xs text-gray-500">
-                Recommended 1200×628 (≈1.91:1). The image will be center-cropped to fit course cards on both web and mobile. Max file size 200KB.
-              </p>
-            </div>
-            <div className="grid gap-2 md:col-span-2 md:max-w-xs">
-              <Label>Course Structure</Label>
-              <select className={selectClass} value={form.structure_type} onChange={(e) => set('structure_type', e.target.value)}>
-                <option value="1">Subject wise (Course → Subject → Lesson → Content)</option>
-                <option value="2">Lesson wise (Course → Lesson → Content)</option>
-              </select>
-              <p className="text-xs text-gray-500">
-                Lesson wise skips the subjects layer — for short certification programs. Set this before adding content.
-              </p>
-            </div>
-            <div className="grid gap-2 md:col-span-2 md:max-w-xs">
-              <Label>Status</Label>
-              <select className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
-            <div className="grid gap-2 md:col-span-2">
-              <Label>Tags</Label>
-              <div className="flex flex-wrap gap-2">
-                {COURSE_TAG_OPTIONS.map((tag) => {
-                  const active = form.tags.includes(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTag(tag)}
-                      aria-pressed={active}
-                      className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
-                        active
-                          ? 'border-transparent bg-ttii-primary text-white'
-                          : 'border-input bg-background text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-gray-500">
-                Shown as badges on the student Recommended Courses cards. Pick any that apply (or none).
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </Field>
+          <Field label="Total Learning Hours" htmlFor="course-hours" required>
+            <Input id="course-hours" type="number" min="0" value={form.total_learning_hours} onChange={(e) => set('total_learning_hours', e.target.value)} placeholder="e.g. 120" />
+          </Field>
+          <Field label="Language" htmlFor="course-language" required>
+            <select id="course-language" className={selectClass} value={form.language} onChange={(e) => set('language', e.target.value)}>
+              <option value="">Select Language</option>
+              <option value="English">English</option>
+              <option value="Hindi">Hindi</option>
+              <option value="Malayalam">Malayalam</option>
+              <option value="Tamil">Tamil</option>
+              <option value="Kannada">Kannada</option>
+              <option value="Telugu">Telugu</option>
+            </select>
+          </Field>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Required Documents</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-sm text-gray-600">
-            Pick which documents an applicant must upload when applying for this
-            course. Manage the master list under <span className="font-medium">Settings → Document Types</span>.
-          </p>
-          {(documentTypes ?? []).length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-sm text-gray-500">
-              No document types defined yet. Add them under Settings → Document Types first.
-            </p>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-              {(documentTypes ?? []).map((d) => {
-                const id = asString(d.id);
-                const label = asString(d.label);
-                const checked = requiredDocIds.has(id);
+        <div className="mt-4 grid gap-4">
+          <Field label="Course Description" htmlFor="course-description" required hint="Paragraph format. Shown to students on the course page.">
+            <textarea id="course-description" rows={4} className={textareaClass} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Write the course overview as a paragraph" />
+          </Field>
+          <Field label="Learning Outcome (one point per line)" htmlFor="course-outcomes" hint="Each line becomes a bullet point shown to students.">
+            <textarea
+              id="course-outcomes"
+              rows={4}
+              className={textareaClass}
+              value={form.outcomes}
+              onChange={(e) => set('outcomes', e.target.value)}
+              placeholder={'• Develop classroom management skills\n• Design age-appropriate lesson plans\n• Assess student progress effectively'}
+            />
+          </Field>
+          <Field label="Who Should Enroll (one point per line)" htmlFor="course-features" hint="Each line becomes a bullet point shown to students.">
+            <textarea
+              id="course-features"
+              rows={4}
+              className={textareaClass}
+              value={form.features}
+              onChange={(e) => set('features', e.target.value)}
+              placeholder={'• Aspiring teachers preparing for classroom roles\n• Working professionals upgrading qualifications\n• Parents looking to teach foundational skills'}
+            />
+          </Field>
+          <Field label="Prerequisites (one point per line)" htmlFor="course-requirements" hint="Each line becomes a bullet point shown to students.">
+            <textarea
+              id="course-requirements"
+              rows={4}
+              className={textareaClass}
+              value={form.requirements}
+              onChange={(e) => set('requirements', e.target.value)}
+              placeholder={'• Bachelor\'s degree in any discipline\n• Basic English communication\n• Access to a computer with internet'}
+            />
+          </Field>
+          <Field
+            label="Course Thumbnail"
+            hint="Recommended 1200×628 (≈1.91:1). The image will be center-cropped to fit course cards on both web and mobile. Max file size 200KB."
+          >
+            <FileUpload
+              value={form.thumbnail}
+              onChange={(url) => set('thumbnail', url)}
+              onUpload={async (file) => { const r = await api.uploadFile(session.token, file); return r.url; }}
+              accept="image/*"
+              placeholder="Upload thumbnail image"
+            />
+          </Field>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field label="Course Structure" htmlFor="course-structure" hint="Lesson wise skips the subjects layer — for short certification programs. Set this before adding content.">
+            <select id="course-structure" className={selectClass} value={form.structure_type} onChange={(e) => set('structure_type', e.target.value)}>
+              <option value="1">Subject wise (Course → Subject → Lesson → Content)</option>
+              <option value="2">Lesson wise (Course → Lesson → Content)</option>
+            </select>
+          </Field>
+          <Field label="Status" htmlFor="course-status">
+            <select id="course-status" className={selectClass} value={form.status} onChange={(e) => set('status', e.target.value)}>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="archived">Archived</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="mt-4">
+          <Field label="Tags" hint="Shown as badges on the student Recommended Courses cards. Pick any that apply (or none).">
+            <div className="flex flex-wrap gap-2">
+              {COURSE_TAG_OPTIONS.map((tag) => {
+                const active = form.tags.includes(tag);
                 return (
-                  <label
-                    key={id}
-                    className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                      checked ? 'border-ttii-primary bg-ttii-primary/5' : 'border-gray-200'
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTag(tag)}
+                    aria-pressed={active}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-card text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleDocType(id)}
-                      className="size-4"
-                    />
-                    <span>{label}</span>
-                  </label>
+                    {tag}
+                  </button>
                 );
               })}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </Field>
+        </div>
+      </Section>
 
-      {/* Bottom buttons */}
+      <Section title="Required Documents">
+        <p className="mb-4 text-sm text-muted-foreground">
+          Pick which documents an applicant must upload when applying for this
+          course. Manage the master list under <span className="font-medium text-foreground">Settings → Document Types</span>.
+        </p>
+        {(documentTypes ?? []).length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+            No document types defined yet. Add them under Settings → Document Types first.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(documentTypes ?? []).map((d) => {
+              const id = asString(d.id);
+              const checked = requiredDocIds.has(id);
+              return (
+                <label
+                  key={id}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:bg-muted/40 ${
+                    checked ? 'border-primary bg-primary-soft' : 'border-border'
+                  }`}
+                >
+                  <Checkbox checked={checked} onCheckedChange={() => toggleDocType(id)} />
+                  <span>{asString(d.label)}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" onClick={() => onNavigate('/admin/course/index')}>
           Cancel
         </Button>
-        <Button
-          className="bg-ttii-primary hover:bg-ttii-primary/90"
-          disabled={saving}
-          onClick={() => { void handleSubmit(); }}
-        >
+        <Button disabled={saving} onClick={() => { void handleSubmit(); }}>
           {saving ? 'Saving...' : 'Save Course'}
         </Button>
       </div>
