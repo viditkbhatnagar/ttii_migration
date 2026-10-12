@@ -15,20 +15,30 @@ function getMonthDays(year: number, month: number) {
   return { firstDay, daysInMonth };
 }
 
+// TTII 2026-10-12 — a local calendar day as YYYY-MM-DD, built from local parts.
+// `toISOString()` converts IST midnight to UTC — the PREVIOUS day — so the
+// month's last day was never requested (every live class, exam and event on it
+// vanished) and "today" was highlighted on yesterday until 05:30 IST.
+function localYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** "10:00 AM" from a @db.Time value (an IST wall clock read with UTC getters). */
+function timeLabel(value: unknown): string {
+  const raw = asString(value);
+  const m = /T(\d{2}):(\d{2})/.exec(raw) ?? /^(\d{2}):(\d{2})/.exec(raw);
+  if (!m) return '';
+  const h = Number(m[1]);
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 export default function GlobalCalendarPage({ api, session }: AdminPageProps) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
 
-  const fromDate = useMemo(() => {
-    const d = new Date(viewYear, viewMonth, 1);
-    return d.toISOString().slice(0, 10);
-  }, [viewYear, viewMonth]);
-
-  const toDate = useMemo(() => {
-    const d = new Date(viewYear, viewMonth + 1, 0);
-    return d.toISOString().slice(0, 10);
-  }, [viewYear, viewMonth]);
+  const fromDate = useMemo(() => localYmd(new Date(viewYear, viewMonth, 1)), [viewYear, viewMonth]);
+  const toDate = useMemo(() => localYmd(new Date(viewYear, viewMonth + 1, 0)), [viewYear, viewMonth]);
 
   const { data, loading, error } = useAdminPageData(
     () => api.loadGlobalCalendar(session.token, fromDate, toDate),
@@ -89,7 +99,7 @@ export default function GlobalCalendarPage({ api, session }: AdminPageProps) {
     );
   }
 
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localYmd(today);
 
   return (
     <div className="space-y-4">
@@ -162,7 +172,7 @@ export default function GlobalCalendarPage({ api, session }: AdminPageProps) {
                       <div
                         key={idx}
                         className={`text-[10px] px-1 py-0.5 rounded truncate ${typeColor[asString(evt.event_type)] || 'bg-gray-100 text-gray-700'}`}
-                        title={`${asString(evt.title)} (${asString(evt.from_time)} - ${asString(evt.to_time)})`}
+                        title={[asString(evt.title), [timeLabel(evt.from_time), timeLabel(evt.to_time)].filter(Boolean).join(' – ')].filter(Boolean).join(' · ')}
                       >
                         {asString(evt.title)}
                       </div>
