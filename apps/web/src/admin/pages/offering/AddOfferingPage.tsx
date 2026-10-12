@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
+import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,9 +11,20 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { useConfirm } from '@/components/confirm-dialog';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asNumber, asString, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { asNumber, asString, messageFromError, toRecords } from '../../shared/utils/admin-data-utils.js';
 // Naji UAT 2026-05-16 — title-case name-like fields on blur.
 import { titleCaseOnBlur } from '@/lib/text-format';
+
+// Restyled in Naji's design (TTII 2026-10-12): same sections in the same
+// order, section cards, dd/mm/yyyy date entry. The form fields, payloads,
+// certificate-package pricing and save flow are unchanged.
+const sectionClass = 'gap-0 border-border/70 shadow-[var(--shadow-soft)]';
+const thisYear = new Date().getFullYear();
+
+/** Surface a failed save instead of swallowing it. */
+function toastFailure(err: unknown, fallback: string): void {
+  toast.error(messageFromError(err) || fallback);
+}
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
@@ -202,8 +215,8 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       setPackageForm(emptyPackageForm);
       setEditingPackageId('');
       await reloadPackages();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      toastFailure(err, 'Could not save the certificate package.');
     } finally {
       setPackageSaving(false);
     }
@@ -223,8 +236,8 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       try {
         await api.deleteOfferingPackage(session.token, asString(pkg.id));
         await reloadPackages();
-      } catch {
-        /* ignore */
+      } catch (err) {
+        toastFailure(err, 'Could not remove the certificate package.');
       }
     },
     [api, session.token, reloadPackages, confirm],
@@ -305,7 +318,9 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
           onNavigate('/admin/offerings/index');
         }
       }
-    } catch { /* ignore */ } finally { setSaving(false); }
+    } catch (err) {
+      toastFailure(err, 'Could not save the offering.');
+    } finally { setSaving(false); }
   }, [api, session.token, editId, form, onNavigate]);
 
   if (coursesLoading) {
@@ -313,13 +328,18 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{editId ? 'Edit Offering' : 'New Course Offering'}</h2>
-        <Button variant="outline" onClick={() => onNavigate('/admin/offerings/index')}>Back</Button>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="mb-1 text-xs text-muted-foreground">Courses › Course Offerings › {editId ? 'Edit' : 'New'}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">{editId ? 'Edit Offering' : 'New Course Offering'}</h1>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/offerings/index')}>
+          <ArrowLeft aria-hidden="true" className="size-4" /> Back
+        </Button>
       </div>
 
-      <Card>
+      <Card className={sectionClass}>
         <CardHeader><CardTitle className="text-base">Basic Information</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -357,17 +377,17 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={sectionClass}>
         <CardHeader><CardTitle className="text-base">Enrollment Settings</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>Enrollment Start Date</Label>
-              <Input type="date" value={form.enrollment_start} onChange={(e) => updateField('enrollment_start', e.target.value)} />
+              <Label htmlFor="offering-enrollment_start">Enrollment Start Date</Label>
+              <DmyDateInput id="offering-enrollment_start" value={form.enrollment_start} onChange={(v) => updateField('enrollment_start', v)} minYear={thisYear - 5} maxYear={thisYear + 3} />
             </div>
             <div className="space-y-1">
-              <Label>Enrollment End Date</Label>
-              <Input type="date" value={form.enrollment_end} onChange={(e) => updateField('enrollment_end', e.target.value)} />
+              <Label htmlFor="offering-enrollment_end">Enrollment End Date</Label>
+              <DmyDateInput id="offering-enrollment_end" value={form.enrollment_end} onChange={(v) => updateField('enrollment_end', v)} minYear={thisYear - 5} maxYear={thisYear + 3} />
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -387,24 +407,24 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
       </Card>
 
       {form.delivery_mode === 'cohort' && (
-        <Card>
+        <Card className={sectionClass}>
           <CardHeader><CardTitle className="text-base">Course Scheduling</CardTitle></CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>Course Start Date</Label>
-                <Input type="date" value={form.start_date} onChange={(e) => updateField('start_date', e.target.value)} />
+                <Label htmlFor="offering-start_date">Course Start Date</Label>
+                <DmyDateInput id="offering-start_date" value={form.start_date} onChange={(v) => updateField('start_date', v)} minYear={thisYear - 5} maxYear={thisYear + 3} />
               </div>
               <div className="space-y-1">
-                <Label>Course End Date</Label>
-                <Input type="date" value={form.end_date} onChange={(e) => updateField('end_date', e.target.value)} />
+                <Label htmlFor="offering-end_date">Course End Date</Label>
+                <DmyDateInput id="offering-end_date" value={form.end_date} onChange={(v) => updateField('end_date', v)} minYear={thisYear - 5} maxYear={thisYear + 3} />
               </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      <Card>
+      <Card className={sectionClass}>
         <CardHeader><CardTitle className="text-base">Access Control</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -446,7 +466,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={sectionClass}>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Certificate Package</CardTitle>
@@ -459,11 +479,11 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         </CardHeader>
         <CardContent>
           {!editId ? (
-            <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+            <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
               Save the offering first, then you can attach certificate packages here.
             </p>
           ) : packages.length === 0 ? (
-            <p className="rounded border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+            <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
               No certificate packages attached yet.
               {combinations.length === 0 ? (
                 <> Create one under <em>Course → Certificate Combinations</em> first.</>
@@ -472,17 +492,17 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
               )}
             </p>
           ) : (
-            <div className="overflow-hidden rounded border border-slate-200">
+            <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left">
+                <thead className="bg-muted/40 text-left">
                   <tr>
-                    <th className="px-3 py-2 font-medium text-slate-600">Combination</th>
-                    <th className="px-3 py-2 font-medium text-slate-600">Fee Category</th>
-                    <th className="px-3 py-2 font-medium text-slate-600">Base Fee</th>
-                    <th className="px-3 py-2 font-medium text-slate-600">Discount</th>
-                    <th className="px-3 py-2 font-medium text-slate-600">Offered Fee</th>
-                    <th className="px-3 py-2 font-medium text-slate-600">GST</th>
-                    <th className="w-32 px-3 py-2 text-right font-medium text-slate-600">Action</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Combination</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Fee Category</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Base Fee</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Discount</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">Offered Fee</th>
+                    <th className="px-3 py-2 font-medium text-muted-foreground">GST</th>
+                    <th className="w-32 px-3 py-2 text-right font-medium text-muted-foreground">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -491,19 +511,19 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                     const gstPctRaw = pkg.gst_percent;
                     const gstPct = typeof gstPctRaw === 'number' || typeof gstPctRaw === 'string' ? String(gstPctRaw) : '18';
                     return (
-                      <tr key={asString(pkg.id)} className="border-t border-slate-100">
-                        <td className="px-3 py-2 font-medium text-slate-900">{asString(pkg.combination_code)}</td>
-                        <td className="px-3 py-2 capitalize text-slate-700">{asString(pkg.fee_category)}</td>
-                        <td className="px-3 py-2 text-slate-700">{pkg.base_fee == null ? '—' : `₹${asNumber(pkg.base_fee).toLocaleString('en-IN')}`}</td>
-                        <td className="px-3 py-2 text-slate-700">{pkg.discount == null ? '—' : `₹${asNumber(pkg.discount).toLocaleString('en-IN')}`}</td>
-                        <td className="px-3 py-2 text-slate-900">{pkg.offered_fee == null ? '—' : `₹${asNumber(pkg.offered_fee).toLocaleString('en-IN')}`}</td>
-                        <td className="px-3 py-2 text-slate-700">{gstApp ? `${gstPct}%` : '—'}</td>
+                      <tr key={asString(pkg.id)} className="border-t border-border">
+                        <td className="px-3 py-2 font-medium text-foreground">{asString(pkg.combination_code)}</td>
+                        <td className="px-3 py-2 capitalize text-foreground">{asString(pkg.fee_category)}</td>
+                        <td className="px-3 py-2 text-foreground">{pkg.base_fee == null ? '—' : `₹${asNumber(pkg.base_fee).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-foreground">{pkg.discount == null ? '—' : `₹${asNumber(pkg.discount).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-foreground">{pkg.offered_fee == null ? '—' : `₹${asNumber(pkg.offered_fee).toLocaleString('en-IN')}`}</td>
+                        <td className="px-3 py-2 text-foreground">{gstApp ? `${gstPct}%` : '—'}</td>
                         <td className="px-3 py-2 text-right">
-                          <button type="button" onClick={() => openEditPackage(pkg)} className="text-xs text-blue-600 hover:underline">
+                          <button type="button" onClick={() => openEditPackage(pkg)} className="text-xs text-primary hover:underline">
                             Edit
                           </button>
-                          <span className="mx-1 text-slate-300">·</span>
-                          <button type="button" onClick={() => void handleDeletePackage(pkg)} className="text-xs text-red-600 hover:underline">
+                          <span className="mx-1 text-muted-foreground/50">·</span>
+                          <button type="button" onClick={() => void handleDeletePackage(pkg)} className="text-xs text-destructive hover:underline">
                             Remove
                           </button>
                         </td>
@@ -517,7 +537,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={sectionClass}>
         <CardHeader><CardTitle className="text-base">Academic Rules</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -558,8 +578,9 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-4">
+      <Card className={sectionClass}>
+        <CardHeader><CardTitle className="text-base">Status</CardTitle></CardHeader>
+        <CardContent>
           <div className="max-w-xs space-y-1">
             <Label>Status</Label>
             <select className={selectClass} value={form.status} onChange={(e) => updateField('status', e.target.value)}>
@@ -588,11 +609,11 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
           }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent style={{ width: 'min(640px, calc(100vw - 2rem))', maxWidth: 'min(640px, calc(100vw - 2rem))' }} className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 [&>*]:min-w-0">
+          <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
             <DialogTitle>{editingPackageId ? 'Edit Certificate Package' : 'Add Certificate Package'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             <div className="space-y-1">
               <Label>Certificate Combination</Label>
               <select
@@ -655,7 +676,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   onChange={(e) => updatePackageField('offered_fee', e.target.value)}
                   disabled={packageForm.fee_category === 'free'}
                 />
-                <p className="text-xs text-slate-400">Auto-calculated from Base − Discount; override if needed.</p>
+                <p className="text-xs text-muted-foreground">Auto-calculated from Base − Discount; override if needed.</p>
               </div>
               <div className="space-y-1">
                 <Label>Registration Fee (₹)</Label>
@@ -667,7 +688,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   disabled={packageForm.fee_category === 'free'}
                   placeholder="0"
                 />
-                <p className="text-xs text-slate-400">One-off registration charge for this package; flows into the application instalment plan as the first row.</p>
+                <p className="text-xs text-muted-foreground">One-off registration charge for this package; flows into the application instalment plan as the first row.</p>
               </div>
               <div className="space-y-1">
                 <Label>GST (%)</Label>
@@ -679,7 +700,7 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   disabled={packageForm.fee_category === 'free'}
                   placeholder="e.g. 18"
                 />
-                <p className="text-xs text-slate-400">Override the combination's default GST for this package (leave blank to inherit).</p>
+                <p className="text-xs text-muted-foreground">Override the combination's default GST for this package (leave blank to inherit).</p>
               </div>
               <div className="space-y-1">
                 <Label>Associated Point</Label>
@@ -691,11 +712,11 @@ export default function AddOfferingPage({ api, session, onNavigate }: AdminPageP
                   onChange={(e) => updatePackageField('associated_point', e.target.value)}
                   placeholder="0"
                 />
-                <p className="text-xs text-slate-400">Reward points credited to the counsellor&apos;s Points target each time a student is enrolled into this package.</p>
+                <p className="text-xs text-muted-foreground">Reward points credited to the counsellor&apos;s Points target each time a student is enrolled into this package.</p>
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
             <Button
               variant="outline"
               onClick={() => {
