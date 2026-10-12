@@ -3,7 +3,7 @@ import type { PrismaClient, $Enums } from '@prisma/client';
 
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
-import { normaliseQuestionText, shapeChanged, validateQuestionShape } from './question-rules.js';
+import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -4780,8 +4780,15 @@ export class OperationsService {
         correct: patch.correctAnswers ?? row.correct_answers,
       });
       if (!next.ok) return { status: 0, message: next.message };
-      const current = validateQuestionShape({ qType: row.q_type ?? 0, options: row.options, correct: row.correct_answers });
-      const changed = !current.ok || shapeChanged(current.value, next.value);
+      // Compared with the stored values AS THEY ARE (not re-validated): a
+      // legacy row in an odd shape must not read as "changed" when the form
+      // just re-sends it unchanged with a wording fix.
+      const stored: QuestionShape = {
+        qType: Number(row.q_type ?? 0) === 1 ? 1 : 0,
+        options: Number(row.q_type ?? 0) === 1 ? [] : toArray(row.options).map((o) => (typeof o === 'string' || typeof o === 'number' ? String(o).trim() : '')),
+        correct: Number(row.q_type ?? 0) === 1 ? [] : toArray(row.correct_answers).map((c) => Number(c)),
+      };
+      const changed = shapeChanged(stored, next.value);
       if (changed && inPublished) {
         return { status: 0, message: `${inPublished} Its answer and options cannot change; add a corrected copy instead.` };
       }

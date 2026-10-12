@@ -124,12 +124,18 @@ export class ExamAdminService {
   }
 
   async list(filters: { courseId?: number } = {}): Promise<{ rows: ExamListRow[] }> {
-    let tops = await this.prisma.exam.findMany({
+    const tops = await this.prisma.exam.findMany({
       where: { deleted_at: null, parent_exam_id: null },
       select: examSelect,
       orderBy: { id: 'desc' },
     });
-    if (tops.length === 0) return { rows: [] };
+    return { rows: await this.buildRows(tops, filters.courseId) };
+  }
+
+  /** List rows for the given top-level exams (one exam for View Exam, all for the list). */
+  private async buildRows(allTops: ExamRow[], courseFilter?: number): Promise<ExamListRow[]> {
+    let tops = allTops;
+    if (tops.length === 0) return [];
     const topIds = tops.map((t) => t.id);
 
     const courseLinks = await this.prisma.exam_courses.findMany({
@@ -145,12 +151,11 @@ export class ExamAdminService {
     }
     // A course filter matches ANY course the exam runs for, not just the one
     // stored on exam.course_id (multi-course exams were missed before).
-    if (filters.courseId) {
-      const wanted = filters.courseId;
-      tops = tops.filter((t) => (coursesOf.get(t.id) ?? []).includes(wanted));
+    if (courseFilter) {
+      tops = tops.filter((t) => (coursesOf.get(t.id) ?? []).includes(courseFilter));
     }
     const ids = tops.map((t) => t.id);
-    if (ids.length === 0) return { rows: [] };
+    if (ids.length === 0) return [];
 
     const [children, schedules, allocations, courseRows] = await Promise.all([
       this.prisma.exam.findMany({ where: { parent_exam_id: { in: ids }, deleted_at: null }, select: examSelect }),
@@ -185,7 +190,7 @@ export class ExamAdminService {
     const courseTitle = new Map(courseRows.map((c) => [c.id, (c.title ?? '').trim()]));
     const nowMs = this.now().getTime();
 
-    const rows = tops.map((t): ExamListRow => {
+    return tops.map((t): ExamListRow => {
       const kids = childrenOf.get(t.id) ?? [];
       const sittings = kids.length > 0 ? kids : [t];
       const dates = kids.length > 0
@@ -213,7 +218,6 @@ export class ExamAdminService {
         resultsPublished: isPublished(t),
       };
     });
-    return { rows };
   }
 
   async overview(examId: number): Promise<ExamOverview | null> {
@@ -225,7 +229,7 @@ export class ExamAdminService {
       : self;
     if (!top) return null;
 
-    const listed = (await this.list()).rows.find((r) => r.examId === top.id);
+    const [listed] = await this.buildRows([top]);
     if (!listed) return null;
 
     const [children, schedules, offeringLinks] = await Promise.all([

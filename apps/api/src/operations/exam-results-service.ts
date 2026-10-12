@@ -185,15 +185,23 @@ export class ExamResultsService {
       where: { attempt_id: { in: paperIds }, deleted_at: null },
       select: { attempt_id: true, question_id: true, answer_submitted: true },
     });
-    const answered = answers.filter((a) => {
-      const raw = (a.answer_submitted ?? '').trim();
-      if (raw === '' || raw === '[]' || raw === '[""]' || raw === 'null') return false;
-      return a.attempt_id !== null && a.question_id !== null;
-    });
+    // An answer counts when it holds any non-blank text (JSON array or plain).
+    const hasText = (raw: string | null): boolean => {
+      const text = (raw ?? '').trim();
+      if (text === '') return false;
+      try {
+        const parsed = JSON.parse(text) as unknown;
+        if (Array.isArray(parsed)) return parsed.some((v) => typeof v === 'string' && v.trim() !== '');
+        return typeof parsed === 'string' ? parsed.trim() !== '' : parsed !== null;
+      } catch {
+        return true;
+      }
+    };
+    const answered = answers.filter((a) => a.attempt_id !== null && a.question_id !== null && hasText(a.answer_submitted));
     if (answered.length === 0) return 0;
     const descriptive = new Set(
       (await this.prisma.question_bank.findMany({
-        where: { id: { in: [...new Set(answered.map((a) => a.question_id as number))] }, q_type: 1 },
+        where: { id: { in: [...new Set(answered.map((a) => a.question_id as number))] }, q_type: 1, deleted_at: null },
         select: { id: true },
       })).map((q) => q.id),
     );
@@ -221,7 +229,7 @@ export class ExamResultsService {
     if (awaiting > 0) {
       return {
         status: 0,
-        message: `${awaiting} paper${awaiting === 1 ? ' has' : 's have'} written answers that are not marked yet, so these results would be MCQ-only. Publish once the written answers are marked.`,
+        message: `${awaiting} paper${awaiting === 1 ? ' has' : 's have'} written (descriptive) answers. Marking written answers is not available yet, so these results would be MCQ-only and cannot be published until it is.`,
       };
     }
 

@@ -98,6 +98,8 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
   const counts = useMemo(() => phaseCounts(filterExams(rows, { ...filters, tab: 'all' })), [rows, filters]);
   const filtered = useMemo(() => sortExams(filterExams(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // After a delete (or a reload) the list can shrink under the current page.
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
   const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const set = (patch: Partial<ExamFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };

@@ -7,6 +7,7 @@ import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import { ExamAdminService } from '../operations/exam-admin-service.js';
+import { ExamCalendarService } from '../operations/exam-calendar-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
@@ -50,6 +51,7 @@ interface RegisterOperationsRoutesOptions {
   operationsService?: OperationsService;
   examResultsService?: ExamResultsService;
   examAdminService?: ExamAdminService;
+  examCalendarService?: ExamCalendarService;
   reExamService?: ReExamService;
   storage?: StorageProvider;
   [key: string]: unknown;
@@ -392,6 +394,7 @@ export function registerOperationsRoutes(
   const announcementService = new AnnouncementService();
   const examResultsService = options.examResultsService ?? new ExamResultsService();
   const examAdminService = options.examAdminService ?? new ExamAdminService();
+  const examCalendarService = options.examCalendarService ?? new ExamCalendarService();
   const reExamService = options.reExamService ?? new ReExamService();
 
   const requireAuth = requireLegacyAuth(authService);
@@ -1983,10 +1986,12 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(payload, key);
       const str = (key: string): string | undefined => (has(key) ? toStringValue(payload[key]) : undefined);
+      // A blank id means "not loaded yet" in the form, never "clear it".
+      const id = (key: string): string | undefined => str(key) || undefined;
       const patch: QuestionBankPatch = {
-        courseId: str('course_id'),
-        subjectId: str('subject_id'),
-        lessonId: str('lesson_id'),
+        courseId: id('course_id'),
+        subjectId: id('subject_id'),
+        lessonId: id('lesson_id'),
         qType: has('q_type') ? toInteger(payload.q_type) : undefined,
         title: str('title'),
         hint: str('hint'),
@@ -2035,6 +2040,14 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const courseId = toInteger(payload.course_id);
       const data = await examAdminService.list(courseId > 0 ? { courseId } : {});
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_calendar/index', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await examCalendarService.range(toStringValue(payload.from), toStringValue(payload.to));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

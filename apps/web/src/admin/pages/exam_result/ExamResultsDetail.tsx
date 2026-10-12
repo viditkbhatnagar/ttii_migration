@@ -184,8 +184,8 @@ export function ExamResultsDetail({
             ) : null}
             {detail.awaitingMarking > 0 && detail.status !== 'published' ? (
               <Notice tone="amber" icon={AlertTriangle}>
-                <strong>{detail.awaitingMarking} paper{detail.awaitingMarking === 1 ? ' has' : 's have'}</strong> written (descriptive) answers that are not marked yet.
-                Results can be published once they are marked; until then the marks shown are MCQ-only.
+                <strong>{detail.awaitingMarking} paper{detail.awaitingMarking === 1 ? ' has' : 's have'}</strong> written (descriptive) answers.
+                Marking written answers is not available yet, so the marks shown are MCQ-only and these results cannot be published until it is.
               </Notice>
             ) : null}
             {detail.status === 'published' ? (

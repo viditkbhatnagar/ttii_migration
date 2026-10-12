@@ -249,7 +249,7 @@ describe('publishing results — the whole exam at once', () => {
     const res = await service.publish(1, PARENT_ID);
 
     expect(res.status).toBe(0);
-    expect(res.message).toContain('1 paper has written answers that are not marked yet');
+    expect(res.message).toContain('1 paper has written (descriptive) answers');
     expect(calls).toHaveLength(0);
     expect(mailed).toHaveLength(0);
   });

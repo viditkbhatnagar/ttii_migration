@@ -122,6 +122,21 @@ describe('ordinary edits', () => {
     expect(w.bank[0]?.title_file).toBe('img/q501.png');
   });
 
+  test('a legacy question in an odd stored shape can still have its wording fixed when in use', async () => {
+    const w = makeWorld();
+    // Stored with spaces the validator would trim — the form re-sends the
+    // normalised options, which is NOT a grading change.
+    const q = w.bank[0];
+    if (q) q.options = '[" Montessori ","Froebel"]';
+    const res = await w.service.editQuestion('1', String(IN_PUBLISHED), {
+      title: 'Who founded the first Casa dei Bambini?',
+      options: '["Montessori","Froebel"]',
+      correctAnswers: '[0]',
+    });
+
+    expect(res.status).toBe(1);
+  });
+
   test('an invalid answer is refused before anything is written', async () => {
     const w = makeWorld();
     const res = await w.service.editQuestion('1', String(UNUSED), { qType: 0, options: '["A","B"]', correctAnswers: '[5]' });
