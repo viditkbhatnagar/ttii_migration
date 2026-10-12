@@ -13,6 +13,26 @@ export function dmyToIso(dmy: string): string {
   return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
 }
 
+/** dmyToIso, but only for a real calendar date ('' for 31/02 or 12/13). */
+export function dmyToValidIso(dmy: string): string {
+  const iso = dmyToIso(dmy);
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  if (m < 1 || m > 12 || d < 1) return '';
+  return d <= new Date(y, m, 0).getDate() ? iso : '';
+}
+
+/**
+ * The text a dd/mm/yyyy field should show once it loses focus. A complete,
+ * valid date (or an empty box) is what was committed, so it stays. Anything
+ * else — "21/0", a deleted digit, 31/02 — was never committed, so the box
+ * snaps back to the committed value: what the user sees is what will be saved.
+ */
+export function settleDmyText(text: string, committedIso: string): string {
+  if (text === '' || dmyToValidIso(text)) return text;
+  return isoToDmy(committedIso);
+}
+
 /**
  * Insert the dd/mm/yyyy slashes as the student types digits.
  *

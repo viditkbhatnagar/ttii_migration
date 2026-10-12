@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,9 +14,6 @@ import { NativeSelect } from './student-view-ui.js';
 // offerings + combinations, pipeline → pipeline users), the same validation and
 // the same POST /admin/students/:id/add-enrolment (which may create a Razorpay
 // payment link, mark paid manually, or save without payment).
-//
-// From the Enrollments list (Naji's "Add Enrollment") there is no student yet,
-// so `pickStudent` adds a student chooser on top; the request is identical.
 
 type Option = { label: string; value: string };
 type PaymentMode = 'link' | 'manual' | 'draft';
@@ -31,7 +28,7 @@ const EMPTY_FORM = {
 
 
 export function AddEnrolmentDialog({
-  open, onClose, onCreated, api, token, studentId, pickStudent = false,
+  open, onClose, onCreated, api, token, studentId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,7 +36,6 @@ export function AddEnrolmentDialog({
   api: AdminPortalApi;
   token: string;
   studentId: string;
-  pickStudent?: boolean;
 }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [courses, setCourses] = useState<Option[]>([]);
@@ -48,10 +44,6 @@ export function AddEnrolmentDialog({
   const [languages, setLanguages] = useState<Option[]>([]);
   const [pipelineUsers, setPipelineUsers] = useState<Option[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [students, setStudents] = useState<Option[]>([]);
-  const [studentQuery, setStudentQuery] = useState('');
-  const [pickedStudent, setPickedStudent] = useState('');
-  const targetStudent = pickStudent ? pickedStudent : studentId;
 
   useEffect(() => {
     if (!open) return;
@@ -61,15 +53,7 @@ export function AddEnrolmentDialog({
     void api.loadLanguages(token).then((rows) => {
       setLanguages(rows.map((r) => ({ label: asString(r.title) || asString(r.name) || `Language ${asString(r.id)}`, value: asString(r.id) })));
     });
-    if (pickStudent) {
-      void api.loadStudents(token).then((rows) => {
-        setStudents(rows.map((r) => ({
-          value: asString(r._id) || asString(r.id),
-          label: [asString(r.name), asString(r.student_id), asString(r.phone)].filter(Boolean).join(' · '),
-        })).filter((o) => o.value));
-      }).catch(() => setStudents([]));
-    }
-  }, [open, api, token, pickStudent]);
+  }, [open, api, token]);
 
   useEffect(() => {
     if (!open || !form.course_id) { setOfferings([]); setCombinations([]); return; }
@@ -99,26 +83,17 @@ export function AddEnrolmentDialog({
     });
   }, [open, form.pipeline, api, token]);
 
-  const visibleStudents = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase();
-    const list = q ? students.filter((s) => s.label.toLowerCase().includes(q)) : students;
-    return list.slice(0, 200);
-  }, [students, studentQuery]);
-
   const close = (): void => {
     setForm(EMPTY_FORM);
-    setStudentQuery('');
-    setPickedStudent('');
     onClose();
   };
 
   const submit = async (): Promise<void> => {
-    if (!targetStudent) { toast.error('Student is required.'); return; }
     if (!form.course_id) { toast.error('Course is required.'); return; }
     if (!form.final_course_fee) { toast.error('Final Course Fee is required.'); return; }
     setSubmitting(true);
     try {
-      const res = await api.addAdditionalEnrolment(token, targetStudent, form);
+      const res = await api.addAdditionalEnrolment(token, studentId, form);
       if ((res as { status?: number }).status === 1) {
         const data = (res as { data?: { pending_admin_approval?: boolean; payment_link_url?: string | null } }).data ?? {};
         const msg = data.pending_admin_approval ? 'Enrolment request submitted for admin approval.' : 'Additional enrolment created.';
@@ -144,19 +119,10 @@ export function AddEnrolmentDialog({
           <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
             <DialogTitle>Add Enrolment</DialogTitle>
             <DialogDescription>
-              {pickStudent
-                ? 'Enrol an existing student in a course. Only the course, fee and payment method are needed.'
-                : 'Add another course enrolment for this student. Personal information stays as-is — only the course, fee and payment method are needed.'}
+              Add another course enrolment for this student. Personal information stays as-is — only the course, fee and payment method are needed.
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-            {pickStudent ? (
-              <div className="space-y-1.5 rounded-xl border border-border bg-muted/30 p-3">
-                <Label htmlFor="add-enrol-student">Student *</Label>
-                <Input id="add-enrol-student-search" aria-label="Search students" placeholder="Type a name, student ID or phone…" value={studentQuery} onChange={(e) => setStudentQuery(e.target.value)} />
-                <NativeSelect id="add-enrol-student" value={pickedStudent} onChange={setPickedStudent} placeholder="- Select student -" options={visibleStudents} />
-              </div>
-            ) : null}
             <div>
               <Label htmlFor="add-enrol-course" className="mb-1">Course *</Label>
               <NativeSelect id="add-enrol-course" value={form.course_id} onChange={(v) => set({ course_id: v, offering_id: '', combination_id: '' })} options={courses} />

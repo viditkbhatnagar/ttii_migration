@@ -1,61 +1,49 @@
 import { useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
-import { BookOpen, Download, Eye, MoreHorizontal, Plus, Search } from 'lucide-react';
+import { BookOpen, Download, Eye, MoreHorizontal, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useConfirm } from '@/components/confirm-dialog';
 import { downloadCsv, toCsv } from '@/lib/csv';
-import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
 import { formatYmd } from '../exam_result/exam-results-model.js';
 import { FilterSelect, ListPager, PillTab, SortHead } from '../students/list-chrome.js';
-import { AddEnrolmentDialog } from '../students/student-view/AddEnrolmentDialog.js';
-import { serverResult } from '../students/student-view/student-view-model.js';
 import { InfoRow } from '../students/student-view/student-view-ui.js';
 import {
   EMPTY_ENROLMENT_FILTERS, ENROLMENT_STATUSES, STATUS_TONE, enrolmentCsvRows, filterEnrolments, scopedOptions,
   sortEnrolments, statusCounts, toEnrolmentRows,
-  type EnrolmentFilters, type EnrolmentRow, type EnrolmentSortKey, type EnrolmentStatus, type EnrolmentTab,
+  type EnrolmentFilters, type EnrolmentRow, type EnrolmentSortKey, type EnrolmentTab,
 } from './enrollments-list-model.js';
 
 // Admin → Enrollments, rebuilt after Naji's EnrollmentsModule (TTII 2026-10-12):
 // status pills with counts (they replace the old six summary cards — same
 // numbers), a filter card, a sortable, selectable, paged table, CSV export,
-// View (student profile), View Enrollment, Change status, and Add Enrollment.
+// View (student profile) and View Enrollment. Read-only, like the old page.
 // Kept from the old page: course → offering → combination cascade, the From /
 // To date filter (now dd/mm/yyyy fields, compared as calendar dates — the old
 // `new Date('YYYY-MM-DD')` read UTC midnight), the legacy-status mapping.
 //
-// Change status writes ONLY enrollment_status through the existing
-// /admin/enrol/update (the route forwards only the keys it is sent). Add
-// Enrollment is the student profile's Add Enrolment dialog with a student
-// picker — the same request. Naji's "Update Progress" is left out: progress is
-// computed from lesson completion, not stored.
+// Not built from Naji's design (awaiting product sign-off): Change status and
+// Add Enrollment on this list. "Update Progress" is left out: progress is
+// computed from lesson completion, not stored. Status and new enrolments are
+// still managed on the Student View (Edit / Add Enrolment).
 
 const PAGE_SIZE = 10;
 
 export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageProps) {
-  const confirm = useConfirm();
-  const canEdit = session.roleId !== 9;
   const [filters, setFilters] = useState<EnrolmentFilters>(EMPTY_ENROLMENT_FILTERS);
   const [sortKey, setSortKey] = useState<EnrolmentSortKey>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<EnrolmentRow | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [busyId, setBusyId] = useState('');
 
   const { data, loading, error, reload } = useAdminPageData(() => api.loadEnrollments(session.token), []);
   const rows = useMemo(() => toEnrolmentRows(data ?? []), [data]);
@@ -93,28 +81,6 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
     downloadCsv('enrollments.csv', toCsv(enrolmentCsvRows(picked, formatYmd)));
   };
 
-  const changeStatus = async (r: EnrolmentRow, status: EnrolmentStatus) => {
-    if (!r.id) return;
-    if (!(await confirm({
-      title: `Mark ${r.student || 'this enrolment'} as ${status}?`,
-      description: `${r.course || 'The course'}${r.enrollmentId ? ` · ${r.enrollmentId}` : ''}. Only the enrolment status changes.`,
-      confirmText: `Mark as ${status}`,
-      ...(status === 'Dropout' ? { variant: 'destructive' as const } : {}),
-    }))) return;
-    setBusyId(r.id);
-    try {
-      const res = await api.updateEnrolment(session.token, r.id, { enrollment_status: status });
-      const { ok, message } = serverResult(res, `${r.student || 'Enrolment'} marked as ${status}`, 'Update failed');
-      if (!ok) { toast.error(message); return; }
-      toast.success(`${r.student || 'Enrolment'} marked as ${status}`);
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Update failed');
-    } finally {
-      setBusyId('');
-    }
-  };
-
   if (loading) return <PageLoader label="Loading enrollments..." />;
   if (error) {
     return (
@@ -137,18 +103,13 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
         title="Enrollments"
         subtitle={`${filtered.length} of ${rows.length} enrollments`}
         actions={(
-          <>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={exportCsv}>
-              <Download aria-hidden="true" className="size-4" /> Export{selected.size ? ` (${selected.size})` : ''}
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setAdding(true)}>
-              <Plus aria-hidden="true" className="size-4" /> Add Enrollment
-            </Button>
-          </>
+          <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={exportCsv}>
+            <Download aria-hidden="true" className="size-4" /> Export{selected.size ? ` (${selected.size})` : ''}
+          </Button>
         )}
       />
 
-      <div role="tablist" aria-label="Enrolment status" className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Enrolment status" className="flex flex-wrap gap-2">
         {tabs.map((t) => <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />)}
       </div>
 
@@ -228,23 +189,13 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button size="icon" variant="ghost" className="size-8" title="More" aria-label={`More actions for ${r.enrollmentId || r.student}`} disabled={busyId === r.id}>
+                            <Button size="icon" variant="ghost" className="size-8" title="More" aria-label={`More actions for ${r.enrollmentId || r.student}`}>
                               <MoreHorizontal aria-hidden="true" className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem onClick={() => setViewing(r)}>View Enrollment</DropdownMenuItem>
-                            {canEdit && r.id ? (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel className="text-[11px] text-muted-foreground">Change status</DropdownMenuLabel>
-                                {ENROLMENT_STATUSES.filter((s) => s !== r.status).map((s) => (
-                                  <DropdownMenuItem key={s} className={cn(s === 'Dropout' && 'text-destructive focus:text-destructive')} onClick={() => { void changeStatus(r, s); }}>
-                                    Mark as {s}
-                                  </DropdownMenuItem>
-                                ))}
-                              </>
-                            ) : null}
+                            <DropdownMenuItem disabled={!r.studentId} onClick={() => viewStudent(r)}>Open student profile</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -284,7 +235,6 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
         </DialogContent>
       </Dialog>
 
-      <AddEnrolmentDialog open={adding} onClose={() => setAdding(false)} onCreated={reload} api={api} token={session.token} studentId="" pickStudent />
     </div>
   );
 }

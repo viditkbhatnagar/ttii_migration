@@ -69,15 +69,14 @@ export function ProfileTabs({
 }: { tabs: TabItem[]; active: string; onChange: (id: string) => void; variant?: 'primary' | 'secondary'; label: string }) {
   if (variant === 'secondary') {
     return (
-      <div role="tablist" aria-label={label} className="flex w-full items-center gap-1 overflow-x-auto rounded-xl bg-secondary/70 p-1">
+      <div role="group" aria-label={label} className="flex w-full items-center gap-1 overflow-x-auto rounded-xl bg-secondary/70 p-1">
         {tabs.map((t) => {
           const on = t.id === active;
           return (
             <button
               key={t.id}
               type="button"
-              role="tab"
-              aria-selected={on}
+              aria-pressed={on}
               onClick={() => onChange(t.id)}
               className={cn(
                 'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -93,15 +92,14 @@ export function ProfileTabs({
     );
   }
   return (
-    <div role="tablist" aria-label={label} className="flex w-full items-center gap-1 overflow-x-auto border-b border-border">
+    <div role="group" aria-label={label} className="flex w-full items-center gap-1 overflow-x-auto border-b border-border">
       {tabs.map((t) => {
         const on = t.id === active;
         return (
           <button
             key={t.id}
             type="button"
-            role="tab"
-            aria-selected={on}
+            aria-pressed={on}
             onClick={() => onChange(t.id)}
             className={cn(
               'relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',

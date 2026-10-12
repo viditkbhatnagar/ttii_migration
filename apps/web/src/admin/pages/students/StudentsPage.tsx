@@ -166,7 +166,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
         )}
       />
 
-      <div role="tablist" aria-label="Student status" className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Student status" className="flex flex-wrap gap-2">
         {TABS.map((t) => (
           <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
         ))}

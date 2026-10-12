@@ -1,6 +1,40 @@
 import { describe, expect, test } from 'vitest';
 
-import { daysInMonth, firstWeekday, formatDmyInput, parseIsoParts, partsToIso } from '../src/lib/dmy-date';
+import {
+  daysInMonth, dmyToValidIso, firstWeekday, formatDmyInput, parseIsoParts, partsToIso, settleDmyText,
+} from '../src/lib/dmy-date';
+
+// --- TTII 2026-10-12: what the box shows must be what gets saved ---
+
+describe('dmyToValidIso', () => {
+  test('accepts real calendar dates only', () => {
+    expect(dmyToValidIso('29/02/2028')).toBe('2028-02-29');
+    expect(dmyToValidIso('1/9/2026')).toBe('2026-09-01');
+    expect(dmyToValidIso('29/02/2026')).toBe('');
+    expect(dmyToValidIso('31/04/2026')).toBe('');
+    expect(dmyToValidIso('12/13/2026')).toBe('');
+    expect(dmyToValidIso('00/01/2026')).toBe('');
+    expect(dmyToValidIso('21/05/202')).toBe('');
+  });
+});
+
+describe('settleDmyText (on blur)', () => {
+  test('a half-edited date snaps back to the committed value', () => {
+    // Paid Date was 21/05/2026; one digit deleted, then focus left the box.
+    expect(settleDmyText('21/05/202', '2026-05-21')).toBe('21/05/2026');
+    expect(settleDmyText('21/0', '2026-05-21')).toBe('21/05/2026');
+  });
+
+  test('an impossible date snaps back too (it was never committed)', () => {
+    expect(settleDmyText('31/02/2026', '2026-05-21')).toBe('21/05/2026');
+    expect(settleDmyText('31/02/2026', '')).toBe('');
+  });
+
+  test('a complete valid date or an empty box is left alone', () => {
+    expect(settleDmyText('22/05/2026', '2026-05-22')).toBe('22/05/2026');
+    expect(settleDmyText('', '')).toBe('');
+  });
+});
 
 // Risha 2026-08-03 — students could not submit the application form on a phone:
 // the numeric keypad has no "/" key, so the mask has to insert the separators.

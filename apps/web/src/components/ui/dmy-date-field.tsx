@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DmyDatePicker } from '@/components/ui/dmy-date-picker';
-import { dmyToIso, formatDmyInput, isoToDmy } from '@/lib/dmy-date';
+import { dmyToValidIso, formatDmyInput, isoToDmy, settleDmyText } from '@/lib/dmy-date';
 
 // dd/mm/yyyy date entry that stores the canonical ISO yyyy-mm-dd internally.
 // A native <input type="date"> renders in the browser locale (which can't be
@@ -64,7 +64,7 @@ export function DmyDateInput({
         // Students only ever type digits; the slashes are inserted for them.
         const masked = formatDmyInput(e.target.value);
         setText(masked);
-        const iso = dmyToIso(masked);
+        const iso = dmyToValidIso(masked);
         if (iso) {
           onChange(iso);
         } else if (masked === '') {
@@ -73,6 +73,10 @@ export function DmyDateInput({
           onChange('');
         }
       }}
+      // TTII 2026-10-12 — a half-edited date (one digit deleted, 31/02) was
+      // never committed, yet the box kept showing it while the form saved the
+      // OLD date. On blur the text snaps back to the committed value.
+      onBlur={() => setText((t) => settleDmyText(t, value))}
     />
   );
 
