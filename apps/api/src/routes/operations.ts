@@ -14,6 +14,7 @@ import { QuestionBankService, toIdList, type QuestionKindFilter } from '../opera
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ExamSubmissionsService } from '../operations/exam-submissions-service.js';
 import { StudentDirectoryService } from '../operations/student-directory-service.js';
+import { PeopleAdminService } from '../operations/people-admin-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -63,6 +64,7 @@ interface RegisterOperationsRoutesOptions {
   reExamService?: ReExamService;
   adminSearchService?: AdminSearchService;
   studentDirectoryService?: StudentDirectoryService;
+  peopleAdminService?: PeopleAdminService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -411,6 +413,7 @@ export function registerOperationsRoutes(
   const reExamService = options.reExamService ?? new ReExamService();
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
   const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
+  const peopleAdminService = options.peopleAdminService ?? new PeopleAdminService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2120,6 +2123,35 @@ export function registerOperationsRoutes(
   app.get('/admin/students/directory_extras', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
     try {
       const data = await studentDirectoryService.extras();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — Instructors / Admin Users / Roles in Naji's design.
+  // Read-only side-cars (operations/people-admin-service.ts); every write stays
+  // on the existing instructor / user / permission endpoints.
+  app.get('/admin/people/role_summary', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await peopleAdminService.roleSummary();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/people/admin_last_sign_in', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await peopleAdminService.lastSignIns();
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/instructor/overview', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await peopleAdminService.instructorOverview(toInteger(payload.id));
+      if (!data) {
+        reply.code(404).send({ status: 0, message: 'Instructor not found.', data: null });
+        return;
+      }
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

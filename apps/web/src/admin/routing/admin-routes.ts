@@ -111,6 +111,7 @@ const PaymentStatusPage = lazy(() => import('../pages/fee/PaymentStatusPage.js')
 const PaymentApprovalPage = lazy(() => import('../pages/fee/PaymentApprovalPage.js'));
 const ScholarshipsPage = lazy(() => import('../pages/scholarships/ScholarshipsPage.js'));
 const InstructorsPage = lazy(() => import('../pages/instructor/InstructorsPage.js'));
+const InstructorDetailPage = lazy(() => import('../pages/instructor/InstructorDetailPage.js'));
 const AdminUsersPage = lazy(() => import('../pages/users/AdminUsersPage.js'));
 
 // Phase 5: Integrations & Polish pages
@@ -225,6 +226,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
 
   // Instructors
   { path: '/admin/instructor/index', aliases: ['/admin/instructor'], pageComponent: InstructorsPage, title: 'Instructors Directory' },
+  { path: '/admin/instructor/view/:id', pageComponent: InstructorDetailPage, title: 'Instructor' },
 
   // Users (Admin)
   // Both legacy paths now serve the unified Admin Users page (Naji

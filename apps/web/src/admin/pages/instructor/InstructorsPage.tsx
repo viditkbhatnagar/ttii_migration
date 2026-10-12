@@ -1,433 +1,287 @@
-import { useState, useMemo, useCallback } from 'react';
-import { toast } from 'sonner';
-import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarRange, Download, Eye, GraduationCap, Mail, MoreHorizontal, Pencil, Plus, Search } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { downloadCsv, toCsv } from '@/lib/csv';
+import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
-import { PhotoUpload } from '../../shared/components/PhotoUpload.js';
-import { PhoneInput } from '../../shared/components/PhoneInput.js';
-import { verifyEmailWithFeedback } from '@/lib/email-verify-helper';
-import { useConfirm } from '@/components/confirm-dialog';
-// Naji UAT 2026-05-16 — title-case name-like fields on blur.
-import { titleCaseEachWord } from '@/lib/text-format';
+import { toRecords } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import { formatYmd } from '../exam_result/exam-results-model.js';
+import { FilterSelect, ListPager, PillTab, SortHead } from '../students/list-chrome.js';
+import { initialsOf } from '../students/students-list-model.js';
+import { InstructorFormDialog } from './InstructorFormDialog.js';
+import {
+  EMPTY_INSTRUCTOR_FILTERS, INSTRUCTOR_STATUS_TONE, filterInstructors, instructorCsvRows, instructorTabCounts,
+  qualificationOptions, sortInstructors, toInstructorRows,
+  type CohortFilter, type InstructorFilters, type InstructorRow, type InstructorSortKey,
+  type InstructorTab, type JoinedRange,
+} from './instructor-list-model.js';
+import { useInstructorActions } from './useInstructorActions.js';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Admin → Instructors Directory, rebuilt after Naji's InstructorsModule
+// (TTII 2026-10-12): status pills, a filter card (search / qualification /
+// cohorts / status / joined), a sortable, selectable, paged table, CSV export
+// of the selection or the filtered list, and a detail page per instructor.
+// Every action of the old page survives with its confirm and toast: Add, Edit,
+// Resend Login Email, Enable / Disable, Delete and Change Device. "View" now
+// opens the instructor's page (it used to open the edit form).
+// NOT copied: bulk Activate / Deactivate (a new bulk write — needs sign-off).
 
-interface InstructorForm {
-  name: string;
-  email: string;
-  phoneCountryCode: string;
-  phone: string;
-  whatsappCountryCode: string;
-  whatsapp_phone: string;
-  qualification: string;
-  bio: string;
-  image: string;
-  status: number;
-}
-
-const emptyForm: InstructorForm = {
-  name: '', email: '',
-  phoneCountryCode: '91', phone: '',
-  whatsappCountryCode: '91', whatsapp_phone: '',
-  qualification: '', bio: '', image: '', status: 1,
-};
-
-function splitPhone(raw: string): { code: string; number: string } {
-  const m = raw.match(/^\+?(\d{1,4})\s+(.+)$/);
-  return m ? { code: m[1] ?? '91', number: m[2] ?? '' } : { code: '91', number: raw };
-}
+const PAGE_SIZE = 10;
+const TABS: Array<{ id: InstructorTab; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'Active', label: 'Active' },
+  { id: 'Inactive', label: 'Inactive' },
+  { id: 'Disabled', label: 'Disabled' },
+];
+const RANGES: Array<{ value: JoinedRange; label: string }> = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '90', label: 'Last 90 days' },
+  { value: 'all', label: 'All time' },
+];
+const dash = (v: string) => v || '—';
 
 export default function InstructorsPage({ api, session, onNavigate }: AdminPageProps) {
-  const confirm = useConfirm();
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.loadInstructors(session.token),
-    [],
-  );
+  const { data, loading, error, reload } = useAdminPageData(() => api.loadInstructors(session.token), []);
+  const actions = useInstructorActions(api, session.token, reload);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<InstructorForm>(emptyForm);
-  const [saving, setSaving] = useState(false);
+  const [filters, setFilters] = useState<InstructorFilters>(EMPTY_INSTRUCTOR_FILTERS);
+  const [sortKey, setSortKey] = useState<InstructorSortKey>('joined');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
 
-  const allInstructors = useMemo(() => toRecords(data), [data]);
+  const rows = useMemo(() => toInstructorRows(toRecords(data)), [data]);
+  const counts = useMemo(() => instructorTabCounts(rows, filters), [rows, filters]);
+  const filtered = useMemo(() => sortInstructors(filterInstructors(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
+  const qualifications = useMemo(() => qualificationOptions(rows).map((q) => ({ value: q, label: q })), [rows]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+  const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const openAdd = useCallback(() => {
-    setEditingId(null);
-    setForm(emptyForm);
-    setDialogOpen(true);
-  }, []);
+  const set = (patch: Partial<InstructorFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters(EMPTY_INSTRUCTOR_FILTERS); setPage(1); };
+  const onSort = (k: InstructorSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+  const view = (id: string) => onNavigate(`/admin/instructor/view/${id}`);
+  const openAdd = () => { setEditing(null); setFormOpen(true); };
+  const openEdit = (r: InstructorRow) => { setEditing(r.raw); setFormOpen(true); };
 
-  const openEdit = useCallback((row: Record<string, unknown>) => {
-    setEditingId(asString(row._id || row.id));
-    const phone = splitPhone(asString(row.phone));
-    const wa = splitPhone(asString(row.whatsapp_phone));
-    setForm({
-      name: asString(row.name),
-      email: asString(row.user_email),
-      phoneCountryCode: phone.code,
-      phone: phone.number,
-      whatsappCountryCode: wa.code,
-      whatsapp_phone: wa.number,
-      qualification: asString(row.qualification),
-      bio: asString(row.biography || row.bio || row.description),
-      image: asString(row.image) || asString(row.profile_picture),
-      status: asNumber(row.status),
-    });
-    setDialogOpen(true);
-  }, []);
+  const allOnPage = current.length > 0 && current.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((r) => next.delete(r.id));
+    else current.forEach((r) => next.add(r.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
 
-  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
-    const id = asString(row._id || row.id);
-    if (!(await confirm({
-      title: `Delete instructor "${asString(row.name)}"?`,
-      description: 'This action cannot be undone.',
-      confirmText: 'Delete',
-      variant: 'destructive',
-    }))) return;
-    try {
-      await api.deleteInstructor(session.token, id);
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete instructor');
-    }
-  }, [api, session.token, reload, confirm]);
+  const exportCsv = (list: InstructorRow[]) => downloadCsv('instructors.csv', toCsv(instructorCsvRows(list, formatYmd)));
+  const selectedRows = filtered.filter((r) => selected.has(r.id));
 
-  const handleSubmit = useCallback(async () => {
-    if (!editingId) {
-      const missing = !form.name.trim() || !form.email.trim() || !form.phone.trim()
-        || !form.whatsapp_phone.trim() || !form.qualification.trim() || !form.bio.trim();
-      if (missing) {
-        toast.error('All fields are required.');
-        return;
-      }
-    } else if (!form.name.trim()) {
-      toast.error('Name is required.');
-      return;
-    }
-    if (form.email.trim() && !EMAIL_REGEX.test(form.email.trim())) {
-      toast.error('Email is not a valid format.');
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim() ? `+${form.phoneCountryCode} ${form.phone.trim()}` : undefined,
-        country_code: form.phoneCountryCode,
-        whatsapp_phone: form.whatsapp_phone.trim() ? `+${form.whatsappCountryCode} ${form.whatsapp_phone.trim()}` : undefined,
-        whatsapp_country_code: form.whatsappCountryCode,
-        qualification: form.qualification.trim() || undefined,
-        bio: form.bio.trim() || undefined,
-        image: form.image.trim() || undefined,
-        status: form.status,
-      };
-      if (editingId) {
-        await api.editInstructor(session.token, editingId, payload);
-      } else {
-        const res = await api.addInstructor(session.token, payload);
-        const message = asString(res.message);
-        if (message) toast.success(message);
-      }
-      setDialogOpen(false);
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save instructor');
-    } finally {
-      setSaving(false);
-    }
-  }, [form, editingId, api, session.token, reload]);
-
-  // Naji UAT 2026-05-14 — Dropped OTP, Course (Enrolled Courses chip), and
-  // Students columns. Added Highest Qualification (read from
-  // users.highest_qualification) and No of Cohorts (already returned as
-  // cohort_count by listInstructors).
-  void onNavigate;
-  const columns: DataTableColumn[] = useMemo(
-    () => [
-      {
-        // Naji UAT 2026-05-22 — surface the instructor's profile photo as
-        // the first column. Falls back to an initials badge so the row
-        // stays scannable even without an uploaded picture.
-        key: 'image',
-        label: 'Photo',
-        render: (_v, row) => {
-          const src = asString(row.image) || asString(row.profile_picture);
-          const name = asString(row.name);
-          const initial = name ? name.trim().charAt(0).toUpperCase() : '?';
-          return src ? (
-            <img
-              loading="lazy"
-              decoding="async"
-              src={src}
-              alt=""
-              className="size-9 rounded-full object-cover"
-            />
-          ) : (
-            <div className="flex size-9 items-center justify-center rounded-full bg-ttii-primary/10 text-xs font-semibold text-ttii-primary">
-              {initial}
-            </div>
-          );
-        },
-      },
-      { key: 'name', label: 'Name', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'phone', label: 'Phone', sortable: true, render: (v) => asString(v) || '-' },
-      { key: 'user_email', label: 'Email', sortable: true, render: (v) => asString(v) || '-' },
-      {
-        key: 'highest_qualification',
-        label: 'Highest Qualification',
-        sortable: true,
-        render: (v) => asString(v) || '-',
-      },
-      {
-        key: 'cohort_count',
-        label: 'No of Cohorts',
-        sortable: true,
-        render: (v) => String(asNumber(v) || 0),
-      },
-      {
-        key: 'status',
-        label: 'Status',
-        render: (v) => (
-          <AdminStatusBadge status={asNumber(v) === 1 ? 'Active' : 'Inactive'} />
-        ),
-      },
-    ],
-    [],
-  );
-
-  const handleResendCredentials = useCallback(async (row: Record<string, unknown>) => {
-    const id = asString(row._id || row.id);
-    if (!(await confirm({
-      title: `Resend login email to "${asString(row.name)}"?`,
-      description: 'A new temporary password will be generated and emailed. The user’s previous password will stop working.',
-      confirmText: 'Resend',
-      variant: 'default',
-    }))) return;
-    try {
-      const res = await api.resendLoginCredentials(session.token, id);
-      const message = typeof res.message === 'string' ? res.message : 'Login email sent.';
-      if (res.status === 1) toast.success(message);
-      else toast.error(message);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to send login email');
-    }
-  }, [api, session.token, confirm]);
-
-  const actions: DataTableAction[] = useMemo(
-    () => [
-      { label: 'View', onClick: (row) => openEdit(row) },
-      { label: 'Edit', onClick: (row) => openEdit(row) },
-      { label: 'Resend Login Email', onClick: (row) => { void handleResendCredentials(row); } },
-      {
-        label: (row) => (row.disabled_at ? 'Enable' : 'Disable'),
-        onClick: (row) => {
-          void (async () => {
-            const id = asString(row._id) || asString(row.id);
-            if (!id) return;
-            const isDisabled = !!row.disabled_at;
-            const name = asString(row.name) || 'this instructor';
-            if (!isDisabled && !(await confirm({
-              title: `Disable ${name}?`,
-              description: 'They will be blocked from logging in until you re-enable them.',
-              confirmText: 'Disable',
-              variant: 'destructive',
-            }))) return;
-            try {
-              await api.toggleUserStatus(session.token, id, isDisabled);
-              toast.success(isDisabled ? 'Instructor enabled.' : 'Instructor disabled.');
-              reload();
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : 'Failed to update status');
-            }
-          })();
-        },
-      },
-      { label: 'Delete', variant: 'destructive', onClick: (row) => { void handleDelete(row); } },
-      {
-        label: 'Change Device',
-        onClick: (row) => {
-          void (async () => {
-            if (!(await confirm({
-              title: 'Reset device binding for this instructor?',
-              confirmText: 'Reset',
-              variant: 'default',
-            }))) return;
-            window.location.href = '/admin/instructor/change_device/' + asString(row._id || row.id);
-          })();
-        },
-      },
-    ],
-    [openEdit, handleDelete, handleResendCredentials, confirm, api, session.token, reload],
-  );
-
-  if (loading) {
-    return <PageLoader label="Loading instructors..." />;
-  }
-
+  if (loading) return <PageLoader label="Loading instructors..." />;
   if (error) {
     return (
       <Card>
         <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
           {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Instructors" addLabel="+ Add Instructor" onAdd={openAdd} />
-      <AdminDataTable columns={columns} rows={allInstructors} actions={actions} />
+    <div className="space-y-6">
+      <PageTitle
+        title="Instructors"
+        subtitle={`${filtered.length} of ${rows.length} instructors`}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={() => exportCsv(selectedRows.length ? selectedRows : filtered)}>
+              <Download aria-hidden="true" className="size-4" /> Export{selectedRows.length ? ` (${selectedRows.length})` : ''}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={openAdd}>
+              <Plus aria-hidden="true" className="size-4" /> Add Instructor
+            </Button>
+          </>
+        )}
+      />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSubmit();
-            }}
-          >
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Instructor' : 'Add Instructor'}</DialogTitle>
-          </DialogHeader>
+      <div role="group" aria-label="Instructor status" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
+        ))}
+      </div>
 
-          <div className="grid gap-4 py-2 max-h-[70vh] overflow-y-auto">
-            <div className="grid gap-2">
-              <Label>Profile Photo</Label>
-              <PhotoUpload
-                value={form.image}
-                onChange={(url) => setForm((f) => ({ ...f, image: url }))}
-                onUpload={async (file) => {
-                  const r = await api.uploadFile(session.token, file);
-                  return r.url;
-                }}
-                fallbackInitials={form.name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="inst-name">Name *</Label>
-              <Input
-                id="inst-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                onBlur={(e) => {
-                  const next = titleCaseEachWord(e.target.value);
-                  if (next !== e.target.value) setForm((f) => ({ ...f, name: next }));
-                }}
-                placeholder="Name"
-                required
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="inst-phone">Phone *</Label>
-                <PhoneInput
-                  id="inst-phone"
-                  countryCode={form.phoneCountryCode}
-                  number={form.phone}
-                  onChange={({ countryCode, number }) => setForm((f) => ({ ...f, phoneCountryCode: countryCode, phone: number }))}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="inst-whatsapp">Whatsapp *</Label>
-                <PhoneInput
-                  id="inst-whatsapp"
-                  countryCode={form.whatsappCountryCode}
-                  number={form.whatsapp_phone}
-                  onChange={({ countryCode, number }) => setForm((f) => ({ ...f, whatsappCountryCode: countryCode, whatsapp_phone: number }))}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="inst-qual">Highest Qualification *</Label>
-              <Input
-                id="inst-qual"
-                value={form.qualification}
-                onChange={(e) => setForm((f) => ({ ...f, qualification: e.target.value }))}
-                placeholder="e.g. Masters"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="inst-email">Email *</Label>
-              <Input
-                id="inst-email"
-                type="email"
-                value={form.email}
-                disabled={!!editingId}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="email@example.com"
-                required
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (!v || editingId) return;
-                  if (!EMAIL_REGEX.test(v)) {
-                    toast.error('Email is not a valid format.');
-                    return;
-                  }
-                  void verifyEmailWithFeedback(api, session.token, v, (corrected) => setForm((f) => ({ ...f, email: corrected })));
-                }}
-              />
-            </div>
-
-            {!editingId && (
-              <p className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
-                A secure temporary password will be auto-generated and emailed to <span className="font-semibold">{form.email || 'this instructor'}</span> on save. They&rsquo;ll be prompted to change it on first sign-in.
-              </p>
-            )}
-
-            <div className="grid gap-2">
-              <Label htmlFor="inst-bio">Biography *</Label>
-              <textarea
-                id="inst-bio"
-                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={form.bio}
-                onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
-                placeholder="Enter biography (supports HTML)"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="inst-status">Status</Label>
-              <select
-                id="inst-status"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={form.status}
-                onChange={(e) => setForm((f) => ({ ...f, status: Number(e.target.value) }))}
-              >
-                <option value={1}>Active</option>
-                <option value={0}>Inactive</option>
-              </select>
-            </div>
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_200px_150px_150px_160px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search instructors" placeholder="Search by name, email, phone or qualification…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
           </div>
+          <FilterSelect label="Qualification" value={filters.qualification} onChange={(v) => set({ qualification: v })} allLabel="All Qualifications" options={qualifications} />
+          <FilterSelect
+            label="Cohorts"
+            value={filters.cohorts}
+            onChange={(v) => set({ cohorts: v as CohortFilter })}
+            allLabel="Any cohorts"
+            options={[{ value: '0', label: 'No cohorts' }, { value: '1', label: '1 cohort' }, { value: '2+', label: '2 or more' }]}
+          />
+          <FilterSelect
+            label="Status"
+            value={filters.tab === 'all' ? '' : filters.tab}
+            onChange={(v) => set({ tab: (v || 'all') as InstructorTab })}
+            allLabel="All Status"
+            options={TABS.filter((t) => t.id !== 'all').map((t) => ({ value: t.id, label: t.label }))}
+          />
+          <div className="relative">
+            <CalendarRange aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <select aria-label="Joined" value={filters.range} onChange={(e) => set({ range: e.target.value as JoinedRange })} className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm">
+              {RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
+        </div>
+      </Card>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="bg-ttii-primary hover:bg-ttii-primary/90"
-              disabled={saving || !form.name.trim() || !form.email.trim()}
-            >
-              {saving ? 'Saving...' : editingId ? 'Update' : 'Add Instructor'}
-            </Button>
-          </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
+          <span className="font-semibold text-foreground">{selected.size} selected</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={() => exportCsv(selectedRows)}>Export selected</Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          </div>
+        </div>
+      )}
+
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={GraduationCap}
+            title={rows.length === 0 ? 'No instructors yet.' : 'No instructors match your filters.'}
+            {...(rows.length === 0
+              ? { action: <Button size="sm" onClick={openAdd}>Add Instructor</Button> }
+              : { action: <Button variant="outline" size="sm" onClick={reset}>Reset filters</Button> })}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-10">
+                    <Checkbox aria-label="Select all on this page" checked={allOnPage} onCheckedChange={toggleAll} />
+                  </TableHead>
+                  <TableHead className="w-10 text-xs">#</TableHead>
+                  <TableHead className="w-16 text-xs">Photo</TableHead>
+                  <SortHead label="Name" k="name" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Phone" k="phone" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Email" k="email" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Highest Qualification" k="qualification" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="No of Cohorts" k="cohorts" sortKey={sortKey} dir={sortDir} onSort={onSort} className="text-right" />
+                  <SortHead label="Joined" k="joined" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Status" k="status" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <TableHead className="text-right text-xs">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {current.map((r, i) => (
+                  <TableRow key={r.id} className="hover:bg-muted/30" data-state={selected.has(r.id) ? 'selected' : undefined}>
+                    <TableCell>
+                      <Checkbox aria-label={`Select ${r.name}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggleOne(r.id, v === true)} />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{String((page - 1) * PAGE_SIZE + i + 1).padStart(2, '0')}</TableCell>
+                    <TableCell>
+                      <Avatar className="size-9 shrink-0">
+                        {r.photo ? <AvatarImage src={r.photo} alt="" loading="lazy" /> : null}
+                        <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(r.name)}</AvatarFallback>
+                      </Avatar>
+                    </TableCell>
+                    <TableCell className="text-sm font-medium">
+                      <button type="button" className="max-w-[220px] truncate text-left hover:text-primary hover:underline" onClick={() => view(r.id)}>
+                        {r.name || 'N/A'}
+                      </button>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dash(r.phone)}</TableCell>
+                    <TableCell className="max-w-[240px] truncate text-sm text-muted-foreground" title={r.email}>{dash(r.email)}</TableCell>
+                    <TableCell className="text-sm">{dash(r.qualification)}</TableCell>
+                    <TableCell className="text-right text-sm font-medium tabular-nums">{r.cohorts}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.joined) || '—'}</TableCell>
+                    <TableCell><Pill tone={INSTRUCTOR_STATUS_TONE[r.status]}>{r.status}</Pill></TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="size-8" title="View" aria-label={`View ${r.name}`} onClick={() => view(r.id)}>
+                          <Eye aria-hidden="true" className="size-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8" title="Edit" aria-label={`Edit ${r.name}`} onClick={() => openEdit(r)}>
+                          <Pencil aria-hidden="true" className="size-4" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="ghost" className="size-8" title="More" aria-label={`More actions for ${r.name}`}>
+                              <MoreHorizontal aria-hidden="true" className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            {r.email ? (
+                              <DropdownMenuItem asChild>
+                                <a href={`mailto:${r.email}`}><Mail aria-hidden="true" className="mr-2 size-4" />Email</a>
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem onClick={() => { void actions.resendLogin(r); }}>Resend Login Email</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { void actions.changeDevice(r); }}>Change Device</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className={cn(!r.isDisabled && 'text-destructive focus:text-destructive')}
+                              onClick={() => { void actions.toggleLogin(r); }}
+                            >
+                              {r.isDisabled ? 'Enable' : 'Disable'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { void actions.remove(r); }}>
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <ListPager page={page} pages={pages} shown={current.length} total={filtered.length} noun="instructors" onPage={setPage} />
+      </Card>
+
+      <InstructorFormDialog
+        open={formOpen}
+        initial={editing}
+        api={api}
+        token={session.token}
+        onClose={() => setFormOpen(false)}
+        onSaved={reload}
+      />
     </div>
   );
 }

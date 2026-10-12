@@ -4,9 +4,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Info } from 'lucide-react';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { asString, asNumber, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
+import { PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import { GRANTS_NOT_ENFORCED } from './roles-model.js';
 
 interface PermissionDef {
   id: number;
@@ -128,6 +130,7 @@ export default function ManagePermissionsPage({ api, session, onNavigate }: Admi
   }, [api, session.token, userId, granted, onNavigate]);
 
   if (loading) return <PageLoader label="Loading permissions matrix…" />;
+  const back = () => onNavigate('/admin/roles/index');
   if (!user) {
     return (
       <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">User not found.</CardContent></Card>
@@ -136,10 +139,10 @@ export default function ManagePermissionsPage({ api, session, onNavigate }: Admi
   if (!user.permission_managed) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-gray-600">
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
           {user.role_label} access is role-based, not per-permission. Manage access under the {user.role_label} section instead.
           <div className="mt-4">
-            <Button variant="outline" onClick={() => onNavigate('/admin/roles/index')}>Back</Button>
+            <Button variant="outline" onClick={back}>Back</Button>
           </div>
         </CardContent>
       </Card>
@@ -150,119 +153,121 @@ export default function ManagePermissionsPage({ api, session, onNavigate }: Admi
   const grantedCount = granted.size;
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title={`Manage Permissions — ${user.name || user.email}`}>
-        <Button variant="outline" onClick={() => onNavigate('/admin/roles/index')}>Back to Roles</Button>
-      </AdminPageHeader>
+    <div className="space-y-5">
+      <PageTitle
+        title={`Manage Permissions — ${user.name || user.email}`}
+        subtitle="Choose what this Admin may do in the admin portal."
+        actions={<Button variant="outline" size="sm" onClick={back}>Back to Roles</Button>}
+      />
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div>
-              <p className="text-xs text-gray-500">User</p>
-              <p className="text-sm font-medium text-gray-900">{user.name || '—'}</p>
-              <p className="text-xs text-gray-500">{user.email}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Role</p>
-              <p className="text-sm font-medium text-gray-900">{user.role_label}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Granted</p>
-              <p className="text-sm font-medium text-gray-900">{grantedCount} of {totalPerms}</p>
-            </div>
-            <div className="ml-auto flex gap-2">
-              <Button variant="outline" size="sm" onClick={revokeAll}>Revoke all</Button>
-              <Button variant="outline" size="sm" onClick={grantAll}>Grant all</Button>
-            </div>
+      <div role="note" className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <p>{GRANTS_NOT_ENFORCED}</p>
+      </div>
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="flex flex-wrap items-center gap-6">
+          <div>
+            <p className="text-xs text-muted-foreground">User</p>
+            <p className="text-sm font-medium text-foreground">{user.name || '—'}</p>
+            <p className="text-xs text-muted-foreground">{user.email}</p>
           </div>
-        </CardContent>
+          <div>
+            <p className="text-xs text-muted-foreground">Role</p>
+            <Pill tone="blue" className="mt-0.5">{user.role_label}</Pill>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Granted</p>
+            <p className="text-sm font-medium tabular-nums text-foreground">{grantedCount} of {totalPerms}</p>
+          </div>
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" size="sm" onClick={revokeAll}>Revoke all</Button>
+            <Button variant="outline" size="sm" onClick={grantAll}>Grant all</Button>
+          </div>
+        </div>
       </Card>
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input
-              placeholder="Search permission name, slug, or description…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              value={moduleFilter}
-              onChange={(e) => setModuleFilter(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">All Modules</option>
-              {grouped.map(([cat]) => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
-          </div>
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Input
+            aria-label="Search permissions"
+            placeholder="Search permission name, slug, or description…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            aria-label="Module"
+            value={moduleFilter}
+            onChange={(e) => setModuleFilter(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">All Modules</option>
+            {grouped.map(([cat]) => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+        </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="w-[20%] px-3 py-2 text-left">Module</th>
-                  <th className="w-[22%] px-3 py-2 text-left">Sub-module</th>
-                  <th className="w-[44%] px-3 py-2 text-left">Description</th>
-                  <th className="w-[14%] px-3 py-2 text-center">Granted</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredGroups.length === 0 ? (
-                  <tr><td colSpan={4} className="py-6 text-center text-sm text-gray-500">No permissions match your filters.</td></tr>
-                ) : filteredGroups.map(([category, perms]) => {
-                  const categoryAllOn = perms.every((p) => granted.has(p.id));
-                  return [
-                    <tr key={`hdr-${category}`} className="bg-slate-50/60">
-                      <td colSpan={3} className="px-3 py-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700">{category}</span>
-                        <span className="ml-2 text-xs text-slate-500">{perms.filter((p) => granted.has(p.id)).length} of {perms.length} granted</span>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted/60 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="w-[20%] px-3 py-2 text-left">Module</th>
+                <th className="w-[22%] px-3 py-2 text-left">Sub-module</th>
+                <th className="w-[44%] px-3 py-2 text-left">Description</th>
+                <th className="w-[14%] px-3 py-2 text-center">Granted</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredGroups.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-sm text-muted-foreground">No permissions match your filters.</td></tr>
+              ) : filteredGroups.map(([category, perms]) => {
+                const categoryAllOn = perms.every((p) => granted.has(p.id));
+                return [
+                  <tr key={`hdr-${category}`} className="bg-muted/40">
+                    <td colSpan={3} className="px-3 py-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-foreground">{category}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{perms.filter((p) => granted.has(p.id)).length} of {perms.length} granted</span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleCategory(perms, !categoryAllOn)}
+                        className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
+                      >
+                        {categoryAllOn ? 'Revoke all' : 'Grant all'}
+                      </button>
+                    </td>
+                  </tr>,
+                  ...perms.map((p) => (
+                    <tr key={p.id} className="hover:bg-muted/30">
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">{category}</td>
+                      <td className="px-3 py-2 align-top">
+                        <p className="font-medium text-foreground">{p.title}</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">{p.slug}</p>
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => toggleCategory(perms, !categoryAllOn)}
-                          className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:border-ttii-primary hover:text-ttii-primary"
-                        >
-                          {categoryAllOn ? 'Revoke all' : 'Grant all'}
-                        </button>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">{p.description || '—'}</td>
+                      <td className="px-3 py-2 text-center align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`Grant ${p.title}`}
+                          checked={granted.has(p.id)}
+                          onChange={() => togglePerm(p.id)}
+                          className="size-4 rounded border-input accent-primary"
+                        />
                       </td>
-                    </tr>,
-                    ...perms.map((p) => (
-                      <tr key={p.id} className="hover:bg-slate-50/40">
-                        <td className="px-3 py-2 align-top text-xs text-slate-500">{category}</td>
-                        <td className="px-3 py-2 align-top">
-                          <p className="font-medium text-gray-900">{p.title}</p>
-                          <p className="font-mono text-[11px] text-gray-500">{p.slug}</p>
-                        </td>
-                        <td className="px-3 py-2 align-top text-xs text-gray-600">{p.description || '—'}</td>
-                        <td className="px-3 py-2 text-center align-top">
-                          <input
-                            type="checkbox"
-                            checked={granted.has(p.id)}
-                            onChange={() => togglePerm(p.id)}
-                            className="size-4 rounded border-slate-300 text-ttii-primary focus:ring-ttii-primary"
-                          />
-                        </td>
-                      </tr>
-                    )),
-                  ];
-                }).flat()}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
+                    </tr>
+                  )),
+                ];
+              }).flat()}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {/* Sticky save bar */}
-      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
-        <span className="mr-auto text-sm text-gray-500">{grantedCount} permissions selected</span>
-        <Button variant="outline" onClick={() => onNavigate('/admin/roles/index')} disabled={saving}>Cancel</Button>
-        <Button
-          className="bg-ttii-primary hover:bg-ttii-primary/90"
-          onClick={() => { void handleSave(); }}
-          disabled={saving}
-        >
+      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-border bg-card/95 p-3 backdrop-blur">
+        <span className="mr-auto text-sm text-muted-foreground">{grantedCount} permissions selected</span>
+        <Button variant="outline" onClick={back} disabled={saving}>Cancel</Button>
+        <Button onClick={() => { void handleSave(); }} disabled={saving}>
           {saving ? 'Saving…' : 'Save Permissions'}
         </Button>
       </div>

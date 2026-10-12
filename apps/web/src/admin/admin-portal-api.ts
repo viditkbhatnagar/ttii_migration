@@ -2361,6 +2361,37 @@ export class AdminPortalApi {
     });
   }
 
+  // TTII 2026-10-12 — read-only side-cars for Instructors / Admin Users / Roles
+  // in Naji's design (apps/api/src/operations/people-admin-service.ts).
+
+  /** Live users per built-in role, with how many are disabled. */
+  async loadRoleSummary(authToken: string): Promise<Array<{ roleId: number; total: number; disabled: number }>> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/people/role_summary', authToken);
+    return toRecords(payload.data).map((r) => ({
+      roleId: asNumber(r.roleId),
+      total: asNumber(r.total),
+      disabled: asNumber(r.disabled),
+    }));
+  }
+
+  /** Super Admin / Admin user id → ISO instant of their newest sign-in. */
+  async loadAdminLastSignIns(authToken: string): Promise<Record<string, string>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/people/admin_last_sign_in', authToken);
+    const data = asRecord(payload.data) ?? {};
+    const out: Record<string, string> = {};
+    for (const [id, at] of Object.entries(data)) {
+      const iso = asString(at);
+      if (iso) out[id] = iso;
+    }
+    return out;
+  }
+
+  /** One instructor's profile plus the cohorts, live sessions and assignments they handle. */
+  async loadInstructorOverview(authToken: string, id: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown>>>('/admin/instructor/overview', authToken, { id });
+    return asRecord(payload.data) ?? {};
+  }
+
   async addAssociate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/associates/add', authToken, input);
   }
