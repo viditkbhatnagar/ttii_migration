@@ -12,7 +12,12 @@ import {
   authEventLabel,
   authWhere,
   istDayStart,
-  maskIdentifier,
+  UNRECOGNISED_IDENTIFIER,
+  applicationAfter,
+  authAfter,
+  displayIdentifier,
+  formatCursor,
+  parseCursor,
   mergeNewestFirst,
   parseAuditLogQuery,
   redactSecrets,
@@ -69,13 +74,20 @@ describe('istDayStart', () => {
 });
 
 describe('masking', () => {
-  test('emails, phones and IDs are shown; anything else is masked', () => {
-    expect(maskIdentifier('a@b.in')).toBe('a@b.in');
-    expect(maskIdentifier('+91 98765 43210')).toBe('+91 98765 43210');
-    expect(maskIdentifier('TTS0058')).toBe('TTS0058');
-    expect(maskIdentifier('Hunter2!pass')).toBe('H••••••s');
-    expect(maskIdentifier('ab')).toBe('••');
-    expect(maskIdentifier(null)).toBe('');
+  test('a sign-in name is shown only when it is exactly a real account login', () => {
+    const known = new Set(['ravi@x.in', '9876543210', 'admin']);
+    expect(displayIdentifier('Ravi@X.in', known, null)).toBe('Ravi@X.in');
+    expect(displayIdentifier('9876543210', known, null)).toBe('9876543210');
+    expect(displayIdentifier('admin', known, 3)).toBe('admin');
+    // Typed passwords / PINs that merely LOOK like an id, phone or email stay hidden.
+    for (const typed of ['admin123', 'ttii2024', '4821', '98765432100', 'pass@word.in', 'TTS0058']) {
+      expect(displayIdentifier(typed, known, null)).toBe(UNRECOGNISED_IDENTIFIER);
+    }
+    // OTP rows record the user's own id as the identifier.
+    expect(displayIdentifier('42', known, 42)).toBe('42');
+    expect(displayIdentifier('42', known, 7)).toBe(UNRECOGNISED_IDENTIFIER);
+    expect(displayIdentifier('  ', known, null)).toBe('');
+    expect(displayIdentifier(null, known, null)).toBe('');
   });
 
   test('redacts key=value secrets in free text', () => {
@@ -136,6 +148,24 @@ describe('mergeNewestFirst', () => {
   });
 });
 
+describe('keyset cursor', () => {
+  test('round-trips and rejects junk', () => {
+    const c = { at: new Date('2026-10-12T04:00:00Z'), source: 'application' as const, id: 21 };
+    expect(parseCursor(formatCursor(c))).toEqual(c);
+    expect(parseCursor('2026-10-12T04:00:00Z|auth|0')).toBeNull();
+    expect(parseCursor('yesterday|auth|5')).toBeNull();
+    expect(parseCursor(5)).toBeNull();
+  });
+
+  test('continues the merged order exactly: auth sorts before application on a tie', () => {
+    const at = new Date('2026-10-12T04:00:00Z');
+    expect(authAfter({ at, source: 'auth', id: 11 })).toEqual({ OR: [{ created_at: { lt: at } }, { created_at: at, id: { lt: 11 } }] });
+    expect(authAfter({ at, source: 'application', id: 21 })).toEqual({ created_at: { lt: at } });
+    expect(applicationAfter({ at, source: 'auth', id: 11 })).toEqual({ created_at: { lte: at } });
+    expect(applicationAfter({ at, source: 'application', id: 21 })).toEqual({ OR: [{ created_at: { lt: at } }, { created_at: at, id: { lt: 21 } }] });
+  });
+});
+
 describe('where builders', () => {
   test('a source excludes the other table; failures exclude application events', () => {
     expect(authWhere(query({ source: 'application' }), null)).toBeNull();
@@ -145,7 +175,10 @@ describe('where builders', () => {
   });
 
   test('auth filter carries the IST range, event, user, outcome and search', () => {
-    const where = authWhere(query({ from: '2026-10-01', to: '2026-10-12', event: 'LOGIN_FAILED', userId: 5, outcome: 'failure', search: 'ravi' }), [5, 6]);
+    const where = authWhere(
+      query({ from: '2026-10-01', to: '2026-10-12', event: 'LOGIN_FAILED', userId: 5, outcome: 'failure', search: 'ravi' }),
+      { ids: [5, 6], logins: ['ravi@x.in'] },
+    );
     expect(where).toEqual({
       AND: [
         { created_at: { gte: new Date('2026-09-30T18:30:00Z'), lt: new Date('2026-10-12T18:30:00Z') } },
@@ -153,13 +186,19 @@ describe('where builders', () => {
         { user_id: 5 },
         { success: 0 },
         { OR: [
-          { identifier: { contains: 'ravi' } },
           { ip_address: { contains: 'ravi' } },
           { event: { contains: 'ravi' } },
           { user_id: { in: [5, 6] } },
+          { identifier: { in: ['ravi@x.in'] } },
         ] },
       ],
     });
+  });
+
+  test('search never does a substring match on raw sign-in names (no probing for typed passwords)', () => {
+    const where = authWhere(query({ search: 'admin123' }), { ids: [], logins: [] });
+    expect(JSON.stringify(where)).not.toContain('"identifier":{"contains"');
+    expect(JSON.stringify(where)).not.toContain('identifier');
   });
 
   test('payment source narrows application events to payment_* / instalment_*', () => {
@@ -200,10 +239,15 @@ function fakePrisma() {
       groupBy: vi.fn().mockResolvedValue([{ event_type: 'payment_approved', _count: { id: 1 } }]),
     },
     users: {
-      findMany: vi.fn().mockResolvedValue([
-        { id: 5, name: 'Ravi', role_id: 2, user_email: 'ravi@x.in', email: null },
-        { id: 6, name: 'Majida', role_id: 8, user_email: null, email: '9876543210' },
-      ]),
+      findMany: vi.fn().mockImplementation((args: { select: Record<string, boolean> }) =>
+        Promise.resolve(args.select.username
+          // The page's known-login lookup: only a@b.in is a real account's login.
+          ? [{ user_email: 'A@B.in', email: null, phone: null, username: null }]
+          : [
+              { id: 5, name: 'Ravi', role_id: 2, user_email: 'ravi@x.in', email: null },
+              { id: 6, name: 'Majida', role_id: 8, user_email: null, email: '9876543210' },
+            ]),
+      ),
       findFirst: vi.fn().mockResolvedValue({ id: 5, name: 'Ravi' }),
     },
     applications: {
@@ -230,7 +274,10 @@ describe('AuditLogService.list', () => {
       applicationId: '31', applicationCode: 'TTII260031', applicantName: 'Anu', description: 'Approved ref token=[redacted]',
     });
     expect(out.rows[1]).toMatchObject({ source: 'auth', userId: null, userName: '', identifier: 'a@b.in', ipAddress: '' });
-    expect(prisma.users.findMany).toHaveBeenCalledTimes(1);
+    // One batch for actors, one for the page's sign-in names.
+    expect(prisma.users.findMany).toHaveBeenCalledTimes(2);
+    const loginLookup = prisma.users.findMany.mock.calls.find((c) => (c[0] as { select: Record<string, boolean> }).select.username)?.[0] as { where: { OR: unknown[] } };
+    expect(loginLookup.where.OR).toContainEqual({ user_email: { in: ['mypassword1', 'a@b.in'] } });
     expect(out.user).toEqual({ id: '5', name: 'Ravi' });
     expect(out.eventTypes.map((e) => e.value)).toEqual(['payment_approved', 'LOGIN_FAILED']);
   });
@@ -243,11 +290,11 @@ describe('AuditLogService.list', () => {
     }
   });
 
-  test('a failed sign-in row shows the masked identifier and only safe details', async () => {
+  test('a failed sign-in with an unrecognised sign-in name hides it entirely and keeps only safe details', async () => {
     const prisma = fakePrisma();
     const out = await new AuditLogService(prisma as unknown as PrismaClient).list(query({ take: 1 }), NOW);
     expect(out.rows[0]).toMatchObject({
-      key: 'auth-11', success: false, userName: 'Ravi', userRole: 'Student', identifier: 'm••••••1',
+      key: 'auth-11', success: false, userName: 'Ravi', userRole: 'Student', identifier: UNRECOGNISED_IDENTIFIER,
       ipAddress: '10.0.0.1', userAgent: 'UA', details: [{ label: 'Reason', value: 'bad' }],
     });
     expect(JSON.stringify(out)).not.toContain('mypassword1');
@@ -273,6 +320,21 @@ describe('AuditLogService.list', () => {
     expect(prisma.auth_audit_log.groupBy).not.toHaveBeenCalled();
     // Only the two list totals were counted.
     expect(prisma.auth_audit_log.count).toHaveBeenCalledTimes(1);
+  });
+
+  test('keyset paging: `after` reads take rows per table past the cursor and returns the next cursor', async () => {
+    const prisma = fakePrisma();
+    const q = parseAuditLogQuery({ after: '2026-10-12T05:00:00.000Z|auth|99', take: '2', skip: '40' }, NOW);
+    expect(q.cursor).toEqual({ at: new Date('2026-10-12T05:00:00Z'), source: 'auth', id: 99 });
+    const out = await new AuditLogService(prisma as unknown as PrismaClient).list(q, NOW);
+    const authArgs = prisma.auth_audit_log.findMany.mock.calls[0]![0] as { take: number; where: { AND: unknown[] } };
+    expect(authArgs.take).toBe(2);
+    expect(authArgs.where.AND[1]).toEqual(authAfter(q.cursor!));
+    // The total ignores the cursor.
+    expect((prisma.auth_audit_log.count.mock.calls[0]![0] as { where: unknown }).where).toEqual(authWhere(q, null));
+    expect(out.skip).toBe(0);
+    expect(out.rows.map((r) => r.key)).toEqual(['auth-11', 'app-21']);
+    expect(out.nextCursor).toBe('2026-10-12T03:00:00.000Z|application|21');
   });
 
   test('a sign-in-only query never touches application_events rows', async () => {

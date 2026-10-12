@@ -13,7 +13,8 @@ import { SIGN_IN_EVENTS, displayEmail } from './people-admin-service.js';
 // edits on other modules), so the page says so instead of inventing them.
 // Sensitive values never leave here: no password / token / OTP material
 // (detail keys are allow-listed, query strings stripped, `key=value` secrets
-// redacted, odd sign-in identifiers masked). IP and user agent are returned
+// redacted, a sign-in name shown only when it is a real account's login, and
+// search never probes raw sign-in names). IP and user agent are returned
 // as recorded — the route is Admin / Super Admin only.
 
 export const IST_OFFSET_MS = 330 * 60 * 1000;
@@ -112,8 +113,26 @@ export interface AuditLogQuery {
   search: string;
   take: number;
   skip: number;
+  /** Keyset paging (`after`): rows strictly older than this one in merged order. Overrides skip. */
+  cursor: AuditCursor | null;
   /** false (`meta=0`) skips the KPI counts and event list — Export pages through with it. */
   withMeta: boolean;
+}
+
+/** A position in the merged newest-first stream: (created_at, source, id). */
+export interface AuditCursor {
+  at: Date;
+  source: 'auth' | 'application';
+  id: number;
+}
+
+/** What the sign-in box held when it is not a real account's login (it may be a typed password). */
+export const UNRECOGNISED_IDENTIFIER = 'Unrecognised sign-in name';
+
+/** Search matches: users by name / email / phone, and the exact login strings of those users. */
+export interface UserMatches {
+  ids: number[];
+  logins: string[];
 }
 
 export interface AuditDetail {
@@ -160,6 +179,8 @@ export interface AuditLogPage {
   kpis: { signInsToday: number; failedSignIns24h: number; applicationActions7d: number; paymentActions7d: number } | null;
   eventTypes: AuditEventOption[];
   user: { id: string; name: string } | null;
+  /** Pass back as `after` for the next page; null when this page is the last. */
+  nextCursor: string | null;
 }
 
 // ── Pure helpers (exported for tests) ────────────────────────────────────
@@ -224,8 +245,24 @@ export function parseAuditLogQuery(raw: Record<string, unknown>, now: Date = new
     search: typeof raw.q === 'string' ? raw.q.trim().slice(0, SEARCH_MAX_LENGTH) : '',
     take: intIn(raw.take, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE),
     skip: intIn(raw.skip, 0, 0, MAX_SKIP),
+    cursor: parseCursor(raw.after),
     withMeta: raw.meta !== '0',
   };
+}
+
+/** "2026-10-12T04:00:00.000Z|auth|11" → a cursor; anything else → null. */
+export function parseCursor(raw: unknown): AuditCursor | null {
+  if (typeof raw !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)\|(auth|application)\|(\d{1,10})$/.exec(raw.trim());
+  if (!m) return null;
+  const at = new Date(m[1]!);
+  const id = Number(m[3]);
+  if (Number.isNaN(at.getTime()) || !Number.isInteger(id) || id <= 0) return null;
+  return { at, source: m[2] as AuditCursor['source'], id };
+}
+
+export function formatCursor(c: AuditCursor): string {
+  return `${c.at.toISOString()}|${c.source}|${c.id}`;
 }
 
 /** `token=…`, `password=…` and friends inside free text become `token=[redacted]`. */
@@ -233,19 +270,22 @@ export function redactSecrets(text: string): string {
   return text.replace(/\b(token|access_token|refresh_token|password|passwd|pwd|secret|otp|signature|key)=([^&\s]+)/gi, '$1=[redacted]');
 }
 
+/** Login strings compare case-insensitively (emails are stored and typed in mixed case). */
+export function loginKey(v: string | null | undefined): string {
+  return (v ?? '').trim().toLowerCase();
+}
+
 /**
- * What the person typed as their sign-in name. Emails, phone numbers and
- * IDs like TTS0058 are shown; anything else is masked (first and last
- * character) because people sometimes type their password into that box.
+ * What the person typed as their sign-in name, shown in full ONLY when it is
+ * exactly a real account's login (email, user_email, phone or username, from
+ * `knownLogins`) or the row's own user id (OTP rows record the id). Anything
+ * else may be a password typed into the wrong box, so none of it is shown.
  */
-export function maskIdentifier(raw: string | null | undefined): string {
+export function displayIdentifier(raw: string | null | undefined, knownLogins: ReadonlySet<string>, userId: number | null): string {
   const v = (raw ?? '').trim();
   if (!v) return '';
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return v;
-  if (/^\+?[\d\s-]{6,20}$/.test(v)) return v;
-  if (/^[A-Za-z]{2,6}\d{2,10}$/.test(v)) return v;
-  if (v.length <= 2) return '•'.repeat(v.length);
-  return `${v[0]}${'•'.repeat(Math.min(v.length - 2, 6))}${v[v.length - 1]}`;
+  if (userId !== null && v === String(userId)) return v;
+  return knownLogins.has(loginKey(v)) ? v : UNRECOGNISED_IDENTIFIER;
 }
 
 function roleLabel(id: unknown): string {
@@ -326,8 +366,13 @@ const paymentWhere = (): Prisma.application_eventsWhereInput => ({
   OR: PAYMENT_EVENT_PREFIXES.map((p) => ({ event_type: { startsWith: p } })),
 });
 
-/** The auth_audit_log filter for a query, or null when the query's source excludes that table. */
-export function authWhere(q: AuditLogQuery, matchedUserIds: number[] | null): Prisma.auth_audit_logWhereInput | null {
+/**
+ * The auth_audit_log filter for a query, or null when the query's source
+ * excludes that table. Search never looks inside the raw sign-in name (it can
+ * hold a typed password): it matches IP, event code, matched users' ids and
+ * the EXACT logins (email / phone / username) of matched real users.
+ */
+export function authWhere(q: AuditLogQuery, matched: UserMatches | null): Prisma.auth_audit_logWhereInput | null {
   if (q.source === 'application' || q.source === 'payment') return null;
   const and: Prisma.auth_audit_logWhereInput[] = [
     { created_at: { gte: istDayStart(q.from), lt: istDayStart(addDays(q.to, 1)) } },
@@ -337,14 +382,26 @@ export function authWhere(q: AuditLogQuery, matchedUserIds: number[] | null): Pr
   if (q.outcome !== 'all') and.push({ success: q.outcome === 'success' ? 1 : 0 });
   if (q.search) {
     const or: Prisma.auth_audit_logWhereInput[] = [
-      { identifier: { contains: q.search } },
       { ip_address: { contains: q.search } },
       { event: { contains: q.search } },
     ];
-    if (matchedUserIds && matchedUserIds.length > 0) or.push({ user_id: { in: matchedUserIds } });
+    if (matched && matched.ids.length > 0) or.push({ user_id: { in: matched.ids } });
+    if (matched && matched.logins.length > 0) or.push({ identifier: { in: matched.logins } });
     and.push({ OR: or });
   }
   return { AND: and };
+}
+
+/** auth rows strictly after the cursor in merged order (auth sorts before application on a tie). */
+export function authAfter(c: AuditCursor): Prisma.auth_audit_logWhereInput {
+  if (c.source === 'application') return { created_at: { lt: c.at } };
+  return { OR: [{ created_at: { lt: c.at } }, { created_at: c.at, id: { lt: c.id } }] };
+}
+
+/** application rows strictly after the cursor in merged order. */
+export function applicationAfter(c: AuditCursor): Prisma.application_eventsWhereInput {
+  if (c.source === 'auth') return { created_at: { lte: c.at } };
+  return { OR: [{ created_at: { lt: c.at } }, { created_at: c.at, id: { lt: c.id } }] };
 }
 
 /** The application_events filter, or null when the query excludes that table (sign-in source, failures only). */
@@ -381,38 +438,48 @@ export class AuditLogService {
   constructor(private readonly prisma: PrismaClient = getPrismaClient()) {}
 
   async list(q: AuditLogQuery, now: Date = new Date()): Promise<AuditLogPage> {
-    const [matchedUserIds, matchedApplicationIds] = q.search
+    const [matchedUsers, matchedApplicationIds] = q.search
       ? await Promise.all([this.matchUsers(q.search), this.matchApplications(q.search)])
       : [null, null];
-    const aWhere = authWhere(q, matchedUserIds);
-    const eWhere = applicationWhere(q, matchedUserIds, matchedApplicationIds);
-    const window = q.skip + q.take;
+    const aWhere = authWhere(q, matchedUsers);
+    const eWhere = applicationWhere(q, matchedUsers?.ids ?? null, matchedApplicationIds);
+    // Keyset (cursor) pages read `take` rows per table; offset pages read skip + take.
+    const offset = q.cursor ? 0 : q.skip;
+    const window = offset + q.take;
+    const aPage = aWhere && q.cursor ? { AND: [aWhere, authAfter(q.cursor)] } : aWhere;
+    const ePage = eWhere && q.cursor ? { AND: [eWhere, applicationAfter(q.cursor)] } : eWhere;
 
     const [authTotal, appTotal, authIds, appIds, kpis, eventTypes, user] = await Promise.all([
       aWhere ? this.prisma.auth_audit_log.count({ where: aWhere }) : 0,
       eWhere ? this.prisma.application_events.count({ where: eWhere }) : 0,
-      aWhere ? this.prisma.auth_audit_log.findMany({ where: aWhere, select: { id: true, created_at: true }, orderBy: ID_ORDER, take: window }) : [],
-      eWhere ? this.prisma.application_events.findMany({ where: eWhere, select: { id: true, created_at: true }, orderBy: ID_ORDER, take: window }) : [],
+      aPage ? this.prisma.auth_audit_log.findMany({ where: aPage, select: { id: true, created_at: true }, orderBy: ID_ORDER, take: window }) : [],
+      ePage ? this.prisma.application_events.findMany({ where: ePage, select: { id: true, created_at: true }, orderBy: ID_ORDER, take: window }) : [],
       q.withMeta ? this.kpis(now) : null,
       q.withMeta ? this.eventTypes() : [],
       q.userId !== null ? this.prisma.users.findFirst({ where: { id: q.userId }, select: { id: true, name: true } }) : null,
     ]);
 
-    const page = mergeNewestFirst(authIds, appIds).slice(q.skip, q.skip + q.take);
+    const merged = mergeNewestFirst(authIds, appIds);
+    const page = merged.slice(offset, offset + q.take);
     const rows = await this.hydrate(page);
+    const last = page[page.length - 1];
+    const lastAt = last ? (last.source === 'auth' ? authIds : appIds).find((r) => r.id === last.id)?.created_at ?? null : null;
+    const hasMore = merged.length > offset + q.take || authIds.length === window || appIds.length === window;
     return {
       rows,
       total: authTotal + appTotal,
       take: q.take,
-      skip: q.skip,
+      skip: offset,
       range: { from: q.from, to: q.to },
       kpis,
       eventTypes,
       user: user ? { id: String(user.id), name: (user.name ?? '').trim() || `User ${user.id}` } : null,
+      nextCursor: last && lastAt instanceof Date && hasMore ? formatCursor({ at: lastAt, source: last.source, id: last.id }) : null,
     };
   }
 
-  private async matchUsers(search: string): Promise<number[]> {
+  /** Users whose name / email / phone contains the text, with their exact login strings. */
+  private async matchUsers(search: string): Promise<UserMatches> {
     const rows = await this.prisma.users.findMany({
       where: {
         OR: [
@@ -422,10 +489,42 @@ export class AuditLogService {
           { phone: { contains: search } },
         ],
       },
-      select: { id: true },
+      select: { id: true, user_email: true, email: true, phone: true },
       take: SEARCH_MATCH_CAP,
     });
-    return rows.map((r) => r.id);
+    const logins = new Set<string>();
+    for (const r of rows) {
+      for (const v of [r.user_email, r.email, r.phone]) {
+        const t = (v ?? '').trim();
+        if (t) logins.add(t);
+      }
+    }
+    return { ids: rows.map((r) => r.id), logins: Array.from(logins) };
+  }
+
+  /** The page's sign-in names that are exactly some account's login (one batch query). */
+  private async knownLogins(identifiers: string[]): Promise<Set<string>> {
+    const values = Array.from(new Set(identifiers.map((v) => v.trim()).filter(Boolean)));
+    if (values.length === 0) return new Set();
+    const users = await this.prisma.users.findMany({
+      where: {
+        OR: [
+          { user_email: { in: values } },
+          { email: { in: values } },
+          { phone: { in: values } },
+          { username: { in: values } },
+        ],
+      },
+      select: { user_email: true, email: true, phone: true, username: true },
+    });
+    const known = new Set<string>();
+    for (const u of users) {
+      for (const v of [u.user_email, u.email, u.phone, u.username]) {
+        const k = loginKey(v);
+        if (k) known.add(k);
+      }
+    }
+    return known;
   }
 
   private async matchApplications(search: string): Promise<number[]> {
@@ -485,13 +584,14 @@ export class AuditLogService {
     authRows.forEach((r) => { if (r.user_id !== null) userIds.add(r.user_id); });
     appRows.forEach((r) => { if (r.actor_user_id !== null) userIds.add(r.actor_user_id); });
     const applicationIds = Array.from(new Set(appRows.map((r) => r.application_id)));
-    const [users, applications] = await Promise.all([
+    const [users, applications, known] = await Promise.all([
       userIds.size > 0
         ? this.prisma.users.findMany({ where: { id: { in: Array.from(userIds) } }, select: { id: true, name: true, role_id: true, user_email: true, email: true } })
         : [],
       applicationIds.length > 0
         ? this.prisma.applications.findMany({ where: { id: { in: applicationIds } }, select: { id: true, application_id: true, name: true } })
         : [],
+      this.knownLogins(authRows.map((r) => r.identifier ?? '')),
     ]);
     const userById = new Map(users.map((u) => [u.id, u]));
     const appById = new Map(applications.map((a) => [a.id, a]));
@@ -523,7 +623,7 @@ export class AuditLogService {
           category: authEventCategory(r.event),
           success: r.success === 1,
           ...actor(r.user_id, null),
-          identifier: maskIdentifier(r.identifier),
+          identifier: displayIdentifier(r.identifier, known, r.user_id),
           ipAddress: r.ip_address ?? '',
           userAgent: r.user_agent ?? '',
           description: '',

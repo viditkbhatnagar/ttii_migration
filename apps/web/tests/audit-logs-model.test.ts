@@ -4,6 +4,7 @@ import {
   AUDIT_CSV_HEADER,
   actorLabel,
   auditCsvRows,
+  auditExportQuery,
   auditQuery,
   auditSummaryCsv,
   defaultAuditFilters,
@@ -38,7 +39,12 @@ describe('filters → query', () => {
     expect(auditQuery(f, 3)).toEqual({
       take: '25', skip: '50', from: '2026-09-13', to: '2026-10-12', source: 'auth', outcome: 'failure', q: 'ravi', user: '5', event: 'LOGIN_FAILED',
     });
-    expect(auditQuery(defaultAuditFilters(NOW), 1, 100, true)).toEqual({ take: '100', skip: '0', meta: '0', from: '2026-09-13', to: '2026-10-12' });
+  });
+
+  it('Export pages rows-only by keyset cursor', () => {
+    expect(auditExportQuery(defaultAuditFilters(NOW), null)).toEqual({ take: '100', meta: '0', from: '2026-09-13', to: '2026-10-12' });
+    expect(auditExportQuery(defaultAuditFilters(NOW), '2026-10-12T03:00:00.000Z|application|21'))
+      .toMatchObject({ after: '2026-10-12T03:00:00.000Z|application|21', meta: '0' });
   });
 });
 
@@ -60,8 +66,8 @@ describe('toAuditPage', () => {
   });
 
   it('rows-only pages carry no KPIs', () => {
-    expect(toAuditPage({ rows: [], total: 0, kpis: null }).kpis).toBeNull();
-    expect(toAuditPage(null)).toMatchObject({ rows: [], total: 0, kpis: null, eventTypes: [], user: null });
+    expect(toAuditPage({ rows: [], total: 0, kpis: null, nextCursor: 'x|auth|1' })).toMatchObject({ kpis: null, nextCursor: 'x|auth|1' });
+    expect(toAuditPage(null)).toMatchObject({ rows: [], total: 0, kpis: null, eventTypes: [], user: null, nextCursor: null });
   });
 });
 

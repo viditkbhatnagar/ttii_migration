@@ -50,21 +50,29 @@ export function defaultAuditFilters(now: Date = new Date()): AuditFilters {
   };
 }
 
+/** The query string for one page; empty filters are left out so the server applies its defaults. */
+export function auditQuery(f: AuditFilters, page: number, pageSize: number = AUDIT_PAGE_SIZE): Record<string, string> {
+  return { take: String(pageSize), skip: String(Math.max(0, page - 1) * pageSize), ...filterParams(f) };
+}
+
 /**
- * The query string for one page; empty filters are left out so the server
- * applies its defaults. `rowsOnly` (Export) skips the KPI counts and event list.
+ * Export: rows-only pages (no KPI counts / event list) by keyset — `after` is
+ * the previous page's nextCursor — so new activity cannot shift the pages.
  */
-export function auditQuery(f: AuditFilters, page: number, pageSize: number = AUDIT_PAGE_SIZE, rowsOnly = false): Record<string, string> {
-  const q: Record<string, string> = { take: String(pageSize), skip: String(Math.max(0, page - 1) * pageSize) };
-  if (rowsOnly) q.meta = '0';
-  if (f.from) q.from = f.from;
-  if (f.to) q.to = f.to;
-  if (f.source !== 'all') q.source = f.source;
-  if (f.event) q.event = f.event;
-  if (f.outcome !== 'all') q.outcome = f.outcome;
-  if (f.search.trim()) q.q = f.search.trim();
-  if (f.userId) q.user = f.userId;
-  return q;
+export function auditExportQuery(f: AuditFilters, after: string | null): Record<string, string> {
+  return { take: String(AUDIT_EXPORT_PAGE), meta: '0', ...(after ? { after } : {}), ...filterParams(f) };
+}
+
+function filterParams(f: AuditFilters): Record<string, string> {
+  return {
+    ...(f.from ? { from: f.from } : {}),
+    ...(f.to ? { to: f.to } : {}),
+    ...(f.source !== 'all' ? { source: f.source } : {}),
+    ...(f.event ? { event: f.event } : {}),
+    ...(f.outcome !== 'all' ? { outcome: f.outcome } : {}),
+    ...(f.search.trim() ? { q: f.search.trim() } : {}),
+    ...(f.userId ? { user: f.userId } : {}),
+  };
 }
 
 export interface AuditDetail {
@@ -109,6 +117,8 @@ export interface AuditPage {
   kpis: { signInsToday: number; failedSignIns24h: number; applicationActions7d: number; paymentActions7d: number } | null;
   eventTypes: AuditEventOption[];
   user: { id: string; name: string } | null;
+  /** Keyset position after this page's last row; null on the last page. */
+  nextCursor: string | null;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
@@ -162,6 +172,7 @@ export function toAuditPage(raw: Record<string, unknown> | null): AuditPage {
       .map((e) => ({ value: str(e.value), label: str(e.label) || str(e.value), source: e.source === 'application' ? 'application' as const : 'auth' as const, count: num(e.count) }))
       .filter((e) => e.value),
     user: str(user.id) ? { id: str(user.id), name: str(user.name) } : null,
+    nextCursor: str(data.nextCursor) || null,
   };
 }
 

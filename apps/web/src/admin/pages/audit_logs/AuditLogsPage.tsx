@@ -20,8 +20,8 @@ import { FilterSelect, ListPager } from '../students/list-chrome.js';
 import { initialsOf } from '../students/students-list-model.js';
 import { AuditLogDetailSheet } from './AuditLogDetailSheet.js';
 import {
-  AUDIT_EXPORT_CAP, AUDIT_EXPORT_PAGE, AUDIT_PAGE_SIZE, AUDIT_TABS, RECORDED_NOTE,
-  actorLabel, auditCsvRows, auditQuery, auditStatus, auditSummaryCsv, defaultAuditFilters, eventOptionsFor, recordLabel, toAuditPage,
+  AUDIT_EXPORT_CAP, AUDIT_PAGE_SIZE, AUDIT_TABS, RECORDED_NOTE,
+  actorLabel, auditCsvRows, auditExportQuery, auditQuery, auditStatus, auditSummaryCsv, defaultAuditFilters, eventOptionsFor, recordLabel, toAuditPage,
   type AuditFilters, type AuditOutcome, type AuditRow, type AuditSource,
 } from './audit-logs-model.js';
 
@@ -96,14 +96,15 @@ export default function AuditLogsPage({ api, session, onNavigate }: AdminPagePro
   /** Every row matching the filters (up to the export cap), page by page. */
   const fetchFiltered = async (): Promise<{ list: AuditRow[]; truncated: boolean }> => {
     const out: AuditRow[] = [];
-    let matched = Number.POSITIVE_INFINITY;
-    for (let p = 1; out.length < Math.min(matched, AUDIT_EXPORT_CAP); p += 1) {
-      const res = toAuditPage(await api.loadAuditLogs(session.token, auditQuery(filters, p, AUDIT_EXPORT_PAGE, true)));
-      matched = res.total;
-      if (res.rows.length === 0) break;
+    let after: string | null = null;
+    let more = true;
+    while (more && out.length < AUDIT_EXPORT_CAP) {
+      const res = toAuditPage(await api.loadAuditLogs(session.token, auditExportQuery(filters, after)));
       out.push(...res.rows);
+      after = res.nextCursor;
+      more = after !== null && res.rows.length > 0;
     }
-    return { list: out.slice(0, AUDIT_EXPORT_CAP), truncated: matched > AUDIT_EXPORT_CAP };
+    return { list: out.slice(0, AUDIT_EXPORT_CAP), truncated: more || out.length > AUDIT_EXPORT_CAP };
   };
 
   const runExport = async (kind: 'logs' | 'report') => {
@@ -206,7 +207,7 @@ export default function AuditLogsPage({ api, session, onNavigate }: AdminPagePro
             <Input
               aria-label="Search activity"
               className="h-9 pl-9 text-sm"
-              placeholder="Search user, sign-in name, IP, application ID or description"
+              placeholder="Search user name, email or phone, IP, application ID or description"
               value={searchText}
               maxLength={100}
               onChange={(e) => setSearchText(e.target.value)}
