@@ -1665,7 +1665,7 @@ export class AdminPortalApi {
 
   async getExamCalendar(authToken: string, from: string, to: string): Promise<unknown[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_calendar/index', authToken, { from, to });
-    return Array.isArray(payload.data) ? (payload.data as unknown[]) : [];
+    return Array.isArray(payload.data) ? payload.data : [];
   }
 
   async getExamOverview(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
