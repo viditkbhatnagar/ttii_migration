@@ -17,6 +17,9 @@ import { StudentDirectoryService } from '../operations/student-directory-service
 import { StaffProfileNotFoundError, StaffProfileService, type StaffRole } from '../operations/staff-profile-service.js';
 import { PeopleAdminService } from '../operations/people-admin-service.js';
 import { AuditLogService, parseAuditLogQuery } from '../operations/audit-log-service.js';
+import type { CounsellorTeamsService } from '../operations/counsellor-teams-service.js';
+import type { CounsellorGroupsService } from '../operations/counsellor-groups-service.js';
+import { registerCounsellorTeamsRoutes } from './counsellor-teams-routes.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -69,6 +72,8 @@ interface RegisterOperationsRoutesOptions {
   staffProfileService?: StaffProfileService;
   peopleAdminService?: PeopleAdminService;
   auditLogService?: AuditLogService;
+  counsellorTeamsService?: CounsellorTeamsService;
+  counsellorGroupsService?: CounsellorGroupsService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -2152,6 +2157,16 @@ export function registerOperationsRoutes(
   };
   app.get('/admin/counsellor/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 9));
   app.get('/admin/associates/profile_stats', { preHandler: [requireAuth, requireAdminOnlyRole] }, (request, reply) => sendStaffProfile(request, reply, 10));
+
+  // TTII 2026-10-12 — Counsellor Management → Teams and Groups (Naji's
+  // design; counsellor-teams-routes.ts). Admin/Subadmin only and
+  // ORGANISATIONAL ONLY — the counsellor portal never reads these tables.
+  registerCounsellorTeamsRoutes(app, {
+    requireAuth,
+    requireAdminOnlyRole,
+    ...(options.counsellorTeamsService ? { teamsService: options.counsellorTeamsService } : {}),
+    ...(options.counsellorGroupsService ? { groupsService: options.counsellorGroupsService } : {}),
+  });
 
   // TTII 2026-10-12 — Instructors / Admin Users / Roles in Naji's design.
   // Read-only side-cars (operations/people-admin-service.ts); every write stays
