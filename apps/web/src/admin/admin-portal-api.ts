@@ -1663,6 +1663,12 @@ export class AdminPortalApi {
     return Array.isArray(rows) ? (rows as unknown[]) : [];
   }
 
+  // TTII 2026-10-12 — Exam → Dashboard (one read-only summary).
+  async getExamDashboard(authToken: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exam_dashboard/summary', authToken);
+    return asRecord(payload.data) ?? null;
+  }
+
   async getExamCalendar(authToken: string, from: string, to: string): Promise<unknown[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/exam_calendar/index', authToken, { from, to });
     return Array.isArray(payload.data) ? payload.data : [];

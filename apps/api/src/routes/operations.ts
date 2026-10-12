@@ -9,6 +9,7 @@ import { AdminSearchService } from '../operations/admin-search-service.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import { ExamAdminService } from '../operations/exam-admin-service.js';
 import { ExamCalendarService } from '../operations/exam-calendar-service.js';
+import { ExamDashboardService } from '../operations/exam-dashboard-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
@@ -53,6 +54,7 @@ interface RegisterOperationsRoutesOptions {
   examResultsService?: ExamResultsService;
   examAdminService?: ExamAdminService;
   examCalendarService?: ExamCalendarService;
+  examDashboardService?: ExamDashboardService;
   reExamService?: ReExamService;
   adminSearchService?: AdminSearchService;
   storage?: StorageProvider;
@@ -397,6 +399,7 @@ export function registerOperationsRoutes(
   const examResultsService = options.examResultsService ?? new ExamResultsService();
   const examAdminService = options.examAdminService ?? new ExamAdminService();
   const examCalendarService = options.examCalendarService ?? new ExamCalendarService();
+  const examDashboardService = options.examDashboardService ?? new ExamDashboardService();
   const reExamService = options.reExamService ?? new ReExamService();
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
 
@@ -2053,6 +2056,15 @@ export function registerOperationsRoutes(
     try {
       const payload = requestPayload(request);
       const data = await adminSearchService.search(toStringValue(payload.q));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — Exam → Dashboard: one read-only summary of the exam
+  // section (exam-dashboard-service). Admin/Subadmin only, like every page it links to.
+  app.get('/admin/exam_dashboard/summary', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
+    try {
+      const data = await examDashboardService.summary();
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
