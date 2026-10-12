@@ -1659,8 +1659,8 @@ export class AdminPortalApi {
   // TTII 2026-10-12 — Exams list + View Exam (Naji's design).
   async listExamsV2(authToken: string, courseId?: string): Promise<unknown[]> {
     const payload = await this.get<LegacyEnvelope<{ rows?: unknown[] }>>('/admin/exams/list', authToken, courseId ? { course_id: courseId } : {});
-    const rows = asRecord(payload.data)?.rows;
-    return Array.isArray(rows) ? rows : [];
+    const rows: unknown = asRecord(payload.data)?.rows;
+    return Array.isArray(rows) ? (rows as unknown[]) : [];
   }
 
   async getExamOverview(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
@@ -1782,13 +1782,6 @@ export class AdminPortalApi {
       exams: toRecords(data.exams),
       pendingEvaluations: toRecords(data.pendingEvaluations),
     };
-  }
-
-  async evaluateExamAttempt(authToken: string, attemptId: string, score: number): Promise<Record<string, unknown>> {
-    return this.post<Record<string, unknown>>('/admin/Exam_evaluation/evaluate', authToken, {
-      attempt_id: attemptId,
-      score,
-    });
   }
 
   // ─── Phase 2: Re-Examination ───────────────────────────────────────────

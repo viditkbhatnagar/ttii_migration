@@ -2145,14 +2145,14 @@ export function registerOperationsRoutes(
   });
 
   // Naji 2026-05-09 — Evaluation drill-down + descriptive grading + publish.
-  app.get('/admin/exam_evaluation/exams', { preHandler: [requireAuth, requireAdminRole] }, async (_request, reply) => {
+  app.get('/admin/exam_evaluation/exams', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (_request, reply) => {
     try {
       const data = await operationsService.listEvaluationExams();
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.get('/admin/exam_evaluation/subjects', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/exam_evaluation/subjects', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listEvaluationSubjects(toStringValue(payload.exam_id));
@@ -2160,7 +2160,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.get('/admin/exam_evaluation/students', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/exam_evaluation/students', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const data = await operationsService.listEvaluationStudents(toStringValue(payload.exam_id));
@@ -2168,7 +2168,7 @@ export function registerOperationsRoutes(
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
 
-  app.post('/admin/exam_evaluation/grade', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.post('/admin/exam_evaluation/grade', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const result = await operationsService.submitDescriptiveGrade(requestUserId(request), {
@@ -2730,8 +2730,12 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase 2: Exam Evaluation ───────────────────────────────────────────
+  // TTII 2026-10-12 — /admin/Exam_evaluation/evaluate removed: it overwrote an
+  // attempt's whole score with any number, was reachable by counsellors, and
+  // nothing in the app called it. Marks come from the scorer and from graded
+  // descriptive answers only.
 
-  app.get('/admin/Exam_evaluation/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
+  app.get('/admin/Exam_evaluation/index', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
     try {
       const payload = requestPayload(request);
       const filters: AdminExamEvaluationFilters = {
@@ -2740,20 +2744,6 @@ export function registerOperationsRoutes(
       };
       const data = await operationsService.listExamEvaluations(filters);
       reply.code(200).send({ status: 1, message: 'success', data });
-    } catch (error: unknown) {
-      sendOperationsError(reply, error);
-    }
-  });
-
-  app.post('/admin/Exam_evaluation/evaluate', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
-    try {
-      const payload = requestPayload(request);
-      const result = await operationsService.evaluateExamAttempt(
-        requestUserId(request),
-        toStringValue(payload.attempt_id),
-        toNumber(payload.score),
-      );
-      reply.code(200).send(result);
     } catch (error: unknown) {
       sendOperationsError(reply, error);
     }

@@ -98,6 +98,8 @@ export interface ExamResultsDetail extends Omit<ExamResultsRow, 'subjects' | 'to
   subjects: SubjectSummary[];
   totals: ResultTotals;
   allSittingsClosed: boolean;
+  /** Papers with written answers not yet marked — publishing waits for them. */
+  awaitingMarking: number;
 }
 
 function rec(value: unknown): Record<string, unknown> {
@@ -218,6 +220,7 @@ export function toExamResultsDetail(raw: Record<string, unknown>): ExamResultsDe
     })),
     totals: toTotals(sheet.totals),
     allSittingsClosed: sheet.allSittingsClosed === true,
+    awaitingMarking: asNumber(raw.awaitingMarking),
   };
 }
 

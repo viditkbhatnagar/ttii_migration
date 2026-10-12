@@ -5321,6 +5321,37 @@ export class OperationsService {
     input: { attemptId: number; questionId: number; score: number; remarks?: string | undefined },
   ): Promise<Record<string, unknown>> {
     if (!input.attemptId || !input.questionId) return { status: 0, message: 'Invalid input.' };
+    // TTII 2026-10-12 — this wrote whatever arrived: any score, on any question,
+    // of any attempt. A mark is now only accepted for a descriptive question of
+    // a submitted paper, within 0..the question's marks in half-mark steps, and
+    // never once that exam's results are published.
+    const attempt = await this.prisma.exam_attempt.findFirst({
+      where: { id: input.attemptId, deleted_at: null },
+      select: { exam_id: true, submit_status: true },
+    });
+    if (!attempt?.exam_id || attempt.submit_status !== true) return { status: 0, message: 'Paper not found or not submitted.' };
+    const [link, question, sitting] = await Promise.all([
+      this.prisma.exam_questions.findFirst({
+        where: { exam_id: attempt.exam_id, question_id: input.questionId, deleted_at: null },
+        select: { mark: true },
+      }),
+      this.prisma.question_bank.findFirst({ where: { id: input.questionId }, select: { q_type: true } }),
+      this.prisma.exam.findFirst({
+        where: { id: attempt.exam_id },
+        select: { parent_exam_id: true, publish_result: true, result_published_at: true },
+      }),
+    ]);
+    if (!link || question?.q_type !== 1) return { status: 0, message: 'Only written (descriptive) answers on this paper can be marked.' };
+    const top = sitting?.parent_exam_id
+      ? await this.prisma.exam.findFirst({ where: { id: sitting.parent_exam_id }, select: { publish_result: true, result_published_at: true } })
+      : sitting;
+    if (top && (top.publish_result === true || top.result_published_at !== null)) {
+      return { status: 0, message: 'Results for this exam are already published; marks can no longer change.' };
+    }
+    const max = link.mark ?? 0;
+    if (!Number.isFinite(input.score) || input.score < 0 || input.score > max || Math.round(input.score * 2) !== input.score * 2) {
+      return { status: 0, message: `Enter a mark between 0 and ${max}, in steps of 0.5.` };
+    }
     await this.prisma.exam_descriptive_grades.upsert({
       where: { attempt_id_question_id: { attempt_id: input.attemptId, question_id: input.questionId } },
       create: {
@@ -7527,12 +7558,6 @@ export class OperationsService {
     })) as unknown as SqlRow[];
 
     return { exams: exams as unknown as SqlRow[], pendingEvaluations };
-  }
-
-  async evaluateExamAttempt(actorUserId: string, attemptId: string, score: number): Promise<Record<string, unknown>> {
-    const now = new Date();
-    await this.prisma.exam_attempt.updateMany({ where: { id: toIntId(attemptId), deleted_at: null }, data: { score, updated_by: toNullableIntId(actorUserId), updated_at: now } });
-    return { status: 1, message: 'Exam attempt evaluated successfully.' };
   }
 
   // ─── Phase 2: Entrance Exams ───────────────────────────────────────────────

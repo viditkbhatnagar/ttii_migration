@@ -117,7 +117,7 @@ export function ExamResultsDetail({
   }, [detail.students, search, result, flaggedOnly]);
 
   const lastDate = detail.sittings.map((s) => s.date).filter(Boolean).sort().at(-1) ?? '';
-  const canPublish = detail.status === 'ready';
+  const canPublish = detail.status === 'ready' && detail.awaitingMarking === 0;
 
   return (
     <div className="space-y-5">
@@ -180,6 +180,12 @@ export function ExamResultsDetail({
             {detail.status === 'in_progress' ? (
               <Notice tone="sky" icon={Info}>
                 This exam is still running. Results can be published after the last sitting{lastDate ? ` on ${formatYmd(lastDate)}` : ''} has closed.
+              </Notice>
+            ) : null}
+            {detail.awaitingMarking > 0 && detail.status !== 'published' ? (
+              <Notice tone="amber" icon={AlertTriangle}>
+                <strong>{detail.awaitingMarking} paper{detail.awaitingMarking === 1 ? ' has' : 's have'}</strong> written (descriptive) answers that are not marked yet.
+                Results can be published once they are marked; until then the marks shown are MCQ-only.
               </Notice>
             ) : null}
             {detail.status === 'published' ? (

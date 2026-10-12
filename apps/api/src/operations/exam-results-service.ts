@@ -88,6 +88,8 @@ export interface ExamResultsListRow extends ExamResultsHeader {
 export interface ExamResultsDetail extends ExamResultsHeader {
   sheet: ExamResultSheet;
   sittings: ResultSitting[];
+  /** Submitted papers holding written answers not yet marked; publishing waits for them. */
+  awaitingMarking: number;
 }
 
 export interface PublishOutcome {
@@ -161,7 +163,41 @@ export class ExamResultsService {
     if (!top) return null;
     const loaded = await this.load(top);
     const sheet = computeExamResults(loaded.sittings, loaded.students, loaded.attempts, loaded.reExams);
-    return { ...(await this.header(loaded, sheet)), sheet, sittings: loaded.sittings };
+    return {
+      ...(await this.header(loaded, sheet)),
+      sheet,
+      sittings: loaded.sittings,
+      awaitingMarking: await this.papersAwaitingMarking(loaded),
+    };
+  }
+
+  /**
+   * TTII 2026-10-12 — submitted papers that contain an answered DESCRIPTIVE
+   * question. The scorer never marks those (they score 0 until graded), and
+   * graded marks are not yet added to exam_attempt.score, so publishing such an
+   * exam would hand students an MCQ-only result as final. Until the Evaluation
+   * workflow writes the marked total, any such paper holds publishing back.
+   */
+  private async papersAwaitingMarking(loaded: LoadedExam): Promise<number> {
+    const paperIds = loaded.attempts.filter((a) => a.submitted).map((a) => a.attemptId);
+    if (paperIds.length === 0) return 0;
+    const answers = await this.prisma.exam_answer.findMany({
+      where: { attempt_id: { in: paperIds }, deleted_at: null },
+      select: { attempt_id: true, question_id: true, answer_submitted: true },
+    });
+    const answered = answers.filter((a) => {
+      const raw = (a.answer_submitted ?? '').trim();
+      if (raw === '' || raw === '[]' || raw === '[""]' || raw === 'null') return false;
+      return a.attempt_id !== null && a.question_id !== null;
+    });
+    if (answered.length === 0) return 0;
+    const descriptive = new Set(
+      (await this.prisma.question_bank.findMany({
+        where: { id: { in: [...new Set(answered.map((a) => a.question_id as number))] }, q_type: 1 },
+        select: { id: true },
+      })).map((q) => q.id),
+    );
+    return new Set(answered.filter((a) => descriptive.has(a.question_id as number)).map((a) => a.attempt_id)).size;
   }
 
   async publish(actorUserId: number | null, examId: number): Promise<PublishOutcome> {
@@ -179,6 +215,13 @@ export class ExamResultsService {
       return {
         status: 0,
         message: `Results can be published after the last sitting${lastDate ? ` (${lastDate})` : ''} has closed.`,
+      };
+    }
+    const awaiting = await this.papersAwaitingMarking(loaded);
+    if (awaiting > 0) {
+      return {
+        status: 0,
+        message: `${awaiting} paper${awaiting === 1 ? ' has' : 's have'} written answers that are not marked yet, so these results would be MCQ-only. Publish once the written answers are marked.`,
       };
     }
 

@@ -76,7 +76,7 @@ function examRow(id: number, overrides: Partial<StubExamRow> = {}): Record<strin
   };
 }
 
-function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: boolean; now?: Date } = {}): {
+function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: boolean; now?: Date; writtenAnswer?: boolean } = {}): {
   service: ExamResultsService;
   updated: () => number[];
   calls: ExamRowUpdate[];
@@ -133,7 +133,19 @@ function makePublishService(opts: { childOpen?: boolean; alreadyPublished?: bool
       ]),
       findFirst: () => Promise.resolve({ name: 'Admin' }),
     },
-    exam_attempt: { findMany: () => Promise.resolve([]) },
+    exam_attempt: {
+      findMany: () => Promise.resolve(opts.writtenAnswer
+        ? [{ id: 700, exam_id: CHILD_IDS[0], user_id: 142, score: 40, question_no: 2, skip: 0, submit_status: true, start_time: null, end_time: null, created_at: null, question_id: '["9001","9002"]' }]
+        : []),
+    },
+    // Q9002 is descriptive and was answered on paper 700.
+    exam_answer: {
+      findMany: () => Promise.resolve([
+        { attempt_id: 700, question_id: 9001, answer_submitted: '["0"]' },
+        { attempt_id: 700, question_id: 9002, answer_submitted: '["Children learn through the senses."]' },
+      ]),
+    },
+    question_bank: { findMany: () => Promise.resolve([{ id: 9002 }]) },
     exam_re_examinations: { findMany: () => Promise.resolve([]) },
     quiz: { findMany: () => Promise.resolve([]) },
   } as unknown as PrismaClient;
@@ -227,6 +239,17 @@ describe('publishing results — the whole exam at once', () => {
     const res = await service.publish(1, PARENT_ID);
 
     expect(res.status).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(mailed).toHaveLength(0);
+  });
+
+  test('refused while a paper has written answers nobody has marked — they would publish as MCQ-only', async () => {
+    const { service, calls, mailed } = makePublishService({ writtenAnswer: true });
+
+    const res = await service.publish(1, PARENT_ID);
+
+    expect(res.status).toBe(0);
+    expect(res.message).toContain('1 paper has written answers that are not marked yet');
     expect(calls).toHaveLength(0);
     expect(mailed).toHaveLength(0);
   });
