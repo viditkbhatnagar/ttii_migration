@@ -28,6 +28,7 @@ const AssignmentEvaluationPage = lazy(() => import('../pages/assignment/Assignme
 const ExamResultPage = lazy(() => import('../pages/exam_result/ExamResultPage.js'));
 const ExamCalendarPage = lazy(() => import('../pages/exam_calendar/ExamCalendarPage.js'));
 const ExamDashboardPage = lazy(() => import('../pages/exam_dashboard/ExamDashboardPage.js'));
+const ExamSubmissionsPage = lazy(() => import('../pages/exam_submissions/ExamSubmissionsPage.js'));
 const ExamEvaluationPage = lazy(() => import('../pages/exam_evaluation/ExamEvaluationPage.js'));
 const StudentEligibilityPage = lazy(() => import('../pages/exam_eligibility/StudentEligibilityPage.js'));
 const ReExamPage = lazy(() => import('../pages/re_exam/ReExamPage.js'));
@@ -244,6 +245,7 @@ export const ADMIN_ROUTES: AdminRouteConfig[] = [
   { path: '/admin/exam/index', aliases: ['/admin/exam'], pageComponent: ExamsPage, title: 'Exams' },
   { path: '/admin/exam/add', pageComponent: AddExamPage, title: 'Add Exam' },
   { path: '/admin/exam/calendar', pageComponent: ExamCalendarPage, title: 'Exam Calendar' },
+  { path: '/admin/exam/submissions', pageComponent: ExamSubmissionsPage, title: 'Exam Submissions' },
   { path: '/admin/exam/edit/:id', pageComponent: AddExamPage, title: 'Edit Exam' },
   { path: '/admin/Re_exam/index', pageComponent: ReExamPage, title: 'Re-Examination' },
   { path: '/admin/Exam_evaluation/index', pageComponent: ExamEvaluationPage, title: 'Evaluation' },
