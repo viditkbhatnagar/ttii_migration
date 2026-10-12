@@ -78,7 +78,10 @@ export function sortAssets(rows: readonly AssetRow[], key: AssetSortKey, dir: So
     if (key === 'createdAt') return compareText(a.createdAt, b.createdAt);
     return compareText(a[key], b[key]);
   };
-  return sortRows(rows, cmp, dir);
+  // Content ID is never blank; for every other column an empty cell sorts last
+  // whichever way the column is sorted.
+  const isBlank = key === 'contentId' ? undefined : (r: AssetRow): boolean => !r[key].trim();
+  return sortRows(rows, cmp, dir, isBlank);
 }
 
 export function assetCsvRows(rows: readonly AssetRow[]): Array<Array<string | number>> {

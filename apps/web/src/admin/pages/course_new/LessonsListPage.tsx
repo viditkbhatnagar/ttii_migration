@@ -1,19 +1,17 @@
-import { useCallback, useMemo, useState } from 'react';
-import { toast } from 'sonner';
-import { BookOpen, Eye, Hammer, Search, Trash2, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { BookOpen, Eye, Hammer, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useConfirm } from '@/components/confirm-dialog';
 import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { EmptyState, Pill } from '../../shared/components/ui-kit.js';
 import {
-  allSelected, dialogStyle, envelopeMessage, errorMessage, exportLabel, nextSort, pageSlice, rowsToExport, toggleId, togglePage, type SortDir,
+  allSelected, dialogStyle, exportLabel, nextSort, pageSlice, rowsToExport, toggleId, togglePage, type SortDir,
 } from '../course/catalog-list-model.js';
 import { Chips, DIALOG_CLASS, FILTER_CARD, ListHeader, LoadError, PAGE_CARD, Pager, RowActions, SELECT_CLASS, SelectCell, SortHead } from '../course/catalog-ui.js';
 import {
@@ -77,7 +75,6 @@ function LessonViewDialog({ lesson, onClose, onBuilder }: { lesson: LessonRow | 
 }
 
 export default function LessonsListPage({ api, session, onNavigate }: AdminPageProps) {
-  const confirm = useConfirm();
   const [filters, setFilters] = useState<LessonFilters>(EMPTY_LESSON_FILTERS);
   const [sort, setSort] = useState<{ key: LessonSortKey; dir: SortDir }>({ key: 'subject', dir: 'asc' });
   const [page, setPage] = useState(1);
@@ -100,25 +97,6 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
   // parent subject; it manages files / reorder / edit metadata.
   const openBuilder = (l: LessonRow) => onNavigate(builderHref(l));
 
-  const remove = useCallback(async (l: LessonRow) => {
-    const where = l.courses.length > 1
-      ? ` It is removed from all ${l.courses.length} courses that share "${l.subjectTitle}".`
-      : '';
-    if (!(await confirm({
-      title: `Delete lesson "${l.title}"?`,
-      description: `This action cannot be undone.${where}`,
-      confirmText: 'Delete',
-      variant: 'destructive',
-    }))) return;
-    try {
-      const res = await api.deleteLesson(session.token, l.id);
-      toast.success(envelopeMessage(res, 'Lesson deleted.'));
-      setSelected((s) => toggleId(s, l.id, false));
-      reload();
-    } catch (err) {
-      toast.error(errorMessage(err, 'Could not delete the lesson.'));
-    }
-  }, [api, session.token, reload, confirm]);
 
   const exportCsv = () => downloadCsv('lessons.csv', toCsv(lessonCsvRows(rowsToExport(filtered, selected))));
 
@@ -213,7 +191,6 @@ export default function LessonsListPage({ api, session, onNavigate }: AdminPageP
                       actions={[
                         { label: 'View', icon: Eye, onSelect: () => setViewing(l) },
                         { label: 'Open Builder', icon: Hammer, onSelect: () => openBuilder(l) },
-                        { label: 'Delete', icon: Trash2, destructive: true, onSelect: () => void remove(l) },
                       ]}
                     />
                   </TableCell>

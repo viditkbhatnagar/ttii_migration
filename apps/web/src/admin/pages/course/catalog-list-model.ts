@@ -29,11 +29,19 @@ export function compareNumber(a: number | null, b: number | null): number {
 }
 
 /** Stable sort by a comparator, reversed for `desc`. Never mutates the input. */
-export function sortRows<T>(rows: readonly T[], compare: (a: T, b: T) => number, dir: SortDir): T[] {
+export function sortRows<T>(
+  rows: readonly T[],
+  compare: (a: T, b: T) => number,
+  dir: SortDir,
+  isBlank?: (row: T) => boolean,
+): T[] {
   const sign = dir === 'asc' ? 1 : -1;
+  // Blank values (when `isBlank` is given) stay at the end in BOTH directions;
+  // ties keep their input order.
+  const blank = (r: T): number => (isBlank && isBlank(r) ? 1 : 0);
   return rows
     .map((row, index) => ({ row, index }))
-    .sort((x, y) => sign * compare(x.row, y.row) || x.index - y.index)
+    .sort((x, y) => blank(x.row) - blank(y.row) || sign * compare(x.row, y.row) || x.index - y.index)
     .map((entry) => entry.row);
 }
 
@@ -134,14 +142,13 @@ export function plainText(raw: string): string {
     .trim();
 }
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
+const IST_DATE = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' });
 
 /**
  * dd/mm/yyyy for a server timestamp. A bare YYYY-MM-DD is read as a calendar
  * date (not UTC midnight, which shifts a day in IST); anything else is parsed
- * as an instant and shown in local time. Blank or invalid → ''.
+ * as an instant and shown as the IST calendar date, whatever the browser's
+ * time zone. Blank or invalid → ''.
  */
 export function formatDmy(raw: string): string {
   const s = raw.trim();
@@ -150,7 +157,7 @@ export function formatDmy(raw: string): string {
   if (ymd) return `${ymd[3]}/${ymd[2]}/${ymd[1]}`;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return '';
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return IST_DATE.format(d);
 }
 
 /** Selection helpers for the header "select page" checkbox. */

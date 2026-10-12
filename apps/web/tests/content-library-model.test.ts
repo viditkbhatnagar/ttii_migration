@@ -39,6 +39,20 @@ describe('content library list', () => {
     expect(sortAssets(rows, 'contentId', 'desc').map((a) => a.id)).toEqual(['334', '40', '9']);
   });
 
+  test('duration and created-on: blanks last both ways, stable ties', () => {
+    const list = toAssetRows([
+      { id: '1', title: 'a', duration: '', created_at: '' },
+      { id: '2', title: 'b', duration: '10:30', created_at: '2026-06-02T05:00:00.000Z' },
+      { id: '3', title: 'c', duration: '02:00', created_at: '2026-06-01T05:00:00.000Z' },
+      { id: '4', title: 'd', duration: '', created_at: '' },
+      { id: '5', title: 'e', duration: '02:00', created_at: '2026-06-01T05:00:00.000Z' },
+    ]);
+    expect(sortAssets(list, 'duration', 'asc').map((a) => a.id)).toEqual(['3', '5', '2', '1', '4']);
+    expect(sortAssets(list, 'duration', 'desc').map((a) => a.id)).toEqual(['2', '3', '5', '1', '4']);
+    expect(sortAssets(list, 'createdAt', 'asc').map((a) => a.id)).toEqual(['3', '5', '2', '1', '4']);
+    expect(sortAssets(list, 'createdAt', 'desc').map((a) => a.id)).toEqual(['2', '3', '5', '1', '4']);
+  });
+
   test('type options add stored extras after the form types', () => {
     expect(assetTypeOptions(rows)).toEqual(['video', 'audio', 'article', 'document', 'quiz', 'image']);
   });

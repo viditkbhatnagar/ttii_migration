@@ -36,6 +36,14 @@ describe('catalog list helpers', () => {
     expect(input.map((r) => r.n)).toEqual(['a', 'b', 'c']);
   });
 
+  test('blank values stay last in both directions and ties keep input order', () => {
+    const input = [{ v: '' , n: 'a' }, { v: '2', n: 'b' }, { v: '1', n: 'c' }, { v: '', n: 'd' }, { v: '2', n: 'e' }];
+    const cmp = (x: { v: string }, y: { v: string }) => compareText(x.v, y.v);
+    const blank = (x: { v: string }) => !x.v;
+    expect(sortRows(input, cmp, 'asc', blank).map((r) => r.n)).toEqual(['c', 'b', 'e', 'a', 'd']);
+    expect(sortRows(input, cmp, 'desc', blank).map((r) => r.n)).toEqual(['b', 'e', 'c', 'a', 'd']);
+  });
+
   test('pageSlice clamps a page that fell off the end', () => {
     const s = pageSlice([1, 2, 3, 4, 5], 9, 2);
     expect(s).toEqual({ page: 3, pages: 3, current: [5] });
@@ -74,8 +82,9 @@ describe('catalog list helpers', () => {
     expect(formatDmy('2026-06-01')).toBe('01/06/2026');
     expect(formatDmy('')).toBe('');
     expect(formatDmy('not a date')).toBe('');
-    const d = new Date(2026, 4, 9, 10, 30);
-    expect(formatDmy(d.toISOString())).toBe('09/05/2026');
+    // 18:29 UTC is 23:59 IST (same day); 18:31 UTC is already the next IST day.
+    expect(formatDmy('2026-05-09T18:29:00.000Z')).toBe('09/05/2026');
+    expect(formatDmy('2026-05-09T18:31:00.000Z')).toBe('10/05/2026');
   });
 
   test('selection: page toggle, export selected or all', () => {
