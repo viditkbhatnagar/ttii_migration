@@ -4,10 +4,8 @@ import type { AdminPortalApi } from '../admin-portal-api.js';
 import { AdminLayoutProvider, useAdminLayout } from './AdminLayoutContext.js';
 import { AdminSidebar, AdminSidebarMobile } from './AdminSidebar.js';
 import { AdminNavbar } from './AdminNavbar.js';
-import { AdminBreadcrumb } from './AdminBreadcrumb.js';
-import { AdminFooter } from './AdminFooter.js';
 import { AdminRouter } from '../routing/AdminRouter.js';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 
 interface AdminLayoutInnerProps {
   pathname: string;
@@ -34,26 +32,30 @@ function AdminLayoutInner({ pathname, session, api, onNavigate, onLogout }: Admi
     onNavigate(href);
   }, [closeMobileSidebar, onNavigate]);
 
+  // Naji's shell (2026-10-12): his fixed sidebar + light navbar + a lightly
+  // padded content area on the page background. No breadcrumb or footer in
+  // his design — the sidebar's active item and each page's own title say where
+  // you are. <main> stays the scroll container so the sidebar and navbar hold.
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar (lg and up) */}
       <AdminSidebar pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
 
       {/* Mobile Sidebar (Sheet) */}
       <Sheet open={mobileSidebarOpen} onOpenChange={(open) => { if (!open) closeMobileSidebar(); }}>
-        <SheetContent side="left" className="w-[280px] p-0 border-0" showCloseButton={false}>
+        <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 border-r border-border p-0 shadow-xl" showCloseButton={false}>
+          <SheetTitle className="sr-only">Admin navigation</SheetTitle>
+          <SheetDescription className="sr-only">Sections of the admin portal</SheetDescription>
           <AdminSidebarMobile pathname={pathname} roleId={session.roleId} onNavigate={handleNavigate} />
         </SheetContent>
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-200">
+      <div className="flex h-screen min-w-0 flex-1 flex-col">
         <AdminNavbar onNavigate={handleNavigate} onLogout={onLogout} api={api} session={session} />
-        <AdminBreadcrumb pathname={pathname} onNavigate={handleNavigate} />
-        <main id="main-content" aria-label="Main content" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-4 md:px-6">
+        <main id="main-content" aria-label="Main content" className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-4 sm:px-3">
           <AdminRouter pathname={pathname} api={api} session={session} onNavigate={handleNavigate} />
         </main>
-        <AdminFooter />
       </div>
     </div>
   );

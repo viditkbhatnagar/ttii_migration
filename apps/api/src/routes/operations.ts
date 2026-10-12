@@ -5,6 +5,7 @@ import { requireLegacyAuth, requireLegacyRoles } from '../auth/middleware.js';
 import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, INSTRUCTOR_PORTAL_ROLES } from '../auth/roles.js';
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
+import { AdminSearchService } from '../operations/admin-search-service.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
 import { ExamAdminService } from '../operations/exam-admin-service.js';
 import { ExamCalendarService } from '../operations/exam-calendar-service.js';
@@ -53,6 +54,7 @@ interface RegisterOperationsRoutesOptions {
   examAdminService?: ExamAdminService;
   examCalendarService?: ExamCalendarService;
   reExamService?: ReExamService;
+  adminSearchService?: AdminSearchService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -396,6 +398,7 @@ export function registerOperationsRoutes(
   const examAdminService = options.examAdminService ?? new ExamAdminService();
   const examCalendarService = options.examCalendarService ?? new ExamCalendarService();
   const reExamService = options.reExamService ?? new ReExamService();
+  const adminSearchService = options.adminSearchService ?? new AdminSearchService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2040,6 +2043,16 @@ export function registerOperationsRoutes(
       const payload = requestPayload(request);
       const courseId = toInteger(payload.course_id);
       const data = await examAdminService.list(courseId > 0 ? { courseId } : {});
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — navbar global search in Naji's admin shell: a few
+  // students + courses for the typed text (pages are matched on the client).
+  app.get('/admin/search/global', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await adminSearchService.search(toStringValue(payload.q));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });
