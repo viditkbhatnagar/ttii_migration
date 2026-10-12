@@ -16,6 +16,7 @@ import { ExamSubmissionsService } from '../operations/exam-submissions-service.j
 import { StudentDirectoryService } from '../operations/student-directory-service.js';
 import { StaffProfileNotFoundError, StaffProfileService, type StaffRole } from '../operations/staff-profile-service.js';
 import { PeopleAdminService } from '../operations/people-admin-service.js';
+import { AuditLogService, parseAuditLogQuery } from '../operations/audit-log-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
   OperationsService,
@@ -67,6 +68,7 @@ interface RegisterOperationsRoutesOptions {
   studentDirectoryService?: StudentDirectoryService;
   staffProfileService?: StaffProfileService;
   peopleAdminService?: PeopleAdminService;
+  auditLogService?: AuditLogService;
   storage?: StorageProvider;
   [key: string]: unknown;
 }
@@ -417,6 +419,7 @@ export function registerOperationsRoutes(
   const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
   const staffProfileService = options.staffProfileService ?? new StaffProfileService();
   const peopleAdminService = options.peopleAdminService ?? new PeopleAdminService();
+  const auditLogService = options.auditLogService ?? new AuditLogService();
 
   const requireAuth = requireLegacyAuth(authService);
   const requireAdminRole = requireLegacyRoles(authService, ADMIN_PORTAL_ROLES);
@@ -2175,6 +2178,16 @@ export function registerOperationsRoutes(
         reply.code(404).send({ status: 0, message: 'Instructor not found.', data: null });
         return;
       }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-12 — Administration → Audit Logs (Naji's design). Read-only:
+  // sign-in events (auth_audit_log) + application / payment actions
+  // (application_events), filtered and paged on the server. Admin/Subadmin only.
+  app.get('/admin/audit_logs/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const data = await auditLogService.list(parseAuditLogQuery(requestPayload(request)));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

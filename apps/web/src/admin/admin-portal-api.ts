@@ -2399,6 +2399,16 @@ export class AdminPortalApi {
     return asRecord(payload.data) ?? {};
   }
 
+  /**
+   * Administration → Audit Logs: one server-filtered page of sign-in events and
+   * application / payment actions, plus the KPI counts and event list
+   * (apps/api/src/operations/audit-log-service.ts). Read-only.
+   */
+  async loadAuditLogs(authToken: string, query: Record<string, string>): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/audit_logs/list', authToken, query);
+    return asRecord(payload.data) ?? null;
+  }
+
   async addAssociate(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/associates/add', authToken, input);
   }

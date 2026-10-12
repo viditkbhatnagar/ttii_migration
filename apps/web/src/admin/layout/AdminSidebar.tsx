@@ -12,6 +12,7 @@ import {
   FolderOpen,
   GraduationCap,
   Handshake,
+  Headphones,
   HeartHandshake,
   IndianRupee,
   LayoutDashboard,
@@ -20,6 +21,7 @@ import {
   PlayCircle,
   Settings,
   Shield,
+  ShieldCheck,
   UserCheck,
   Users,
   X,
@@ -45,8 +47,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
   IndianRupee,
   UserCheck,
   Shield,
+  ShieldCheck,
   HeartHandshake,
   Handshake,
+  Headphones,
   FileText,
   FolderOpen,
   Library,
@@ -58,6 +62,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Settings,
   Award,
 };
+
+/** Icon names the menu can draw; a nav-tree icon outside this list renders blank (tested). */
+export const NAV_ICON_NAMES: readonly string[] = Object.keys(ICON_MAP);
 
 interface AdminSidebarProps {
   pathname: string;
