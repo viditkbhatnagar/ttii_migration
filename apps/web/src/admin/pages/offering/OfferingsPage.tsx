@@ -1,147 +1,264 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Download, Eye, GraduationCap, MoreHorizontal, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useConfirm } from '@/components/confirm-dialog';
+import { downloadCsv, toCsv } from '@/lib/csv';
+import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, toRecords } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn, type DataTableAction } from '../../shared/components/AdminDataTable.js';
-import { useConfirm } from '@/components/confirm-dialog';
+import { asString, messageFromError, toRecords } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill, type Tone } from '../../shared/components/ui-kit.js';
+import { TONE } from '../../shared/components/ui-tones.js';
+import { FilterSelect, ListPager, PillTab, SortHead } from '../students/list-chrome.js';
+import { dmy, pageSlice } from '../cohorts/list-model.js';
+import { capitalise, statusCounts, type SortDir } from '../fee/fee-model.js';
+import {
+  EMPTY_OFFERING_FILTERS, OFFERING_STATUS_ORDER, filterOfferings, modeOptions, offeringCsvRows, offeringTotals,
+  sortOfferings, toOfferingRows,
+  type OfferingFilters, type OfferingRow, type OfferingSortKey,
+} from './offering-list-model.js';
+import { OfferingDetailsDialog } from './OfferingDetailsDialog.js';
 
-const selectClass =
-  'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
+// Courses → Course Offerings, rebuilt after Naji's CourseOfferingsModule
+// (TTII 2026-10-12): KPI tiles, status pills, a filter card and a sortable,
+// selectable, paged table with CSV export. Same /admin/offerings list, same
+// Edit (full page, which also manages certificate-package pricing) and the
+// same confirmed soft Delete. "View" is a new read-only details dialog.
 
-const deliveryModeLabels: Record<string, string> = {
-  self_paced: 'Self-Paced',
-  cohort: 'Cohort',
-};
-
-const statusColors: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  draft: 'secondary',
-  published: 'outline',
-  active: 'default',
-  completed: 'secondary',
-  archived: 'destructive',
+const PAGE_SIZE = 10;
+const STATUS_TONE: Record<string, Tone> = {
+  active: 'emerald', published: 'blue', draft: 'amber', completed: 'slate', inactive: 'slate', archived: 'rose',
 };
 
 export default function OfferingsPage({ api, session, onNavigate }: AdminPageProps) {
   const confirm = useConfirm();
-  const [filterCourseId, setFilterCourseId] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filters, setFilters] = useState<OfferingFilters>(EMPTY_OFFERING_FILTERS);
+  const [sortKey, setSortKey] = useState<OfferingSortKey>('title');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [viewing, setViewing] = useState<OfferingRow | null>(null);
 
   const { data: coursesData } = useAdminPageData(() => api.loadCourses(session.token), []);
-  const courses = useMemo(() => toRecords(coursesData), [coursesData]);
-
-  const filters = useMemo(() => {
-    const f: Record<string, string> = {};
-    if (filterCourseId) f.course_id = filterCourseId;
-    if (filterStatus) f.status = filterStatus;
-    return f;
-  }, [filterCourseId, filterStatus]);
-
-  const { data, loading, error, reload } = useAdminPageData(
-    () => api.listOfferings(session.token, Object.keys(filters).length > 0 ? filters : undefined),
-    [filterCourseId, filterStatus],
+  const courseOptions = useMemo(
+    () => toRecords(coursesData).map((c) => ({ value: asString(c.id), label: asString(c.title) })),
+    [coursesData],
   );
 
-  const rows = useMemo(() => toRecords(data), [data]);
+  const { data, loading, error, reload } = useAdminPageData(() => api.listOfferings(session.token), []);
 
-  // Summary metrics
-  const totalOfferings = rows.length;
-  const activeOfferings = rows.filter((r) => r.status === 'active').length;
-  const totalEnrolled = rows.reduce((sum, r) => sum + Number(r.enrolled_count ?? 0), 0);
+  const rows = useMemo(() => toOfferingRows(toRecords(data)), [data]);
+  const totals = useMemo(() => offeringTotals(rows), [rows]);
+  const pills = useMemo(() => statusCounts(rows.map((r) => r.status), OFFERING_STATUS_ORDER), [rows]);
+  const modes = useMemo(() => modeOptions(rows), [rows]);
+  const filtered = useMemo(() => sortOfferings(filterOfferings(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
+  const { current, pages, page: shownPage } = pageSlice(filtered, page, PAGE_SIZE);
+  useEffect(() => { if (page !== shownPage) setPage(shownPage); }, [page, shownPage]);
 
-  const handleDelete = useCallback(async (row: Record<string, unknown>) => {
+  const set = (patch: Partial<OfferingFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const reset = () => { setFilters(EMPTY_OFFERING_FILTERS); setPage(1); };
+  const onSort = (k: OfferingSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+  const edit = (id: string) => onNavigate(`/admin/offerings/edit/${id}`);
+
+  const allOnPage = current.length > 0 && current.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected((prev) => {
+    const next = new Set(prev);
+    if (allOnPage) current.forEach((r) => next.delete(r.id));
+    else current.forEach((r) => next.add(r.id));
+    return next;
+  });
+  const toggleOne = (id: string, on: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  });
+  const exportCsv = () => {
+    const picked = selected.size > 0 ? filtered.filter((r) => selected.has(r.id)) : filtered;
+    downloadCsv('course_offerings.csv', toCsv(offeringCsvRows(picked)));
+  };
+
+  const handleDelete = useCallback(async (row: OfferingRow) => {
     if (!(await confirm({
-      title: `Delete offering "${asString(row.title)}"?`,
+      title: `Delete offering "${row.title}"?`,
       description: 'This action cannot be undone.',
       confirmText: 'Delete',
       variant: 'destructive',
     }))) return;
     try {
-      await api.deleteOffering(session.token, asString(row.id));
+      const res = await api.deleteOffering(session.token, row.id);
+      const status = (res as { status?: unknown }).status;
+      const message = asString((res as { message?: unknown }).message);
+      if (status !== undefined && Number(status) !== 1) { toast.error(message || 'Could not delete the offering.'); return; }
+      toast.success(message && message !== 'success' ? message : 'Offering deleted');
+      setSelected((prev) => { const next = new Set(prev); next.delete(row.id); return next; });
       reload();
-    } catch { /* ignore */ }
+    } catch (err) {
+      toast.error(messageFromError(err) || 'Could not delete the offering.');
+    }
   }, [api, session.token, reload, confirm]);
 
-  const renderDate = (v: unknown) => {
-    const str = asString(v);
-    if (!str) return '-';
-    const d = new Date(str);
-    return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
-  };
-
-  const columns: DataTableColumn[] = [
-    // AdminDataTable renders its own '#' index column; do not add another here.
-    { key: 'title', label: 'Offering', sortable: true },
-    { key: 'course_title', label: 'Course' },
-    { key: 'delivery_mode', label: 'Mode', render: (v) => deliveryModeLabels[asString(v)] || asString(v) },
-    { key: 'start_date', label: 'Start Date', render: renderDate },
-    { key: 'end_date', label: 'End Date', render: renderDate },
-    { key: 'enrollment_end', label: 'Enrolments Ends', render: renderDate },
-    { key: 'fee_category', label: 'Pricing Type', render: (v) => {
-      const s = asString(v) || 'paid';
-      return s === 'free' ? 'Free' : 'Paid';
-    }},
-    { key: 'enrolled_count', label: 'Enrollments' },
-    { key: 'status', label: 'Status', render: (v) => (
-      <Badge variant={statusColors[asString(v)] ?? 'secondary'}>{asString(v) || 'draft'}</Badge>
-    )},
-  ];
-
-  const actions: DataTableAction[] = [
-    { label: 'Edit', onClick: (row) => onNavigate(`/admin/offerings/edit/${asString(row.id)}`) },
-    { label: 'Delete', onClick: (row) => void handleDelete(row), variant: 'destructive' },
-  ];
-
-  if (loading) {
-    return <PageLoader label="Loading offerings..." />;
-  }
-
-  if (error) {
-    return <Card><CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent></Card>;
+  if (loading && !data) return <PageLoader label="Loading offerings..." />;
+  if (error && !data) {
+    return (
+      <Card>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+          {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Course Offerings" addLabel="+ New Offering" onAdd={() => onNavigate('/admin/offerings/add')} />
+    <div className="space-y-6">
+      <PageTitle
+        title="Course Offerings"
+        subtitle={`${filtered.length} of ${rows.length} offerings`}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={filtered.length === 0} onClick={exportCsv}>
+              <Download aria-hidden="true" className="size-4" /> Export{selected.size ? ` (${selected.size})` : ''}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/offerings/add')}>
+              <Plus aria-hidden="true" className="size-4" /> New Offering
+            </Button>
+          </>
+        )}
+      />
 
-      {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">Total Offerings</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{totalOfferings}</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">Active</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-green-600">{activeOfferings}</p></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">Total Enrolled</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold text-blue-600">{totalEnrolled}</p></CardContent></Card>
+        <StatTile label="Total Offerings" value={totals.total} tone="slate" icon={GraduationCap} />
+        <StatTile label="Active" value={totals.active} tone="emerald" icon={GraduationCap} />
+        <StatTile label="Total Enrolled" value={totals.enrolled} tone="primary" icon={Users} />
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Course</Label>
-              <select className={selectClass} value={filterCourseId} onChange={(e) => setFilterCourseId(e.target.value)}>
-                <option value="">All Courses</option>
-                {courses.map((c) => <option key={asString(c.id)} value={asString(c.id)}>{asString(c.title)}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
-              <select className={selectClass} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                <option value="">All Statuses</option>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
+      <div role="group" aria-label="Offering status" className="flex flex-wrap gap-2">
+        {pills.map((p) => (
+          <PillTab key={p.id} active={filters.status === p.id} label={p.id === 'all' ? 'All' : capitalise(p.id)} count={p.count} onClick={() => set({ status: p.id })} />
+        ))}
+      </div>
+
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_240px_150px_140px_auto]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search offerings" placeholder="Search by offering title, code or course…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
           </div>
-        </CardContent>
+          <FilterSelect label="Course" value={filters.courseId} onChange={(v) => set({ courseId: v })} allLabel="All Courses" options={courseOptions} />
+          <FilterSelect label="Mode" value={filters.mode} onChange={(v) => set({ mode: v })} allLabel="All Modes" options={modes} />
+          <FilterSelect label="Pricing" value={filters.pricing} onChange={(v) => set({ pricing: v })} allLabel="All Pricing" options={[{ value: 'Paid', label: 'Paid' }, { value: 'Free', label: 'Free' }]} />
+          <div className="flex items-center justify-end">
+            <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
+          </div>
+        </div>
       </Card>
 
-      <AdminDataTable columns={columns} rows={rows} actions={actions} />
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={GraduationCap}
+            title={rows.length === 0 ? 'No offerings yet.' : 'No offerings match your filters.'}
+            {...(rows.length === 0
+              ? { action: <Button size="sm" onClick={() => onNavigate('/admin/offerings/add')}>New Offering</Button> }
+              : { action: <Button variant="outline" size="sm" onClick={reset}>Reset filters</Button> })}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-10">
+                    <Checkbox aria-label="Select all on this page" checked={allOnPage} onCheckedChange={toggleAll} />
+                  </TableHead>
+                  <TableHead className="w-10 text-xs">#</TableHead>
+                  <SortHead label="Offering" k="title" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Course" k="course" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Mode" k="mode" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Start Date" k="start" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="End Date" k="end" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Enrolments Ends" k="enrolEnd" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Pricing Type" k="pricing" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <SortHead label="Enrollments" k="enrolled" sortKey={sortKey} dir={sortDir} onSort={onSort} className="text-right" />
+                  <SortHead label="Status" k="status" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                  <TableHead className="text-right text-xs">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {current.map((r, i) => (
+                  <TableRow key={r.id} className="hover:bg-muted/30" data-state={selected.has(r.id) ? 'selected' : undefined}>
+                    <TableCell>
+                      <Checkbox aria-label={`Select ${r.title || 'offering'}`} checked={selected.has(r.id)} onCheckedChange={(v) => toggleOne(r.id, v === true)} />
+                    </TableCell>
+                    <TableCell className="text-xs font-medium text-primary">{(shownPage - 1) * PAGE_SIZE + i + 1}</TableCell>
+                    <TableCell className="max-w-xs">
+                      <button type="button" className="text-left text-sm font-medium hover:text-primary hover:underline" onClick={() => setViewing(r)}>
+                        {r.title || '—'}
+                      </button>
+                      {r.code ? <p className="font-mono text-[11px] text-muted-foreground">{r.code}</p> : null}
+                    </TableCell>
+                    <TableCell className="max-w-xs text-sm text-muted-foreground">{r.course || '—'}</TableCell>
+                    <TableCell className="text-sm">{r.modeLabel || '—'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dmy(r.startYmd) || '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dmy(r.endYmd) || '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{dmy(r.enrolEndYmd) || '-'}</TableCell>
+                    <TableCell className="text-sm">{r.pricing}</TableCell>
+                    <TableCell className="text-right text-sm font-medium tabular-nums">{r.enrolled}</TableCell>
+                    <TableCell><Pill tone={STATUS_TONE[r.status] ?? 'slate'}>{r.status}</Pill></TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" className="size-8" aria-label={`Actions for ${r.title || 'offering'}`}>
+                            <MoreHorizontal aria-hidden="true" className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => setViewing(r)}><Eye aria-hidden="true" className="mr-2 size-4" /> View</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => edit(r.id)}><Pencil aria-hidden="true" className="mr-2 size-4" /> Edit</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { void handleDelete(r); }}>
+                            <Trash2 aria-hidden="true" className="mr-2 size-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <ListPager page={shownPage} pages={pages} shown={current.length} total={filtered.length} noun="offerings" onPage={setPage} />
+      </Card>
+
+      <OfferingDetailsDialog row={viewing} onClose={() => setViewing(null)} onEdit={edit} />
     </div>
+  );
+}
+
+function StatTile({ label, value, tone, icon: Icon }: { label: string; value: number; tone: Tone; icon: typeof GraduationCap }) {
+  return (
+    <Card className="gap-0 border-border/70 p-5 shadow-[var(--shadow-soft)]">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className={cn('mt-2 text-3xl font-bold tabular-nums', tone === 'slate' ? 'text-foreground' : TONE[tone].text)}>{value}</p>
+        </div>
+        <span className={cn('flex size-10 items-center justify-center rounded-xl', TONE[tone].tile)}>
+          <Icon aria-hidden="true" className="size-5" />
+        </span>
+      </div>
+    </Card>
   );
 }

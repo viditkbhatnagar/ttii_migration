@@ -1,73 +1,78 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Upload } from 'lucide-react';
-import { toast } from 'sonner';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarCheck, Download, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { PageLoader } from '@/components/ui/page-loader';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { downloadCsv, toCsv } from '@/lib/csv';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, formatDate, formatCurrency } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill, type Tone } from '../../shared/components/ui-kit.js';
+import { FilterSelect, ListPager, PillTab, SortHead } from '../students/list-chrome.js';
+import { dmy, pageSlice } from '../cohorts/list-model.js';
+import { FEE_PAGE_SIZE, inr2, rowNo, type SortDir } from './fee-model.js';
+import {
+  ENROLMENT_STATUS_OPTIONS, PAYMENT_TABS, filterPayments, paymentColumns, paymentCsvRows, paymentRowAction,
+  sortPayments, toPaymentRows,
+  type PaymentBucket, type PaymentColumn, type PaymentRow, type PaymentSortKey, type PaymentTab,
+} from './payment-model.js';
+import { PaymentActionDialog, type PaymentAction } from './PaymentActionDialog.js';
+import { SummaryCard } from './fee-ui.js';
 
-const STATUS_CARDS = [
-  { key: 'overdue', label: 'Overdue', color: 'border-red-500', textColor: 'text-red-600', bgColor: 'bg-red-50' },
-  { key: 'due', label: 'Due', color: 'border-orange-500', textColor: 'text-orange-600', bgColor: 'bg-orange-50' },
-  { key: 'upcoming', label: 'Upcoming', color: 'border-blue-500', textColor: 'text-blue-600', bgColor: 'bg-blue-50' },
-  { key: 'paid', label: 'Paid', color: 'border-green-500', textColor: 'text-green-600', bgColor: 'bg-green-50' },
-] as const;
+// Fee Information → Payment Status, rebuilt after Naji's PaymentStatusModule
+// (TTII 2026-10-12). LAYOUT ONLY. Same endpoint and server-side filters
+// (course, name / student ID search, payment status, due-date range), same
+// server buckets and card totals, same per-tab columns and row actions
+// (Mark Paid; Remind on All; View Application for application-plan rows),
+// same Mark-Paid / Reminder calls. Opens on Overdue (Naji UAT 2026-05-14).
 
-const PAYMENT_MODE_OPTIONS = ['Cash', 'Bank Transfer', 'Cheque', 'UPI', 'Card', 'Online', 'Other'];
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-interface MarkPaidForm {
-  paidDate: string;
-  paymentMode: string;
-  referenceNumber: string;
-  receiptUrl: string;
-}
+const BUCKETS: Array<{ id: PaymentBucket; label: string; tone: Tone }> = [
+  { id: 'overdue', label: 'Overdue', tone: 'rose' },
+  { id: 'due', label: 'Due', tone: 'amber' },
+  { id: 'upcoming', label: 'Upcoming', tone: 'blue' },
+  { id: 'paid', label: 'Paid', tone: 'emerald' },
+];
+const STATUS_TONE: Record<string, Tone> = { overdue: 'rose', due: 'amber', upcoming: 'blue', paid: 'emerald' };
+const ENROLMENT_TONE: Record<string, Tone> = {
+  Active: 'emerald', 'On Hold': 'amber', Completed: 'blue', Graduated: 'blue', Dropout: 'rose', Application: 'primary',
+};
+const COLUMN_LABEL: Record<PaymentColumn, string> = {
+  enrolmentStatus: 'Enrolment Status', studentId: 'Student ID', name: 'Name', course: 'Course', details: 'Installment Details',
+  amount: 'Amount', dueDate: 'Due Date', paidDate: 'Paid Date', mode: 'Mode', status: 'Payment Status', to: 'To', action: 'Action',
+};
+const SEARCH_DEBOUNCE_MS = 300;
+const thisYear = new Date().getFullYear();
 
 export default function PaymentStatusPage({ api, session, onNavigate }: AdminPageProps) {
   const [courseFilter, setCourseFilter] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [enrolmentStatusFilter, setEnrolmentStatusFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchText, setSearchText] = useState('');
   const [dueDateFrom, setDueDateFrom] = useState('');
   const [dueDateTo, setDueDateTo] = useState('');
-  const [activeTab, setActiveTab] = useState('overdue');
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [actionDialog, setActionDialog] = useState<
-    | { type: 'mark_paid'; row: Record<string, unknown> }
-    | { type: 'reminder'; row: Record<string, unknown> }
-    | null
-  >(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [markPaidForm, setMarkPaidForm] = useState<MarkPaidForm>({
-    paidDate: todayIso(),
-    paymentMode: 'Online',
-    referenceNumber: '',
-    receiptUrl: '',
-  });
-  const [uploading, setUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<PaymentTab>('overdue');
+  const [sortKey, setSortKey] = useState<PaymentSortKey>('dueDate');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(1);
+  const [courses, setCourses] = useState<Array<{ value: string; label: string }>>([]);
+  const [action, setAction] = useState<PaymentAction | null>(null);
 
   useEffect(() => {
-    api.loadCourses(session.token).then(setCourses).catch(() => {});
+    api.loadCourses(session.token)
+      .then((list) => setCourses(list.map((c) => ({ label: asString(c.title), value: asString(c.id) }))))
+      .catch(() => { /* the Course filter falls back to an empty list */ });
   }, [api, session.token]);
+
+  // The name search is server-side (as before); debounce it so each keystroke
+  // does not refetch.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearchText(searchInput.trim()); setPage(1); }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const { data, loading, error, reload } = useAdminPageData(
     () => api.loadPaymentStatus(session.token, {
@@ -80,483 +85,182 @@ export default function PaymentStatusPage({ api, session, onNavigate }: AdminPag
     [courseFilter, searchText, paymentStatusFilter, dueDateFrom, dueDateTo],
   );
 
-  const counts = useMemo(() => data?.counts ?? { overdue: 0, due: 0, upcoming: 0, paid: 0 }, [data]);
-  const allInstallments = useMemo(() => data?.installments ?? [], [data]);
+  const counts = data?.counts ?? {};
+  const rows = useMemo(() => toPaymentRows(data?.installments ?? []), [data]);
+  const filtered = useMemo(
+    () => sortPayments(filterPayments(rows, activeTab, enrolmentStatusFilter), sortKey, sortDir),
+    [rows, activeTab, enrolmentStatusFilter, sortKey, sortDir],
+  );
+  const { current, pages, page: shownPage } = pageSlice(filtered, page, FEE_PAGE_SIZE);
+  useEffect(() => { if (page !== shownPage) setPage(shownPage); }, [page, shownPage]);
+  const columns = paymentColumns(activeTab);
 
-  const filteredInstallments = useMemo(() => {
-    let list = allInstallments;
-    if (activeTab !== 'all') {
-      list = list.filter((r) => asString(r.computed_status) === activeTab);
-    }
-    // Naji UAT 2026-05-15 — Enrolment Status filter (client-side over the
-    // enrolment_status column we surfaced last round, including the
-    // synthesised "Application" tag).
-    if (enrolmentStatusFilter) {
-      list = list.filter((r) => asString(r.enrolment_status) === enrolmentStatusFilter);
-    }
-    return list;
-  }, [allInstallments, activeTab, enrolmentStatusFilter]);
+  const withPageReset = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
+  const reset = () => {
+    setCourseFilter(''); setSearchInput(''); setSearchText(''); setPaymentStatusFilter('');
+    setEnrolmentStatusFilter(''); setDueDateFrom(''); setDueDateTo(''); setPage(1);
+  };
+  const onSort = (k: PaymentSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+  const tabCount = (tab: PaymentTab) => (tab === 'all' ? rows.length : asNumber(counts[tab]));
 
-  // Naji UAT 2026-05-14 — order is now Overdue → Due → Upcoming → Paid → All
-  // (All moved to the end). The page also defaults to Overdue, which is
-  // the actionable bucket the team triages from.
-  const tabs: AdminTab[] = useMemo(() => [
-    { id: 'overdue', label: 'Overdue', count: asNumber(counts.overdue) },
-    { id: 'due', label: 'Due', count: asNumber(counts.due) },
-    { id: 'upcoming', label: 'Upcoming', count: asNumber(counts.upcoming) },
-    { id: 'paid', label: 'Paid', count: asNumber(counts.paid) },
-    { id: 'all', label: 'All', count: allInstallments.length },
-  ], [allInstallments.length, counts]);
-
-  const filters: FilterField[] = useMemo(() => [
-    {
-      key: 'search',
-      label: 'Name',
-      type: 'text' as const,
-      value: searchText,
-      placeholder: 'Student name',
-      onChange: setSearchText,
-    },
-    {
-      key: 'dueDateFrom',
-      label: 'Due date from',
-      type: 'date' as const,
-      value: dueDateFrom,
-      onChange: setDueDateFrom,
-    },
-    {
-      key: 'dueDateTo',
-      label: 'Due date to',
-      type: 'date' as const,
-      value: dueDateTo,
-      onChange: setDueDateTo,
-    },
-    {
-      key: 'course',
-      label: 'Course',
-      type: 'select' as const,
-      value: courseFilter,
-      placeholder: 'Select any course',
-      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-      onChange: setCourseFilter,
-    },
-    {
-      key: 'paymentStatus',
-      label: 'Payment Status',
-      type: 'select' as const,
-      value: paymentStatusFilter,
-      placeholder: 'All',
-      options: [
-        { label: 'OVERDUE', value: 'overdue' },
-        { label: 'DUE', value: 'due' },
-        { label: 'UPCOMING', value: 'upcoming' },
-        { label: 'PAID', value: 'paid' },
-      ],
-      onChange: setPaymentStatusFilter,
-    },
-    {
-      key: 'enrolmentStatus',
-      label: 'Enrolment Status',
-      type: 'select' as const,
-      value: enrolmentStatusFilter,
-      placeholder: 'All',
-      options: [
-        { label: 'Active', value: 'Active' },
-        { label: 'On Hold', value: 'On Hold' },
-        { label: 'Completed', value: 'Completed' },
-        { label: 'Graduated', value: 'Graduated' },
-        { label: 'Dropout', value: 'Dropout' },
-        { label: 'Application', value: 'Application' },
-      ],
-      onChange: setEnrolmentStatusFilter,
-    },
-  ], [searchText, dueDateFrom, dueDateTo, courseFilter, paymentStatusFilter, enrolmentStatusFilter, courses]);
-
-  // Reset the rich Mark-Paid form every time the dialog opens for a
-  // different row. Reminder dialog doesn't need it.
-  const openMarkPaid = useCallback((row: Record<string, unknown>) => {
-    setMarkPaidForm({
-      paidDate: todayIso(),
-      paymentMode: asString(row.payment_mode) || 'Online',
-      referenceNumber: '',
-      receiptUrl: '',
-    });
-    setActionDialog({ type: 'mark_paid', row });
-  }, []);
-
-  const closeDialog = useCallback(() => {
-    setActionDialog(null);
-    setActionLoading(false);
-    setUploading(false);
-  }, []);
-
-  const handleReceiptUpload = useCallback(async (file: File) => {
-    setUploading(true);
-    try {
-      const result = await api.uploadFile(session.token, file);
-      setMarkPaidForm((f) => ({ ...f, receiptUrl: result.url }));
-      toast.success('Receipt uploaded.');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed.');
-    } finally {
-      setUploading(false);
-    }
-  }, [api, session.token]);
-
-  const handleAction = useCallback(async () => {
-    if (!actionDialog) return;
-    setActionLoading(true);
-    try {
-      const id = asString(actionDialog.row.id);
-      if (actionDialog.type === 'mark_paid') {
-        const extras: {
-          paidDate?: string;
-          paymentMode?: string;
-          referenceNumber?: string;
-          receiptUrl?: string;
-        } = {};
-        if (markPaidForm.paidDate) extras.paidDate = markPaidForm.paidDate;
-        if (markPaidForm.paymentMode) extras.paymentMode = markPaidForm.paymentMode;
-        if (markPaidForm.referenceNumber) extras.referenceNumber = markPaidForm.referenceNumber;
-        if (markPaidForm.receiptUrl) extras.receiptUrl = markPaidForm.receiptUrl;
-        await api.markInstallmentPaid(session.token, id, extras);
-        toast.success('Installment marked as paid.');
-      } else {
-        await api.sendPaymentReminder(session.token, id);
-        toast.success('Reminder sent.');
-      }
-      closeDialog();
-      reload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Operation failed.');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [actionDialog, api, session.token, reload, markPaidForm, closeDialog]);
-
-  // Column definitions — built per-tab so Paid drops the row Action and
-  // moves Mode before Payment Status; Overdue/Due/Upcoming drop Paid
-  // Date, Mode, To, and the Remind action (Naji UAT 2026-05-14). The All
-  // tab keeps the full set.
-  const columns: DataTableColumn[] = useMemo(() => {
-    const enrolmentStatusCol: DataTableColumn = {
-      key: 'enrolment_status',
-      label: 'Enrolment Status',
-      sortable: true,
-      render: (v) => {
-        const s = asString(v);
-        return s ? <AdminStatusBadge status={s} /> : <span className="text-slate-400">—</span>;
-      },
-    };
-    const studentIdCol: DataTableColumn = {
-      key: 'student_id', label: 'Student ID', sortable: true, render: (v) => asString(v) || '-',
-    };
-    const nameCol: DataTableColumn = { key: 'user_name', label: 'Name', sortable: true };
-    const courseCol: DataTableColumn = {
-      key: 'course_title', label: 'course', sortable: true, render: (v) => asString(v) || '-',
-    };
-    const detailsCol: DataTableColumn = {
-      key: 'installment_details',
-      label: 'Installment Details',
-      sortable: true,
-      render: (v, row) => {
-        const details = asString(v);
-        return details || `Installment ${asNumber(row?.installment_no) || 1}`;
-      },
-    };
-    const amountCol: DataTableColumn = {
-      key: 'amount', label: 'Amount', sortable: true, render: (v) => formatCurrency(v),
-    };
-    const dueDateCol: DataTableColumn = {
-      key: 'due_date', label: 'Due Date', sortable: true, render: (v) => formatDate(v),
-    };
-    const paidDateCol: DataTableColumn = {
-      key: 'paid_date', label: 'Paid Date', sortable: true, render: (v) => formatDate(v) || '-',
-    };
-    const statusCol: DataTableColumn = {
-      key: 'computed_status',
-      label: 'Payment Status',
-      sortable: true,
-      render: (v) => <AdminStatusBadge status={asString(v) || 'pending'} />,
-    };
-    const modeCol: DataTableColumn = {
-      key: 'payment_mode', label: 'Mode', render: (v) => asString(v) || '-',
-    };
-    const toCol: DataTableColumn = {
-      key: 'payment_to', label: 'To', render: (v) => asString(v) || '-',
-    };
-    // Synthesised rows from applications.payment_plan have an id like
-    // "app-{appId}-{idx}" and can't be marked paid through the
-    // student_payments endpoint. Surface a View Application shortcut
-    // instead so admins manage them in the Generate Payment Link
-    // dialog on the application itself (Naji UAT 2026-05-14).
-    const isApplicationRow = (row: Record<string, unknown> | undefined): { appId: string } | null => {
-      const id = asString(row?.id);
-      const m = /^app-(\d+)-/.exec(id);
-      return m ? { appId: m[1] ?? '' } : null;
-    };
-    const actionMarkOnlyCol: DataTableColumn = {
-      key: '_actions',
-      label: 'Action',
-      render: (_v, row) => {
-        const appRow = isApplicationRow(row);
-        if (appRow) {
-          return (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate(`/admin/applications/view/${appRow.appId}`)}
-            >
-              View Application
-            </Button>
-          );
-        }
-        return (
-          <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
-            Mark Paid
-          </Button>
-        );
-      },
-    };
-    const actionFullCol: DataTableColumn = {
-      key: '_actions',
-      label: 'Action',
-      render: (_v, row) => {
-        const status = asString(row?.computed_status);
-        const appRow = isApplicationRow(row);
-        if (appRow) {
-          return (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate(`/admin/applications/view/${appRow.appId}`)}
-            >
-              View Application
-            </Button>
-          );
-        }
-        if (status === 'paid') return null;
-        return (
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" onClick={() => row && openMarkPaid(row)}>
-              Mark Paid
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => row && setActionDialog({ type: 'reminder', row })}
-            >
-              Remind
-            </Button>
-          </div>
-        );
-      },
-    };
-
-    if (activeTab === 'paid') {
-      // Paid tab: drop "To" and the row Action entirely; move Mode in front
-      // of Payment Status (Naji UAT 2026-05-14).
-      return [
-        enrolmentStatusCol,
-        studentIdCol,
-        nameCol,
-        courseCol,
-        detailsCol,
-        amountCol,
-        dueDateCol,
-        paidDateCol,
-        modeCol,
-        statusCol,
-      ];
-    }
-    if (activeTab === 'overdue' || activeTab === 'due' || activeTab === 'upcoming') {
-      // Open buckets: drop Paid Date, Mode, To, and the Remind action;
-      // keep Mark Paid as the only row action.
-      return [
-        enrolmentStatusCol,
-        studentIdCol,
-        nameCol,
-        courseCol,
-        detailsCol,
-        amountCol,
-        dueDateCol,
-        statusCol,
-        actionMarkOnlyCol,
-      ];
-    }
-    // All tab keeps the full set.
-    return [
-      enrolmentStatusCol,
-      studentIdCol,
-      nameCol,
-      courseCol,
-      detailsCol,
-      amountCol,
-      dueDateCol,
-      paidDateCol,
-      statusCol,
-      modeCol,
-      toCol,
-      actionFullCol,
-    ];
-  }, [activeTab, openMarkPaid]);
-
-  if (loading) {
-    return <PageLoader label="Loading payment status..." />;
-  }
-
-  if (error) {
+  if (loading && !data) return <PageLoader label="Loading payment status..." />;
+  if (error && !data) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+          {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
+        </CardContent>
       </Card>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Payment Status" />
+  const cell = (col: PaymentColumn, r: PaymentRow) => {
+    switch (col) {
+      case 'enrolmentStatus':
+        return r.enrolmentStatus ? <Pill tone={ENROLMENT_TONE[r.enrolmentStatus] ?? 'slate'}>{r.enrolmentStatus}</Pill> : <span className="text-muted-foreground">—</span>;
+      case 'studentId': return <span className="whitespace-nowrap font-mono text-xs text-primary">{r.studentId || '-'}</span>;
+      case 'name': return <span className="text-sm font-medium">{r.name || '-'}</span>;
+      case 'course': return <span className="text-sm">{r.course || '-'}</span>;
+      case 'details': return <span className="text-sm">{r.details}</span>;
+      case 'amount': return <span className="whitespace-nowrap text-sm tabular-nums">{inr2(r.amount)}</span>;
+      case 'dueDate': return <span className="whitespace-nowrap text-sm">{dmy(r.dueYmd)}</span>;
+      case 'paidDate': return <span className="whitespace-nowrap text-sm">{dmy(r.paidYmd) || '-'}</span>;
+      case 'mode': return <span className="text-sm">{r.mode || '-'}</span>;
+      case 'to': return <span className="text-sm">{r.to || '-'}</span>;
+      case 'status': return <Pill tone={STATUS_TONE[r.status] ?? 'slate'}>{r.status}</Pill>;
+      case 'action': return <RowAction row={r} tab={activeTab} onAction={setAction} onNavigate={onNavigate} />;
+    }
+  };
 
-      {/* Status summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {STATUS_CARDS.map((card) => {
-          const amount = asNumber(counts[`${card.key}_amount`]);
-          const count = asNumber(counts[card.key as keyof typeof counts]);
+  return (
+    <div className="space-y-6">
+      <PageTitle
+        title="Payment Status"
+        subtitle={`${filtered.length} of ${rows.length} payments`}
+        actions={(
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={filtered.length === 0}
+            onClick={() => downloadCsv('payment_status.csv', toCsv(paymentCsvRows(filtered)))}
+          >
+            <Download aria-hidden="true" className="size-4" /> Export
+          </Button>
+        )}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {BUCKETS.map((b) => {
+          const n = asNumber(counts[b.id]);
           return (
-            <Card
-              key={card.key}
-              className={`border-l-4 ${card.color} ${card.bgColor} cursor-pointer transition-shadow hover:shadow-md`}
-              onClick={() => setActiveTab(card.key)}
-            >
-              <CardContent className="pt-4">
-                <p className={`text-xs font-bold uppercase ${card.textColor}`}>{card.label}</p>
-                <p className={`text-2xl font-bold ${card.textColor}`}>{formatCurrency(amount)}</p>
-                <p className={`text-xs ${card.textColor}/70`}>{count} payments</p>
-              </CardContent>
-            </Card>
+            <SummaryCard
+              key={b.id}
+              label={b.label}
+              value={inr2(counts[`${b.id}_amount`])}
+              caption={`${n} payment${n === 1 ? '' : 's'}`}
+              tone={b.tone}
+              active={activeTab === b.id}
+              onClick={() => withPageReset(setActiveTab)(b.id)}
+            />
           );
         })}
       </div>
 
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={() => {
-          setCourseFilter('');
-          setSearchText('');
-          setPaymentStatusFilter('');
-          setEnrolmentStatusFilter('');
-          setDueDateFrom('');
-          setDueDateTo('');
-        }}
-      />
+      <div role="group" aria-label="Payment status" className="flex flex-wrap gap-2">
+        {PAYMENT_TABS.map((t) => (
+          <PillTab key={t.id} active={activeTab === t.id} label={t.label} count={tabCount(t.id)} onClick={() => withPageReset(setActiveTab)(t.id)} />
+        ))}
+      </div>
 
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <Card className="gap-0 border-border/70 p-4 shadow-[var(--shadow-soft)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_200px]">
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search payments" placeholder="Search by name or student ID…" className="pl-9" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+          </div>
+          <DmyDateInput value={dueDateFrom} onChange={withPageReset(setDueDateFrom)} placeholder="Due from dd/mm/yyyy" minYear={thisYear - 6} maxYear={thisYear + 3} />
+          <DmyDateInput value={dueDateTo} onChange={withPageReset(setDueDateTo)} placeholder="Due to dd/mm/yyyy" minYear={thisYear - 6} maxYear={thisYear + 3} />
+          <FilterSelect label="Course" value={courseFilter} onChange={withPageReset(setCourseFilter)} allLabel="All Courses" options={courses} />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[200px_200px_1fr]">
+          <FilterSelect
+            label="Payment Status"
+            value={paymentStatusFilter}
+            onChange={withPageReset(setPaymentStatusFilter)}
+            allLabel="All Payment Status"
+            options={BUCKETS.map((b) => ({ value: b.id, label: b.label }))}
+          />
+          <FilterSelect
+            label="Enrolment Status"
+            value={enrolmentStatusFilter}
+            onChange={withPageReset(setEnrolmentStatusFilter)}
+            allLabel="All Enrolments"
+            options={ENROLMENT_STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+          />
+          <div className="flex items-center justify-end">
+            <Button variant="ghost" size="sm" onClick={reset}>Reset filters</Button>
+          </div>
+        </div>
+      </Card>
 
-      <AdminDataTable columns={columns} rows={filteredInstallments} searchable exportable />
+      {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
 
-      {/* Rich Mark-Paid / Reminder dialog */}
-      <Dialog open={actionDialog != null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent className="sm:max-w-lg">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleAction();
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>
-                {actionDialog?.type === 'mark_paid' ? 'Mark as Paid' : 'Send Reminder'}
-              </DialogTitle>
-            </DialogHeader>
+      <Card className="gap-0 overflow-hidden border-border/70 p-0 shadow-[var(--shadow-soft)]">
+        {current.length === 0 ? (
+          <EmptyState
+            icon={CalendarCheck}
+            title={rows.length === 0 ? 'No payments found.' : 'No payments match your filters.'}
+            action={<Button variant="outline" size="sm" onClick={reset}>Reset filters</Button>}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table aria-busy={loading}>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-10 text-xs">#</TableHead>
+                  {columns.map((c) => (c === 'action'
+                    ? <TableHead key={c} className="text-right text-xs">{COLUMN_LABEL[c]}</TableHead>
+                    : <SortHead key={c} label={COLUMN_LABEL[c]} k={c} sortKey={sortKey} dir={sortDir} onSort={onSort} />))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {current.map((r, i) => (
+                  <TableRow key={r.id} className="hover:bg-muted/30">
+                    <TableCell className="text-xs text-muted-foreground">{rowNo(shownPage, FEE_PAGE_SIZE, i)}</TableCell>
+                    {columns.map((c) => <TableCell key={c} className={c === 'action' ? 'text-right' : undefined}>{cell(c, r)}</TableCell>)}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <ListPager page={shownPage} pages={pages} shown={current.length} total={filtered.length} noun="entries" onPage={setPage} />
+      </Card>
 
-            {actionDialog?.type === 'mark_paid' ? (
-              <div className="space-y-4 py-2">
-                <p className="text-sm text-slate-600">
-                  Mark installment for <strong>{asString(actionDialog.row.user_name)}</strong>
-                  {' '}({formatCurrency(actionDialog.row.amount)}) as paid.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="mp-paid-date" className="text-xs">Date of Payment</Label>
-                    <Input
-                      id="mp-paid-date"
-                      type="date"
-                      value={markPaidForm.paidDate}
-                      onChange={(e) => setMarkPaidForm((f) => ({ ...f, paidDate: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="mp-mode" className="text-xs">Payment Mode</Label>
-                    <select
-                      id="mp-mode"
-                      value={markPaidForm.paymentMode}
-                      onChange={(e) => setMarkPaidForm((f) => ({ ...f, paymentMode: e.target.value }))}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {PAYMENT_MODE_OPTIONS.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="mp-ref" className="text-xs">Reference Number</Label>
-                  <Input
-                    id="mp-ref"
-                    value={markPaidForm.referenceNumber}
-                    onChange={(e) => setMarkPaidForm((f) => ({ ...f, referenceNumber: e.target.value }))}
-                    placeholder="Transaction / cheque / receipt number"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Receipt Upload</Label>
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-slate-50">
-                      <Upload className="size-3.5" aria-hidden="true" />
-                      <span>{uploading ? 'Uploading…' : 'Choose file'}</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*,application/pdf"
-                        disabled={uploading}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) void handleReceiptUpload(f);
-                        }}
-                      />
-                    </label>
-                    {markPaidForm.receiptUrl ? (
-                      <a
-                        href={markPaidForm.receiptUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-blue-600 underline"
-                      >
-                        View uploaded receipt
-                      </a>
-                    ) : (
-                      <span className="text-xs text-slate-500">No file uploaded</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-600 py-2">
-                Send a payment reminder to <strong>{asString(actionDialog?.row.user_name)}</strong> for
-                {' '}{formatCurrency(actionDialog?.row.amount)}?
-              </p>
-            )}
+      <PaymentActionDialog action={action} api={api} token={session.token} onClose={() => setAction(null)} onDone={reload} />
+    </div>
+  );
+}
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
-              <Button type="submit" disabled={actionLoading || uploading}>
-                {actionLoading ? 'Processing...' : 'Confirm'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+function RowAction({
+  row, tab, onAction, onNavigate,
+}: { row: PaymentRow; tab: PaymentTab; onAction: (a: PaymentAction) => void; onNavigate: (path: string) => void }) {
+  const kind = paymentRowAction(row, tab);
+  if (kind === 'none') return null;
+  if (kind === 'view_application') {
+    return <Button variant="outline" size="sm" onClick={() => onNavigate(`/admin/applications/view/${row.applicationId ?? ''}`)}>View Application</Button>;
+  }
+  return (
+    <div className="inline-flex gap-1">
+      <Button variant="outline" size="sm" onClick={() => onAction({ type: 'mark_paid', row })}>Mark Paid</Button>
+      {kind === 'mark_paid_and_remind' ? (
+        <Button variant="ghost" size="sm" onClick={() => onAction({ type: 'reminder', row })}>Remind</Button>
+      ) : null}
     </div>
   );
 }
