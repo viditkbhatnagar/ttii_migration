@@ -4,6 +4,7 @@ import type { PrismaClient, $Enums } from '@prisma/client';
 import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
+import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -4629,38 +4630,9 @@ export class OperationsService {
    * at submit time, so editing its answer or deleting it silently changes a
    * live paper — the guards below refuse exactly that.
    */
-  private async questionUsage(questionIds: number[]): Promise<Map<number, { exams: Set<number>; published: string[] }>> {
-    const usage = new Map<number, { exams: Set<number>; published: string[] }>();
-    if (questionIds.length === 0) return usage;
-    const links = await this.prisma.exam_questions.findMany({
-      where: { question_id: { in: questionIds }, deleted_at: null },
-      select: { exam_id: true, question_id: true },
-    });
-    const examIds = [...new Set(links.map((l) => l.exam_id).filter((v): v is number => v !== null))];
-    if (examIds.length === 0) return usage;
-    const exams = await this.prisma.exam.findMany({
-      where: { id: { in: examIds }, deleted_at: null },
-      select: { id: true, parent_exam_id: true },
-    });
-    const topOf = new Map(exams.map((e) => [e.id, e.parent_exam_id ?? e.id]));
-    const tops = await this.prisma.exam.findMany({
-      where: { id: { in: [...new Set(topOf.values())] }, deleted_at: null },
-      select: { id: true, status: true, exam_code: true, title: true },
-    });
-    const topById = new Map(tops.map((t) => [t.id, t]));
-    for (const link of links) {
-      if (link.question_id === null || link.exam_id === null) continue;
-      const topId = topOf.get(link.exam_id);
-      const top = topId === undefined ? undefined : topById.get(topId);
-      if (!top) continue;
-      const entry = usage.get(link.question_id) ?? { exams: new Set<number>(), published: [] };
-      if (!entry.exams.has(top.id)) {
-        entry.exams.add(top.id);
-        if (top.status === 'published') entry.published.push(top.exam_code || top.title || `Exam ${top.id}`);
-      }
-      usage.set(link.question_id, entry);
-    }
-    return usage;
+  private async questionUsage(questionIds: number[]): Promise<Map<number, QuestionUsage>> {
+    // Shared with QuestionBankService (question-usage.ts) — one guard for all.
+    return questionUsage(this.prisma, questionIds);
   }
 
   async listQuestionBank(filters: QuestionBankFilters = {}): Promise<SqlRow[]> {
@@ -6037,18 +6009,7 @@ export class OperationsService {
     courseIds: number[],
     extraSubjectIds: number[] = [],
   ): Promise<Prisma.question_bankWhereInput> {
-    const links = courseIds.length > 0
-      ? await this.prisma.course_subject.findMany({
-          where: { course_id: { in: courseIds }, deleted_at: null },
-          select: { subject_id: true },
-        })
-      : [];
-    const subjectIds = [...new Set([...links.map((l) => l.subject_id), ...extraSubjectIds])];
-    const or: Prisma.question_bankWhereInput[] = [];
-    if (courseIds.length > 0) or.push({ course_id: { in: courseIds } });
-    if (subjectIds.length > 0) or.push({ subject_id: { in: subjectIds } });
-    // No course and no subject: match nothing rather than everything.
-    return or.length > 0 ? { OR: or } : { id: { in: [] } };
+    return questionBankCourseScope(this.prisma, courseIds, extraSubjectIds);
   }
 
   // Candidate questions: every live question in the exam's course(s) — by the
