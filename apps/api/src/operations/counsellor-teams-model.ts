@@ -51,6 +51,14 @@ export function isUniqueViolation(error: unknown): boolean {
   return prismaCode(error) === 'P2002';
 }
 
+/** P2002 raised by the live-name index (uq_counsellor_*_live_name), not by another unique key. */
+export function isNameClash(error: unknown): boolean {
+  if (!isUniqueViolation(error)) return false;
+  const target = (error as { meta?: { target?: unknown } }).meta?.target;
+  const text = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
+  return text.includes('live_name');
+}
+
 export function orgCode(prefix: 'TEAM' | 'GRP', id: number): string {
   return `${prefix}-${String(id).padStart(3, '0')}`;
 }
@@ -123,9 +131,9 @@ export interface PersonRow {
   disabled_at?: Date | null;
 }
 
-/** A user that may lead / manage: live, and an admin, subadmin or counsellor. */
+/** A user that may lead / manage: live, login not disabled, and an admin, subadmin or counsellor. */
 export function canLead(user: PersonRow | null | undefined): boolean {
-  return !!user && user.deleted_at === null && user.role_id !== null && LEAD_ROLES.includes(user.role_id);
+  return !!user && user.deleted_at === null && !user.disabled_at && user.role_id !== null && LEAD_ROLES.includes(user.role_id);
 }
 
 /** A user that may be a team member: a live counsellor. */

@@ -32,8 +32,10 @@ function actorOf(request: FastifyRequest): number | null {
   return id > 0 ? id : null;
 }
 
+/** Unexpected failures: logged in full server-side, a generic message to the client. */
 function sendError(reply: FastifyReply, error: unknown): void {
-  reply.code(500).send({ status: 0, message: error instanceof Error ? error.message : 'Internal error.', data: {} });
+  reply.log.error({ err: error }, 'counsellor teams/groups request failed');
+  reply.code(500).send({ status: 0, message: 'Something went wrong. Please try again.', data: {} });
 }
 
 function sendOutcome<T>(reply: FastifyReply, outcome: Outcome<T>): void {

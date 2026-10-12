@@ -14,8 +14,9 @@ import { istYmd } from '../../shared/utils/ist-date.js';
 import { formatYmd } from '../counsellor/staff-model.js';
 import { toGroupDetail, topAndLowest, type GroupTeam } from '../teams/org-model.js';
 import {
-  ComparisonCard, HeaderStat, InfoRow, OrgApplicationsTable, OrgStatusPill, PerformerList, SectionCard, SectionTabs, TrendCard,
+  HeaderStat, InfoRow, OrgApplicationsTable, OrgStatusPill, PerformerList, SectionCard, SectionTabs,
 } from '../teams/org-ui.js';
+import { ComparisonCard, TrendCard } from '../teams/org-charts.js';
 import { useOrgActions } from '../teams/use-org-actions.js';
 import { GroupFormDialog, ManageTeamsDialog } from './group-dialogs.js';
 

@@ -5,7 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { CounsellorGroupsService } from '../../src/operations/counsellor-groups-service.js';
 import {
-  NOT_SET_UP_MESSAGE, buildTrend, canLead, isLiveCounsellor, kpisByCounsellor, orgCode, parseGroupInput, parseTeamInput,
+  NOT_SET_UP_MESSAGE, buildTrend, canLead, isLiveCounsellor, isNameClash, kpisByCounsellor, orgCode, parseGroupInput, parseTeamInput,
   sumKpis, toIdList,
 } from '../../src/operations/counsellor-teams-model.js';
 import { CounsellorTeamsService } from '../../src/operations/counsellor-teams-service.js';
@@ -16,14 +16,15 @@ import { registerCounsellorTeamsRoutes } from '../../src/routes/counsellor-teams
 
 const NOW = new Date('2026-10-12T06:00:00Z');
 const missingTable = Object.assign(new Error('The table `counsellor_teams` does not exist'), { code: 'P2021' });
-const duplicate = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+const duplicate = Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target: 'uq_counsellor_team_members_user' } });
+const nameClash = Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target: 'uq_counsellor_teams_live_name' } });
 
 interface User { id: number; name: string; role_id: number; deleted_at: Date | null }
 interface Team { id: number; name: string; code: string; group_id: number | null; leader_user_id: number | null; status: string; deleted_at: Date | null; description: null; created_by: null; created_at: Date; updated_at: null }
 interface Link { team_id: number; user_id: number; joined_at: Date }
 
 /** A tiny in-memory Prisma for the membership rules. */
-function world(opts: { users?: User[]; teams?: Team[]; links?: Link[]; groups?: Array<{ id: number; name: string; deleted_at: Date | null }>; raceOnInsert?: boolean } = {}) {
+function world(opts: { users?: User[]; teams?: Team[]; links?: Link[]; groups?: Array<{ id: number; name: string; deleted_at: Date | null }>; raceOnInsert?: boolean; raceOnName?: boolean } = {}) {
   const users = opts.users ?? [
     { id: 1, name: 'Admin', role_id: 1, deleted_at: null },
     { id: 10, name: 'Asha', role_id: 9, deleted_at: null },
@@ -48,6 +49,7 @@ function world(opts: { users?: User[]; teams?: Team[]; links?: Link[]; groups?: 
       findMany: ({ where }: { where?: { id?: unknown } } = {}) =>
         Promise.resolve(teams.filter((t) => where?.id === undefined || matchIn(t.id, where.id))),
       create: ({ data }: { data: Partial<Team> }) => {
+        if (opts.raceOnName) return Promise.reject(nameClash);
         const row = { ...teams[0]!, ...data, id: teams.length + 1, code: '', deleted_at: null } as Team;
         teams.push(row);
         return Promise.resolve({ id: row.id });
@@ -138,6 +140,11 @@ describe('input rules', () => {
     const u = (role_id: number, deleted_at: Date | null = null) => ({ id: 1, name: 'x', email: null, phone: null, role_id, deleted_at });
     expect([1, 8, 9, 2, 10].map((r) => canLead(u(r)))).toEqual([true, true, true, false, false]);
     expect(canLead(u(9, new Date()))).toBe(false);
+    // A disabled login cannot lead or manage.
+    expect(canLead({ ...u(1), disabled_at: new Date() })).toBe(false);
+    expect(isNameClash(nameClash)).toBe(true);
+    expect(isNameClash(duplicate)).toBe(false);
+    expect(isNameClash(new Error('x'))).toBe(false);
     expect([9, 1].map((r) => isLiveCounsellor(u(r)))).toEqual([true, false]);
   });
 });
@@ -258,6 +265,24 @@ describe('team create / update', () => {
   });
 });
 
+describe('duplicate names', () => {
+  test('a live-name race lost at UNIQUE(live_name) reads as a duplicate name, nothing written', async () => {
+    const { service, teams, links } = world({ raceOnName: true });
+    const res = await service.create(1, { name: 'Falcon', leader_user_id: 1 }, [10]);
+    expect(res).toEqual({ status: 0, message: 'A team named "Falcon" already exists.' });
+    expect(teams).toHaveLength(1);
+    expect(links).toHaveLength(0);
+  });
+
+  test('create stores live_name; delete frees it', async () => {
+    const { service, teams } = world();
+    await service.create(1, { name: 'Falcon', leader_user_id: 1 }, []);
+    expect(teams[1]).toMatchObject({ name: 'Falcon', live_name: 'Falcon' });
+    await service.remove(1, 2);
+    expect(teams[1]).toMatchObject({ live_name: null });
+  });
+});
+
 describe('group delete', () => {
   function groupWorld(teamCount: number) {
     const groups = [{ id: 5, deleted_at: null as Date | null }];
@@ -321,6 +346,21 @@ describe('routes', () => {
     const list = await app.inject({ method: 'GET', url: '/admin/teams/index', headers: { 'x-role': 'admin' } });
     expect(list.statusCode).toBe(200);
     expect(list.json()).toMatchObject({ status: 1, data: { ready: false, message: NOT_SET_UP_MESSAGE, teams: [] } });
+    await app.close();
+  });
+
+  test('an unexpected failure is a generic 500, not the raw error', async () => {
+    const app = Fastify({ logger: false });
+    const prisma = { counsellor_teams: { findMany: () => Promise.reject(new Error('Access denied for user lms@10.0.0.5')) }, counsellor_team_members: { findMany: () => Promise.resolve([]) }, users: { count: () => Promise.resolve(0) } } as unknown as PrismaClient;
+    registerCounsellorTeamsRoutes(app, {
+      requireAuth: async () => {},
+      requireAdminOnlyRole: async () => {},
+      teamsService: new CounsellorTeamsService(prisma),
+      groupsService: new CounsellorGroupsService(prisma),
+    });
+    const res = await app.inject({ method: 'GET', url: '/admin/teams/index' });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ status: 0, message: 'Something went wrong. Please try again.', data: {} });
     await app.close();
   });
 });

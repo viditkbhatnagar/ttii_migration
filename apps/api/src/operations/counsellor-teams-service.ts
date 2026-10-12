@@ -6,7 +6,7 @@ import {
 } from './counsellor-org-reads.js';
 import {
   EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE,
-  canLead, fail, iso, isLiveCounsellor, isMissingTable, isUniqueViolation, orgCode, parseTeamInput, personName, sumKpis,
+  canLead, fail, iso, isLiveCounsellor, isMissingTable, isNameClash, isUniqueViolation, orgCode, parseTeamInput, personName, sumKpis,
   type Kpis, type OrgStatus, type Outcome, type PersonRow, type TeamInput, type TrendPoint,
 } from './counsellor-teams-model.js';
 
@@ -234,7 +234,7 @@ export class CounsellorTeamsService {
   async options(): Promise<OrgOptions> {
     const counsellors = await loadLiveCounsellors(this.prisma);
     const leaderRows = await this.prisma.users.findMany({
-      where: { role_id: { in: [1, 8, 9] }, deleted_at: null },
+      where: { role_id: { in: [1, 8, 9] }, deleted_at: null, disabled_at: null },
       select: { id: true, name: true, role_id: true },
       orderBy: { name: 'asc' },
     });
@@ -312,7 +312,7 @@ export class CounsellorTeamsService {
     const [leader, clash, group] = await Promise.all([
       this.prisma.users.findFirst({
         where: { id: input.leaderUserId },
-        select: { id: true, name: true, email: true, phone: true, role_id: true, deleted_at: true },
+        select: { id: true, name: true, email: true, phone: true, role_id: true, deleted_at: true, disabled_at: true },
       }),
       this.prisma.counsellor_teams.findFirst({
         // MySQL's default collation compares names case-insensitively.
@@ -374,7 +374,7 @@ export class CounsellorTeamsService {
         if (input.groupId != null && !(await claimLiveGroup(tx, input.groupId, actor))) throw new GroupGoneError();
         const created = await tx.counsellor_teams.create({
           data: {
-            name: input.name, description: input.description, group_id: input.groupId, leader_user_id: input.leaderUserId,
+            name: input.name, live_name: input.name, description: input.description, group_id: input.groupId, leader_user_id: input.leaderUserId,
             status: input.status, created_by: actor, created_at: new Date(),
           },
           select: { id: true },
@@ -387,6 +387,7 @@ export class CounsellorTeamsService {
       return { status: 1, message: `${input.name} created${n > 0 ? ` with ${n} member${n === 1 ? '' : 's'}` : ''}.`, data: { id } };
     } catch (error: unknown) {
       if (error instanceof GroupGoneError) return fail('The selected group no longer exists.');
+      if (isNameClash(error)) return fail(nameTaken('team', raw));
       if (isUniqueViolation(error)) return fail('One of these counsellors was just added to another team. Reload and try again.');
       return refuseIfMissing(error);
     }
@@ -404,7 +405,7 @@ export class CounsellorTeamsService {
         const res = await tx.counsellor_teams.updateMany({
           where: { id, deleted_at: null },
           data: {
-            name: input.name, description: input.description, group_id: input.groupId, leader_user_id: input.leaderUserId,
+            name: input.name, live_name: input.name, description: input.description, group_id: input.groupId, leader_user_id: input.leaderUserId,
             status: input.status, updated_by: actor, updated_at: new Date(),
           },
         });
@@ -414,6 +415,7 @@ export class CounsellorTeamsService {
       return { status: 1, message: `${input.name} updated.` };
     } catch (error: unknown) {
       if (error instanceof GroupGoneError) return fail('The selected group no longer exists.');
+      if (isNameClash(error)) return fail(nameTaken('team', raw));
       return refuseIfMissing(error);
     }
   }
@@ -425,7 +427,8 @@ export class CounsellorTeamsService {
       const released = await this.prisma.$transaction(async (tx) => {
         const res = await tx.counsellor_teams.updateMany({
           where: { id, deleted_at: null },
-          data: { deleted_at: new Date(), deleted_by: actor },
+          // Freeing live_name lets a new team reuse the name.
+          data: { deleted_at: new Date(), deleted_by: actor, live_name: null },
         });
         if (res.count === 0) return -1;
         const freed = await tx.counsellor_team_members.deleteMany({ where: { team_id: id } });
@@ -475,3 +478,9 @@ export class CounsellorTeamsService {
 }
 
 class GroupGoneError extends Error {}
+
+/** The refusal when UNIQUE(live_name) wins a race the pre-check could not see. */
+export function nameTaken(noun: 'team' | 'group', raw: Record<string, unknown>): string {
+  const name = typeof raw.name === 'string' ? raw.name.trim().replace(/\s+/g, ' ') : '';
+  return `A ${noun} named "${name}" already exists.`;
+}

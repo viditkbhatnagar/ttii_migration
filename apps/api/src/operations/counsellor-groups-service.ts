@@ -4,10 +4,10 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import { loadApplications, loadKpis, loadPeople, loadTrend, type OrgApplication } from './counsellor-org-reads.js';
 import {
   MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE,
-  canLead, fail, iso, isLiveCounsellor, isMissingTable, orgCode, parseGroupInput, personName, sumKpis,
+  canLead, fail, iso, isLiveCounsellor, isMissingTable, isNameClash, orgCode, parseGroupInput, personName, sumKpis,
   type GroupInput, type Kpis, type OrgStatus, type Outcome, type PersonRow, type TrendPoint,
 } from './counsellor-teams-model.js';
-import { claimLiveGroup } from './counsellor-teams-service.js';
+import { claimLiveGroup, nameTaken } from './counsellor-teams-service.js';
 
 // Counsellor Management → Groups (Naji 2026-10-12, GroupsModule / GroupProfile).
 // A group has a manager (admin, subadmin or counsellor) and holds teams
@@ -204,7 +204,7 @@ export class CounsellorGroupsService {
     const [manager, clash] = await Promise.all([
       this.prisma.users.findFirst({
         where: { id: input.managerUserId },
-        select: { id: true, name: true, email: true, phone: true, role_id: true, deleted_at: true },
+        select: { id: true, name: true, email: true, phone: true, role_id: true, deleted_at: true, disabled_at: true },
       }),
       this.prisma.counsellor_groups.findFirst({
         where: { name: input.name, deleted_at: null, ...(excludeId > 0 ? { NOT: { id: excludeId } } : {}) },
@@ -234,7 +234,7 @@ export class CounsellorGroupsService {
       if (teams.error) return fail(teams.error);
       const id = await this.prisma.$transaction(async (tx) => {
         const created = await tx.counsellor_groups.create({
-          data: { name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, created_by: actor, created_at: new Date() },
+          data: { name: input.name, live_name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, created_by: actor, created_at: new Date() },
           select: { id: true },
         });
         await tx.counsellor_groups.update({ where: { id: created.id }, data: { code: orgCode('GRP', created.id) } });
@@ -249,6 +249,7 @@ export class CounsellorGroupsService {
       const n = teams.ids.length;
       return { status: 1, message: `${input.name} created${n > 0 ? ` with ${n} team${n === 1 ? '' : 's'}` : ''}.`, data: { id } };
     } catch (error: unknown) {
+      if (isNameClash(error)) return fail(nameTaken('group', raw));
       return refuseIfMissing(error);
     }
   }
@@ -262,11 +263,12 @@ export class CounsellorGroupsService {
       if (invalid) return fail(invalid);
       const res = await this.prisma.counsellor_groups.updateMany({
         where: { id, deleted_at: null },
-        data: { name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, updated_by: actor, updated_at: new Date() },
+        data: { name: input.name, live_name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, updated_by: actor, updated_at: new Date() },
       });
       if (res.count === 0) return fail('Group not found.');
       return { status: 1, message: `${input.name} updated.` };
     } catch (error: unknown) {
+      if (isNameClash(error)) return fail(nameTaken('group', raw));
       return refuseIfMissing(error);
     }
   }
@@ -276,7 +278,7 @@ export class CounsellorGroupsService {
     try {
       if (!(id > 0)) return fail('Group not found.');
       const deleted = await this.prisma.$transaction(async (tx) => {
-        const res = await tx.counsellor_groups.updateMany({ where: { id, deleted_at: null }, data: { deleted_at: new Date(), deleted_by: actor } });
+        const res = await tx.counsellor_groups.updateMany({ where: { id, deleted_at: null }, data: { deleted_at: new Date(), deleted_by: actor, live_name: null } });
         if (res.count === 0) return false;
         const teams = await tx.counsellor_teams.count({ where: { group_id: id, deleted_at: null } });
         // Throwing rolls the soft delete back.

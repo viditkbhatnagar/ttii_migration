@@ -15,8 +15,9 @@ import { istDateTime, istYmd } from '../../shared/utils/ist-date.js';
 import { formatYmd } from '../counsellor/staff-model.js';
 import { toTeamDetail, topAndLowest, type TeamMember } from './org-model.js';
 import {
-  ComparisonCard, HeaderStat, InfoRow, OrgApplicationsTable, OrgStatusPill, PerformerList, SectionCard, SectionTabs, TrendCard,
+  HeaderStat, InfoRow, OrgApplicationsTable, OrgStatusPill, PerformerList, SectionCard, SectionTabs,
 } from './org-ui.js';
+import { ComparisonCard, TrendCard } from './org-charts.js';
 import { ManageMembersDialog, TeamFormDialog } from './team-dialogs.js';
 import { useOrgActions } from './use-org-actions.js';
 
@@ -127,6 +128,10 @@ export default function TeamProfilePage({ api, session, onNavigate }: AdminPageP
         </div>
         <SectionTabs tabs={tabs} active={tab} onChange={setTab} label="Team sections" />
       </Card>
+
+      {tab !== 'members' && tab !== 'activity' ? (
+        <p className="-mt-3 text-xs text-muted-foreground">Figures cover current members only.</p>
+      ) : null}
 
       {tab === 'overview' && (
         <div className="space-y-5">

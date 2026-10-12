@@ -264,6 +264,12 @@ export function roleLabel(roleId: number): string {
   return '';
 }
 
+/** A short bar label: the first word (people) or the whole name, capped at 14 characters. */
+export function chartLabel(name: string, firstWord: boolean): string {
+  const label = firstWord ? (name.trim().split(/\s+/)[0] ?? name) : name.trim();
+  return label.length > 14 ? `${label.slice(0, 13)}…` : label;
+}
+
 /** Highest enrolled first, then most applications, then name. */
 export function rankByEnrolled<T extends { name: string; kpis: OrgKpis }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => b.kpis.enrolled - a.kpis.enrolled || b.kpis.applications - a.kpis.applications || a.name.localeCompare(b.name));

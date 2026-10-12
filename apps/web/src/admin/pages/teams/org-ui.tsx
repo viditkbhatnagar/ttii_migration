@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Eye, FileText, Search, TrendingUp, Trophy, type LucideIcon } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AlertTriangle, Check, Eye, FileText, Search, Trophy, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,7 +12,7 @@ import { formatYmd } from '../counsellor/staff-model.js';
 import { PillTab } from '../students/list-chrome.js';
 import {
   STATUS_LABEL, STATUS_TONE, filterPicker,
-  type OrgApplication, type OrgKpis, type OrgStatus, type PickerItem, type TrendPoint,
+  type OrgApplication, type OrgKpis, type OrgStatus, type PickerItem,
 } from './org-model.js';
 
 // Shared pieces of the Teams and Groups screens (Naji's TeamsModule /
@@ -83,63 +82,6 @@ export function SectionTabs<T extends string>({ tabs, active, onChange, label }:
         </button>
       ))}
     </div>
-  );
-}
-
-const CHART_TOOLTIP = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 };
-
-export function TrendCard({ trend }: { trend: TrendPoint[] }) {
-  const hasData = trend.some((t) => t.applications > 0 || t.enrollments > 0);
-  return (
-    <SectionCard title="Monthly Applications & Enrolments" icon={TrendingUp}>
-      {hasData ? (
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={trend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="label" fontSize={11} stroke="var(--muted-foreground)" />
-              <YAxis allowDecimals={false} fontSize={11} stroke="var(--muted-foreground)" />
-              <Tooltip contentStyle={CHART_TOOLTIP} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="applications" name="Applications" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="enrollments" name="Enrolments" fill="var(--color-success)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <p className="py-10 text-center text-sm text-muted-foreground">No applications in the last 12 months.</p>
-      )}
-    </SectionCard>
-  );
-}
-
-const shortLabel = (name: string, firstWord: boolean): string => {
-  const label = firstWord ? (name.split(' ')[0] ?? name) : name;
-  return label.length > 14 ? `${label.slice(0, 13)}…` : label;
-};
-
-export function ComparisonCard({ title, icon, rows, firstWord = false }: {
-  title: string; icon: LucideIcon; rows: Array<{ name: string; kpis: OrgKpis }>; /** People: label bars by first name. */ firstWord?: boolean;
-}) {
-  const data = rows.map((r) => ({ name: shortLabel(r.name, firstWord), applications: r.kpis.applications, enrolled: r.kpis.enrolled }));
-  return (
-    <SectionCard title={title} icon={icon}>
-      {data.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">Nothing to compare yet.</p> : (
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" fontSize={11} stroke="var(--muted-foreground)" />
-              <YAxis allowDecimals={false} fontSize={11} stroke="var(--muted-foreground)" />
-              <Tooltip contentStyle={CHART_TOOLTIP} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="applications" name="Applications" fill="var(--muted-foreground)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="enrolled" name="Enrolled" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </SectionCard>
   );
 }
 

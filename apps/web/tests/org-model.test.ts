@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  EMPTY_ORG_FILTERS, counsellorPickerItems, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
+  EMPTY_ORG_FILTERS, chartLabel, counsellorPickerItems, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
   teamCsvRows, teamPickerItems, toGroupList, toMembership, toOrgOptions, toTeamDetail, toTeamList, topAndLowest, validateOrgForm,
   type TeamRow,
 } from '../src/admin/pages/teams/org-model';
@@ -79,6 +79,11 @@ describe('lists', () => {
     const groups = toGroupList({ groups: [{ id: 1, name: 'North', managerId: 3, managerName: 'Leena' }, { id: 2, name: 'South', managerId: 4 }] }).groups;
     expect(filterGroups(groups, { ...EMPTY_ORG_FILTERS, owner: '4' }).map((g) => g.id)).toEqual(['2']);
     expect(filterGroups(groups, { ...EMPTY_ORG_FILTERS, search: 'leena' }).map((g) => g.id)).toEqual(['1']);
+  });
+
+  test('chart labels', () => {
+    expect(chartLabel(' Asha  Menon ', true)).toBe('Asha');
+    expect(chartLabel('Team Phoenix Rising', false)).toBe('Team Phoenix …');
   });
 
   test('top and lowest performers do not overlap on a small team', () => {

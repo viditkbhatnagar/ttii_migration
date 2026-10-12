@@ -11,6 +11,11 @@
 -- Additive only: three NEW tables, no ALTER of any existing table, no foreign
 -- keys (this schema has none anywhere), indexes instead. Safe to re-run.
 --
+-- live_name (groups and teams) = name while the row is live, NULL once it is
+-- soft-deleted. UNIQUE(live_name) makes duplicate live names impossible even
+-- under concurrent creates (NULLs never clash, so deleted rows free the name;
+-- utf8mb4's default collation makes it case-insensitive).
+--
 -- counsellor_team_members:
 --   * composite PK (team_id, user_id);
 --   * UNIQUE (user_id) — a counsellor is in at most ONE team. The API inserts
@@ -25,6 +30,7 @@ USE lms_ttii;
 CREATE TABLE IF NOT EXISTS counsellor_groups (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(120) NOT NULL,
+  live_name VARCHAR(120) NULL,
   code VARCHAR(40) NOT NULL DEFAULT '',
   description TEXT NULL,
   manager_user_id INT NULL,
@@ -36,6 +42,7 @@ CREATE TABLE IF NOT EXISTS counsellor_groups (
   updated_at DATETIME NULL,
   deleted_at DATETIME NULL,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_counsellor_groups_live_name (live_name),
   INDEX idx_counsellor_groups_deleted (deleted_at),
   INDEX idx_counsellor_groups_manager (manager_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -43,6 +50,7 @@ CREATE TABLE IF NOT EXISTS counsellor_groups (
 CREATE TABLE IF NOT EXISTS counsellor_teams (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(120) NOT NULL,
+  live_name VARCHAR(120) NULL,
   code VARCHAR(40) NOT NULL DEFAULT '',
   group_id INT NULL,
   leader_user_id INT NULL,
@@ -55,6 +63,7 @@ CREATE TABLE IF NOT EXISTS counsellor_teams (
   updated_at DATETIME NULL,
   deleted_at DATETIME NULL,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_counsellor_teams_live_name (live_name),
   INDEX idx_counsellor_teams_deleted (deleted_at),
   INDEX idx_counsellor_teams_group (group_id),
   INDEX idx_counsellor_teams_leader (leader_user_id)
