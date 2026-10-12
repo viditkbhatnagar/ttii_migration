@@ -2123,6 +2123,47 @@ export class AdminPortalApi {
     return payload.message ?? 'Team removed.';
   }
 
+  // TTII 2026-10-12 — Associate Management in Naji's design
+  // (apps/api/src/operations/associate-admin-service.ts + associate-communications-service.ts).
+  // The pages parse these payloads with pages/associates/associate-mgmt-model.ts.
+
+  async loadAssociateDashboard(authToken: string): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/associates/dashboard_stats', authToken);
+    return asRecord(payload.data) ?? {};
+  }
+
+  /** One page (or, with `all: '1'`, every row up to the server cap) of associate-owned leads / students. */
+  async loadAssociateStudents(authToken: string, query: Record<string, string>): Promise<Record<string, unknown>> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/associates/students_list', authToken, query);
+    return asRecord(payload.data) ?? {};
+  }
+
+  async loadAssociateOnboarding(authToken: string): Promise<Record<string, unknown>[]> {
+    const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/associates/onboarding_list', authToken);
+    return toRecords(payload.data);
+  }
+
+  /** One page (or, with `all: '1'`, every match up to the server cap) of the communications log. */
+  async loadAssociateCommunications(authToken: string, query: Record<string, string>): Promise<{ message: string; data: Record<string, unknown> }> {
+    const payload = await this.get<LegacyEnvelope<unknown>>('/admin/associates/communications/list', authToken, query);
+    return { message: asString(payload.message), data: asRecord(payload.data) ?? {} };
+  }
+
+  /** Records a conversation that already happened. Sends nothing. */
+  async logAssociateCommunication(
+    authToken: string,
+    input: { associateId: string; channel: string; direction: string; subject: string; message: string },
+  ): Promise<{ status: number; message: string }> {
+    const payload = await this.post<Record<string, unknown>>('/admin/associates/communications/add', authToken, {
+      associate_id: input.associateId,
+      channel: input.channel,
+      direction: input.direction,
+      subject: input.subject,
+      message: input.message,
+    });
+    return { status: asNumber(payload.status), message: asString(payload.message) };
+  }
+
 
   async loadDocumentRequests(authToken: string): Promise<Record<string, unknown>[]> {
     const payload = await this.get<LegacyEnvelope<unknown[]>>('/admin/documents/requests', authToken);
