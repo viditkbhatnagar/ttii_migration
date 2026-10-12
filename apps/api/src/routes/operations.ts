@@ -6,6 +6,7 @@ import { ADMIN_PORTAL_ROLES, ADMIN_PORTAL_SURFACE_ROLES, CENTRE_PORTAL_ROLES, IN
 import type { StorageProvider } from '../integrations/contracts.js';
 import { verifyEmail } from '../integrations/email-verification.js';
 import { AnnouncementService, type AnnouncementInput } from '../operations/announcement-service.js';
+import { ExamAdminService } from '../operations/exam-admin-service.js';
 import { ExamResultsService } from '../operations/exam-results-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import {
@@ -48,6 +49,7 @@ interface RegisterOperationsRoutesOptions {
   authService?: AuthService;
   operationsService?: OperationsService;
   examResultsService?: ExamResultsService;
+  examAdminService?: ExamAdminService;
   reExamService?: ReExamService;
   storage?: StorageProvider;
   [key: string]: unknown;
@@ -389,6 +391,7 @@ export function registerOperationsRoutes(
   const operationsService = options.operationsService ?? new OperationsService();
   const announcementService = new AnnouncementService();
   const examResultsService = options.examResultsService ?? new ExamResultsService();
+  const examAdminService = options.examAdminService ?? new ExamAdminService();
   const reExamService = options.reExamService ?? new ReExamService();
 
   const requireAuth = requireLegacyAuth(authService);
@@ -2025,6 +2028,28 @@ export function registerOperationsRoutes(
   });
 
   // ─── Phase 2: Exams ─────────────────────────────────────────────────────
+
+  // TTII 2026-10-12 — Exams list + View Exam in Naji's design (exam-admin-service).
+  app.get('/admin/exams/list', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const courseId = toInteger(payload.course_id);
+      const data = await examAdminService.list(courseId > 0 ? { courseId } : {});
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exams/overview', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await examAdminService.overview(toInteger(payload.exam_id));
+      if (!data) {
+        reply.code(200).send({ status: 0, message: 'Exam not found.', data: null });
+        return;
+      }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
 
   app.get('/admin/exam/index', { preHandler: [requireAuth, requireAdminRole] }, async (request, reply) => {
     try {

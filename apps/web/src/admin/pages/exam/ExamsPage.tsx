@@ -1,240 +1,274 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye, FileText, Pencil, Plus, Search, Trophy } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { DmyDateInput } from '@/components/ui/dmy-date-field';
+import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/page-loader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { downloadCsv, toCsv } from '@/lib/csv';
+import { cn } from '@/lib/utils';
 import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
-import { asString, asNumber, asBoolean, dateOnly } from '../../shared/utils/admin-data-utils.js';
-import { AdminPageHeader } from '../../shared/components/AdminPageHeader.js';
-import { AdminDataTable, type DataTableColumn } from '../../shared/components/AdminDataTable.js';
-import { AdminFilterBar, type FilterField } from '../../shared/components/AdminFilterBar.js';
-import { AdminTabBar, type AdminTab } from '../../shared/components/AdminTabBar.js';
-import { AdminStatusBadge } from '../../shared/components/AdminStatusBadge.js';
+import { asString } from '../../shared/utils/admin-data-utils.js';
+import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
+import { formatYmd } from '../exam_result/exam-results-model.js';
+import {
+  PHASE_LABEL,
+  PHASE_TONE,
+  filterExams,
+  phaseCounts,
+  sortExams,
+  toExamListRows,
+  type ExamFilters,
+  type ExamSortKey,
+  type PhaseTab,
+} from './exam-list-model.js';
+import { ViewExamDialog } from './ViewExamDialog.js';
+
+// Exam → Exams (TTII 2026-10-12), rebuilt after Naji's ExamsModule: filter
+// card, phase tabs with counts, a sortable paged table, CSV export, and a real
+// View Exam. It replaces a list whose Delete fired with no confirmation (and
+// never showed the server's refusal or refreshed), whose "Questions" button led
+// to a page that does not exist, and whose Subject / Batch filters did nothing.
+// Phase comes from the server's IST sitting windows.
+
+const PAGE_SIZE = 10;
+const TABS: Array<{ id: PhaseTab; label: string }> = [
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'all', label: 'All' },
+];
+const EMPTY_FILTERS: ExamFilters = { tab: 'all', search: '', courseId: '', type: 'all', from: '', to: '' };
+
+function PillTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+        active ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {label}
+      <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', active ? 'bg-white/20' : 'bg-muted text-muted-foreground')}>{count}</span>
+    </button>
+  );
+}
+
+function SortHead({
+  label, k, sortKey, dir, onSort, className,
+}: { label: string; k: ExamSortKey; sortKey: ExamSortKey; dir: 'asc' | 'desc'; onSort: (k: ExamSortKey) => void; className?: string }) {
+  const active = sortKey === k;
+  const Icon = !active ? ArrowUpDown : dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <TableHead className={className} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => onSort(k)} className={cn('inline-flex items-center gap-1 text-xs font-medium hover:text-foreground', active ? 'text-foreground' : 'text-muted-foreground')}>
+        {label} <Icon aria-hidden="true" className="size-3" />
+      </button>
+    </TableHead>
+  );
+}
 
 export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) {
-  const [courseFilter, setCourseFilter] = useState('');
-  const [subjectFilter, setSubjectFilter] = useState('');
-  const [batchFilter, setBatchFilter] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
-
-  const [courses, setCourses] = useState<Record<string, unknown>[]>([]);
-  const [subjects, setSubjects] = useState<Record<string, unknown>[]>([]);
-  const [batches, setBatches] = useState<Record<string, unknown>[]>([]);
+  const [filters, setFilters] = useState<ExamFilters>(EMPTY_FILTERS);
+  const [sortKey, setSortKey] = useState<ExamSortKey>('fromDate');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const [courses, setCourses] = useState<Array<{ id: string; title: string }>>([]);
 
   useEffect(() => {
-    Promise.all([
-      api.loadCourses(session.token),
-      api.loadBatches(session.token),
-    ]).then(([c, b]) => { setCourses(c); setBatches(b); }).catch(() => {});
+    api.loadCourses(session.token)
+      .then((list) => setCourses(list.map((c) => ({ id: asString(c.id), title: asString(c.title) })).filter((c) => c.id && c.title)))
+      .catch(() => setCourses([]));
   }, [api, session.token]);
 
-  useEffect(() => {
-    if (courseFilter) {
-      api.loadSubjects(session.token, courseFilter).then(setSubjects).catch(() => {});
-    } else {
-      setSubjects([]);
-    }
-    setSubjectFilter('');
-  }, [api, session.token, courseFilter]);
-
-  const { data, loading, error } = useAdminPageData(
-    () => api.loadAdminExams(session.token, {
-      ...(courseFilter ? { courseId: courseFilter } : {}),
-      ...(subjectFilter ? { subjectId: subjectFilter } : {}),
-      ...(batchFilter ? { batchId: batchFilter } : {}),
-    }),
-    [courseFilter, subjectFilter, batchFilter],
+  const { data, loading, error, reload } = useAdminPageData(
+    async () => toExamListRows(await api.listExamsV2(session.token)),
+    [],
+    'admin:exams:list',
   );
+  const rows = useMemo(() => data ?? [], [data]);
+  const counts = useMemo(() => phaseCounts(filterExams(rows, { ...filters, tab: 'all' })), [rows, filters]);
+  const filtered = useMemo(() => sortExams(filterExams(rows, filters), sortKey, sortDir), [rows, filters, sortKey, sortDir]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const current = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const allExams = useMemo(() => data?.exams ?? [], [data]);
-  const summary = data?.summary ?? { total: 0, upcoming: 0, expired: 0, practice: 0 };
+  const set = (patch: Partial<ExamFilters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const onSort = (k: ExamSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k); setSortDir('asc'); }
+  };
+  const exportCsv = () => downloadCsv('exams.csv', toCsv([
+    ['Exam ID', 'Exam name', 'Course', 'Type', 'From', 'To', 'Subjects', 'Students', 'Status'],
+    ...filtered.map((r) => [r.examCode, r.title, r.courses.join('; '), r.isPractice ? 'Practice' : 'Regular', formatYmd(r.fromDate), formatYmd(r.toDate), r.subjects, r.allocated, PHASE_LABEL[r.phase]]),
+  ]));
 
-  // Risha UAT 2026-08-06 — local (IST) today, not `toISOString()`. The UTC
-  // day is still yesterday between 00:00 and 05:30 IST, which flipped an exam
-  // starting today into the Upcoming tab every morning.
-  const now = dateOnly();
-
-  const filteredExams = useMemo(() => {
-    if (activeTab === 'all') return allExams;
-    if (activeTab === 'practice') return allExams.filter((e) => asNumber(e.is_practice) === 1);
-    // from_date / to_date arrive as ISO datetimes (Prisma @db.Date → UTC
-    // midnight), so slicing the first 10 chars still yields the stored day.
-    // An UNSCHEDULED exam has no date at all, and '' sorts before every real
-    // date — which silently filed every dateless draft under Expired.
-    if (activeTab === 'upcoming') {
-      return allExams.filter((e) => { const from = asString(e.from_date).slice(0, 10); return from !== '' && from > now; });
-    }
-    if (activeTab === 'expired') {
-      return allExams.filter((e) => { const to = asString(e.to_date).slice(0, 10); return to !== '' && to < now; });
-    }
-    return allExams;
-  }, [allExams, activeTab, now]);
-
-  const tabs: AdminTab[] = useMemo(() => [
-    { id: 'all', label: 'All', count: summary.total },
-    { id: 'upcoming', label: 'Upcoming', count: summary.upcoming },
-    { id: 'expired', label: 'Expired', count: summary.expired },
-    { id: 'practice', label: 'Practice', count: summary.practice },
-  ], [summary]);
-
-  const columns: DataTableColumn[] = useMemo(() => [
-    { key: 'title', label: 'Title', sortable: true, render: (v) => asString(v) || '-' },
-    { key: 'course_title', label: 'Course', sortable: true, render: (v) => asString(v) || '-' },
-    { key: 'batch_title', label: 'Batch', sortable: true, render: (v) => asString(v) || '-' },
-    {
-      // Risha UAT 2026-08-06 — this column read `description`, a DIFFERENT
-      // column from the `instructions` the wizard's Step 6 writes, so every
-      // wizard-built exam showed a dash here while old seeded rows had text.
-      key: 'instructions',
-      label: 'Instruction',
-      render: (v) => {
-        const text = asString(v).replace(/<[^>]*>/g, ''); // strip HTML
-        return text.length > 60 ? text.slice(0, 60) + '...' : text || '-';
-      },
-    },
-    {
-      // Risha UAT 2026-08-06 — a wizard exam stays `draft` until Step 6
-      // publishes it, and only a published exam is takeable. Without this
-      // column the admin had no way to tell why students could not see it.
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      render: (v) => <AdminStatusBadge status={asString(v) || 'draft'} />,
-    },
-    {
-      // Risha UAT 2026-08-06 — Step 2 schedules one row per subject and
-      // publishing materialises one child exam per row. The list shows the
-      // parent only, so this is where an admin sees that "Test Exam" is
-      // really five separate sittings.
-      key: 'sitting_count',
-      label: 'Sittings',
-      sortable: true,
-      // Risha UAT 2026-08-08 — "why is the new exam showing sitting to 1 by
-      // default? This will appear as a single exam then right?" Sittings are
-      // only created when the exam is PUBLISHED, so a draft with five subjects
-      // already scheduled read "Single" and looked like the split had failed.
-      // A draft now reports what publishing WILL produce.
-      render: (v, row) => {
-        const live = asNumber(v);
-        if (live > 0) return String(live);
-        // >= 1, not > 1: a one-subject exam publishes into one sitting, and
-        // reading "Single" now then "1" after publishing is the same confusion
-        // in miniature.
-        const scheduled = asNumber(row?.scheduled_sitting_count);
-        if (scheduled >= 1) {
-          return (
-            <span className="text-slate-600">
-              {scheduled} <span className="text-xs text-slate-400">on publish</span>
-            </span>
-          );
-        }
-        return 'Single';
-      },
-    },
-    {
-      key: '_questions',
-      label: 'Question Bank',
-      render: (_v, row) => (
-        <button
-          type="button"
-          className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200"
-          onClick={() => onNavigate('/admin/exam/exam_questions/' + asString(row?.id))}
-        >
-          Questions
-        </button>
-      ),
-    },
-    {
-      key: 'publish_result',
-      label: 'Result',
-      // Risha UAT 2026-08-06 — `exam.publish_result` is a Prisma Boolean, so it
-      // arrives as JSON `true`; asNumber(true) is 0, which pinned this badge to
-      // "Unpublished" even right after Publish Result succeeded.
-      render: (v) => <AdminStatusBadge status={asBoolean(v) ? 'Published' : 'Unpublished'} />,
-    },
-  ], [onNavigate]);
-
-  const filters: FilterField[] = useMemo(() => [
-    {
-      key: 'course', label: 'Course', type: 'select' as const, value: courseFilter,
-      placeholder: 'All Courses',
-      options: courses.map((c) => ({ label: asString(c.title), value: asString(c.id) })),
-      onChange: setCourseFilter,
-    },
-    {
-      key: 'subject', label: 'Subject', type: 'select' as const, value: subjectFilter,
-      placeholder: 'All Subjects',
-      options: subjects.map((s) => ({ label: asString(s.title), value: asString(s.id) })),
-      onChange: setSubjectFilter,
-    },
-    {
-      key: 'batch', label: 'Batch', type: 'select' as const, value: batchFilter,
-      placeholder: 'All Batches',
-      options: batches.map((b) => ({ label: asString(b.title), value: asString(b.id) })),
-      onChange: setBatchFilter,
-    },
-  ], [courseFilter, subjectFilter, batchFilter, courses, subjects, batches]);
-
-  if (loading) {
-    return <PageLoader label="Loading exams..." />;
-  }
-
+  if (loading) return <PageLoader label="Loading exams…" />;
   if (error) {
     return (
       <Card>
-        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">{error}</CardContent>
+        <CardContent role="alert" className="py-8 text-center text-sm text-red-600">
+          {error}
+          <div className="mt-4"><Button variant="outline" onClick={reload}>Retry</Button></div>
+        </CardContent>
       </Card>
     );
   }
 
+  const thisYear = new Date().getFullYear();
   return (
-    <div className="space-y-4">
-      <AdminPageHeader title="Exams" addLabel="+ Add Exam" onAdd={() => onNavigate('/admin/exam/add')} />
+    <div className="space-y-6">
+      <PageTitle
+        title="Exams"
+        subtitle="Schedule, monitor and manage exams across all courses."
+        actions={(
+          <Button size="sm" className="gap-1.5" onClick={() => onNavigate('/admin/exam/add')}>
+            <Plus aria-hidden="true" className="size-4" /> New Exam
+          </Button>
+        )}
+      />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {[
-          { label: 'Total Exams', value: summary.total },
-          { label: 'Upcoming', value: summary.upcoming },
-          { label: 'Expired', value: summary.expired },
-          { label: 'Practice', value: summary.practice },
-        ].map((card) => (
-          <Card key={card.label}>
-            <CardContent className="p-4">
-              <p className="text-xs text-gray-500">{card.label}</p>
-              <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
-            </CardContent>
-          </Card>
+      <Card className="gap-0 p-4 shadow-sm">
+        <div className={cn('grid gap-3 md:grid-cols-2', filters.tab === 'all' ? 'xl:grid-cols-[1fr_200px_150px_150px_150px_150px_auto]' : 'xl:grid-cols-[1fr_200px_150px_150px_150px_auto]')}>
+          <div className="relative">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input aria-label="Search exams" placeholder="Search exam, code or course…" className="pl-9" value={filters.search} onChange={(e) => set({ search: e.target.value })} />
+          </div>
+          <select aria-label="Course" value={filters.courseId} onChange={(e) => set({ courseId: e.target.value })} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+            <option value="">All courses</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+          {filters.tab === 'all' ? (
+            <select
+              aria-label="Status"
+              value={filters.tab === 'all' ? '' : filters.tab}
+              onChange={(e) => set({ tab: (e.target.value || 'all') as PhaseTab })}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">All statuses</option>
+              {TABS.filter((t) => t.id !== 'all').map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          ) : null}
+          <select aria-label="Exam type" value={filters.type} onChange={(e) => set({ type: e.target.value as ExamFilters['type'] })} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+            <option value="all">All exam types</option>
+            <option value="regular">Regular</option>
+            <option value="practice">Practice</option>
+          </select>
+          <DmyDateInput value={filters.from} onChange={(v) => set({ from: v })} placeholder="From dd/mm/yyyy" minYear={thisYear - 3} maxYear={thisYear + 1} />
+          <DmyDateInput value={filters.to} onChange={(v) => set({ to: v })} placeholder="To dd/mm/yyyy" minYear={thisYear - 3} maxYear={thisYear + 1} />
+          <Button variant="outline" size="sm" className="h-9" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>Clear</Button>
+        </div>
+      </Card>
+
+      <div role="tablist" aria-label="Exam status" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <PillTab key={t.id} active={filters.tab === t.id} label={t.label} count={counts[t.id]} onClick={() => set({ tab: t.id })} />
         ))}
       </div>
 
-      <AdminFilterBar
-        filters={filters}
-        onApply={() => {}}
-        onClear={() => { setCourseFilter(''); setSubjectFilter(''); setBatchFilter(''); }}
-      />
+      <Card className="gap-0 overflow-hidden p-0 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{filtered.length}</span> exam{filtered.length === 1 ? '' : 's'} found
+          </p>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" disabled={filtered.length === 0} onClick={exportCsv}>
+            <Download aria-hidden="true" className="size-3.5" /> Export CSV
+          </Button>
+        </div>
 
-      <AdminTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+        {current.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title={rows.length === 0 ? 'No exams yet.' : 'No exams match your filters.'}
+            action={rows.length === 0
+              ? <Button size="sm" onClick={() => onNavigate('/admin/exam/add')}>Create the first exam</Button>
+              : <Button variant="outline" size="sm" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>Clear filters</Button>}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-12 text-xs">#</TableHead>
+                <SortHead label="Exam ID" k="examCode" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="Exam name" k="title" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="Course" k="course" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="Type" k="type" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="From" k="fromDate" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="To" k="toDate" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <SortHead label="Subjects" k="subjects" sortKey={sortKey} dir={sortDir} onSort={onSort} className="text-right" />
+                <SortHead label="Status" k="phase" sortKey={sortKey} dir={sortDir} onSort={onSort} />
+                <TableHead className="text-right text-xs">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {current.map((r, i) => (
+                <TableRow key={r.examId}>
+                  <TableCell className="text-xs text-muted-foreground">{(page - 1) * PAGE_SIZE + i + 1}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{r.examCode || `ID ${r.examId}`}</TableCell>
+                  <TableCell className="max-w-[280px]">
+                    <button type="button" className="truncate text-left text-sm font-medium text-primary hover:underline" onClick={() => setViewing(r.examId)}>
+                      {r.title}
+                    </button>
+                  </TableCell>
+                  <TableCell className="max-w-[220px] truncate text-sm text-muted-foreground" title={r.courses.join(', ')}>{r.courses.join(', ') || '—'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{r.isPractice ? 'Practice' : 'Regular'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.fromDate) || '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.toDate) || '—'}</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">{r.subjects}</TableCell>
+                  <TableCell><Pill tone={PHASE_TONE[r.phase]}>{PHASE_LABEL[r.phase]}</Pill></TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <Button size="icon" variant="ghost" className="size-8" title="View" aria-label={`View ${r.title}`} onClick={() => setViewing(r.examId)}>
+                        <Eye aria-hidden="true" className="size-4" />
+                      </Button>
+                      {r.phase !== 'completed' ? (
+                        <Button size="icon" variant="ghost" className="size-8" title="Edit" aria-label={`Edit ${r.title}`} onClick={() => onNavigate(`/admin/exam/edit/${r.examId}`)}>
+                          <Pencil aria-hidden="true" className="size-4" />
+                        </Button>
+                      ) : null}
+                      {r.phase !== 'draft' ? (
+                        <Button size="icon" variant="ghost" className="size-8" title="Results" aria-label={`Results for ${r.title}`} onClick={() => onNavigate(`/admin/Exam_result/index?exam=${r.examId}`)}>
+                          <Trophy aria-hidden="true" className="size-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
 
-      <AdminDataTable
-        columns={columns}
-        rows={filteredExams}
-        actions={[
-          {
-            label: 'Edit',
-            onClick: (row) => onNavigate('/admin/exam/edit/' + asString(row.id)),
-          },
-          {
-            // TTII 2026-10-08 — was "Publish Result", which fired on one click
-            // with no confirmation and emailed no one. Results are reviewed and
-            // published from Exam → Result.
-            label: 'View Results',
-            onClick: (row) => onNavigate(`/admin/Exam_result/index?exam=${asString(row.id)}`),
-          },
-          {
-            label: 'Delete',
-            onClick: (row) => { void api.deleteExam(session.token, asString(row.id)); },
-            variant: 'destructive',
-          },
-        ]}
+        <div className="flex items-center justify-between border-t border-border p-4">
+          <p className="text-xs text-muted-foreground">
+            Showing <span className="font-medium text-foreground">{current.length}</span> of <span className="font-medium text-foreground">{filtered.length}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <ChevronLeft aria-hidden="true" className="size-4" /> Prev
+            </Button>
+            <span className="px-2 text-xs text-muted-foreground">Page {page} of {pages}</span>
+            <Button variant="outline" size="sm" className="gap-1" disabled={page >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}>
+              Next <ChevronRight aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <ViewExamDialog
+        examId={viewing}
+        api={api}
+        token={session.token}
+        onClose={() => setViewing(null)}
+        onNavigate={onNavigate}
+        onDeleted={reload}
       />
     </div>
   );

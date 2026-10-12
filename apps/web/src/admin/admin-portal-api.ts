@@ -1656,6 +1656,18 @@ export class AdminPortalApi {
     });
   }
 
+  // TTII 2026-10-12 — Exams list + View Exam (Naji's design).
+  async listExamsV2(authToken: string, courseId?: string): Promise<unknown[]> {
+    const payload = await this.get<LegacyEnvelope<{ rows?: unknown[] }>>('/admin/exams/list', authToken, courseId ? { course_id: courseId } : {});
+    const rows = asRecord(payload.data)?.rows;
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  async getExamOverview(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exams/overview', authToken, { exam_id: examId });
+    return asRecord(payload.data) ?? null;
+  }
+
   async deleteExam(authToken: string, id: string): Promise<Record<string, unknown>> {
     return this.post<Record<string, unknown>>('/admin/exam/delete', authToken, { id });
   }

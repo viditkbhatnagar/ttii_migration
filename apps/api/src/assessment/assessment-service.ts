@@ -415,6 +415,11 @@ export function parseDurationMinutes(value: unknown): number {
  * The recombination goes through combineDateAndTime, which is the one helper in
  * this file that pins an IST wall clock to a UTC instant. No second variant.
  */
+/** The instant the exam's own window opens (IST wall clock → UTC). */
+export function examWindowOpenInstant(exam: Pick<ExamWindowRow, 'from_date' | 'from_time'>): Date | null {
+  return combineDateAndTime(exam.from_date, exam.from_time);
+}
+
 export function examWindowCloseInstant(exam: ExamWindowRow): Date | null {
   if (!exam.to_date) {
     // No closing day configured — unchanged from the pre-2026-08-11 behaviour,
