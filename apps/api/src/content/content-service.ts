@@ -418,6 +418,13 @@ export interface LessonMaterialFilter {
   courseId?: string;
 }
 
+/** Demo student accounts (student_id DEMO-...) used to show the portal to clients. */
+export const DEMO_STUDENT_CODE_PREFIX = 'DEMO-';
+
+export function isDemoStudentCode(studentId: string | null | undefined): boolean {
+  return typeof studentId === 'string' && studentId.trim().toUpperCase().startsWith(DEMO_STUDENT_CODE_PREFIX);
+}
+
 export class ContentService {
   // Production env still has APP_BASE_URL=https://api.teachersindia.in
   // — a host with no DNS record on the new infra. Every URL built with
@@ -1922,8 +1929,14 @@ export class ContentService {
     // this is the only link from a learner to their intake.
     const user = await this.prisma.users.findFirst({
       where: { id: userIdInt },
-      select: { application_id: true },
+      select: { application_id: true, student_id: true },
     });
+    // TTII 2026-10-14 (Risha): a demo student shown to B2B clients is enrolled
+    // in its courses but kept outside every batch, so it has no cohort and no
+    // admission to resolve an intake from. A DEMO- code (never minted for a real
+    // learner; real codes are TTS####) opens its enrolled courses like an
+    // intake set to "Full (all at once)".
+    if (isDemoStudentCode(user?.student_id)) return 'full';
     if (!user?.application_id) return DEFAULT_STRATEGY;
 
     const application = await this.prisma.applications.findFirst({

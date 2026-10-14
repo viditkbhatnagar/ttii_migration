@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { PrismaClient } from '@prisma/client';
 
-import { ContentService } from '../../src/content/content-service.js';
+import { ContentService, isDemoStudentCode } from '../../src/content/content-service.js';
 
 // Naji/Risha 2026-08-29 — "Students are unable to open the videos, as they are
 // showing as locked... we tried to see if it is subject based or lesson based,
@@ -31,6 +31,7 @@ interface Stub {
   applicationId?: number | null;
   offeringId?: number | null;
   applicationCourseId?: number | null;
+  studentId?: string | null;
 }
 
 function makeService(stub: Stub = {}): ContentService {
@@ -38,6 +39,7 @@ function makeService(stub: Stub = {}): ContentService {
     users: {
       findFirst: () => Promise.resolve({
         application_id: stub.applicationId === undefined ? APPLICATION_ID : stub.applicationId,
+        student_id: stub.studentId === undefined ? 'TTS0042' : stub.studentId,
       }),
     },
     applications: {
@@ -99,5 +101,27 @@ describe('content release strategy', () => {
 
   test('is case and whitespace tolerant, since the value is free text in the DB', async () => {
     expect(await resolve(makeService({ strategy: '  Full  ' }))).toBe('full');
+  });
+});
+
+describe('demo student accounts', () => {
+  test('a DEMO- student opens every enrolled course in full, with no batch and no admission', async () => {
+    // Risha 2026-10-14: a demo account for B2B clients, enrolled in Diploma and
+    // PG Diploma, kept outside batches.
+    expect(await resolve(makeService({ studentId: 'DEMO-001', applicationId: null }))).toBe('full');
+    expect(await resolve(makeService({ studentId: 'DEMO-001', applicationId: null }), '18')).toBe('full');
+  });
+
+  test('real student codes are unaffected', async () => {
+    expect(await resolve(makeService({ studentId: 'TTS0042', applicationId: null }))).toBe('cohort');
+    expect(await resolve(makeService({ studentId: 'TEST-EFG', applicationId: null }))).toBe('cohort');
+  });
+
+  test('only the DEMO- prefix counts', () => {
+    expect(isDemoStudentCode('DEMO-001')).toBe(true);
+    expect(isDemoStudentCode(' demo-002 ')).toBe(true);
+    expect(isDemoStudentCode('DEMOTTS1')).toBe(false);
+    expect(isDemoStudentCode('TTS0001')).toBe(false);
+    expect(isDemoStudentCode(null)).toBe(false);
   });
 });
