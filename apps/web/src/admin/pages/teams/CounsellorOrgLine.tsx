@@ -11,7 +11,7 @@ export function CounsellorOrgLine({ api, token, userId, onNavigate }: {
 }) {
   const { data } = useAdminPageData(() => api.loadCounsellorMembership(token, userId), [userId]);
   if (!data) return null;
-  const { team, group } = toMembership(data);
+  const { team, group, direct } = toMembership(data);
   const link = 'inline-flex items-center gap-1 font-medium text-foreground hover:text-primary hover:underline';
   return (
     <>
@@ -23,6 +23,7 @@ export function CounsellorOrgLine({ api, token, userId, onNavigate }: {
         <span className="inline-flex items-center gap-1">
           <Network aria-hidden="true" className="size-3.5" /> Group:{' '}
           <button type="button" className={link} onClick={() => onNavigate(`/admin/groups/view/${group.id}`)}>{group.name}</button>
+          {direct ? <span>(direct)</span> : null}
         </span>
       ) : null}
     </>

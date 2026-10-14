@@ -2929,6 +2929,22 @@ model counsellor_team_members {
   @@index([team_id], map: "idx_counsellor_team_members_team")
 }
 
+/// Counsellors filed DIRECTLY under a group (Naji 2026-10-14): only those in
+/// no team. A counsellor is in at most ONE group — through their team, or
+/// here (UNIQUE(user_id)); joining a team deletes this row in the same
+/// transaction. Removal is a hard DELETE. Created by
+/// deploy/migrations/2026-10-14-counsellor-group-members.sql.
+model counsellor_group_members {
+  group_id   Int
+  user_id    Int
+  joined_at  DateTime? @default(now()) @db.DateTime(0)
+  created_by Int?
+
+  @@id([group_id, user_id])
+  @@unique([user_id], map: "uq_counsellor_group_members_user")
+  @@index([group_id], map: "idx_counsellor_group_members_group")
+}
+
 model course_subject {
   course_id  Int
   subject_id Int

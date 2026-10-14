@@ -97,6 +97,8 @@ function world(opts: { users?: User[]; teams?: Team[]; links?: Link[]; groups?: 
         Promise.resolve(users.filter((u) => where.id === undefined || matchIn(u.id, where.id)).map(pick)),
       count: () => Promise.resolve(users.filter((u) => u.role_id === 9 && !u.deleted_at).length),
     },
+    // Direct group members (2026-10-14): none here; covered in counsellor-group-members.test.ts.
+    counsellor_group_members: { findFirst: () => Promise.resolve(null), findMany: () => Promise.resolve([]), deleteMany: () => Promise.resolve({ count: 0 }) },
     applications: { groupBy: () => Promise.resolve([]), findMany: () => Promise.resolve([]) },
     course: { findMany: () => Promise.resolve([]) },
   };
@@ -185,6 +187,7 @@ describe('before the migration (P2021)', () => {
     counsellor_teams: { findMany: broken, findFirst: broken },
     counsellor_groups: { findMany: broken, findFirst: broken },
     counsellor_team_members: { findMany: broken, findFirst: broken, deleteMany: broken },
+    counsellor_group_members: { findMany: broken, findFirst: broken, deleteMany: broken },
     users: { count: () => Promise.resolve(3), findMany: () => Promise.resolve([{ id: 10, name: 'Asha', email: null, phone: null, role_id: 9, deleted_at: null, disabled_at: null }]) },
   } as unknown as PrismaClient;
 
@@ -199,8 +202,9 @@ describe('before the migration (P2021)', () => {
     const service = new CounsellorTeamsService(prisma);
     const options = await service.options();
     expect(options.ready).toBe(false);
-    expect(options.counsellors).toEqual([{ id: 10, name: 'Asha', email: '', teamId: null, teamName: '' }]);
-    expect(await service.membershipOf(10)).toEqual({ team: null, group: null });
+    expect(options.counsellors).toEqual([{ id: 10, name: 'Asha', email: '', disabled: false, teamId: null, teamName: '', directGroupId: null, directGroupName: '' }]);
+    expect(options.directReady).toBe(false);
+    expect(await service.membershipOf(10)).toEqual({ team: null, group: null, direct: false });
     expect(await service.detail(1)).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
     expect(await service.removeMember(1, 10)).toEqual({ status: 0, message: NOT_SET_UP_MESSAGE });
   });
@@ -295,6 +299,7 @@ describe('group delete', () => {
         },
       },
       counsellor_teams: { count: () => Promise.resolve(teamCount) },
+      counsellor_group_members: { findFirst: () => Promise.resolve(null), deleteMany: () => Promise.resolve({ count: 0 }) },
     };
     const prisma = {
       ...tx,

@@ -176,6 +176,7 @@ export default function GroupsPage({ api, session, onNavigate }: AdminPageProps)
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground"><Users aria-hidden="true" className="size-3" />{g.counsellors}</span>
+                      {g.direct > 0 ? <span className="mt-0.5 block text-[11px] text-muted-foreground">incl. {g.direct} direct</span> : null}
                     </TableCell>
                     <TableCell className="text-right text-sm font-medium tabular-nums">{g.kpis.applications}</TableCell>
                     <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">

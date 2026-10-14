@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  EMPTY_ORG_FILTERS, chartLabel, counsellorPickerItems, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
+  EMPTY_ORG_FILTERS, chartLabel, counsellorPickerItems, directMemberIds, groupCounsellorPickerItems, toGroupDetail, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
   teamCsvRows, teamPickerItems, toGroupList, toMembership, toOrgOptions, toTeamDetail, toTeamList, topAndLowest, validateOrgForm,
   type TeamRow,
 } from '../src/admin/pages/teams/org-model';
@@ -41,7 +41,7 @@ describe('normalisation', () => {
     expect(d.team).toMatchObject({ id: '2', createdBy: 'Admin', status: 'active' });
     expect(d.members[0]).toMatchObject({ id: '10', current: false, loginDisabled: true });
     expect(d.applications[0]).toMatchObject({ id: '5', enrolled: true, stage: 'lead' });
-    expect(toMembership({ team: { id: 2, code: 'TEAM-002', name: 'Falcon' }, group: null })).toEqual({ team: { id: '2', code: 'TEAM-002', name: 'Falcon' }, group: null });
+    expect(toMembership({ team: { id: 2, code: 'TEAM-002', name: 'Falcon' }, group: null })).toEqual({ team: { id: '2', code: 'TEAM-002', name: 'Falcon' }, group: null, direct: false });
   });
 });
 
@@ -126,5 +126,51 @@ describe('forms and pickers', () => {
   test('team picker: own teams hidden, teams of other groups say they move', () => {
     expect(teamPickerItems(options, '5').map((i) => [i.id, i.badge])).toEqual([['2', 'No group']]);
     expect(teamPickerItems(options, '9').map((i) => i.badge)).toEqual(['Moves from North', 'No group']);
+  });
+});
+
+describe('direct group counsellors (Naji 2026-10-14)', () => {
+  const options = toOrgOptions({
+    ready: true,
+    directReady: true,
+    counsellors: [
+      { id: 10, name: 'Asha', teamId: 1, teamName: 'Phoenix' },
+      { id: 11, name: 'Ravi', directGroupId: 6, directGroupName: 'South' },
+      { id: 12, name: 'Mira' },
+      { id: 13, name: 'Off', disabled: true },
+      { id: 14, name: 'Lena', disabled: true, directGroupId: 5, directGroupName: 'North' },
+      { id: 15, name: 'Kai', directGroupId: 5, directGroupName: 'North' },
+    ],
+  });
+
+  test('group picker: team members locked, other-group members move, disabled left out', () => {
+    const items = groupCounsellorPickerItems(options, '5');
+    expect(items.map((i) => [i.id, i.disabled, i.badge, i.note ?? ''])).toEqual([
+      ['10', true, 'In Phoenix', 'In team Phoenix; added through the team.'],
+      ['11', false, 'In South', 'Currently in South; will move here.'],
+      ['12', false, 'No team', ''],
+      ['14', false, 'This group · login disabled', ''],
+      ['15', false, 'This group', ''],
+    ]);
+    // Creating a group: no "this group", disabled counsellors left out.
+    expect(groupCounsellorPickerItems(options, '').map((i) => i.id)).toEqual(['10', '11', '12', '15']);
+    expect(directMemberIds(options, '5')).toEqual(['14', '15']);
+    expect(directMemberIds(options, '')).toEqual([]);
+  });
+
+  test('team picker warns that joining a team moves a direct member', () => {
+    const item = counsellorPickerItems(options, '1').find((i) => i.id === '11');
+    expect(item).toMatchObject({ badge: 'Direct: South', disabled: false, note: "Direct member of South; joining a team moves them under the team's group." });
+  });
+
+  test('group detail, list row and membership carry the direct members', () => {
+    const d = toGroupDetail({ group: { id: 6, counsellors: 3, direct: 1 }, directReady: true, direct: [{ id: 11, name: 'Ravi', kpis: { applications: 2 } }] });
+    expect(d.group).toMatchObject({ counsellors: 3, direct: 1 });
+    expect(d.directReady).toBe(true);
+    expect(d.direct[0]).toMatchObject({ id: '11', name: 'Ravi', current: true, kpis: { applications: 2 } });
+    expect(toGroupDetail({}).directReady).toBe(false);
+    expect(toMembership({ team: null, group: { id: 6, code: 'GRP-006', name: 'South' }, direct: true }).direct).toBe(true);
+    expect(groupCsvRows(toGroupList({ groups: [{ id: 6, code: 'GRP-006', name: 'South', counsellors: 3, direct: 1 }] }).groups)[1]?.slice(0, 6))
+      .toEqual(['GRP-006', 'South', '', 0, 3, 1]);
   });
 });

@@ -33,7 +33,7 @@ export function useOrgActions(api: AdminPortalApi, token: string) {
 
   const deleteGroup = useCallback((group: { id: string; name: string }) => run({
     title: `Delete group "${group.name}"?`,
-    description: 'A group that still has teams cannot be deleted. Move or remove its teams first.',
+    description: 'A group that still has teams cannot be deleted; move or remove its teams first. Counsellors filed directly under it are released.',
     confirmText: 'Delete',
     variant: 'destructive',
   }, () => api.deleteCounsellorGroup(token, group.id)), [api, token, run]);
@@ -52,5 +52,12 @@ export function useOrgActions(api: AdminPortalApi, token: string) {
     variant: 'destructive',
   }, () => api.removeCounsellorGroupTeam(token, groupId, team.id)), [api, token, run]);
 
-  return { deleteTeam, deleteGroup, removeMember, removeTeam };
+  const removeDirectCounsellor = useCallback((groupId: string, member: { id: string; name: string }) => run({
+    title: `Remove ${member.name} from this group?`,
+    description: 'They stay a counsellor with all their applications; they just have no group.',
+    confirmText: 'Remove',
+    variant: 'destructive',
+  }, () => api.removeCounsellorGroupCounsellor(token, groupId, member.id)), [api, token, run]);
+
+  return { deleteTeam, deleteGroup, removeMember, removeTeam, removeDirectCounsellor };
 }

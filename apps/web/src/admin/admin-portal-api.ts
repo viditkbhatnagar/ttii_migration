@@ -2118,6 +2118,14 @@ export class AdminPortalApi {
     const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/add_teams', authToken, { group_id: groupId, team_ids: teamIds });
     return payload.message ?? 'Teams assigned.';
   }
+  async addCounsellorGroupCounsellors(authToken: string, groupId: string, userIds: string[]): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/add_counsellors', authToken, { group_id: groupId, user_ids: userIds });
+    return payload.message ?? 'Counsellors added.';
+  }
+  async removeCounsellorGroupCounsellor(authToken: string, groupId: string, userId: string): Promise<string> {
+    const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/remove_counsellor', authToken, { group_id: groupId, user_id: userId });
+    return payload.message ?? 'Counsellor removed.';
+  }
   async removeCounsellorGroupTeam(authToken: string, groupId: string, teamId: string): Promise<string> {
     const payload = await this.post<LegacyEnvelope<unknown>>('/admin/groups/remove_team', authToken, { group_id: groupId, team_id: teamId });
     return payload.message ?? 'Team removed.';

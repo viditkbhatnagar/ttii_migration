@@ -33,7 +33,10 @@ export interface GroupRow {
   managerId: string;
   managerName: string;
   teams: number;
+  /** Live counsellors under the group: team members plus direct members. */
   counsellors: number;
+  /** Of which filed directly (not through a team). */
+  direct: number;
   kpis: OrgKpis;
   createdAt: string;
 }
@@ -84,6 +87,10 @@ export interface GroupTeam { id: string; code: string; name: string; status: Org
 export interface GroupDetail {
   group: GroupRow & { createdBy: string; updatedAt: string };
   teams: GroupTeam[];
+  /** Counsellors filed directly under the group (not through a team). */
+  direct: TeamMember[];
+  /** Direct members can be added (the 2026-10-14 migration has run). */
+  directReady: boolean;
   kpis: OrgKpis;
   trend: TrendPoint[];
   applications: OrgApplication[];
@@ -92,13 +99,24 @@ export interface GroupDetail {
 export interface OrgOptions {
   ready: boolean;
   message: string;
-  counsellors: Array<{ id: string; name: string; email: string; teamId: string; teamName: string }>;
+  /** Direct group members can be added (the 2026-10-14 migration has run). */
+  directReady: boolean;
+  counsellors: Array<{
+    id: string; name: string; email: string; disabled: boolean; teamId: string; teamName: string;
+    /** The group this counsellor is filed under DIRECTLY ('' when none). */
+    directGroupId: string; directGroupName: string;
+  }>;
   leaders: Array<{ id: string; name: string; roleId: number }>;
   groups: Array<{ id: string; code: string; name: string; status: OrgStatus }>;
   teams: Array<{ id: string; code: string; name: string; groupId: string; groupName: string; members: number; status: OrgStatus }>;
 }
 
-export interface Membership { team: { id: string; code: string; name: string } | null; group: { id: string; code: string; name: string } | null }
+export interface Membership {
+  team: { id: string; code: string; name: string } | null;
+  group: { id: string; code: string; name: string } | null;
+  /** The group is a direct membership, not through the team. */
+  direct: boolean;
+}
 
 const id = (v: unknown): string => {
   const s = asString(v);
@@ -145,6 +163,7 @@ export function toGroupRow(r: Record<string, unknown>): GroupRow {
     managerName: asString(r.managerName),
     teams: asNumber(r.teams),
     counsellors: asNumber(r.counsellors),
+    direct: asNumber(r.direct),
     kpis: toKpis(r.kpis),
     createdAt: asString(r.createdAt),
   };
@@ -192,21 +211,25 @@ function toApplications(raw: unknown): OrgApplication[] {
   }));
 }
 
+function toMember(m: Record<string, unknown>): TeamMember {
+  return {
+    id: asString(m.id),
+    name: asString(m.name),
+    email: asString(m.email),
+    phone: asString(m.phone),
+    current: m.current !== false,
+    loginDisabled: m.loginDisabled === true,
+    joinedAt: asString(m.joinedAt),
+    kpis: toKpis(m.kpis),
+  };
+}
+
 export function toTeamDetail(raw: unknown): TeamDetail {
   const r = asRecord(raw) ?? {};
   const t = asRecord(r.team) ?? {};
   return {
     team: { ...toTeamRow(t), createdBy: asString(t.createdBy), updatedAt: asString(t.updatedAt) },
-    members: toRecords(r.members).map((m) => ({
-      id: asString(m.id),
-      name: asString(m.name),
-      email: asString(m.email),
-      phone: asString(m.phone),
-      current: m.current !== false,
-      loginDisabled: m.loginDisabled === true,
-      joinedAt: asString(m.joinedAt),
-      kpis: toKpis(m.kpis),
-    })),
+    members: toRecords(r.members).map(toMember),
     kpis: toKpis(r.kpis),
     trend: toTrend(r.trend),
     applications: toApplications(r.applications),
@@ -223,6 +246,8 @@ export function toGroupDetail(raw: unknown): GroupDetail {
       id: asString(t.id), code: asString(t.code), name: asString(t.name), status: status(t.status),
       leaderName: asString(t.leaderName), members: asNumber(t.members), kpis: toKpis(t.kpis),
     })),
+    direct: toRecords(r.direct).map(toMember),
+    directReady: r.directReady === true,
     kpis: toKpis(r.kpis),
     trend: toTrend(r.trend),
     applications: toApplications(r.applications),
@@ -233,7 +258,11 @@ export function toOrgOptions(raw: unknown): OrgOptions {
   const r = asRecord(raw) ?? {};
   return {
     ...readyOf(r),
-    counsellors: toRecords(r.counsellors).map((c) => ({ id: id(c.id), name: asString(c.name), email: asString(c.email), teamId: id(c.teamId), teamName: asString(c.teamName) })),
+    directReady: r.directReady === true,
+    counsellors: toRecords(r.counsellors).map((c) => ({
+      id: id(c.id), name: asString(c.name), email: asString(c.email), disabled: c.disabled === true,
+      teamId: id(c.teamId), teamName: asString(c.teamName), directGroupId: id(c.directGroupId), directGroupName: asString(c.directGroupName),
+    })),
     leaders: toRecords(r.leaders).map((l) => ({ id: id(l.id), name: asString(l.name), roleId: asNumber(l.roleId) })),
     groups: toRecords(r.groups).map((g) => ({ id: id(g.id), code: asString(g.code), name: asString(g.name), status: status(g.status) })),
     teams: toRecords(r.teams).map((t) => ({
@@ -249,7 +278,7 @@ export function toMembership(raw: unknown): Membership {
     const x = asRecord(v);
     return x ? { id: id(x.id), code: asString(x.code), name: asString(x.name) } : null;
   };
-  return { team: pick(r.team), group: pick(r.group) };
+  return { team: pick(r.team), group: pick(r.group), direct: r.direct === true };
 }
 
 // ─── Display ────────────────────────────────────────────────────────────
@@ -356,8 +385,8 @@ export function teamCsvRows(rows: TeamRow[]): Array<Array<string | number>> {
 
 export function groupCsvRows(rows: GroupRow[]): Array<Array<string | number>> {
   return [
-    ['Group ID', 'Group Name', 'Manager', 'Teams', 'Counsellors', 'Applications', 'Enrolled', 'Conversion %', 'Status'],
-    ...rows.map((r) => [r.code, r.name, r.managerName, r.teams, r.counsellors, r.kpis.applications, r.kpis.enrolled, r.kpis.conversion, STATUS_LABEL[r.status]]),
+    ['Group ID', 'Group Name', 'Manager', 'Teams', 'Counsellors', 'Of Which Direct', 'Applications', 'Enrolled', 'Conversion %', 'Status'],
+    ...rows.map((r) => [r.code, r.name, r.managerName, r.teams, r.counsellors, r.direct, r.kpis.applications, r.kpis.enrolled, r.kpis.conversion, STATUS_LABEL[r.status]]),
   ];
 }
 
@@ -389,7 +418,15 @@ export function validateOrgForm(noun: 'Team' | 'Group', name: string, ownerId: s
   return errors;
 }
 
-export interface PickerItem { id: string; title: string; subtitle: string; badge: string; disabled: boolean }
+export interface PickerItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  badge: string;
+  disabled: boolean;
+  /** A longer explanation under the row (why it is locked, what saving will do). */
+  note?: string;
+}
 
 /**
  * Counsellors for a team's member picker. A counsellor is in at most one
@@ -403,9 +440,45 @@ export function counsellorPickerItems(options: OrgOptions, teamId: string): Pick
       id: c.id,
       title: c.name,
       subtitle: c.email || `#${c.id}`,
-      badge: c.teamId ? `In ${c.teamName || 'another team'}` : 'No team',
+      badge: c.teamId ? `In ${c.teamName || 'another team'}` : c.directGroupId ? `Direct: ${c.directGroupName || 'a group'}` : 'No team',
       disabled: c.teamId !== '',
+      ...(!c.teamId && c.directGroupId
+        ? { note: `Direct member of ${c.directGroupName || 'a group'}; joining a team moves them under the team's group.` }
+        : {}),
     }));
+}
+
+/**
+ * Counsellors for a group's "Assign Counsellors" picker (Naji 2026-10-14). A
+ * counsellor belongs to at most one group, through their team or directly:
+ *   - in a team: shown, locked (the team decides their group);
+ *   - direct member of ANOTHER group: selectable, moves here on save;
+ *   - direct member of THIS group: selectable (pre-ticked when editing);
+ *   - login disabled: left out, unless already a direct member here.
+ */
+export function groupCounsellorPickerItems(options: OrgOptions, groupId: string): PickerItem[] {
+  return options.counsellors
+    .filter((c) => !c.disabled || (groupId !== '' && c.directGroupId === groupId))
+    .map((c) => {
+      const base = { id: c.id, title: c.name, subtitle: c.email || `#${c.id}` };
+      if (c.teamId) {
+        const team = c.teamName || 'another team';
+        return { ...base, badge: `In ${team}`, disabled: true, note: `In team ${team}; added through the team.` };
+      }
+      if (groupId !== '' && c.directGroupId === groupId) {
+        return { ...base, badge: c.disabled ? 'This group · login disabled' : 'This group', disabled: false };
+      }
+      if (c.directGroupId) {
+        const group = c.directGroupName || 'another group';
+        return { ...base, badge: `In ${group}`, disabled: false, note: `Currently in ${group}; will move here.` };
+      }
+      return { ...base, badge: 'No team', disabled: false };
+    });
+}
+
+/** The group's current direct members, from the picker options. */
+export function directMemberIds(options: OrgOptions, groupId: string): string[] {
+  return groupId ? options.counsellors.filter((c) => c.directGroupId === groupId).map((c) => c.id) : [];
 }
 
 /** Teams for a group's picker: teams of THIS group are left out; others move here. */
@@ -423,5 +496,5 @@ export function teamPickerItems(options: OrgOptions, groupId: string): PickerIte
 
 export function filterPicker(items: PickerItem[], search: string): PickerItem[] {
   const q = search.trim().toLowerCase();
-  return q ? items.filter((i) => has(q, i.title, i.subtitle, i.badge)) : items;
+  return q ? items.filter((i) => has(q, i.title, i.subtitle, i.badge, i.note ?? '')) : items;
 }

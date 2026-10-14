@@ -228,6 +228,7 @@ export function PickerList({ items, selected, onToggle, placeholder, emptyText }
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-foreground">{item.title}</span>
                   <span className="block truncate text-xs text-muted-foreground">{item.subtitle}</span>
+                  {item.note ? <span className="mt-0.5 block text-[11px] text-amber-700">{item.note}</span> : null}
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground">{item.badge}</span>

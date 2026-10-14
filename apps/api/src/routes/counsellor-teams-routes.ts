@@ -75,8 +75,14 @@ export function registerCounsellorTeamsRoutes(app: FastifyInstance, deps: Counse
 
   app.get('/admin/groups/index', guard, read(() => groups.list()));
   app.get('/admin/groups/view', guard, write((p) => groups.detail(intOf(p.id))));
-  app.post('/admin/groups/create', guard, write((p, actor) => groups.create(actor, p, toIdList(p.team_ids))));
-  app.post('/admin/groups/update', guard, write((p, actor) => groups.update(actor, intOf(p.id), p)));
+  app.post('/admin/groups/create', guard, write((p, actor) => groups.create(actor, p, toIdList(p.team_ids), toIdList(p.counsellor_ids))));
+  // counsellor_ids ABSENT = leave the direct counsellors alone; PRESENT (even
+  // empty) = they become exactly that list.
+  app.post('/admin/groups/update', guard, write((p, actor) => groups.update(
+    actor, intOf(p.id), p, 'counsellor_ids' in p ? toIdList(p.counsellor_ids) : undefined,
+  )));
+  app.post('/admin/groups/add_counsellors', guard, write((p, actor) => groups.addCounsellors(actor, intOf(p.group_id), toIdList(p.user_ids))));
+  app.post('/admin/groups/remove_counsellor', guard, write((p) => groups.removeCounsellor(intOf(p.group_id), intOf(p.user_id))));
   app.post('/admin/groups/delete', guard, write((p, actor) => groups.remove(actor, intOf(p.id))));
   app.post('/admin/groups/add_teams', guard, write((p, actor) => groups.addTeams(actor, intOf(p.group_id), toIdList(p.team_ids))));
   app.post('/admin/groups/remove_team', guard, write((p, actor) => groups.removeTeam(actor, intOf(p.group_id), intOf(p.team_id))));

@@ -18,17 +18,19 @@ import {
 } from '../teams/org-ui.js';
 import { ComparisonCard, TrendCard } from '../teams/org-charts.js';
 import { useOrgActions } from '../teams/use-org-actions.js';
-import { GroupFormDialog, ManageTeamsDialog } from './group-dialogs.js';
+import { GroupFormDialog, ManageGroupCounsellorsDialog, ManageTeamsDialog } from './group-dialogs.js';
+import { DirectCounsellorsTab } from './group-direct-tab.js';
 
 // Group profile (Naji's GroupProfile, TTII 2026-10-12): header with the
 // group's real numbers, then Overview / Teams / Performance / Applications /
-// Students. KPIs are the applications of every counsellor in the group's
-// teams. Organisational only.
+// Students. KPIs are the applications of every counsellor in the group: its
+// teams' members plus its direct counsellors (Naji 2026-10-14), deduped.
+// Organisational only.
 // NOT copied: Targets tab, Active Target, Pending Reg. Fee and Revenue (need
 // product decisions); Activity Timeline (no history is recorded for groups);
 // "Transfer Group" is the Group Manager field of Edit Group.
 
-type Tab = 'overview' | 'teams' | 'performance' | 'applications' | 'students';
+type Tab = 'overview' | 'teams' | 'direct' | 'performance' | 'applications' | 'students';
 
 function groupIdFromPath(): string {
   return /^\/admin\/groups\/view\/(\d+)/.exec(window.location.pathname)?.[1] ?? '';
@@ -44,7 +46,7 @@ export default function GroupProfilePage({ api, session, onNavigate }: AdminPage
   );
   const actions = useOrgActions(api, session.token);
   const [tab, setTab] = useState<Tab>('overview');
-  const [dialog, setDialog] = useState<'edit' | 'teams' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'teams' | 'counsellors' | null>(null);
   const detail = useMemo(() => (data ? toGroupDetail(data) : null), [data]);
   const back = () => onNavigate('/admin/groups/index');
 
@@ -70,11 +72,13 @@ export default function GroupProfilePage({ api, session, onNavigate }: AdminPage
   const tabs: Array<{ id: Tab; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'teams', label: 'Teams', count: teams.length },
+    { id: 'direct', label: 'Counsellors (direct)', count: group.direct },
     { id: 'performance', label: 'Performance' },
     { id: 'applications', label: 'Applications', count: kpis.applications },
     { id: 'students', label: 'Students', count: kpis.enrolled },
   ];
   const removeTeam = (t: GroupTeam) => { void actions.removeTeam(group.id, t).then((ok) => { if (ok) reload(); }); };
+  const removeDirect = (m: { id: string; name: string }) => { void actions.removeDirectCounsellor(group.id, m).then((ok) => { if (ok) reload(); }); };
 
   return (
     <div className="space-y-6">
@@ -210,6 +214,10 @@ export default function GroupProfilePage({ api, session, onNavigate }: AdminPage
         </Card>
       )}
 
+      {tab === 'direct' && (
+        <DirectCounsellorsTab members={detail.direct} ready={detail.directReady} onAdd={() => setDialog('counsellors')} onRemove={removeDirect} />
+      )}
+
       {tab === 'performance' && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -232,6 +240,7 @@ export default function GroupProfilePage({ api, session, onNavigate }: AdminPage
 
       <GroupFormDialog open={dialog === 'edit'} group={group} api={api} token={session.token} onClose={() => setDialog(null)} onSaved={reload} />
       <ManageTeamsDialog open={dialog === 'teams'} group={group} api={api} token={session.token} onClose={() => setDialog(null)} onSaved={reload} />
+      <ManageGroupCounsellorsDialog open={dialog === 'counsellors'} group={group} api={api} token={session.token} onClose={() => setDialog(null)} onSaved={reload} />
     </div>
   );
 }

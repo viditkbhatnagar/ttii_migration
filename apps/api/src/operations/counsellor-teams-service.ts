@@ -4,6 +4,7 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import {
   loadApplications, loadKpis, loadLiveCounsellors, loadPeople, loadTrend, type OrgApplication,
 } from './counsellor-org-reads.js';
+import { directMembersReady, loadDirectLinks, releaseDirect } from './counsellor-group-members.js';
 import {
   EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE,
   canLead, fail, iso, isLiveCounsellor, isMissingTable, isNameClash, isUniqueViolation, orgCode, parseTeamInput, personName, sumKpis,
@@ -20,6 +21,10 @@ import {
 // add the same counsellor at once; the loser gets a clear message.
 // Before the migration runs (P2021) reads return empty and writes refuse with
 // NOT_SET_UP_MESSAGE instead of a 500.
+//
+// One group per counsellor (Naji 2026-10-14): a counsellor filed DIRECTLY
+// under a group (counsellor_group_members) who joins a team leaves that
+// direct group in the same transaction — the team's group is now theirs.
 
 export interface TeamListRow {
   id: number;
@@ -69,7 +74,13 @@ export interface TeamDetail {
 export interface OrgOptions {
   ready: boolean;
   message: string;
-  counsellors: Array<{ id: number; name: string; email: string; teamId: number | null; teamName: string }>;
+  /** counsellor_group_members exists (direct group members can be added). */
+  directReady: boolean;
+  counsellors: Array<{
+    id: number; name: string; email: string; disabled: boolean; teamId: number | null; teamName: string;
+    /** The group this counsellor is filed under DIRECTLY (not through a team). */
+    directGroupId: number | null; directGroupName: string;
+  }>;
   leaders: Array<{ id: number; name: string; roleId: number }>;
   groups: Array<{ id: number; code: string; name: string; status: OrgStatus }>;
   teams: Array<{ id: number; code: string; name: string; groupId: number | null; groupName: string; members: number; status: OrgStatus }>;
@@ -78,6 +89,8 @@ export interface OrgOptions {
 export interface Membership {
   team: { id: number; code: string; name: string } | null;
   group: { id: number; code: string; name: string } | null;
+  /** True when the group is a direct membership, not through the team. */
+  direct: boolean;
 }
 
 const teamSelect = {
@@ -239,20 +252,32 @@ export class CounsellorTeamsService {
       orderBy: { name: 'asc' },
     });
     const leaders = leaderRows.map((u) => ({ id: u.id, name: personName(u), roleId: u.role_id ?? 0 }));
-    const base = (teamOf: Map<number, { id: number; name: string }>) => counsellors.map((c) => {
+    type Place = { id: number; name: string };
+    const base = (teamOf: Map<number, Place>, directOf: Map<number, Place>) => counsellors.map((c) => {
       const t = teamOf.get(c.id);
-      return { id: c.id, name: personName(c), email: (c.email ?? '').trim(), teamId: t?.id ?? null, teamName: t?.name ?? '' };
+      const d = t ? undefined : directOf.get(c.id);
+      return {
+        id: c.id, name: personName(c), email: (c.email ?? '').trim(), disabled: !!c.disabled_at,
+        teamId: t?.id ?? null, teamName: t?.name ?? '', directGroupId: d?.id ?? null, directGroupName: d?.name ?? '',
+      };
     });
     try {
-      const [teams, groups, links] = await Promise.all([
+      const [teams, groups, links, directReady] = await Promise.all([
         this.prisma.counsellor_teams.findMany({ where: { deleted_at: null }, select: { id: true, code: true, name: true, group_id: true, status: true }, orderBy: { name: 'asc' } }),
         this.prisma.counsellor_groups.findMany({ where: { deleted_at: null }, select: { id: true, code: true, name: true, status: true }, orderBy: { name: 'asc' } }),
         this.prisma.counsellor_team_members.findMany({ select: { team_id: true, user_id: true } }),
+        directMembersReady(this.prisma),
       ]);
+      const directLinks = directReady ? await loadDirectLinks(this.prisma) : [];
       const teamById = new Map(teams.map((t) => [t.id, t]));
       const groupName = new Map(groups.map((g) => [g.id, g.name]));
       const liveCounsellors = new Set(counsellors.map((c) => c.id));
-      const teamOf = new Map<number, { id: number; name: string }>();
+      const teamOf = new Map<number, Place>();
+      const directOf = new Map<number, Place>();
+      for (const l of directLinks) {
+        const name = groupName.get(l.group_id);
+        if (name !== undefined) directOf.set(l.user_id, { id: l.group_id, name });
+      }
       const memberCount = new Map<number, number>();
       for (const l of links) {
         const t = teamById.get(l.team_id);
@@ -263,7 +288,8 @@ export class CounsellorTeamsService {
       return {
         ready: true,
         message: 'success',
-        counsellors: base(teamOf),
+        directReady,
+        counsellors: base(teamOf, directOf),
         leaders,
         groups: groups.map((g) => ({ id: g.id, code: g.code || orgCode('GRP', g.id), name: g.name, status: asStatus(g.status) })),
         teams: teams.map((t) => ({
@@ -278,17 +304,17 @@ export class CounsellorTeamsService {
       };
     } catch (error: unknown) {
       if (!isMissingTable(error)) throw error;
-      return { ready: false, message: NOT_SET_UP_MESSAGE, counsellors: base(new Map()), leaders, groups: [], teams: [] };
+      return { ready: false, message: NOT_SET_UP_MESSAGE, directReady: false, counsellors: base(new Map(), new Map()), leaders, groups: [], teams: [] };
     }
   }
 
   /** The counsellor profile's read-only "Team / Group" line. */
   async membershipOf(userId: number): Promise<Membership> {
-    const none: Membership = { team: null, group: null };
+    const none: Membership = { team: null, group: null, direct: false };
     if (!(userId > 0)) return none;
     try {
       const link = await this.prisma.counsellor_team_members.findFirst({ where: { user_id: userId }, select: { team_id: true } });
-      if (!link) return none;
+      if (!link) return await this.directMembershipOf(userId);
       const team = await this.prisma.counsellor_teams.findFirst({
         where: { id: link.team_id, deleted_at: null }, select: { id: true, code: true, name: true, group_id: true },
       });
@@ -299,11 +325,25 @@ export class CounsellorTeamsService {
       return {
         team: { id: team.id, code: team.code || orgCode('TEAM', team.id), name: team.name },
         group: group ? { id: group.id, code: group.code || orgCode('GRP', group.id), name: group.name } : null,
+        direct: false,
       };
     } catch (error: unknown) {
       if (isMissingTable(error)) return none;
       throw error;
     }
+  }
+
+  /** A counsellor in no team may still be filed directly under a group. */
+  private async directMembershipOf(userId: number): Promise<Membership> {
+    const [link] = await loadDirectLinks(this.prisma, { userIds: [userId] });
+    const group = link
+      ? await this.prisma.counsellor_groups.findFirst({ where: { id: link.group_id, deleted_at: null }, select: { id: true, code: true, name: true } })
+      : null;
+    return {
+      team: null,
+      group: group ? { id: group.id, code: group.code || orgCode('GRP', group.id), name: group.name } : null,
+      direct: !!group,
+    };
   }
 
   // ─── Writes ───────────────────────────────────────────────────────────
@@ -369,6 +409,7 @@ export class CounsellorTeamsService {
       if (members.error) return fail(members.error);
       const placed = await this.alreadyPlaced(members.ok);
       if (placed.length > 0) return fail(`Already in a team: ${placed.join(', ')}. Remove them from that team first.`);
+      const directReady = members.ok.length > 0 && await directMembersReady(this.prisma);
 
       const id = await this.prisma.$transaction(async (tx) => {
         if (input.groupId != null && !(await claimLiveGroup(tx, input.groupId, actor))) throw new GroupGoneError();
@@ -381,6 +422,8 @@ export class CounsellorTeamsService {
         });
         await tx.counsellor_teams.update({ where: { id: created.id }, data: { code: orgCode('TEAM', created.id) } });
         await this.insertMembers(tx, created.id, members.ok, actor);
+        // One group per counsellor: a direct group membership ends here.
+        if (directReady) await releaseDirect(tx, members.ok);
         return created.id;
       });
       const n = members.ok.length;
@@ -449,16 +492,19 @@ export class CounsellorTeamsService {
       if (members.error) return fail(members.error);
       const placed = await this.alreadyPlaced(members.ok);
       if (placed.length > 0) return fail(`Already in a team: ${placed.join(', ')}. Remove them from that team first.`);
-      const ok = await this.prisma.$transaction(async (tx) => {
+      const directReady = await directMembersReady(this.prisma);
+      const released = await this.prisma.$transaction(async (tx) => {
         // Lock the live team row so a concurrent delete cannot strand members.
         const live = await tx.counsellor_teams.updateMany({ where: { id: teamId, deleted_at: null }, data: { updated_at: new Date(), updated_by: actor } });
-        if (live.count === 0) return false;
+        if (live.count === 0) return -1;
         await this.insertMembers(tx, teamId, members.ok, actor);
-        return true;
+        // One group per counsellor: a direct group membership ends here.
+        return directReady ? releaseDirect(tx, members.ok) : 0;
       });
-      if (!ok) return fail('Team not found.');
+      if (released < 0) return fail('Team not found.');
       const n = members.ok.length;
-      return { status: 1, message: `${n} counsellor${n === 1 ? '' : 's'} added.`, data: { added: n } };
+      const moved = released > 0 ? ` ${released} left their direct group and now sit under the team's group.` : '';
+      return { status: 1, message: `${n} counsellor${n === 1 ? '' : 's'} added.${moved}`, data: { added: n } };
     } catch (error: unknown) {
       if (isUniqueViolation(error)) return fail('One of these counsellors was just added to a team by someone else. Reload and try again.');
       return refuseIfMissing(error);
