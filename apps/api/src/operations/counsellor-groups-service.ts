@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { loadApplications, loadKpis, loadPeople, loadTrend, type OrgApplication } from './counsellor-org-reads.js';
 import {
-  EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE,
+  EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE, WRITE_CONFLICT_MESSAGE, isWriteConflict,
   canLead, fail, iso, isLiveCounsellor, isMissingTable, isNameClash, isUniqueViolation, orgCode, parseGroupInput, personName, sumKpis,
   type GroupInput, type Kpis, type OrgStatus, type Outcome, type PersonRow, type TrendPoint,
 } from './counsellor-teams-model.js';
@@ -116,8 +116,12 @@ const asStatus = (s: string | null): OrgStatus => (s === 'inactive' ? 'inactive'
 
 function refuseIfMissing(error: unknown): Outcome<never> {
   if (isMissingTable(error)) return fail(NOT_SET_UP_MESSAGE);
+  if (isWriteConflict(error)) return fail(WRITE_CONFLICT_MESSAGE);
   throw error;
 }
+
+/** Edits to a group's direct counsellors: explicit adds and removes, nothing implied. */
+export interface DirectChanges { add: number[]; remove: number[] }
 
 class GroupHasTeamsError extends Error {
   constructor(readonly teams: number) { super('group has teams'); }
@@ -323,7 +327,7 @@ export class CounsellorGroupsService {
       if (teams.error) return fail(teams.error);
       const directError = await this.directGate(counsellorIds);
       if (directError) return fail(directError);
-      const id = await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const created = await tx.counsellor_groups.create({
           data: { name: input.name, live_name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, created_by: actor, created_at: new Date() },
           select: { id: true },
@@ -335,12 +339,13 @@ export class CounsellorGroupsService {
             data: { group_id: created.id, updated_by: actor, updated_at: new Date() },
           });
         }
-        await placeDirect(tx, created.id, counsellorIds, actor);
-        return created.id;
+        const placed = await placeDirect(tx, created.id, counsellorIds, actor);
+        return { id: created.id, ...placed };
       }, PLACE_DIRECT_TX);
+      const { id, added, moved } = result;
       const parts = [
         ...(teams.ids.length > 0 ? [plural(teams.ids.length, 'team')] : []),
-        ...(counsellorIds.length > 0 ? [plural(counsellorIds.length, 'counsellor')] : []),
+        ...(added > 0 ? [`${plural(added, 'counsellor')}${moved > 0 ? ` (${moved} moved from another group)` : ''}`] : []),
       ];
       return { status: 1, message: `${input.name} created${parts.length > 0 ? ` with ${parts.join(' and ')}` : ''}.`, data: { id } };
     } catch (error: unknown) {
@@ -352,38 +357,43 @@ export class CounsellorGroupsService {
   }
 
   /**
-   * `counsellorIds` absent = leave the direct counsellors alone; present = the
-   * group's direct counsellors become exactly that list (new ones are checked
-   * and moved in, unticked ones are released).
+   * Direct counsellors change ONLY through explicit `changes`: `add` (checked,
+   * moved in) and `remove` (released). Nothing is implied from a full list, so
+   * a counsellor another admin added meanwhile, or a direct row whose account
+   * is no longer a live counsellor, is never released by an unrelated save.
    */
-  async update(actor: number | null, id: number, raw: Record<string, unknown>, counsellorIds?: number[]): Promise<Outcome> {
+  async update(actor: number | null, id: number, raw: Record<string, unknown>, changes: DirectChanges = { add: [], remove: [] }): Promise<Outcome> {
     try {
       if (!(id > 0)) return fail('Group not found.');
       const input = parseGroupInput(raw);
       if (typeof input === 'string') return fail(input);
       const invalid = await this.validate(input, id);
       if (invalid) return fail(invalid);
-      let toAdd: number[] = [];
-      let toRemove: number[] = [];
-      if (counsellorIds) {
-        const current = (await loadDirectLinks(this.prisma, { groupIds: [id] })).map((d) => d.user_id);
-        toAdd = counsellorIds.filter((u) => !current.includes(u));
-        toRemove = current.filter((u) => !counsellorIds.includes(u));
-        const directError = await this.directGate(toAdd);
-        if (directError) return fail(directError);
-      }
-      const updated = await this.prisma.$transaction(async (tx) => {
+      // A counsellor named in both lists is ambiguous: leave them alone.
+      const add = changes.add.filter((u) => !changes.remove.includes(u));
+      const remove = changes.remove.filter((u) => !changes.add.includes(u));
+      if (remove.length > MEMBER_BATCH_MAX) return fail(`Remove at most ${MEMBER_BATCH_MAX} counsellors at a time.`);
+      const directError = await this.directGate(add);
+      if (directError) return fail(directError);
+      if (remove.length > 0 && !(await directMembersReady(this.prisma))) return fail(DIRECT_NOT_SET_UP_MESSAGE);
+      const result = await this.prisma.$transaction(async (tx) => {
         const res = await tx.counsellor_groups.updateMany({
           where: { id, deleted_at: null },
           data: { name: input.name, live_name: input.name, description: input.description, manager_user_id: input.managerUserId, status: input.status, updated_by: actor, updated_at: new Date() },
         });
-        if (res.count === 0) return false;
-        if (toRemove.length > 0) await tx.counsellor_group_members.deleteMany({ where: { group_id: id, user_id: { in: toRemove } } });
-        await placeDirect(tx, id, toAdd, actor);
-        return true;
+        if (res.count === 0) return null;
+        const released = remove.length > 0
+          ? (await tx.counsellor_group_members.deleteMany({ where: { group_id: id, user_id: { in: remove } } })).count
+          : 0;
+        const placed = await placeDirect(tx, id, add, actor);
+        return { released, ...placed };
       }, PLACE_DIRECT_TX);
-      if (!updated) return fail('Group not found.');
-      return { status: 1, message: `${input.name} updated.` };
+      if (!result) return fail('Group not found.');
+      const parts = [
+        ...(result.added > 0 ? [`${plural(result.added, 'counsellor')} added${result.moved > 0 ? ` (${result.moved} moved from another group)` : ''}`] : []),
+        ...(result.released > 0 ? [`${plural(result.released, 'counsellor')} removed`] : []),
+      ];
+      return { status: 1, message: `${input.name} updated${parts.length > 0 ? `; ${parts.join(', ')}` : ''}.` };
     } catch (error: unknown) {
       if (isNameClash(error)) return fail(nameTaken('group', raw));
       const race = directRace(error);
@@ -452,13 +462,14 @@ export class CounsellorGroupsService {
       if (toAdd.length === 0) return fail('Those counsellors are already in this group.');
       const directError = await checkDirectCandidates(this.prisma, toAdd);
       if (directError) return fail(directError);
-      const moving = existing.filter((d) => d.group_id !== groupId).length;
-      await this.prisma.$transaction(async (tx) => {
+      // Counts come from inside the transaction, not from the read above.
+      const placed = await this.prisma.$transaction(async (tx) => {
         if (!(await claimLiveGroup(tx, groupId, actor))) throw new GroupGoneError();
-        await placeDirect(tx, groupId, toAdd, actor);
+        return placeDirect(tx, groupId, toAdd, actor);
       }, PLACE_DIRECT_TX);
-      const moved = moving > 0 ? ` ${moving} moved from another group.` : '';
-      return { status: 1, message: `${plural(toAdd.length, 'counsellor')} added to the group.${moved}`, data: { added: toAdd.length } };
+      if (placed.added === 0) return fail('Those counsellors are already in this group.');
+      const moved = placed.moved > 0 ? ` ${placed.moved} moved from another group.` : '';
+      return { status: 1, message: `${plural(placed.added, 'counsellor')} added to the group.${moved}`, data: { added: placed.added } };
     } catch (error: unknown) {
       if (error instanceof GroupGoneError) return fail('Group not found.');
       const race = directRace(error);
@@ -471,10 +482,16 @@ export class CounsellorGroupsService {
     try {
       if (!(groupId > 0) || !(userId > 0)) return fail('Counsellor not found.');
       if (!(await directMembersReady(this.prisma))) return fail(DIRECT_NOT_SET_UP_MESSAGE);
-      const res = await this.prisma.counsellor_group_members.deleteMany({ where: { group_id: groupId, user_id: userId } });
-      if (res.count === 0) return fail('That counsellor is not a direct member of this group.');
+      const removed = await this.prisma.$transaction(async (tx) => {
+        // Refuse on a deleted group (and serialise with a concurrent delete).
+        if (!(await claimLiveGroup(tx, groupId, null))) throw new GroupGoneError();
+        const res = await tx.counsellor_group_members.deleteMany({ where: { group_id: groupId, user_id: userId } });
+        return res.count;
+      });
+      if (removed === 0) return fail('That counsellor is not a direct member of this group.');
       return { status: 1, message: 'Counsellor removed from the group.' };
     } catch (error: unknown) {
+      if (error instanceof GroupGoneError) return fail('This group no longer exists (it was deleted).');
       return refuseIfMissing(error);
     }
   }

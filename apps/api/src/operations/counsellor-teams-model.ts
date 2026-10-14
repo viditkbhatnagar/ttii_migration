@@ -46,6 +46,20 @@ export function isMissingTable(error: unknown): boolean {
   return prismaCode(error) === 'P2021';
 }
 
+export const WRITE_CONFLICT_MESSAGE = 'Another change was saved at the same moment, please try again.';
+
+/**
+ * A deadlock / serialization failure / lock-wait timeout: Prisma P2034, or
+ * MySQL 1213 (deadlock) / 1205 (lock wait timeout) surfacing another way.
+ */
+export function isWriteConflict(error: unknown): boolean {
+  if (prismaCode(error) === 'P2034') return true;
+  const metaCode = typeof error === 'object' && error !== null ? (error as { meta?: { code?: unknown } }).meta?.code : undefined;
+  if (metaCode === '1213' || metaCode === '1205' || metaCode === 1213 || metaCode === 1205) return true;
+  const text = error instanceof Error ? error.message : '';
+  return /deadlock|lock wait timeout/i.test(text);
+}
+
 /** Prisma P2002: a unique index refused the row. */
 export function isUniqueViolation(error: unknown): boolean {
   return prismaCode(error) === 'P2002';

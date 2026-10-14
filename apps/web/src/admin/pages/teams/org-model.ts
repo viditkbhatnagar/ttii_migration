@@ -476,6 +476,22 @@ export function groupCounsellorPickerItems(options: OrgOptions, groupId: string)
     });
 }
 
+/**
+ * The direct-counsellor part of a Create / Edit Group request. Create sends
+ * the ticked list; Edit sends ONLY the diff against what the dialog loaded
+ * (add_counsellor_ids / remove_counsellor_ids, omitted when empty), never a
+ * full list — a full list would release counsellors added elsewhere meanwhile.
+ */
+export function directMemberPayload(isEdit: boolean, loaded: string[], selected: Set<string>): Record<string, string[]> {
+  if (!isEdit) return { counsellor_ids: [...selected] };
+  const add = [...selected].filter((idValue) => !loaded.includes(idValue));
+  const remove = loaded.filter((idValue) => !selected.has(idValue));
+  return {
+    ...(add.length > 0 ? { add_counsellor_ids: add } : {}),
+    ...(remove.length > 0 ? { remove_counsellor_ids: remove } : {}),
+  };
+}
+
 /** The group's current direct members, from the picker options. */
 export function directMemberIds(options: OrgOptions, groupId: string): string[] {
   return groupId ? options.counsellors.filter((c) => c.directGroupId === groupId).map((c) => c.id) : [];

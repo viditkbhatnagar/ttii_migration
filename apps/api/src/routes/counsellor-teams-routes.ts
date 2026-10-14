@@ -76,10 +76,11 @@ export function registerCounsellorTeamsRoutes(app: FastifyInstance, deps: Counse
   app.get('/admin/groups/index', guard, read(() => groups.list()));
   app.get('/admin/groups/view', guard, write((p) => groups.detail(intOf(p.id))));
   app.post('/admin/groups/create', guard, write((p, actor) => groups.create(actor, p, toIdList(p.team_ids), toIdList(p.counsellor_ids))));
-  // counsellor_ids ABSENT = leave the direct counsellors alone; PRESENT (even
-  // empty) = they become exactly that list.
+  // Direct counsellors on edit: explicit add_counsellor_ids / remove_counsellor_ids
+  // (the diff against what the dialog loaded); omitted = no change. A full
+  // counsellor_ids list is accepted on CREATE only, never on update.
   app.post('/admin/groups/update', guard, write((p, actor) => groups.update(
-    actor, intOf(p.id), p, 'counsellor_ids' in p ? toIdList(p.counsellor_ids) : undefined,
+    actor, intOf(p.id), p, { add: toIdList(p.add_counsellor_ids), remove: toIdList(p.remove_counsellor_ids) },
   )));
   app.post('/admin/groups/add_counsellors', guard, write((p, actor) => groups.addCounsellors(actor, intOf(p.group_id), toIdList(p.user_ids))));
   app.post('/admin/groups/remove_counsellor', guard, write((p) => groups.removeCounsellor(intOf(p.group_id), intOf(p.user_id))));

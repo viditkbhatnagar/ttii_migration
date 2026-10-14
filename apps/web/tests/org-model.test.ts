@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  EMPTY_ORG_FILTERS, chartLabel, counsellorPickerItems, directMemberIds, groupCounsellorPickerItems, toGroupDetail, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
+  EMPTY_ORG_FILTERS, chartLabel, counsellorPickerItems, directMemberIds, directMemberPayload, groupCounsellorPickerItems, toGroupDetail, filterGroups, filterPicker, filterTeams, groupCsvRows, ownerOptions, sortTeams,
   teamCsvRows, teamPickerItems, toGroupList, toMembership, toOrgOptions, toTeamDetail, toTeamList, topAndLowest, validateOrgForm,
   type TeamRow,
 } from '../src/admin/pages/teams/org-model';
@@ -156,6 +156,12 @@ describe('direct group counsellors (Naji 2026-10-14)', () => {
     expect(groupCounsellorPickerItems(options, '').map((i) => i.id)).toEqual(['10', '11', '12', '15']);
     expect(directMemberIds(options, '5')).toEqual(['14', '15']);
     expect(directMemberIds(options, '')).toEqual([]);
+  });
+
+  test('edit sends only the diff against what was loaded; create sends the list', () => {
+    expect(directMemberPayload(false, [], new Set(['11', '12']))).toEqual({ counsellor_ids: ['11', '12'] });
+    expect(directMemberPayload(true, ['11', '15'], new Set(['11', '15']))).toEqual({});
+    expect(directMemberPayload(true, ['11', '15'], new Set(['15', '12']))).toEqual({ add_counsellor_ids: ['12'], remove_counsellor_ids: ['11'] });
   });
 
   test('team picker warns that joining a team moves a direct member', () => {

@@ -7,7 +7,7 @@ import { messageFromError } from '../../shared/utils/admin-data-utils.js';
 import { Field, OrgDialog, SELECT_CLASS, TEXTAREA_CLASS } from '../teams/org-dialog-kit.js';
 import { useOrgOptions } from '../teams/use-org-options.js';
 import {
-  ORG_DESCRIPTION_MAX, ORG_NAME_MAX, directMemberIds, groupCounsellorPickerItems, roleLabel, teamPickerItems, validateOrgForm,
+  ORG_DESCRIPTION_MAX, ORG_NAME_MAX, directMemberIds, directMemberPayload, groupCounsellorPickerItems, roleLabel, teamPickerItems, validateOrgForm,
   type GroupRow, type OrgFormErrors, type OrgOptions, type OrgStatus,
 } from '../teams/org-model.js';
 import { NotReadyNotice, PickerList } from '../teams/org-ui.js';
@@ -34,6 +34,8 @@ export function GroupFormDialog({ open, group, api, token, onClose, onSaved }: {
   const [f, setF] = useState<FormState>({ name: '', managerId: '', status: 'active', description: '' });
   const [teams, setTeams] = useState<Set<string>>(new Set());
   const [counsellors, setCounsellors] = useState<Set<string>>(new Set());
+  /** The direct counsellors as the dialog LOADED them: edits are sent as a diff against this. */
+  const [loadedDirect, setLoadedDirect] = useState<string[]>([]);
   const [errors, setErrors] = useState<OrgFormErrors>({});
   const [saving, setSaving] = useState(false);
   const isCreate = group === null;
@@ -45,11 +47,15 @@ export function GroupFormDialog({ open, group, api, token, onClose, onSaved }: {
       : { name: '', managerId: '', status: 'active', description: '' });
     setTeams(new Set());
     setCounsellors(new Set());
+    setLoadedDirect([]);
     setErrors({});
   }, [open, group]);
   // Editing: start from the group's current direct counsellors once the pickers load.
   useEffect(() => {
-    if (options) setCounsellors(new Set(directMemberIds(options, group?.id ?? '')));
+    if (!options) return;
+    const loaded = directMemberIds(options, group?.id ?? '');
+    setLoadedDirect(loaded);
+    setCounsellors(new Set(loaded));
   }, [options, group]);
 
   const set = <K extends keyof FormState>(k: K) => (v: FormState[K]) => {
@@ -74,8 +80,10 @@ export function GroupFormDialog({ open, group, api, token, onClose, onSaved }: {
     try {
       const res = await api.saveCounsellorGroup(token, {
         ...(group ? { id: group.id } : { team_ids: [...teams] }),
-        // Sent only once direct members exist; on edit it is the full list (unticked = released).
-        ...(directReady ? { counsellor_ids: [...counsellors] } : {}),
+        // Sent only once direct members exist. Create: the list. Edit: only what
+        // the admin ticked / unticked here, so changes made elsewhere meanwhile
+        // (and rows the pickers never showed) are left alone.
+        ...(directReady ? directMemberPayload(group !== null, loadedDirect, counsellors) : {}),
         name: f.name.trim(), manager_user_id: f.managerId, status: f.status, description: f.description.trim(),
       });
       toast.success(res.message);

@@ -88,20 +88,28 @@ export const PLACE_DIRECT_TX = { isolationLevel: Prisma.TransactionIsolationLeve
 export class JoinedTeamError extends Error {}
 
 /**
- * Files `userIds` directly under `groupId` inside the caller's transaction:
- * any direct row they have in ANOTHER group is deleted first (a move), then
- * they are inserted, then team membership is re-checked (see the header).
- * The caller passes only counsellors not already direct members of this group.
+ * Files `userIds` directly under `groupId` inside the caller's transaction.
+ * Counsellors already direct members here are left as they are (joined_at
+ * kept); any direct row the others have in ANOTHER group is deleted first (a
+ * move), then they are inserted, then team membership is re-checked (see the
+ * header). Returns how many were added and how many of those moved.
  */
-export async function placeDirect(tx: Prisma.TransactionClient, groupId: number, userIds: number[], actor: number | null): Promise<void> {
-  if (userIds.length === 0) return;
-  await tx.counsellor_group_members.deleteMany({ where: { user_id: { in: userIds } } });
+export async function placeDirect(
+  tx: Prisma.TransactionClient, groupId: number, userIds: number[], actor: number | null,
+): Promise<{ added: number; moved: number }> {
+  if (userIds.length === 0) return { added: 0, moved: 0 };
+  const here = await tx.counsellor_group_members.findMany({ where: { group_id: groupId, user_id: { in: userIds } }, select: { user_id: true } });
+  const already = new Set(here.map((h) => h.user_id));
+  const place = userIds.filter((u) => !already.has(u));
+  if (place.length === 0) return { added: 0, moved: 0 };
+  const moved = await tx.counsellor_group_members.deleteMany({ where: { user_id: { in: place } } });
   const joined = new Date();
   await tx.counsellor_group_members.createMany({
-    data: userIds.map((user_id) => ({ group_id: groupId, user_id, joined_at: joined, created_by: actor })),
+    data: place.map((user_id) => ({ group_id: groupId, user_id, joined_at: joined, created_by: actor })),
   });
-  const inTeam = await tx.counsellor_team_members.findMany({ where: { user_id: { in: userIds } }, select: { user_id: true } });
+  const inTeam = await tx.counsellor_team_members.findMany({ where: { user_id: { in: place } }, select: { user_id: true } });
   if (inTeam.length > 0) throw new JoinedTeamError();
+  return { added: place.length, moved: moved.count };
 }
 
 /** Joining a team: drop the counsellors' direct group rows (same transaction as the team insert). */

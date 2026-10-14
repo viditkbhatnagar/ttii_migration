@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { CounsellorGroupsService, groupCounsellorIds } from '../../src/operations/counsellor-groups-service.js';
 import { DIRECT_NOT_SET_UP_MESSAGE } from '../../src/operations/counsellor-group-members.js';
+import { WRITE_CONFLICT_MESSAGE } from '../../src/operations/counsellor-teams-model.js';
 import { CounsellorTeamsService } from '../../src/operations/counsellor-teams-service.js';
 
 // Counsellors filed DIRECTLY under a group (Naji 2026-10-14): one group per
@@ -41,6 +42,8 @@ interface WorldOptions {
   directRace?: boolean;
   /** Someone adds this user to team 1 while we place them directly. */
   joinsTeamMeanwhile?: number;
+  /** A deadlock / serialization failure on this write. */
+  conflictOn?: 'groupUpdate' | 'teamInsert';
   /** applications.groupBy rows: [pipeline_user, is_converted, count]. */
   apps?: Array<[number, number, number]>;
 }
@@ -86,11 +89,17 @@ function world(opts: WorldOptions = {}) {
         return Promise.resolve(r);
       },
       updateMany: ({ where, data }: { where: Row; data: Row }) => {
+        if (name === 'counsellor_groups' && opts.conflictOn === 'groupUpdate' && 'name' in data) {
+          return Promise.reject(Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), { code: 'P2034' }));
+        }
         const hit = rows().filter((r) => matches(r, where));
         hit.forEach((r) => Object.assign(r, data));
         return Promise.resolve({ count: hit.length });
       },
       createMany: ({ data }: { data: Row[] }) => {
+        if (name === 'counsellor_team_members' && opts.conflictOn === 'teamInsert') {
+          return Promise.reject(new Error('Deadlock found when trying to get lock; try restarting transaction'));
+        }
         const blocked = guard();
         if (blocked) return blocked;
         if (name === 'counsellor_group_members') {
@@ -203,7 +212,7 @@ describe('group create / update / delete', () => {
   test('create files teams and direct counsellors together', async () => {
     const w = world();
     const res = await w.groups.create(1, { name: 'East', manager_user_id: 1 }, [1], [11, 12]);
-    expect(res.message).toBe('East created with 1 team and 2 counsellors.');
+    expect(res.message).toBe('East created with 1 team and 2 counsellors (1 moved from another group).');
     const id = res.data?.id;
     expect(w.direct()).toEqual([[id, 11], [id, 12]]);
     expect(w.tables.counsellor_teams?.[0]?.group_id).toBe(id);
@@ -216,15 +225,44 @@ describe('group create / update / delete', () => {
     expect(w.tables.counsellor_groups).toHaveLength(2);
   });
 
-  test('update with counsellor_ids sets the direct list exactly; without it leaves them alone', async () => {
+  const south = { name: 'South', manager_user_id: 1 };
+
+  test('update applies only explicit adds and removes', async () => {
     const w = world();
-    await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 });
+    expect(await w.groups.update(1, 6, south)).toEqual({ status: 1, message: 'South updated.' });
     expect(w.direct()).toEqual([[6, 11]]);
-    const res = await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 }, [12]);
-    expect(res.status).toBe(1);
+    expect(await w.groups.update(1, 6, south, { add: [12], remove: [11] }))
+      .toEqual({ status: 1, message: 'South updated; 1 counsellor added, 1 counsellor removed.' });
     expect(w.direct()).toEqual([[6, 12]]);
-    await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 }, []);
-    expect(w.direct()).toEqual([]);
+    // Named in both lists: ambiguous, left alone.
+    await w.groups.update(1, 6, south, { add: [12], remove: [12] });
+    expect(w.direct()).toEqual([[6, 12]]);
+    // Adding someone already here keeps their row (no re-insert).
+    expect(await w.groups.update(1, 6, south, { add: [12], remove: [] })).toEqual({ status: 1, message: 'South updated.' });
+  });
+
+  test('a counsellor another admin added meanwhile survives an unchanged save', async () => {
+    const w = world();
+    // The dialog loaded [Ravi]; meanwhile another admin adds Mira.
+    expect((await w.groups.addCounsellors(1, 6, [12])).status).toBe(1);
+    // The dialog is saved unchanged: no adds, no removes.
+    expect((await w.groups.update(1, 6, south, { add: [], remove: [] })).status).toBe(1);
+    expect(w.direct()).toEqual([[6, 11], [6, 12]]);
+  });
+
+  test('direct rows of accounts that are no longer live counsellors survive a save', async () => {
+    const w = world();
+    // User 20 is not a live counsellor (so the dialog never listed them).
+    w.tables.counsellor_group_members?.push({ group_id: 6, user_id: 20, joined_at: null });
+    expect((await w.groups.update(1, 6, south, { add: [12], remove: [11] })).status).toBe(1);
+    expect(w.direct()).toEqual([[6, 20], [6, 12]]);
+  });
+
+  test('deadlocks and serialization failures read as a clear retry message', async () => {
+    expect(await world({ conflictOn: 'groupUpdate' }).groups.update(1, 6, south, { add: [12], remove: [] }))
+      .toEqual({ status: 0, message: WRITE_CONFLICT_MESSAGE });
+    expect(await world({ conflictOn: 'teamInsert' }).teams.addMembers(1, 1, [12]))
+      .toEqual({ status: 0, message: WRITE_CONFLICT_MESSAGE });
   });
 
   test('delete is refused while the group has teams; direct-only groups release their counsellors', async () => {
@@ -240,6 +278,14 @@ describe('group create / update / delete', () => {
     const w = world();
     expect(await w.groups.removeCounsellor(6, 11)).toEqual({ status: 1, message: 'Counsellor removed from the group.' });
     expect(await w.groups.removeCounsellor(6, 11)).toEqual({ status: 0, message: 'That counsellor is not a direct member of this group.' });
+  });
+
+  test('removing from a deleted group is refused', async () => {
+    const w = world();
+    const g = w.tables.counsellor_groups?.find((r) => r.id === 6);
+    if (g) g.deleted_at = new Date();
+    expect(await w.groups.removeCounsellor(6, 11)).toEqual({ status: 0, message: 'This group no longer exists (it was deleted).' });
+    expect(w.direct()).toEqual([[6, 11]]);
   });
 });
 
@@ -296,7 +342,9 @@ describe('before the 2026-10-14 migration (P2021)', () => {
     expect((await w.teams.addMembers(1, 1, [12])).status).toBe(1);
     // Groups without counsellors can still be created, updated and deleted.
     expect((await w.groups.create(1, { name: 'East', manager_user_id: 1 }, [], [])).status).toBe(1);
-    expect((await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 }, [])).status).toBe(1);
+    expect((await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 }, { add: [], remove: [] })).status).toBe(1);
+    // Removing needs the table.
+    expect(await w.groups.update(1, 6, { name: 'South', manager_user_id: 1 }, { add: [], remove: [11] })).toEqual({ status: 0, message: DIRECT_NOT_SET_UP_MESSAGE });
     expect((await w.groups.remove(1, 6)).status).toBe(1);
   });
 

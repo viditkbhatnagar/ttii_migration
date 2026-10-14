@@ -6,7 +6,7 @@ import {
 } from './counsellor-org-reads.js';
 import { directMembersReady, loadDirectLinks, releaseDirect } from './counsellor-group-members.js';
 import {
-  EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE,
+  EMPTY_KPIS, MEMBER_BATCH_MAX, NOT_SET_UP_MESSAGE, WRITE_CONFLICT_MESSAGE, isWriteConflict,
   canLead, fail, iso, isLiveCounsellor, isMissingTable, isNameClash, isUniqueViolation, orgCode, parseTeamInput, personName, sumKpis,
   type Kpis, type OrgStatus, type Outcome, type PersonRow, type TeamInput, type TrendPoint,
 } from './counsellor-teams-model.js';
@@ -104,8 +104,10 @@ type Tx = Prisma.TransactionClient;
 const asStatus = (s: string | null): OrgStatus => (s === 'inactive' ? 'inactive' : 'active');
 
 /** Refuses / re-throws: maps "table missing" to a clear refusal. */
+/** Refuses / re-throws: "table missing" and write conflicts become clear refusals. */
 function refuseIfMissing(error: unknown): Outcome<never> {
   if (isMissingTable(error)) return fail(NOT_SET_UP_MESSAGE);
+  if (isWriteConflict(error)) return fail(WRITE_CONFLICT_MESSAGE);
   throw error;
 }
 
