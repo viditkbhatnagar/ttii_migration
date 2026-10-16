@@ -54,11 +54,11 @@ describe('reading the plan payload', () => {
       prefill: { totalFee: 20000, discount: 2000, gstPercent: 18 },
       agreedFee: 15000,
       money: { code: 'TTII260300', online: 18000, pendingApproval: false, linkOutstanding: false },
-      blockReason: expect.stringContaining('₹18,000 online'),
       dueFrom: '2025-10-16',
       dueTo: '2029-10-16',
       rows: [{ id: '1001', amount: 2000, locked: true, lockReason: 'paid' }],
     });
+    expect(data.blockReason).toContain('₹18,000 online');
     const blank = parsePlanData({ ...RAW, prefill: { total_fee: null }, agreed_fee: null, block_reason: '' });
     expect(blank.prefill.totalFee).toBeNull();
     expect(blank.blockReason).toBeNull();
