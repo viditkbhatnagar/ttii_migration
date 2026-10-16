@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SITTING_LABEL, formatHm, formatYmd, type Sitting, type StudentResult, type StudentSitting } from './exam-results-model.js';
 import { OverallBadge, Pill, type Tone } from './result-ui.js';
+import { outcomeKey, outcomeLabel, type SupplementaryOutcome } from '../exam_supplementary/supplementary-model.js';
 
 // One student's result, subject by subject — with what is behind each mark
 // (answers saved, time taken) so staff can judge a flagged paper.
@@ -15,6 +16,7 @@ const SITTING_TONE: Record<string, Tone> = {
   pending: 'blue',
   marks_only: 'slate',
   reexam: 'primary',
+  not_entered: 'slate',
 };
 
 /** A subject can be re-examined once its sitting is over and it was not passed. */
@@ -24,12 +26,14 @@ function canReExam(cell: StudentSitting, sitting: Sitting | undefined): boolean 
 }
 
 export function StudentResultDialog({
-  student, sittings, onClose, onReExam,
+  student, sittings, onClose, onReExam, supplementary,
 }: {
   student: StudentResult | null;
   sittings: Sitting[];
   onClose: () => void;
   onReExam: (student: StudentResult, examId: number) => void;
+  /** (student, subject) → its supplementary outcome, on a regular exam's Result page. */
+  supplementary?: Map<string, SupplementaryOutcome> | undefined;
 }) {
   return (
     <Dialog open={student !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -63,6 +67,7 @@ export function StudentResultDialog({
                 <TableBody>
                   {student.sittings.map((c, i) => {
                     const sitting = sittings[i];
+                    const supp = supplementary?.get(outcomeKey(student.userId, c.examId));
                     return (
                       <TableRow key={c.examId}>
                         <TableCell className="text-sm font-medium">
@@ -72,6 +77,7 @@ export function StudentResultDialog({
                               <AlertTriangle aria-hidden="true" className="mt-px size-3 shrink-0" /> {c.flag}
                             </span>
                           ) : null}
+                          {supp ? <span className="mt-1 block text-[11px] font-medium text-primary">{outcomeLabel(supp)}</span> : null}
                           {c.reExam ? (
                             <span className="mt-1 block text-[11px] font-normal text-primary">
                               Re-exam {formatYmd(c.reExam.date)}, {formatHm(c.reExam.startTime)}–{formatHm(c.reExam.endTime)}

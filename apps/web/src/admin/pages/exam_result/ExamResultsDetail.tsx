@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpen, CalendarClock, CheckCircle2, Download, Eye, Info, Search, Send, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpen, CalendarClock, CheckCircle2, Download, Eye, FilePlus2, Info, Search, Send, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,9 @@ import { downloadCsv } from '@/lib/csv';
 import { cn } from '@/lib/utils';
 import type { AdminPortalApi } from '../../admin-portal-api.js';
 import { ScheduleReExamDialog, type ReExamCandidate, type ReExamWindowDraft } from '../re_exam/ScheduleReExamDialog.js';
+import { CreateSupplementaryDialog } from '../exam_supplementary/CreateSupplementaryDialog.js';
+import { SupplementaryChip, SupplementaryNotice } from '../exam_supplementary/SupplementaryResultNotice.js';
+import { outcomeKey, outcomeLabel, outcomesByKey, type SupplementaryLinks } from '../exam_supplementary/supplementary-model.js';
 import { reExamCandidates } from './re-exam-candidates.js';
 import {
   OVERALL_LABEL,
@@ -66,7 +69,7 @@ interface ReExamTarget {
 }
 
 export function ExamResultsDetail({
-  detail, publishing, onBack, onPublish, api, token, onReload,
+  detail, publishing, onBack, onPublish, api, token, onReload, links, onNavigate,
 }: {
   detail: Detail;
   publishing: boolean;
@@ -75,6 +78,9 @@ export function ExamResultsDetail({
   api: AdminPortalApi;
   token: string;
   onReload: () => void;
+  /** Supplementary exams linked to this one (null while loading or unavailable). */
+  links: SupplementaryLinks | null;
+  onNavigate: (path: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>('students');
   const [search, setSearch] = useState('');
@@ -82,6 +88,18 @@ export function ExamResultsDetail({
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [openStudent, setOpenStudent] = useState<StudentResult | null>(null);
   const [reExamTarget, setReExamTarget] = useState<ReExamTarget | null>(null);
+  // TTII 2026-10-16 — Create Supplementary Exam, and the outcomes of any
+  // supplementary exam created from this one (read-only beside the marks).
+  const [supplementaryOpen, setSupplementaryOpen] = useState(false);
+  const supplementary = useMemo(() => outcomesByKey(links?.outcomes ?? []), [links]);
+  const supplementaryCsv = useMemo(() => (supplementary.size === 0 ? undefined : {
+    header: 'Supplementary',
+    valueFor: (st: StudentResult) => detail.sittings.flatMap((s) => {
+      const o = supplementary.get(outcomeKey(st.userId, s.examId));
+      return o ? [`${s.subjectTitle}: ${outcomeLabel(o)}`] : [];
+    }).join('; '),
+  }), [supplementary, detail.sittings]);
+  const canCreateSupplementary = detail.status === 'ready' || detail.status === 'published';
 
   const closedSittings = useMemo(() => detail.sittings.filter((s) => s.closed), [detail.sittings]);
   const reExamSubjects = useMemo(() => {
@@ -157,8 +175,18 @@ export function ExamResultsDetail({
               size="sm"
               variant="outline"
               className="gap-1.5"
+              disabled={!canCreateSupplementary}
+              title={canCreateSupplementary ? 'A separate exam for the students who failed some subjects' : 'Available once the results are ready'}
+              onClick={() => setSupplementaryOpen(true)}
+            >
+              <FilePlus2 aria-hidden="true" className="size-4" /> Create Supplementary Exam
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
               disabled={detail.students.length === 0}
-              onClick={() => downloadCsv(`results-${detail.examCode || detail.examId}.csv`, resultSheetCsv(detail))}
+              onClick={() => downloadCsv(`results-${detail.examCode || detail.examId}.csv`, resultSheetCsv(detail, supplementaryCsv))}
             >
               <Download aria-hidden="true" className="size-4" /> Export Result Sheet
             </Button>
@@ -177,6 +205,13 @@ export function ExamResultsDetail({
           </div>
 
           <div className="mt-4 space-y-2">
+            {links ? (
+              <SupplementaryNotice
+                links={links}
+                onOpenResult={(examId) => onNavigate(`/admin/Exam_result/index?exam=${examId}`)}
+                onOpenWizard={(examId) => onNavigate(`/admin/exam/edit/${examId}`)}
+              />
+            ) : null}
             {detail.status === 'in_progress' ? (
               <Notice tone="sky" icon={Info}>
                 This exam is still running. Results can be published after the last sitting{lastDate ? ` on ${formatYmd(lastDate)}` : ''} has closed.
@@ -267,11 +302,15 @@ export function ExamResultsDetail({
                       </div>
                       <div className="text-[11px] text-muted-foreground">{s.studentCode}</div>
                     </TableCell>
-                    {s.sittings.map((c) => (
-                      <TableCell key={c.examId} title={c.flag ?? undefined} className={c.flag ? 'bg-amber-100/60' : undefined}>
-                        <SittingMark cell={c} />
-                      </TableCell>
-                    ))}
+                    {s.sittings.map((c) => {
+                      const supp = supplementary.get(outcomeKey(s.userId, c.examId));
+                      return (
+                        <TableCell key={c.examId} title={c.flag ?? undefined} className={c.flag ? 'bg-amber-100/60' : undefined}>
+                          <SittingMark cell={c} />
+                          {supp ? <SupplementaryChip outcome={supp} /> : null}
+                        </TableCell>
+                      );
+                    })}
                     <TableCell className="whitespace-nowrap text-sm tabular-nums">
                       {s.obtained}/{s.maxMarks}
                       <span className="block text-[11px] text-muted-foreground">{s.percentage}% · {s.subjectsPassed}/{s.subjectsTotal} passed</span>
@@ -336,6 +375,15 @@ export function ExamResultsDetail({
         sittings={detail.sittings}
         onClose={() => setOpenStudent(null)}
         onReExam={(student, examId) => { setOpenStudent(null); setReExamTarget({ examId, student }); }}
+        supplementary={supplementary}
+      />
+
+      <CreateSupplementaryDialog
+        sourceExamId={supplementaryOpen ? detail.examId : null}
+        onClose={() => setSupplementaryOpen(false)}
+        onCreated={(examId) => { setSupplementaryOpen(false); onNavigate(`/admin/exam/edit/${examId}?step=4`); }}
+        api={api}
+        token={token}
       />
 
       <ScheduleReExamDialog

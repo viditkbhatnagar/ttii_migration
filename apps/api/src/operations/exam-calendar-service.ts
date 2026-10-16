@@ -1,9 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
 
-import { examWindowCloseInstant, examWindowOpenInstant } from '../assessment/assessment-service.js';
+import { examWindowCloseInstant, examWindowOpenInstant, isNotDraftSitting } from '../assessment/assessment-service.js';
 import { NOT_CANCELLED, withReExamWindow } from '../assessment/re-exam-window.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { examPhase, type ExamPhase } from './exam-phase.js';
+import { supplementaryExamIds } from './supplementary-links.js';
 
 // Exam Calendar (TTII 2026-10-12, Naji's ExamCalendarModule). Everything that
 // happens on an exam day, for a date range:
@@ -100,9 +101,22 @@ export class ExamCalendarService {
         })
       : [];
     const draftParentSet = new Set(draftParents.map((d) => d.id));
-    const sittings = candidates.filter((c) => !hasChildren.has(c.id) && !draftParentSet.has(c.id));
+    // A supplementary exam's sittings exist (as drafts) before it is published;
+    // like any draft it is drawn from its planned subject rows instead.
+    const sittings = candidates.filter((c) => !hasChildren.has(c.id) && !draftParentSet.has(c.id) && isNotDraftSitting(c));
 
     const topIds = [...new Set([...sittings.map((s) => s.parent_exam_id ?? s.id), ...draftParents.map((d) => d.id)])];
+    // TTII 2026-10-16 — a supplementary exam's sittings each have their own
+    // students, so each item counts its sitting's, not the whole exam's.
+    const supplementaryTops = await supplementaryExamIds(this.prisma, topIds);
+    const supplementarySittings = supplementaryTops.size > 0
+      ? await this.prisma.exam.findMany({
+          where: { parent_exam_id: { in: [...supplementaryTops] }, deleted_at: null },
+          select: { id: true, exam_subject_id: true },
+        })
+      : [];
+    const sittingOfRow = new Map(supplementarySittings.filter((s) => s.exam_subject_id !== null).map((s) => [s.exam_subject_id as number, s.id]));
+    const countIds = [...topIds, ...supplementarySittings.map((s) => s.id)];
     const [tops, scheduleRows, courseLinks, allocations] = await Promise.all([
       topIds.length > 0
         ? this.prisma.exam.findMany({ where: { id: { in: topIds } }, select: { id: true, title: true, status: true, course_id: true } })
@@ -112,8 +126,8 @@ export class ExamCalendarService {
         select: { id: true, subject_title: true },
       }),
       topIds.length > 0 ? this.prisma.exam_courses.findMany({ where: { exam_id: { in: topIds } }, select: { exam_id: true, course_id: true } }) : Promise.resolve([]),
-      topIds.length > 0
-        ? this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: topIds } }, _count: { user_id: true } })
+      countIds.length > 0
+        ? this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: countIds } }, _count: { user_id: true } })
         : Promise.resolve([]),
     ]);
     const topById = new Map(tops.map((t) => [t.id, t]));
@@ -153,7 +167,7 @@ export class ExamCalendarService {
         startTime: hhmm(s.from_time),
         endTime: hhmm(s.to_time),
         status: examPhase(top?.status ?? s.status, [window], nowMs),
-        students: allocatedBy.get(topId) ?? 0,
+        students: allocatedBy.get(supplementaryTops.has(topId) ? s.id : topId) ?? 0,
       });
     }
     for (const r of plannedRows) {
@@ -171,7 +185,7 @@ export class ExamCalendarService {
         startTime: hhmm(r.start_time),
         endTime: hhmm(r.end_time),
         status: 'draft',
-        students: allocatedBy.get(r.exam_id) ?? 0,
+        students: allocatedBy.get(supplementaryTops.has(r.exam_id) ? sittingOfRow.get(r.id) ?? 0 : r.exam_id) ?? 0,
       });
     }
 

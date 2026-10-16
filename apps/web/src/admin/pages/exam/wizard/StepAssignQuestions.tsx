@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, Info, ListChecks, Search, Sparkles, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FilePlus2, Info, ListChecks, Search, Sparkles, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -45,6 +45,24 @@ function SubjectProgress({ q }: { q: AssignQuestionsController }) {
         );
       })}
     </div>
+  );
+}
+
+/** TTII 2026-10-16 — the exam this supplementary exam re-examines, for Step 4. */
+export interface SupplementaryPaperSource {
+  sourceTitle: string;
+  avoidIds: ReadonlySet<number>;
+}
+
+function SupplementaryNote({ q, source }: { q: AssignQuestionsController; source: SupplementaryPaperSource }) {
+  return (
+    <Banner tone={q.reused > 0 ? 'warning' : 'info'} icon={FilePlus2} title="Supplementary exam: a new paper, not the regular one">
+      The {source.avoidIds.size} question{source.avoidIds.size === 1 ? '' : 's'} on the regular papers of “{source.sourceTitle}” are listed last in each subject
+      and marked <span className="font-semibold">On the regular paper</span>. Auto-fill and Select first take them only when a subject has too few others.
+      {q.reused > 0
+        ? ` ${q.reused} of the ${q.selected.size} picked question${q.selected.size === 1 ? ' is' : 's are'} on the regular paper — add more questions to the Question Bank, or keep them knowingly.`
+        : ' None of the picked questions is on the regular paper.'}
+    </Banner>
   );
 }
 
@@ -97,8 +115,10 @@ function Notices({ q, isPublished }: { q: AssignQuestionsController; isPublished
   );
 }
 
-export function StepAssignQuestions({ api, authToken, examId, closeLabel, isPublished, onSaved, onBack, onClose }: StepProps & { isPublished: boolean }) {
-  const q = useAssignQuestions({ api, authToken, examId, isPublished, onSaved, onClose });
+export function StepAssignQuestions({
+  api, authToken, examId, closeLabel, isPublished, supplementary = null, onSaved, onBack, onClose,
+}: StepProps & { isPublished: boolean; supplementary?: SupplementaryPaperSource | null }) {
+  const q = useAssignQuestions({ api, authToken, examId, isPublished, avoidIds: supplementary?.avoidIds, onSaved, onClose });
 
   if (!examId) {
     return <StepNotice action={<Button variant="outline" size="sm" className="gap-1.5" onClick={onBack}><ArrowLeft aria-hidden="true" className="size-4" /> Back</Button>}><p>Save Step 1 first to assign questions.</p></StepNotice>;
@@ -168,6 +188,7 @@ export function StepAssignQuestions({ api, authToken, examId, closeLabel, isPubl
           )}
         />
 
+        {supplementary ? <SupplementaryNote q={q} source={supplementary} /> : null}
         <Notices q={q} isPublished={isPublished} />
         <SubjectProgress q={q} />
 

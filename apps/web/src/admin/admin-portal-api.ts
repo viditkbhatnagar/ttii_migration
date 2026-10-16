@@ -1837,6 +1837,31 @@ export class AdminPortalApi {
     return this.post<Record<string, unknown>>('/admin/exam_results/publish', authToken, { exam_id: examId });
   }
 
+  // ─── Supplementary exams (TTII 2026-10-16) ─────────────────────────────
+  // A new, named exam from a finished exam's results for the students who
+  // failed (or missed) some subjects; see supplementary-exam-service on the API.
+
+  /** The whole envelope: `status: 0` carries why one cannot be created yet. */
+  async getSupplementaryDraft(authToken: string, examId: number): Promise<Record<string, unknown>> {
+    return this.get<Record<string, unknown>>('/admin/exam_supplementary/draft', authToken, { exam_id: String(examId) });
+  }
+
+  async createSupplementaryExam(authToken: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.post<Record<string, unknown>>('/admin/exam_supplementary/create', authToken, input);
+  }
+
+  /** What the Create / Edit Exam wizard needs to know about a supplementary exam. */
+  async getSupplementaryInfo(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exam_supplementary/info', authToken, { exam_id: examId });
+    return asRecord(payload.data) ?? null;
+  }
+
+  /** The supplementary exams linked to an exam, for its Result page. */
+  async getSupplementaryForResult(authToken: string, examId: string): Promise<Record<string, unknown> | null> {
+    const payload = await this.get<LegacyEnvelope<Record<string, unknown> | null>>('/admin/exam_supplementary/for_result', authToken, { exam_id: examId });
+    return asRecord(payload.data) ?? null;
+  }
+
   // ─── Phase 2: Exam Evaluation ──────────────────────────────────────────
 
   async loadExamEvaluations(

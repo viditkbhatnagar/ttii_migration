@@ -5,6 +5,9 @@ import { hashPassword } from '../auth/password.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
+import { nextExamCode } from './exam-code.js';
+import { supplementaryPublishProblem } from './supplementary-exam.js';
+import { isSupplementaryExam } from './supplementary-links.js';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
@@ -5013,22 +5016,8 @@ export class OperationsService {
   // attach scheduling rows, question setup, student allocation, and
   // instructions/notification — each via their own endpoint.
   private async nextExamCode(): Promise<string> {
-    const yy = new Date().getFullYear() % 100;
-    const prefix = `TTIIEXM${String(yy).padStart(2, '0')}`;
-    const recent = await this.prisma.exam.findMany({
-      where: { exam_code: { startsWith: prefix } },
-      select: { exam_code: true },
-      orderBy: { id: 'desc' },
-      take: 500,
-    });
-    let maxSeq = 0;
-    for (const row of recent) {
-      const code = row.exam_code ?? '';
-      if (!code.startsWith(prefix)) continue;
-      const n = Number.parseInt(code.slice(prefix.length), 10);
-      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
-    }
-    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`;
+    // Shared with supplementary exams (exam-code.ts), so both use one sequence.
+    return nextExamCode(this.prisma);
   }
 
   async saveExamDraft(
@@ -6183,6 +6172,15 @@ export class OperationsService {
   async saveExamAllocations(examId: string, userIds: number[]): Promise<Record<string, unknown>> {
     const id = toNullableIntId(examId);
     if (!id) return { status: 0, message: 'Invalid exam id.' };
+    // TTII 2026-10-16 — a supplementary exam's students are entered per
+    // subject. One list written onto every sitting (below) would enter every
+    // student for every subject, so this step cannot change them.
+    if (await isSupplementaryExam(this.prisma, id)) {
+      return {
+        status: 0,
+        message: 'This is a supplementary exam: its students were chosen subject by subject when it was created, so they cannot be changed here. To change them, delete this exam and create the supplementary exam again from the Result page.',
+      };
+    }
     await this.prisma.exam_student_allocations.deleteMany({ where: { exam_id: id } });
     if (userIds.length > 0) {
       await this.prisma.exam_student_allocations.createMany({
@@ -6304,6 +6302,27 @@ export class OperationsService {
       if (c.exam_subject_id === null || c.exam_subject_id === undefined) continue;
       childBySubjectRow.set(c.exam_subject_id, c.id);
     }
+
+    // TTII 2026-10-16 — a SUPPLEMENTARY exam's sittings were created with
+    // their own students (only those who failed or missed that subject).
+    // Publishing must keep them: copying the parent's list onto every sitting,
+    // as below for a regular exam, would enter every student for every subject.
+    const supplementary = await isSupplementaryExam(this.prisma, id);
+    const supplementaryStudents = new Map<number, number[]>();
+    if (supplementary) {
+      const childIds = existingChildren.map((c) => c.id);
+      const rows = childIds.length > 0
+        ? await this.prisma.exam_student_allocations.findMany({ where: { exam_id: { in: childIds } }, select: { exam_id: true, user_id: true } })
+        : [];
+      for (const r of rows) supplementaryStudents.set(r.exam_id, [...(supplementaryStudents.get(r.exam_id) ?? []), r.user_id]);
+      const problem = supplementaryPublishProblem(
+        schedule.map((r) => ({ id: r.id, subject_title: r.subject_title })),
+        childBySubjectRow,
+        new Map([...supplementaryStudents].map(([childId, users]) => [childId, users.length])),
+      );
+      if (problem) return { status: 0, message: problem };
+    }
+
     // A child with attempts is an in-flight or already-graded sitting — never
     // re-slice its questions underneath a student.
     const existingChildIds = existingChildren.map((c) => c.id);
@@ -6493,13 +6512,16 @@ export class OperationsService {
         }
 
         // The admin explicitly picked these students in Step 5 — copy them
-        // across as-is rather than silently re-filtering per sitting.
-        await tx.exam_student_allocations.deleteMany({ where: { exam_id: childId } });
-        if (parentAllocs.length > 0) {
-          await tx.exam_student_allocations.createMany({
-            data: parentAllocs.map((a) => ({ exam_id: childId, user_id: a.user_id })),
-            skipDuplicates: true,
-          });
+        // across as-is rather than silently re-filtering per sitting. A
+        // supplementary sitting keeps the students it was created with.
+        if (!supplementary) {
+          await tx.exam_student_allocations.deleteMany({ where: { exam_id: childId } });
+          if (parentAllocs.length > 0) {
+            await tx.exam_student_allocations.createMany({
+              data: parentAllocs.map((a) => ({ exam_id: childId, user_id: a.user_id })),
+              skipDuplicates: true,
+            });
+          }
         }
 
         if (locked) {
@@ -6541,6 +6563,15 @@ export class OperationsService {
         await tx.exam.updateMany({ where: { id: c.id }, data: { deleted_at: now, deleted_by: actor, updated_at: now } });
       }
 
+      // A supplementary exam's own student list is the students of its
+      // sittings: one whose only subject was removed in Step 2 leaves it.
+      if (supplementary) {
+        const keep = [...new Set(materialised.flatMap((childId) => supplementaryStudents.get(childId) ?? []))];
+        if (keep.length > 0) {
+          await tx.exam_student_allocations.deleteMany({ where: { exam_id: id, user_id: { notIn: keep } } });
+        }
+      }
+
       await tx.exam.updateMany({
         where: { id, deleted_at: null },
         data: {
@@ -6567,9 +6598,15 @@ export class OperationsService {
     // Only on the FIRST publish, or when the admin explicitly asks to resend:
     // re-publishing to fix a typo used to re-email the whole cohort.
     const shouldNotify = input.notifyEmail && (firstPublish || input.resendNotification === true);
+    // A supplementary student is entered for some subjects only: they are the
+    // recipients, and each is sent just their own subjects' schedule.
+    const supplementarySubjectsOf = (userId: number): typeof schedule =>
+      schedule.filter((r) => (supplementaryStudents.get(childBySubjectRow.get(r.id) ?? 0) ?? []).includes(userId));
     if (shouldNotify) {
       try {
-        const userIds = parentAllocs.map((a) => a.user_id);
+        const userIds = supplementary
+          ? [...new Set(schedule.flatMap((r) => supplementaryStudents.get(childBySubjectRow.get(r.id) ?? 0) ?? []))]
+          : parentAllocs.map((a) => a.user_id);
         if (userIds.length > 0) {
           const students = await this.prisma.users.findMany({
             where: { id: { in: userIds }, deleted_at: null },
@@ -6607,6 +6644,11 @@ export class OperationsService {
           for (const s of students) {
             const to = s.user_email ?? s.email ?? '';
             if (!to) continue;
+            const ownRows = supplementary
+              ? supplementarySubjectsOf(s.id)
+                  .map((r) => formatRow(r.subject_title, r.exam_date, r.start_time))
+                  .filter((r): r is NonNullable<typeof r> => r !== null)
+              : scheduleRows;
             try {
               await registry.email.sendEmail({
                 to,
@@ -6615,7 +6657,7 @@ export class OperationsService {
                   studentFirstName: toStringValue(s.name).trim().split(/\s+/)[0] ?? '',
                   examName: toStringValue(parent.title),
                   courseName: courseTitle,
-                  schedule: scheduleRows,
+                  schedule: ownRows,
                 }),
               });
             } catch { /* best-effort */ }

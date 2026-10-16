@@ -196,6 +196,8 @@ export function participation(bundles: ExamSheetBundle[], nowMs: number, days = 
     for (const s of b.sheet.students) {
       for (const c of s.sittings) {
         if (!recent.has(c.examId) || !closed.has(c.examId)) continue;
+        // A supplementary exam's student sits only some subjects.
+        if (c.status === 'not_entered') continue;
         out.expected += 1;
         if (c.score !== null) out.appeared += 1;
         if (c.status === 'absent') out.absent += 1;

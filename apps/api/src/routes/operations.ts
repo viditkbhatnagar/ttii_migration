@@ -26,6 +26,7 @@ import {
   AssociateCommunicationsService, COMM_TABLE_MISSING_MESSAGE, CommunicationTableMissingError, CommunicationValidationError,
 } from '../operations/associate-communications-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
+import { SupplementaryExamService } from '../operations/supplementary-exam-service.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -72,6 +73,7 @@ interface RegisterOperationsRoutesOptions {
   examSubmissionsService?: ExamSubmissionsService;
   questionBankService?: QuestionBankService;
   reExamService?: ReExamService;
+  supplementaryExamService?: SupplementaryExamService;
   adminSearchService?: AdminSearchService;
   studentDirectoryService?: StudentDirectoryService;
   staffProfileService?: StaffProfileService;
@@ -427,6 +429,8 @@ export function registerOperationsRoutes(
   const examSubmissionsService = options.examSubmissionsService ?? new ExamSubmissionsService();
   const questionBankService = options.questionBankService ?? new QuestionBankService();
   const reExamService = options.reExamService ?? new ReExamService();
+  // Shares the Result page's loader, so its candidates come from the same sheet.
+  const supplementaryExamService = options.supplementaryExamService ?? new SupplementaryExamService(undefined, { results: examResultsService });
   const adminSearchService = options.adminSearchService ?? new AdminSearchService();
   const studentDirectoryService = options.studentDirectoryService ?? new StudentDirectoryService();
   const staffProfileService = options.staffProfileService ?? new StaffProfileService();
@@ -2359,6 +2363,59 @@ export function registerOperationsRoutes(
         reply.code(200).send({ status: 0, message: 'Exam not found.', data: null });
         return;
       }
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  // TTII 2026-10-16 (Risha) — supplementary exams: a new, named exam created
+  // from a finished exam's results for the students who failed (or missed)
+  // some subjects, each entered only for those subjects. Admin/Subadmin only,
+  // like Exam → Result (supplementary-exam-service.ts).
+  app.get('/admin/exam_supplementary/draft', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      reply.code(200).send(await supplementaryExamService.draft(toInteger(payload.exam_id)));
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.post('/admin/exam_supplementary/create', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const actor = toInteger(requestUserId(request));
+      const subjects = (Array.isArray(payload.subjects) ? payload.subjects : [])
+        .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+        .map((s) => ({
+          sittingExamId: toInteger(s.sitting_exam_id),
+          date: toStringValue(s.date),
+          startTime: toStringValue(s.start_time),
+          endTime: toStringValue(s.end_time),
+          // Not truncated: a fractional or missing value is refused, never rounded.
+          durationMinutes: toNumber(s.duration_minutes),
+          totalMarks: toNumber(s.total_marks),
+          passMarks: toNumber(s.pass_marks),
+          userIds: toStringArray(s.user_ids).map((id) => toInteger(id)),
+        }));
+      const result = await supplementaryExamService.create(actor > 0 ? actor : null, {
+        sourceExamId: toInteger(payload.source_exam_id),
+        title: toStringValue(payload.title),
+        subjects,
+      });
+      reply.code(200).send(result);
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_supplementary/info', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await supplementaryExamService.info(toInteger(payload.exam_id));
+      reply.code(200).send({ status: 1, message: 'success', data });
+    } catch (error: unknown) { sendOperationsError(reply, error); }
+  });
+
+  app.get('/admin/exam_supplementary/for_result', { preHandler: [requireAuth, requireAdminOnlyRole] }, async (request, reply) => {
+    try {
+      const payload = requestPayload(request);
+      const data = await supplementaryExamService.forResultPage(toInteger(payload.exam_id));
       reply.code(200).send({ status: 1, message: 'success', data });
     } catch (error: unknown) { sendOperationsError(reply, error); }
   });

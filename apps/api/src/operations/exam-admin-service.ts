@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { examWindowCloseInstant, examWindowOpenInstant, parseDurationMinutes } from '../assessment/assessment-service.js';
 import { getPrismaClient } from '../data/prisma-client.js';
 import { examPhase, type ExamPhase, type SittingWindow } from './exam-phase.js';
+import { linksForExams } from './supplementary-links.js';
 
 // Exams list and View Exam (TTII 2026-10-12, Naji's design). One row per exam
 // the admin created — a parent stands for its subject sittings — with every
@@ -63,6 +64,10 @@ export interface ExamListRow {
   courses: string[];
   courseIds: number[];
   isPractice: boolean;
+  /** TTII 2026-10-16 — created from another exam's results for the students who failed. */
+  isSupplementary: boolean;
+  /** The exam a supplementary was created from; null otherwise. */
+  sourceExamId: number | null;
   phase: ExamPhase;
   fromDate: string;
   toDate: string;
@@ -157,7 +162,7 @@ export class ExamAdminService {
     const ids = tops.map((t) => t.id);
     if (ids.length === 0) return [];
 
-    const [children, schedules, allocations, courseRows] = await Promise.all([
+    const [children, schedules, allocations, courseRows, supplementaryLinks] = await Promise.all([
       this.prisma.exam.findMany({ where: { parent_exam_id: { in: ids }, deleted_at: null }, select: examSelect }),
       this.prisma.exam_subjects.findMany({ where: { exam_id: { in: ids } }, select: { exam_id: true, exam_date: true } }),
       this.prisma.exam_student_allocations.groupBy({ by: ['exam_id'], where: { exam_id: { in: ids } }, _count: { user_id: true } }),
@@ -165,7 +170,9 @@ export class ExamAdminService {
         where: { id: { in: [...new Set(ids.flatMap((id) => coursesOf.get(id) ?? []))] } },
         select: { id: true, title: true },
       }),
+      linksForExams(this.prisma, ids),
     ]);
+    const sourceOf = new Map(supplementaryLinks.map((l) => [l.examId, l.sourceExamId]));
     const sittingIds = [...ids, ...children.map((c) => c.id)];
     const submittedGroups = await this.prisma.exam_attempt.groupBy({
       by: ['exam_id'],
@@ -191,7 +198,10 @@ export class ExamAdminService {
     const nowMs = this.now().getTime();
 
     return tops.map((t): ExamListRow => {
-      const kids = childrenOf.get(t.id) ?? [];
+      // Sittings count once the exam is published. A draft has none, except a
+      // supplementary exam's, created up front with their students: until it
+      // is published its Step 2 schedule (below) is what the admin edits.
+      const kids = t.status === 'published' ? childrenOf.get(t.id) ?? [] : [];
       const sittings = kids.length > 0 ? kids : [t];
       const dates = kids.length > 0
         ? kids.flatMap((k) => [ymd(k.from_date), ymd(k.to_date)])
@@ -205,6 +215,8 @@ export class ExamAdminService {
         courses: cIds.map((id) => courseTitle.get(id) ?? '').filter(Boolean),
         courseIds: cIds,
         isPractice: t.is_practice === 1,
+        isSupplementary: sourceOf.has(t.id),
+        sourceExamId: sourceOf.get(t.id) ?? null,
         phase: examPhase(t.status, sittings.map(windowOf), nowMs),
         fromDate: sorted[0] ?? '',
         toDate: sorted.at(-1) ?? '',
@@ -232,7 +244,7 @@ export class ExamAdminService {
     const [listed] = await this.buildRows([top]);
     if (!listed) return null;
 
-    const [children, schedules, offeringLinks] = await Promise.all([
+    const [allChildren, schedules, offeringLinks] = await Promise.all([
       this.prisma.exam.findMany({ where: { parent_exam_id: top.id, deleted_at: null }, select: examSelect }),
       this.prisma.exam_subjects.findMany({ where: { exam_id: top.id }, orderBy: [{ position: 'asc' }, { id: 'asc' }] }),
       this.prisma.exam_offerings.findMany({ where: { exam_id: top.id }, select: { offering_id: true } }),
@@ -240,6 +252,9 @@ export class ExamAdminService {
     const offerings = offeringLinks.length > 0
       ? await this.prisma.offerings.findMany({ where: { id: { in: offeringLinks.map((o) => o.offering_id) } }, select: { title: true } })
       : [];
+    // A draft's sittings are not live yet (only a supplementary exam has any):
+    // read its Step 2 schedule and question pool, as for any draft.
+    const children = top.status === 'published' ? allChildren : [];
 
     const components = schedules.length > 0
       ? await this.prisma.exam_subject_components.findMany({

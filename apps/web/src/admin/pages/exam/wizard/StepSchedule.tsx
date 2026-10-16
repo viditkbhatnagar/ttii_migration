@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ClipboardList, Trash2 } from 'lucide-react';
+import { ArrowLeft, ClipboardList, FilePlus2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +22,7 @@ import {
   type ExamWindow,
   type ScheduleRow,
 } from './wizard-model.js';
-import { Chip, StepBody, StepHeader, StepLoading, StepNotice, WizardFooter } from './wizard-ui.js';
+import { Banner, Chip, StepBody, StepHeader, StepLoading, StepNotice, WizardFooter } from './wizard-ui.js';
 
 export interface StepProps {
   api: AdminPageProps['api'];
@@ -34,7 +34,9 @@ export interface StepProps {
   onClose: () => void;
 }
 
-export function StepSchedule({ api, authToken, examId, closeLabel, onSaved, onBack, onClose, examWindow }: StepProps & { examWindow: ExamWindow }) {
+export function StepSchedule({
+  api, authToken, examId, closeLabel, onSaved, onBack, onClose, examWindow, isSupplementary = false,
+}: StepProps & { examWindow: ExamWindow; isSupplementary?: boolean }) {
   const [rows, setRows] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -129,6 +131,12 @@ export function StepSchedule({ api, authToken, examId, closeLabel, onSaved, onBa
             </>
           )}
         />
+        {isSupplementary ? (
+          <Banner tone="info" icon={FilePlus2}>
+            This supplementary exam’s subjects were chosen from the regular exam’s results, each with its own students.
+            You can change dates, times and marks here. Removing a subject also removes its students from this exam.
+          </Banner>
+        ) : null}
         <div className="overflow-x-auto rounded-xl border border-border">
           <Table>
             <TableHeader>

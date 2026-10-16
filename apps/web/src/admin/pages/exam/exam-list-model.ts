@@ -14,6 +14,9 @@ export interface ExamListRow {
   courses: string[];
   courseIds: number[];
   isPractice: boolean;
+  /** TTII 2026-10-16 — created from another exam's results for the students who failed. */
+  isSupplementary: boolean;
+  sourceExamId: number | null;
   phase: ExamPhase;
   fromDate: string;
   toDate: string;
@@ -76,6 +79,8 @@ function toRow(r: Record<string, unknown>): ExamListRow {
     courses: Array.isArray(r.courses) ? r.courses.map((c) => asString(c)).filter(Boolean) : [],
     courseIds: Array.isArray(r.courseIds) ? r.courseIds.map((c) => asNumber(c)) : [],
     isPractice: r.isPractice === true,
+    isSupplementary: r.isSupplementary === true,
+    sourceExamId: r.sourceExamId === null || r.sourceExamId === undefined ? null : asNumber(r.sourceExamId),
     phase: PHASES.includes(phase) ? phase : 'draft',
     fromDate: asString(r.fromDate),
     toDate: asString(r.toDate),
@@ -123,10 +128,28 @@ export interface ExamFilters {
   tab: PhaseTab;
   search: string;
   courseId: string;
-  type: 'all' | 'regular' | 'practice';
+  type: 'all' | ExamType;
   /** YYYY-MM-DD bounds; an exam is kept when its dates fall inside them. */
   from: string;
   to: string;
+}
+
+export type ExamType = 'regular' | 'practice' | 'supplementary';
+
+export function examType(r: Pick<ExamListRow, 'isPractice' | 'isSupplementary'>): ExamType {
+  if (r.isPractice) return 'practice';
+  return r.isSupplementary ? 'supplementary' : 'regular';
+}
+
+export const EXAM_TYPE_LABEL: Record<ExamType, string> = {
+  regular: 'Regular',
+  practice: 'Practice',
+  supplementary: 'Supplementary',
+};
+
+/** A supplementary exam is made from a finished, real exam (a supplementary one included). */
+export function canCreateSupplementary(r: Pick<ExamListRow, 'phase' | 'isPractice'>): boolean {
+  return r.phase === 'completed' && !r.isPractice;
 }
 
 export function filterExams(rows: ExamListRow[], f: ExamFilters): ExamListRow[] {
@@ -134,8 +157,7 @@ export function filterExams(rows: ExamListRow[], f: ExamFilters): ExamListRow[] 
   return rows.filter((r) => {
     if (f.tab !== 'all' && r.phase !== f.tab) return false;
     if (f.courseId && !r.courseIds.includes(Number(f.courseId))) return false;
-    if (f.type === 'regular' && r.isPractice) return false;
-    if (f.type === 'practice' && !r.isPractice) return false;
+    if (f.type !== 'all' && examType(r) !== f.type) return false;
     if (f.from && (!r.fromDate || r.fromDate < f.from)) return false;
     if (f.to && (!r.toDate || r.toDate > f.to)) return false;
     if (!q) return true;
@@ -155,7 +177,7 @@ export function sortExams(rows: ExamListRow[], key: ExamSortKey, dir: 'asc' | 'd
     switch (key) {
       case 'subjects': return r.subjects;
       case 'course': return r.courses.join(', ');
-      case 'type': return r.isPractice ? 'Practice' : 'Regular';
+      case 'type': return EXAM_TYPE_LABEL[examType(r)];
       case 'phase': return PHASE_LABEL[r.phase];
       default: return r[key];
     }

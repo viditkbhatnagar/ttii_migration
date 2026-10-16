@@ -8,6 +8,7 @@ import type { AdminPageProps } from '../../routing/admin-routes.js';
 import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 import { toExamResultsDetail, toExamResultsRows, type ExamResultsDetail as Detail } from './exam-results-model.js';
+import { toSupplementaryLinks, type SupplementaryLinks } from '../exam_supplementary/supplementary-model.js';
 import { ExamResultsList } from './ExamResultsList.js';
 import { ExamResultsDetail } from './ExamResultsDetail.js';
 
@@ -37,7 +38,7 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
   );
 }
 
-function ExamResultView({ examId, api, session, onBack }: { examId: number; onBack: () => void } & Pick<AdminPageProps, 'api' | 'session'>) {
+function ExamResultView({ examId, api, session, onBack, onNavigate }: { examId: number; onBack: () => void } & Pick<AdminPageProps, 'api' | 'session' | 'onNavigate'>) {
   const confirm = useConfirm();
   const [publishing, setPublishing] = useState(false);
   const { data, loading, error, reload } = useAdminPageData<Detail | null>(
@@ -47,6 +48,16 @@ function ExamResultView({ examId, api, session, onBack }: { examId: number; onBa
     },
     [examId],
   );
+  // TTII 2026-10-16 — supplementary exams linked to this one. Advisory: if it
+  // cannot load, the result sheet still shows (without the links).
+  const { data: links, reload: reloadLinks } = useAdminPageData<SupplementaryLinks | null>(
+    async () => {
+      const raw = await api.getSupplementaryForResult(session.token, String(examId)).catch(() => null);
+      return raw ? toSupplementaryLinks(raw) : null;
+    },
+    [examId],
+  );
+  const reloadAll = useCallback(() => { reload(); reloadLinks(); }, [reload, reloadLinks]);
 
   const publish = useCallback(async () => {
     if (!data) return;
@@ -97,7 +108,9 @@ function ExamResultView({ examId, api, session, onBack }: { examId: number; onBa
       onPublish={() => void publish()}
       api={api}
       token={session.token}
-      onReload={reload}
+      onReload={reloadAll}
+      links={links ?? null}
+      onNavigate={onNavigate}
     />
   );
 }
@@ -128,7 +141,7 @@ export default function ExamResultPage({ api, session, onNavigate }: AdminPagePr
   }, []);
 
   if (openExam !== null) {
-    return <ExamResultView examId={openExam} api={api} session={session} onBack={() => onNavigate(BASE_PATH)} />;
+    return <ExamResultView examId={openExam} api={api} session={session} onBack={() => onNavigate(BASE_PATH)} onNavigate={onNavigate} />;
   }
   return <ExamResultsListView api={api} session={session} onOpen={(examId) => onNavigate(`${BASE_PATH}?exam=${examId}`)} />;
 }

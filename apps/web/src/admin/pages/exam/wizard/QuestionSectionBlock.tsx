@@ -125,6 +125,8 @@ export function QuestionSectionBlock({ s, q, visible, search }: {
                         {o.q_type === 1 ? 'Descriptive' : 'MCQ'}
                       </span>
                       {o.subject_title ? <span className="text-xs text-muted-foreground">{o.subject_title}</span> : null}
+                      {/* A supplementary exam's paper should be new to the students who sat the regular one. */}
+                      {q.usedOnRegular.has(o.id) ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">On the regular paper</span> : null}
                     </span>
                   </span>
                 </label>

@@ -304,6 +304,17 @@ export const LATE_SUBMIT_GRACE_MS = 90 * 1000;
 export const AUTO_SUBMIT_GRACE_MS = 5 * 60 * 1000;
 
 /**
+ * TTII 2026-10-16 — false for a subject sitting of an exam that is still a
+ * draft. Publishing creates a regular exam's sittings already published, so
+ * the only draft sittings are a supplementary exam's, created up front with
+ * their own students; until the admin publishes the exam no student may see
+ * them (they would show as a "closed" card). Every other row passes.
+ */
+export function isNotDraftSitting(exam: { parent_exam_id?: number | null; status?: string | null }): boolean {
+  return exam.parent_exam_id === null || exam.parent_exam_id === undefined || exam.status === 'published';
+}
+
+/**
  * The sweeper only ever looks this far back. Two jobs at once:
  *
  * 1. It bounds the scan.
@@ -1304,13 +1315,13 @@ export class AssessmentService {
     // rather than crashing; the caller still gets the course's exams.
     void filter.lessonId;
 
-    const candidateExams = await this.prisma.exam.findMany({
+    const candidateExams = (await this.prisma.exam.findMany({
       where: whereClause,
       orderBy: [
         { from_date: 'asc' },
         { from_time: 'asc' },
       ],
-    });
+    })).filter(isNotDraftSitting);
 
     // Risha UAT 2026-08-06 — a wizard exam scheduled subject-wise is only a
     // PARENT: it holds the pooled questions and the allocation, and publishing
@@ -1479,7 +1490,7 @@ export class AssessmentService {
       return this.getEmptyExamCalendar();
     }
 
-    const candidateExams = await this.prisma.exam.findMany({
+    const candidateExams = (await this.prisma.exam.findMany({
       where: {
         course_id: toNullableIntId(resolvedCourseId),
         deleted_at: null,
@@ -1487,12 +1498,14 @@ export class AssessmentService {
       select: {
         id: true,
         from_date: true,
+        parent_exam_id: true,
+        status: true,
       },
       orderBy: [
         { from_date: 'asc' },
         { id: 'asc' },
       ],
-    });
+    })).filter(isNotDraftSitting);
 
     // Parents carry the wizard's own (umbrella) dates, which are not sittings —
     // marking those days on the student's calendar invents exams that do not

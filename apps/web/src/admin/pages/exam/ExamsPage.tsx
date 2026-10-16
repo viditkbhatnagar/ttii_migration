@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye, FileText, Pencil, Plus, Search, Trophy } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye, FilePlus2, FileText, Pencil, Plus, Search, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DmyDateInput } from '@/components/ui/dmy-date-field';
@@ -13,9 +13,13 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asString } from '../../shared/utils/admin-data-utils.js';
 import { EmptyState, PageTitle, Pill } from '../../shared/components/ui-kit.js';
 import { formatYmd } from '../exam_result/exam-results-model.js';
+import { CreateSupplementaryDialog } from '../exam_supplementary/CreateSupplementaryDialog.js';
 import {
+  EXAM_TYPE_LABEL,
   PHASE_LABEL,
   PHASE_TONE,
+  canCreateSupplementary,
+  examType,
   filterExams,
   phaseCounts,
   sortExams,
@@ -81,6 +85,8 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<number | null>(null);
+  // TTII 2026-10-16 — the exam a supplementary exam is being created from.
+  const [supplementaryFrom, setSupplementaryFrom] = useState<number | null>(null);
   const [courses, setCourses] = useState<Array<{ id: string; title: string }>>([]);
 
   useEffect(() => {
@@ -109,7 +115,7 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
   };
   const exportCsv = () => downloadCsv('exams.csv', toCsv([
     ['Exam ID', 'Exam name', 'Course', 'Type', 'From', 'To', 'Subjects', 'Students', 'Status'],
-    ...filtered.map((r) => [r.examCode, r.title, r.courses.join('; '), r.isPractice ? 'Practice' : 'Regular', formatYmd(r.fromDate), formatYmd(r.toDate), r.subjects, r.allocated, PHASE_LABEL[r.phase]]),
+    ...filtered.map((r) => [r.examCode, r.title, r.courses.join('; '), EXAM_TYPE_LABEL[examType(r)], formatYmd(r.fromDate), formatYmd(r.toDate), r.subjects, r.allocated, PHASE_LABEL[r.phase]]),
   ]));
 
   if (loading) return <PageLoader label="Loading exams…" />;
@@ -161,6 +167,7 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
           <select aria-label="Exam type" value={filters.type} onChange={(e) => set({ type: e.target.value as ExamFilters['type'] })} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
             <option value="all">All exam types</option>
             <option value="regular">Regular</option>
+            <option value="supplementary">Supplementary</option>
             <option value="practice">Practice</option>
           </select>
           <DmyDateInput value={filters.from} onChange={(v) => set({ from: v })} placeholder="From dd/mm/yyyy" minYear={thisYear - 3} maxYear={thisYear + 1} />
@@ -220,7 +227,7 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
                     </button>
                   </TableCell>
                   <TableCell className="max-w-[220px] truncate text-sm text-muted-foreground" title={r.courses.join(', ')}>{r.courses.join(', ') || '—'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{r.isPractice ? 'Practice' : 'Regular'}</TableCell>
+                  <TableCell className={cn('text-sm', r.isSupplementary ? 'font-medium text-primary' : 'text-muted-foreground')}>{EXAM_TYPE_LABEL[examType(r)]}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.fromDate) || '—'}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.toDate) || '—'}</TableCell>
                   <TableCell className="text-right text-sm tabular-nums">{r.subjects}</TableCell>
@@ -238,6 +245,11 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
                       {r.phase !== 'draft' ? (
                         <Button size="icon" variant="ghost" className="size-8" title="Results" aria-label={`Results for ${r.title}`} onClick={() => onNavigate(`/admin/Exam_result/index?exam=${r.examId}`)}>
                           <Trophy aria-hidden="true" className="size-4" />
+                        </Button>
+                      ) : null}
+                      {canCreateSupplementary(r) ? (
+                        <Button size="icon" variant="ghost" className="size-8" title="Create Supplementary Exam" aria-label={`Create a supplementary exam from ${r.title}`} onClick={() => setSupplementaryFrom(r.examId)}>
+                          <FilePlus2 aria-hidden="true" className="size-4" />
                         </Button>
                       ) : null}
                     </div>
@@ -263,6 +275,14 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
           </div>
         </div>
       </Card>
+
+      <CreateSupplementaryDialog
+        sourceExamId={supplementaryFrom}
+        onClose={() => setSupplementaryFrom(null)}
+        onCreated={(examId) => { setSupplementaryFrom(null); onNavigate(`/admin/exam/edit/${examId}?step=4`); }}
+        api={api}
+        token={session.token}
+      />
 
       <ViewExamDialog
         examId={viewing}

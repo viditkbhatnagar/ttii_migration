@@ -10,7 +10,7 @@ import { useAdminPageData } from '../../shared/hooks/useAdminPageData.js';
 import { asNumber, asString } from '../../shared/utils/admin-data-utils.js';
 import { Pill } from '../../shared/components/ui-kit.js';
 import { formatHm, formatYmd } from '../exam_result/exam-results-model.js';
-import { PHASE_LABEL, PHASE_TONE, instructionLines, toExamOverview, type ExamOverview } from './exam-list-model.js';
+import { EXAM_TYPE_LABEL, PHASE_LABEL, PHASE_TONE, examType, instructionLines, toExamOverview, type ExamOverview } from './exam-list-model.js';
 
 // View Exam (TTII 2026-10-12, Naji's ViewExamDialog) — there was no read-only
 // view before: the admin could only open the edit wizard. Everything here is
@@ -209,7 +209,7 @@ export function ViewExamDialog({
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
                 <span className="rounded-md border border-border bg-background/60 px-2 py-0.5 font-medium text-muted-foreground">{o.examCode || `ID ${o.examId}`}</span>
                 <Pill tone={PHASE_TONE[o.phase]}>{PHASE_LABEL[o.phase]}</Pill>
-                <Pill tone={o.isPractice ? 'slate' : 'blue'}>{o.isPractice ? 'Practice' : 'Regular'}</Pill>
+                <Pill tone={o.isPractice ? 'slate' : o.isSupplementary ? 'primary' : 'blue'}>{EXAM_TYPE_LABEL[examType(o)]}</Pill>
                 {o.resultsPublished ? <Pill tone="emerald">Results published</Pill> : null}
               </div>
               <DialogTitle className="mt-2 text-2xl font-bold tracking-tight">{o.title}</DialogTitle>

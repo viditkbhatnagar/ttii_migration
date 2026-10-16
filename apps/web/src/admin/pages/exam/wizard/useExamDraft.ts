@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { AdminPageProps } from '../../../routing/admin-routes.js';
 import { asBoolean, asNumber, asString, toRecords } from '../../../shared/utils/admin-data-utils.js';
+import { toSupplementaryWizardInfo, type SupplementaryWizardInfo } from '../../exam_supplementary/supplementary-model.js';
 import {
   emptyDraft,
   emptyMeta,
@@ -24,13 +25,27 @@ function readEditId(): string {
 }
 
 /**
+ * `?step=4` opens an existing exam on that step — a new supplementary exam
+ * lands on Assign Questions (TTII 2026-10-16). Anything else starts at Step 1.
+ */
+function readInitialStep(editId: string): WizardStepId {
+  if (!editId || typeof window === 'undefined') return 1;
+  const n = Number(new URLSearchParams(window.location.search).get('step'));
+  return n >= 1 && n <= 6 && Number.isInteger(n) ? (n as WizardStepId) : 1;
+}
+
+/**
  * The wizard's shared state: the Step 1 draft, the exam-row meta Step 6 needs,
  * the course / offering pickers, and the Step 1 save. Behaviour is unchanged
  * from the single-file wizard — same endpoints, payloads and messages.
  */
 export function useExamDraft({ api, session, onNavigate }: AdminPageProps) {
   const editId = useMemo(readEditId, []);
-  const [activeStep, setActiveStep] = useState<WizardStepId>(1);
+  const [activeStep, setActiveStep] = useState<WizardStepId>(() => readInitialStep(editId));
+  // TTII 2026-10-16 — set when the exam is a supplementary exam; the steps
+  // then explain it, Step 4 avoids the regular papers' questions, and Step 5
+  // shows the per-subject students instead of one editable list.
+  const [supplementary, setSupplementary] = useState<SupplementaryWizardInfo | null>(null);
   const [draft, setDraft] = useState<DraftState>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(Boolean(editId));
@@ -81,9 +96,15 @@ export function useExamDraft({ api, session, onNavigate }: AdminPageProps) {
     if (!editId) return;
     let cancelled = false;
     setLoading(true);
-    void api.getExamDraft(session.token, editId)
-      .then((d) => {
+    void Promise.all([
+      api.getExamDraft(session.token, editId),
+      // Advisory: a failed read leaves the wizard as for any exam (the server
+      // still refuses Step 5's one-list save for a supplementary exam).
+      api.getSupplementaryInfo(session.token, editId).catch(() => null),
+    ])
+      .then(([d, info]) => {
         if (cancelled) return;
+        setSupplementary(toSupplementaryWizardInfo(info));
         const courseIds = (Array.isArray(d.course_ids) ? d.course_ids : []).map((v) => String(v)).filter(Boolean);
         const offeringIds = (Array.isArray(d.offering_ids) ? d.offering_ids : []).map((v) => String(v)).filter(Boolean);
         const dur = asString(d.duration);
@@ -187,6 +208,7 @@ export function useExamDraft({ api, session, onNavigate }: AdminPageProps) {
 
   return {
     editId,
+    supplementary,
     activeStep,
     setActiveStep,
     draft,

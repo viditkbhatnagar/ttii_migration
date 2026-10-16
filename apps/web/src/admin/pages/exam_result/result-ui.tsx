@@ -38,6 +38,10 @@ export function ExamStatusBadge({ status }: { status: ExamResultsStatus }) {
 
 /** One subject's mark in the student table: the score, coloured by outcome. */
 export function SittingMark({ cell }: { cell: StudentSitting }) {
+  if (cell.status === 'not_entered') {
+    // A supplementary exam's student sits only the subjects they were entered for.
+    return <span className="text-[11px] text-slate-400" title="Not entered for this subject">n/a</span>;
+  }
   if (cell.status === 'reexam') {
     return (
       <span className="inline-flex items-center rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
