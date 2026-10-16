@@ -62,6 +62,8 @@ interface World {
   online?: Array<{ amount_paid: number; razorpay_payment_id: string | null }>;
   /** Runs between the locked read and the guarded soft-delete (a racing writer). */
   beforeUpdate?: (rows: FakeRow[]) => void;
+  /** The last `where` the application lookup received (so tests can pin the query). */
+  lastAppWhere?: unknown;
 }
 
 const UNPAID = new Set(['', 'pending', 'overdue', 'due']);
@@ -108,13 +110,18 @@ function makeService(world: World) {
         const hit = world.apps.find((a) => a.id === where.id);
         return Promise.resolve(hit ? { id: hit.id, course_id: hit.course_id, payment_plan: hit.payment_plan } : null);
       },
-      findMany: ({ where }: { where: { course_id: { in: number[] } } }) => Promise.resolve(
-        world.apps
-          .filter((a) => where.course_id.in.includes(a.course_id))
-          .filter((a) => a.student_id === world.student.id || a.id === world.student.application_id
-            || (a.user_email === world.student.user_email && (a.stage === 'enrolled' || a.is_converted === 1)))
-          .sort((x, y) => y.id - x.id),
-      ),
+      findMany: ({ where }: { where: { course_id: { in: number[] } } }) => {
+        world.lastAppWhere = where;
+        return Promise.resolve(
+          world.apps
+            .filter((a) => where.course_id.in.includes(a.course_id))
+            // Mirrors the real query: an email match only takes an application
+            // not linked to any student (student_id IS NULL).
+            .filter((a) => a.student_id === world.student.id || a.id === world.student.application_id
+              || (a.student_id == null && a.user_email === world.student.user_email && (a.stage === 'enrolled' || a.is_converted === 1)))
+            .sort((x, y) => y.id - x.id),
+        );
+      },
     },
     offerings: {
       findMany: ({ where }: { where: { OR: Array<{ id?: { in: number[] }; course_id?: { in: number[] } }> } }) => {
@@ -143,7 +150,9 @@ function makeService(world: World) {
         applications: {
           ...base.applications,
           // The agreed fee a plan save records on the enrolment's application.
-          updateMany: ({ where, data }: { where: { id: number }; data: { application_final_fee?: unknown } }) => {
+          updateMany: ({ where, data }: { where: { id: number; course_id?: number }; data: { application_final_fee?: unknown } }) => {
+            const hit = world.apps.find((x) => x.id === where.id && (where.course_id === undefined || x.course_id === where.course_id));
+            if (!hit) return Promise.resolve({ count: 0 });
             pending.agreed.push({ id: where.id, fee: data.application_final_fee });
             return Promise.resolve({ count: 1 });
           },
@@ -430,6 +439,29 @@ describe('saving a per-enrolment plan', () => {
     const { service } = makeService(vidhya());
     expect(await service.savePlan('0', { enrolId: '253', plan: twoInstalments })).toEqual({ status: 0, message: 'Invalid user.' });
     expect(await service.savePlan('1', { enrolId: '253', plan: { ...twoInstalments, totalFee: 0 } })).toEqual({ status: 0, message: 'Enter the total fee.' });
+  });
+});
+
+describe('an email match never reaches another student (TTII 2026-10-17 review)', () => {
+  test("a different student's application with the same email is neither read nor written", async () => {
+    // users.user_email is not unique: student 999 shares Vidhya's email and owns
+    // application 400 for the same course 25, with its own agreed fee.
+    const world = vidhya({
+      apps: [
+        ...vidhya().apps,
+        app({ id: 400, application_id: 'TTII260400', course_id: 25, student_id: 999, offering_id: 70, certificate_combination_id: 4, application_final_fee: 21240 }),
+      ],
+    });
+    const { service, committed } = makeService(world);
+    const res = await service.savePlan('1', { enrolId: '253', plan: fullOf(9000) });
+    expect(res.status).toBe(1);
+    // The agreed fee lands on Vidhya's own Add Enrolment application (300) only.
+    expect(committed.agreed.map((a) => a.id)).toEqual([300]);
+    expect(world.apps.find((a) => a.id === 400)?.application_final_fee).toBe(21240);
+    // And the real query asks for unlinked applications on the email branch.
+    const where = world.lastAppWhere as { OR: Array<Record<string, unknown>> };
+    const emailBranch = where.OR.find((b) => 'user_email' in b);
+    expect(emailBranch).toMatchObject({ student_id: null });
   });
 });
 

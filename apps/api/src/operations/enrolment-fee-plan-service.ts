@@ -301,10 +301,15 @@ export class EnrolmentFeePlanService {
         }
 
         if (app && agreedChanges) {
-          await tx.applications.updateMany({
-            where: { id: app.id, deleted_at: null },
+          // Pinned to this enrolment's course; anything but exactly one row
+          // rolls the whole save back rather than recording a fee nowhere.
+          const agreed = await tx.applications.updateMany({
+            where: { id: app.id, course_id: courseId, deleted_at: null },
             data: { application_final_fee: plan.breakdown.payable, updated_by: actor, updated_at: now },
           });
+          if (agreed.count !== 1) {
+            throw new PlanRefusal('The agreed fee could not be recorded on this course\'s application. Nothing was changed; reload and try again.');
+          }
         }
 
         // Last statement before commit: a checkout started on a replaced row

@@ -111,7 +111,10 @@ export async function loadCoursePricing(
       OR: [
         { student_id: student.id },
         ...(student.application_id ? [{ id: student.application_id }] : []),
-        ...(email ? [{ user_email: email, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
+        // An email match never takes an application already linked to ANOTHER
+        // student (user_email is not unique). Add Enrolment rows carry no
+        // student_id, so they still match (TTII 2026-10-17 review).
+        ...(email ? [{ user_email: email, student_id: null, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
       ],
     },
     orderBy: { id: 'desc' },
@@ -280,7 +283,8 @@ export async function agreedPayableByStudentCourse(
       OR: [
         { student_id: { in: students.map((s) => s.id) } },
         ...(appIds.length > 0 ? [{ id: { in: appIds } }] : []),
-        ...(emails.length > 0 ? [{ user_email: { in: emails }, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
+        // Same rule as above: an email match never takes another student's application.
+        ...(emails.length > 0 ? [{ user_email: { in: emails }, student_id: null, OR: [{ stage: 'enrolled' }, { is_converted: 1 }] }] : []),
       ],
     },
     orderBy: { id: 'desc' },
