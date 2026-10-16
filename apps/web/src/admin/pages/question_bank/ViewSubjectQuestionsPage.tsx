@@ -348,7 +348,7 @@ export default function ViewSubjectQuestionsPage({ api, session, onNavigate }: A
                     <TableCell><Checkbox aria-label={`Select ${q.code}`} checked={selected.has(q.id)} onCheckedChange={() => toggleOne(q.id)} /></TableCell>
                     <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{q.code}</TableCell>
                     <TableCell className="max-w-[420px] whitespace-normal">
-                      <p className="line-clamp-2 text-sm text-foreground">{q.title || '—'}</p>
+                      <p className="line-clamp-2 text-sm text-foreground" title={q.title || undefined}>{q.title || '—'}</p>
                     </TableCell>
                     <TableCell><Pill tone={KIND_TONE[q.kind]}>{KIND_LABEL[q.kind]}</Pill></TableCell>
                     <TableCell><UsedPill q={q} /></TableCell>

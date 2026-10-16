@@ -310,16 +310,16 @@ export default function AuditLogsPage({ api, session, onNavigate }: AdminPagePro
                             {r.userId ? (
                               <button
                                 type="button"
-                                title="Show only this user's activity"
+                                title={`${who} (show only this user's activity)`}
                                 className="block max-w-[200px] truncate text-left text-sm font-semibold text-foreground hover:text-primary hover:underline"
                                 onClick={() => set({ userId: r.userId, userName: who })}
                               >
                                 {who}
                               </button>
                             ) : (
-                              <p className="max-w-[200px] truncate text-sm font-semibold text-foreground">{who}</p>
+                              <p className="max-w-[200px] truncate text-sm font-semibold text-foreground" title={who}>{who}</p>
                             )}
-                            <p className="max-w-[200px] truncate text-xs text-muted-foreground">{r.userRole || r.identifier || '—'}</p>
+                            <p className="max-w-[200px] truncate text-xs text-muted-foreground" title={r.userRole || r.identifier || undefined}>{r.userRole || r.identifier || '—'}</p>
                           </div>
                         </div>
                       </TableCell>

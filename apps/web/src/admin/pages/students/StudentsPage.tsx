@@ -251,15 +251,15 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
                           <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(r.name)}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <button type="button" className="block max-w-[220px] truncate text-left text-sm font-medium leading-tight hover:text-primary hover:underline" onClick={() => view(r.id)}>
+                          <button type="button" title={r.name || undefined} className="block max-w-[220px] truncate text-left text-sm font-medium leading-tight hover:text-primary hover:underline" onClick={() => view(r.id)}>
                             {r.name || 'N/A'}
                           </button>
-                          <p className="max-w-[220px] truncate text-[11px] text-muted-foreground">{r.email || 'No email'}</p>
+                          <p className="max-w-[220px] truncate text-[11px] text-muted-foreground" title={r.email || undefined}>{r.email || 'No email'}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell className="max-w-[200px] text-sm font-medium">
-                      <span className="line-clamp-2">{r.course || 'N/A'}</span>
+                      <span className="line-clamp-2" title={r.course || undefined}>{r.course || 'N/A'}</span>
                       {r.enrolments > 1 ? <span className="text-[11px] font-normal text-muted-foreground">{r.enrolments} enrolments</span> : null}
                     </TableCell>
                     <TableCell className="max-w-[180px] truncate text-sm text-muted-foreground" title={r.offering}>{dash(r.offering)}</TableCell>
@@ -267,7 +267,7 @@ export default function StudentsPage({ api, session, onNavigate }: AdminPageProp
                     <TableCell className="text-sm text-muted-foreground">{dash(r.gender)}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       <p className="text-xs font-medium">{r.phone || 'N/A'}</p>
-                      <p className="max-w-[180px] truncate text-[11px] text-muted-foreground">{r.email}</p>
+                      <p className="max-w-[180px] truncate text-[11px] text-muted-foreground" title={r.email || undefined}>{r.email}</p>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{dash(r.owner)}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatYmd(r.joined) || '—'}</TableCell>

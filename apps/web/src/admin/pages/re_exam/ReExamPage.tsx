@@ -196,8 +196,8 @@ export default function ReExamPage({ api, session, onNavigate }: AdminPageProps)
                     <div className="text-[11px] text-muted-foreground">{r.studentCode}</div>
                   </TableCell>
                   <TableCell className="max-w-[260px]">
-                    <div className="truncate text-sm text-foreground">{r.subjectTitle}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{r.examTitle}</div>
+                    <div className="truncate text-sm text-foreground" title={r.subjectTitle}>{r.subjectTitle}</div>
+                    <div className="truncate text-[11px] text-muted-foreground" title={r.examTitle}>{r.examTitle}</div>
                   </TableCell>
                   <TableCell>
                     {r.previousScore === null

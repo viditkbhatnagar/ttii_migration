@@ -182,7 +182,7 @@ export default function RolesPermissionsPage({ api, session, onNavigate }: Admin
                         <span className="font-semibold text-foreground">{r.name}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="max-w-[300px] text-sm text-muted-foreground"><span className="line-clamp-2">{r.description}</span></TableCell>
+                    <TableCell className="max-w-[300px] text-sm text-muted-foreground"><span className="line-clamp-2" title={r.description || undefined}>{r.description}</span></TableCell>
                     <TableCell><Pill tone={ACCESS_TONE[r.access]}>{ACCESS_LABEL[r.access]}</Pill></TableCell>
                     <TableCell>
                       <button

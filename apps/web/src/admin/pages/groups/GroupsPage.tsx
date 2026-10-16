@@ -167,7 +167,7 @@ export default function GroupsPage({ api, session, onNavigate }: AdminPageProps)
                     <TableCell>
                       <button type="button" onClick={() => view(g.id)} className="flex items-center gap-3 text-left hover:text-primary">
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Network aria-hidden="true" className="size-4" /></span>
-                        <span className="max-w-[200px] truncate text-sm font-semibold">{g.name}</span>
+                        <span className="max-w-[200px] truncate text-sm font-semibold" title={g.name}>{g.name}</span>
                       </button>
                     </TableCell>
                     <TableCell className="text-sm">{g.managerName || '—'}</TableCell>

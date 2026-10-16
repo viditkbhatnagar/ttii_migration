@@ -172,8 +172,8 @@ export default function FeeSummaryPage({ api, session, onNavigate }: AdminPagePr
                     <TableCell className="text-xs text-muted-foreground">{rowNo(shownPage, FEE_PAGE_SIZE, i)}</TableCell>
                     <TableCell className="whitespace-nowrap font-mono text-xs text-primary">{r.enrollmentId || '—'}</TableCell>
                     <TableCell>
-                      <p className="max-w-[200px] truncate text-sm font-semibold">{r.name || '—'}</p>
-                      <p className="max-w-[200px] truncate text-[11px] text-muted-foreground">{r.email}</p>
+                      <p className="max-w-[200px] truncate text-sm font-semibold" title={r.name || undefined}>{r.name || '—'}</p>
+                      <p className="max-w-[200px] truncate text-[11px] text-muted-foreground" title={r.email || undefined}>{r.email}</p>
                     </TableCell>
                     <TableCell className="max-w-[200px] text-sm">{r.course || '—'}</TableCell>
                     <TableCell className="max-w-[200px] text-sm text-muted-foreground">{r.offering || '—'}</TableCell>

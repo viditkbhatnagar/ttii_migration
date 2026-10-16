@@ -215,7 +215,7 @@ export default function ExamsPage({ api, session, onNavigate }: AdminPageProps) 
                   <TableCell className="text-xs text-muted-foreground">{(page - 1) * PAGE_SIZE + i + 1}</TableCell>
                   <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{r.examCode || `ID ${r.examId}`}</TableCell>
                   <TableCell className="max-w-[280px]">
-                    <button type="button" className="truncate text-left text-sm font-medium text-primary hover:underline" onClick={() => setViewing(r.examId)}>
+                    <button type="button" title={r.title} className="truncate text-left text-sm font-medium text-primary hover:underline" onClick={() => setViewing(r.examId)}>
                       {r.title}
                     </button>
                   </TableCell>

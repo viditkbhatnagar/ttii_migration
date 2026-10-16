@@ -169,7 +169,7 @@ export default function EnrollmentsPage({ api, session, onNavigate }: AdminPageP
                     <TableCell className="text-sm font-medium">
                       {r.studentId ? <button type="button" className="text-left hover:text-primary hover:underline" onClick={() => viewStudent(r)}>{r.student || '—'}</button> : (r.student || '—')}
                     </TableCell>
-                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2">{r.course || '—'}</span></TableCell>
+                    <TableCell className="max-w-[220px] text-sm"><span className="line-clamp-2" title={r.course || undefined}>{r.course || '—'}</span></TableCell>
                     <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground" title={r.offering}>{r.offering || '-'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{r.combination || '-'}</TableCell>
                     <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">{r.fee !== null ? `₹${r.fee.toLocaleString('en-IN')}` : '-'}</TableCell>

@@ -351,6 +351,13 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* A truncating element inside a table cell is never wider than the cell.
+     A button or other inline-block with truncate otherwise keeps its full
+     text width and paints over the next columns (Exams list, 2026-10-16).
+     Base layer, so a max-w class on the element itself still wins. */
+  :where([data-slot=table-cell], [data-slot=table-head]) .truncate {
+    max-width: 100%;
+  }
 }
 
 /* Student Portal Scoped Styles */
