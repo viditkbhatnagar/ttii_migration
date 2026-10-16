@@ -185,6 +185,38 @@ describe('creating: what the server accepts', () => {
   });
 });
 
+describe('a student cannot sit two papers at once', () => {
+  const ctx = {
+    subjectTitles: new Map([[23, 'Montessori Methodology'], [25, 'Child Development']]),
+    candidates: new Map([[23, new Set([1, 3])], [25, new Set([1, 2])]]),
+    nowMs: NOW,
+    studentNames: new Map([[1, 'ARCHANA RAJ C'], [2, 'SAMEERA K'], [3, 'SHEBA MARY SAMUEL']]),
+  };
+  const subject = (sittingExamId: number, userIds: number[], startTime: string, endTime: string, date = '2026-10-28'): SubjectInput => ({
+    sittingExamId, date, startTime, endTime, durationMinutes: 30, totalMarks: 70, passMarks: 25, userIds,
+  });
+
+  test('overlapping windows sharing a student are refused, naming the subjects and the student', () => {
+    expect(validateSupplementary({ title: 'S', subjects: [subject(25, [1, 2], '19:30', '20:45'), subject(23, [1, 3], '20:00', '21:00')] }, ctx)).toEqual({
+      ok: false,
+      message: 'Montessori Methodology (28/10/2026, 20:00–21:00) and Child Development (28/10/2026, 19:30–20:45) overlap, and ARCHANA RAJ C is entered for both. Give them different times.',
+    });
+  });
+
+  test('without names the count is given', () => {
+    const plain = { subjectTitles: ctx.subjectTitles, candidates: ctx.candidates, nowMs: ctx.nowMs };
+    const v = validateSupplementary({ title: 'S', subjects: [subject(25, [1], '19:30', '20:45'), subject(23, [1], '19:30', '20:45')] }, plain);
+    expect(v.ok).toBe(false);
+    expect(v.ok ? '' : v.message).toContain('and 1 student is entered for both');
+  });
+
+  test('overlapping windows with different students, back-to-back windows, and other days are fine', () => {
+    expect(validateSupplementary({ title: 'S', subjects: [subject(25, [2], '19:30', '20:45'), subject(23, [3], '19:30', '20:45')] }, ctx).ok).toBe(true);
+    expect(validateSupplementary({ title: 'S', subjects: [subject(25, [1], '18:00', '19:30'), subject(23, [1], '19:30', '20:45')] }, ctx).ok).toBe(true);
+    expect(validateSupplementary({ title: 'S', subjects: [subject(25, [1], '19:30', '20:45'), subject(23, [1], '19:30', '20:45', '2026-10-29')] }, ctx).ok).toBe(true);
+  });
+});
+
 describe('linking a supplementary sitting back to the source subject', () => {
   test('by subject, by title for a whole-course row, and never across subjects', () => {
     const map = matchSittings(

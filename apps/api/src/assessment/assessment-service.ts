@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { PrismaClient, Prisma } from '@prisma/client';
 
 import { getPrismaClient } from '../data/prisma-client.js';
+import { isNotDraftSitting } from '../operations/exam-phase.js';
 import { toLegacyFileUrl } from '../data/legacy-asset-url.js';
 import { env } from '../env.js';
 import { createIntegrationRegistry } from '../integrations/registry.js';
@@ -302,17 +303,6 @@ export const LATE_SUBMIT_GRACE_MS = 90 * 1000;
  * than locked against.
  */
 export const AUTO_SUBMIT_GRACE_MS = 5 * 60 * 1000;
-
-/**
- * TTII 2026-10-16 — false for a subject sitting of an exam that is still a
- * draft. Publishing creates a regular exam's sittings already published, so
- * the only draft sittings are a supplementary exam's, created up front with
- * their own students; until the admin publishes the exam no student may see
- * them (they would show as a "closed" card). Every other row passes.
- */
-export function isNotDraftSitting(exam: { parent_exam_id?: number | null; status?: string | null }): boolean {
-  return exam.parent_exam_id === null || exam.parent_exam_id === undefined || exam.status === 'published';
-}
 
 /**
  * The sweeper only ever looks this far back. Two jobs at once:

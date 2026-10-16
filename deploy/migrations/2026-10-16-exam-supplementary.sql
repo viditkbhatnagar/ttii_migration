@@ -15,6 +15,15 @@
 -- this schema). Safe to re-run. Until it runs the app behaves as before: no
 -- exam is supplementary, the Exams list and results load normally, and
 -- "Create Supplementary Exam" answers "not set up yet".
+--
+-- ROLLBACK WARNING: API code older than the commit that added this file does
+-- not know these rows. Publishing a supplementary exam with that code copies
+-- the exam's whole student list onto EVERY subject sitting (and Step 5 can do
+-- the same), entering students for subjects they passed. Do not roll the API
+-- back across that commit while any supplementary exam is still a DRAFT;
+-- publish or delete those drafts first. A PUBLISHED one keeps its per-subject
+-- students, but older code must not re-publish it (same copy) and its Result
+-- page there shows students "Absent" in subjects they were never entered for.
 USE lms_ttii;
 
 CREATE TABLE IF NOT EXISTS exam_supplementary (

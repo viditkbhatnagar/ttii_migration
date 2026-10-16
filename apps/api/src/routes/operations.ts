@@ -27,6 +27,7 @@ import {
 } from '../operations/associate-communications-service.js';
 import { ReExamService } from '../operations/re-exam-service.js';
 import { SupplementaryExamService } from '../operations/supplementary-exam-service.js';
+import { toIdArray } from './id-array.js';
 import {
   OperationsService,
   type AddAssociateInput,
@@ -2393,7 +2394,8 @@ export function registerOperationsRoutes(
           durationMinutes: toNumber(s.duration_minutes),
           totalMarks: toNumber(s.total_marks),
           passMarks: toNumber(s.pass_marks),
-          userIds: toStringArray(s.user_ids).map((id) => toInteger(id)),
+          // The portal sends numbers; toStringArray would drop every one.
+          userIds: toIdArray(s.user_ids),
         }));
       const result = await supplementaryExamService.create(actor > 0 ? actor : null, {
         sourceExamId: toInteger(payload.source_exam_id),
@@ -2495,7 +2497,9 @@ export function registerOperationsRoutes(
       const actor = toInteger(requestUserId(request));
       const result = await reExamService.schedule(actor > 0 ? actor : null, {
         examId: toInteger(payload.exam_id),
-        userIds: toStringArray(payload.user_ids).map((id) => toInteger(id)),
+        // TTII 2026-10-16 — the portal sends user_ids as NUMBERS, which
+        // toStringArray dropped, so every re-exam was refused as "no students".
+        userIds: toIdArray(payload.user_ids),
         date: toStringValue(payload.date),
         startTime: toStringValue(payload.start_time),
         endTime: toStringValue(payload.end_time),

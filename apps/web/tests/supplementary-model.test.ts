@@ -139,6 +139,19 @@ describe('one subject\'s choices', () => {
     expect(selectedStudentCount(choices)).toBe(3);
   });
 
+  test('two ticked subjects that overlap may not share a ticked student (the server checks it too)', () => {
+    const subjects = toSupplementaryDraft(RAW_DRAFT).subjects;
+    const choices = new Map(subjects.map((s) => [s.sittingExamId, initialChoice(s)]));
+    const ready = (id: number, patch: Partial<SubjectChoice>) => choices.set(id, { ...(choices.get(id) as SubjectChoice), selected: true, date: '2026-10-28', ...patch });
+    ready(25, { picked: new Set([101]) });
+    ready(23, { picked: new Set([103]), startTime: '20:00', endTime: '21:15' });
+    expect(dialogProblem('S', subjects, choices, TODAY)).toBeNull();
+    ready(23, { picked: new Set([103, 101]), startTime: '20:00', endTime: '21:15' });
+    expect(dialogProblem('S', subjects, choices, TODAY)).toBe('Child Development and Montessori Methodology overlap on 28/10/2026, and ARCHANA RAJ C is ticked for both. Give them different times.');
+    ready(23, { picked: new Set([103, 101]), startTime: '20:45', endTime: '22:00' });
+    expect(dialogProblem('S', subjects, choices, TODAY)).toBeNull();
+  });
+
   test('today is the IST date (the server checks the exact time)', () => {
     expect(istToday(new Date('2026-10-15T19:00:00Z'))).toBe('2026-10-16');
     expect(istToday(new Date('2026-10-15T18:00:00Z'))).toBe('2026-10-15');

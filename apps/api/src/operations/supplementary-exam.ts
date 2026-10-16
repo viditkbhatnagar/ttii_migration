@@ -200,6 +200,8 @@ export interface ValidationContext {
   /** Source sitting exam id → students who may be entered (not passed). */
   candidates: Map<number, Set<number>>;
   nowMs: number;
+  /** Optional: names for messages that point at particular students. */
+  studentNames?: Map<number, string>;
 }
 
 export type Validated =
@@ -261,7 +263,41 @@ export function validateSupplementary(input: { title: string; subjects: SubjectI
   // Keep the source exam's subject order (the dialog's order may differ).
   const order = [...ctx.subjectTitles.keys()];
   parsed.sort((a, b) => order.indexOf(a.sittingExamId) - order.indexOf(b.sittingExamId));
+  const clash = overlapProblem(parsed, ctx);
+  if (clash) return { ok: false, message: clash };
   return { ok: true, title, subjects: parsed };
+}
+
+function windowLabel(s: ParsedSubject): string {
+  const [y, m, d] = s.date.split('-');
+  return `${d}/${m}/${y}, ${s.startTime}–${s.endTime}`;
+}
+
+function whoLabel(ids: number[], names: Map<number, string> | undefined): string {
+  const named = names ? ids.map((id) => names.get(id)).filter((n): n is string => Boolean(n)) : [];
+  if (named.length === ids.length && ids.length <= 3) {
+    return `${named.join(', ')} ${ids.length === 1 ? 'is' : 'are'}`;
+  }
+  return `${ids.length} student${ids.length === 1 ? ' is' : 's are'}`;
+}
+
+/**
+ * A student cannot sit two papers at once: two sittings whose IST windows
+ * overlap must not share a student. Windows that only touch (one ends as the
+ * next starts) are fine.
+ */
+export function overlapProblem(subjects: ParsedSubject[], ctx: Pick<ValidationContext, 'subjectTitles' | 'studentNames'>): string | null {
+  for (const [i, a] of subjects.entries()) {
+    for (const b of subjects.slice(i + 1)) {
+      if (!(a.startMs < b.endMs && b.startMs < a.endMs)) continue;
+      const shared = a.userIds.filter((id) => b.userIds.includes(id));
+      if (shared.length === 0) continue;
+      const titleA = ctx.subjectTitles.get(a.sittingExamId) ?? `Subject ${a.sittingExamId}`;
+      const titleB = ctx.subjectTitles.get(b.sittingExamId) ?? `Subject ${b.sittingExamId}`;
+      return `${titleA} (${windowLabel(a)}) and ${titleB} (${windowLabel(b)}) overlap, and ${whoLabel(shared, ctx.studentNames)} entered for both. Give them different times.`;
+    }
+  }
+  return null;
 }
 
 /** The parent row's Step 1 window: from the earliest sitting's start to the latest one's end. */

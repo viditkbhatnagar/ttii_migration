@@ -240,6 +240,75 @@ describe('creating the supplementary exam', () => {
   });
 });
 
+describe('creating it twice, and clashing sittings (review 2026-10-16)', () => {
+  const create = (db: MemoryDb, subjects: Array<ReturnType<typeof subjectInput>>) =>
+    services(db).supplementary.create(1, { sourceExamId: SOURCE, title: SUPP_TITLE, subjects });
+
+  test('a student entered for two sittings that overlap is refused, naming both subjects and the student', async () => {
+    const db = world();
+    // Archana also failed Montessori Methodology, so she is a candidate in two subjects.
+    const methodology = db.tables.exam_attempt.find((a) => a.exam_id === 23 && a.user_id === ARCHANA);
+    if (methodology) methodology.score = 10;
+    const res = await create(db, [
+      subjectInput(25, [ARCHANA], '2026-10-28'),
+      { ...subjectInput(23, [ARCHANA, SHEBA], '2026-10-28'), startTime: '20:00', endTime: '21:15' },
+    ]);
+    expect(res).toEqual({
+      status: 0,
+      message: 'Montessori Methodology (28/10/2026, 20:00–21:15) and Child Development (28/10/2026, 19:30–20:45) overlap, and ARCHANA RAJ C is entered for both. Give them different times.',
+    });
+    expect(db.tables.exam_supplementary).toEqual([]);
+    // The same two papers on different days are fine.
+    expect((await create(db, [subjectInput(25, [ARCHANA], '2026-10-28'), subjectInput(23, [ARCHANA, SHEBA], '2026-10-29')])).status).toBe(1);
+  });
+
+  test('different students in overlapping sittings are fine', async () => {
+    const db = world();
+    expect((await create(db, [subjectInput(25, [ARCHANA, SAMEERA], '2026-10-28'), subjectInput(23, [SHEBA], '2026-10-28')])).status).toBe(1);
+  });
+
+  test('a second create with the same student and subject while the first is a draft is refused', async () => {
+    const db = world();
+    await createSupplementary(db);
+    const again = await create(db, [subjectInput(25, [ARCHANA], '2026-10-29')]);
+    expect(again.status).toBe(0);
+    expect(again.message).toBe(`A draft supplementary exam already includes ARCHANA RAJ C for Child Development: “${SUPP_TITLE}” (TTIIEXM2600008). Open it instead.`);
+    expect(db.tables.exam_supplementary).toHaveLength(1);
+  });
+
+  test('a double submit creates exactly one exam', async () => {
+    const db = world();
+    const body = [subjectInput(25, [ARCHANA, SAMEERA], '2026-10-28')];
+    const results = await Promise.all([create(db, body), create(db, body)]);
+    expect(results.map((r) => r.status).sort()).toEqual([0, 1]);
+    expect(db.tables.exam_supplementary).toHaveLength(1);
+    expect(exams(db).filter((e) => e.status === 'draft' && (e.parent_exam_id ?? null) === null)).toHaveLength(1);
+  });
+
+  test('once the first is published, a new supplementary may include the same student again', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    await publishSupplementary(db, id);
+    const again = await create(db, [subjectInput(25, [ARCHANA], '2026-11-04')]);
+    expect(again.status).toBe(1);
+  });
+
+  test('a subject removed in Step 2 of a draft stops counting: links, and the duplicate check', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const development = db.tables.exam_subjects.find((r) => r.exam_id === id && r.subject_id === 9);
+    const kept = db.tables.exam_subjects.filter((r) => r.exam_id === id && r !== development);
+    await services(db).operations.saveExamSchedule('1', String(id), kept.map((r) => ({
+      id: r.id as number, subjectId: r.subject_id as number, subjectTitle: r.subject_title as string, courseIds: '16',
+      examDate: '2026-10-27', startTime: '19:30', endTime: '20:45', durationMinutes: 75, totalMarks: 70, passMarks: 25,
+    })));
+    const links = await services(db).supplementary.forResultPage(SOURCE);
+    expect(links.supplementaries).toEqual([expect.objectContaining({ examId: id, subjects: 1, students: 1 })]);
+    expect(links.outcomes.map((o) => o.userId)).toEqual([SHEBA]);
+    expect((await create(db, [subjectInput(25, [ARCHANA], '2026-10-29')])).status).toBe(1);
+  });
+});
+
 describe('the wizard', () => {
   test('knows the exam is supplementary, its students per subject, and the regular papers\' questions', async () => {
     const db = world();
@@ -430,6 +499,25 @@ describe('Exams list, calendar and the student\'s own exams', () => {
       ['sitting', 'Montessori Methodology', 1, id],
       ['sitting', 'Child Development', 2, id],
     ]);
+  });
+
+  test('the older readers treat a draft supplementary like any draft: one calendar entry, no sittings counted', async () => {
+    const db = world();
+    const id = await createSupplementary(db);
+    const ops = services(db).operations;
+    const examEvents = async (from: string, to: string) =>
+      (await ops.globalCalendar(from, to)).filter((e) => e.event_type === 'exam').map((e) => e.id as number).sort();
+    const legacy = async (examId: number) => (await ops.listAdminExams()).exams.find((e) => e.id === examId);
+    expect(await examEvents('2026-10-01', '2026-10-31')).toEqual([id]);
+    expect(await legacy(id)).toMatchObject({ sitting_count: 0, scheduled_sitting_count: 2 });
+
+    await publishSupplementary(db, id);
+    const sittings = exams(db).filter((e) => e.parent_exam_id === id).map((e) => e.id as number).sort();
+    expect(await examEvents('2026-10-01', '2026-10-31')).toEqual(sittings);
+    expect(await legacy(id)).toMatchObject({ sitting_count: 2, scheduled_sitting_count: 2 });
+    // The regular exam is drawn and counted as before: its three sittings.
+    expect(await examEvents('2026-08-01', '2026-08-31')).toEqual([23, 24, 25]);
+    expect(await legacy(SOURCE)).toMatchObject({ sitting_count: 3 });
   });
 
   test('a student never sees a draft supplementary sitting; once published, only their own subjects', async () => {

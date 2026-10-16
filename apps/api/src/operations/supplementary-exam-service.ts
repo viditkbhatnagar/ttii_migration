@@ -31,6 +31,22 @@ import { SUPPLEMENTARY_NOT_SET_UP_MESSAGE, linksForExams, linksFromSources, supp
 
 const TX = { timeout: 30000, maxWait: 15000 } as const;
 
+// One create at a time per source exam (in this API process), so a double
+// submit runs its duplicate check only after the first create has committed.
+const creating = new Map<number, Promise<unknown>>();
+
+async function oneAtATime<T>(sourceExamId: number, fn: () => Promise<T>): Promise<T> {
+  const previous = creating.get(sourceExamId) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  const settled = run.then(() => undefined, () => undefined);
+  creating.set(sourceExamId, settled);
+  try {
+    return await run;
+  } finally {
+    if (creating.get(sourceExamId) === settled) creating.delete(sourceExamId);
+  }
+}
+
 export interface SupplementaryRef {
   examId: number;
   examCode: string;
@@ -153,18 +169,43 @@ export class SupplementaryExamService {
 
   async create(actorUserId: number | null, input: CreateSupplementaryInput): Promise<ServiceOutcome<{ examId: number; examCode: string }>> {
     if (!(await supplementaryReady(this.prisma))) return { status: 0, message: SUPPLEMENTARY_NOT_SET_UP_MESSAGE };
+    return oneAtATime(await this.topIdOf(input.sourceExamId), () => this.createOnce(actorUserId, input));
+  }
+
+  private async createOnce(actorUserId: number | null, input: CreateSupplementaryInput): Promise<ServiceOutcome<{ examId: number; examCode: string }>> {
     const loaded = await this.loadSource(input.sourceExamId);
     if ('message' in loaded) return { status: 0, message: loaded.message };
     const { detail, top, sittings, components } = loaded;
     const candidates = candidatesBySitting(detail.sittings, detail.sheet.students);
+    const subjectTitles = new Map(sittings.map((s) => [s.sittingExamId, s.subjectTitle]));
+    const studentNames = new Map(detail.sheet.students.map((st) => [st.userId, st.name]));
     const validated = validateSupplementary(input, {
-      subjectTitles: new Map(sittings.map((s) => [s.sittingExamId, s.subjectTitle])),
+      subjectTitles,
       candidates: new Map([...candidates].map(([id, list]) => [id, new Set(list.map((c) => c.userId))])),
       nowMs: this.now().getTime(),
+      studentNames,
     });
     if (!validated.ok) return { status: 0, message: validated.message };
     const window = parentWindow(validated.subjects);
     if (!window) return { status: 0, message: 'Select at least one subject.' };
+
+    // A double submit, or a second try at the same thing: a DRAFT
+    // supplementary of this exam already holding a chosen student for the
+    // same subject is the one to finish.
+    const linked = await this.linkedTo(top.id, () => Promise.resolve(sittings.map((s) => ({ sittingExamId: s.sittingExamId, subjectId: s.subjectId, subjectTitle: s.subjectTitle }))));
+    const drafts = new Map(linked.refs.filter((r) => r.status === 'draft').map((r) => [r.examId, r]));
+    const wanted = new Set(validated.subjects.flatMap((s) => s.userIds.map((u) => enteredKey(u, s.sittingExamId))));
+    const taken = linked.outcomes.filter((o) => drafts.has(o.supplementaryExamId) && wanted.has(enteredKey(o.userId, o.sourceSittingId)));
+    const first = taken[0];
+    if (first) {
+      const held = drafts.get(first.supplementaryExamId);
+      const pairs = taken.slice(0, 3).map((o) => `${studentNames.get(o.userId) ?? `Student ${o.userId}`} for ${subjectTitles.get(o.sourceSittingId) ?? 'a subject'}`);
+      const more = taken.length > 3 ? ` and ${taken.length - 3} more` : '';
+      return {
+        status: 0,
+        message: `A draft supplementary exam already includes ${pairs.join(', ')}${more}: “${held?.title ?? ''}”${held?.examCode ? ` (${held.examCode})` : ''}. Open it instead.`,
+      };
+    }
 
     const [courseLinks, offeringLinks] = await Promise.all([
       this.prisma.exam_courses.findMany({ where: { exam_id: top.id }, select: { course_id: true } }),
@@ -332,6 +373,13 @@ export class SupplementaryExamService {
     };
   }
 
+  /** A sitting id resolves to its exam (0 when unknown). */
+  private async topIdOf(examId: number): Promise<number> {
+    if (!Number.isInteger(examId) || examId <= 0) return 0;
+    const row = await this.prisma.exam.findFirst({ where: { id: examId }, select: { id: true, parent_exam_id: true } });
+    return row ? row.parent_exam_id ?? row.id : 0;
+  }
+
   /** The supplementary links shown on an exam's Result page. */
   async forResultPage(examId: number): Promise<SupplementaryResultLinks> {
     const self = Number.isInteger(examId) && examId > 0
@@ -365,18 +413,26 @@ export class SupplementaryExamService {
     const sheets = (await this.results.resultSheets(links.map((l) => l.examId))).sort((a, b) => a.examId - b.examId);
     const rowIds = sheets.flatMap((s) => s.sittingRows.map((r) => r.examSubjectId)).filter((v): v is number => v !== null);
     const schedules = rowIds.length > 0
-      ? await this.prisma.exam_subjects.findMany({ where: { id: { in: rowIds } }, select: { id: true, subject_id: true, subject_title: true } })
+      ? await this.prisma.exam_subjects.findMany({ where: { id: { in: rowIds } }, select: { id: true, exam_id: true, subject_id: true, subject_title: true } })
       : [];
     const scheduleById = new Map(schedules.map((s) => [s.id, s]));
     const refs: SupplementaryRef[] = [];
     const outcomes: SupplementaryOutcome[] = [];
     for (const s of sheets) {
       const examStatus: SupplementaryExamStatus = s.examStatus === 'published' ? s.resultStatus : 'draft';
-      const keys = s.sittingRows.flatMap((r): ScheduleKey[] => {
+      // A draft's sitting whose subject was since removed in Step 2 is retired
+      // when it is published, so it no longer counts (subjects, students, outcomes).
+      const live = s.sittingRows.filter((r) => {
+        const row = r.examSubjectId !== null ? scheduleById.get(r.examSubjectId) : undefined;
+        return examStatus !== 'draft' || row?.exam_id === s.examId;
+      });
+      const liveIds = new Set(live.map((r) => r.examId));
+      const keys = live.flatMap((r): ScheduleKey[] => {
         const row = r.examSubjectId !== null ? scheduleById.get(r.examSubjectId) : undefined;
         return row ? [{ sittingExamId: r.examId, subjectId: row.subject_id, subjectTitle: row.subject_title }] : [];
       });
-      refs.push({ examId: s.examId, examCode: s.examCode, title: s.title, status: examStatus, subjects: s.sittings.length, students: s.sheet.totals.students });
+      const students = s.sheet.students.filter((st) => st.sittings.some((c) => liveIds.has(c.examId) && c.status !== 'not_entered')).length;
+      refs.push({ examId: s.examId, examCode: s.examCode, title: s.title, status: examStatus, subjects: live.length, students });
       outcomes.push(...supplementaryOutcomes(
         { examId: s.examId, examStatus, sittings: s.sittings, students: s.sheet.students },
         matchSittings(sourceKeys, keys),

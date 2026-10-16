@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FilePlus2, Info, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,8 @@ export function CreateSupplementaryDialog({
   const [title, setTitle] = useState('');
   const [choices, setChoices] = useState<Map<number, SubjectChoice>>(new Map());
   const [submitting, setSubmitting] = useState(false);
+  // A second click lands before React re-renders the disabled button.
+  const inFlight = useRef(false);
   const [attempt, setAttempt] = useState(0);
   const open = sourceExamId !== null;
 
@@ -91,7 +93,8 @@ export function CreateSupplementaryDialog({
   }, []);
 
   const submit = async () => {
-    if (!draft || problem || !draft.setUp) return;
+    if (!draft || problem || !draft.setUp || inFlight.current) return;
+    inFlight.current = true;
     setSubmitting(true);
     try {
       const res = await api.createSupplementaryExam(token, createPayload(draft.sourceExamId, title, draft.subjects, choices));
@@ -106,6 +109,7 @@ export function CreateSupplementaryDialog({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not create the supplementary exam.');
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   };

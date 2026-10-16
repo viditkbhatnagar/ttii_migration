@@ -8,6 +8,18 @@
 
 export type ExamPhase = 'draft' | 'upcoming' | 'in_progress' | 'completed';
 
+/**
+ * TTII 2026-10-16 — false for a subject sitting of an exam that is still a
+ * draft. Publishing creates a regular exam's sittings already published, so
+ * the only draft sittings are a supplementary exam's, created up front with
+ * their own students; until the admin publishes the exam no student may see
+ * them (they would show as a "closed" card), and calendars show the exam as
+ * the one draft it is. Every other row passes.
+ */
+export function isNotDraftSitting(exam: { parent_exam_id?: number | null; status?: string | null }): boolean {
+  return exam.parent_exam_id === null || exam.parent_exam_id === undefined || exam.status === 'published';
+}
+
 export interface SittingWindow {
   /** When the sitting opens, or null if it has no start. */
   openMs: number | null;

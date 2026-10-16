@@ -274,6 +274,43 @@ export function dialogProblem(title: string, subjects: DraftSubject[], choices: 
     const problem = choiceProblem(choices.get(s.sittingExamId) as SubjectChoice, todayYmd);
     if (problem) return `${s.subjectTitle}: ${problem}`;
   }
+  return overlapProblem(chosen, choices);
+}
+
+/** Absolute minutes of an IST wall-clock date and HH:MM (only ever compared with each other). */
+function wallMinutes(ymd: string, hm: string): number | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  const t = HM.exec(hm);
+  if (!d || !t) return null;
+  return Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]), Number(t[1]), Number(t[2])) / 60000;
+}
+
+/**
+ * A student cannot sit two papers at once: two ticked subjects whose windows
+ * overlap must not share a ticked student. The server makes the same check.
+ */
+export function overlapProblem(chosen: DraftSubject[], choices: Map<number, SubjectChoice>): string | null {
+  const span = (s: DraftSubject): [number, number] | null => {
+    const c = choices.get(s.sittingExamId);
+    const start = c ? wallMinutes(c.date, c.startTime) : null;
+    const end = c ? wallMinutes(c.date, c.endTime) : null;
+    return start !== null && end !== null ? [start, end] : null;
+  };
+  for (const [i, a] of chosen.entries()) {
+    for (const b of chosen.slice(i + 1)) {
+      const wa = span(a);
+      const wb = span(b);
+      if (!wa || !wb || !(wa[0] < wb[1] && wb[0] < wa[1])) continue;
+      const other = choices.get(b.sittingExamId)?.picked ?? new Set<number>();
+      const shared = [...(choices.get(a.sittingExamId)?.picked ?? [])].filter((id) => other.has(id));
+      if (shared.length === 0) continue;
+      const names = shared.map((id) => a.candidates.find((c) => c.userId === id)?.name ?? '').filter(Boolean);
+      const who = names.length === shared.length && shared.length <= 3
+        ? `${names.join(', ')} ${shared.length === 1 ? 'is' : 'are'}`
+        : `${shared.length} student${shared.length === 1 ? ' is' : 's are'}`;
+      return `${a.subjectTitle} and ${b.subjectTitle} overlap on ${formatYmd(choices.get(a.sittingExamId)?.date ?? '')}, and ${who} ticked for both. Give them different times.`;
+    }
+  }
   return null;
 }
 

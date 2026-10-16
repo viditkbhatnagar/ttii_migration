@@ -6,6 +6,7 @@ import { getPrismaClient } from '../data/prisma-client.js';
 import { normaliseQuestionText, shapeChanged, toArray, validateQuestionShape, type QuestionShape } from './question-rules.js';
 import { questionBankCourseScope, questionUsage, type QuestionUsage } from './question-usage.js';
 import { nextExamCode } from './exam-code.js';
+import { isNotDraftSitting } from './exam-phase.js';
 import { supplementaryPublishProblem } from './supplementary-exam.js';
 import { isSupplementaryExam } from './supplementary-links.js';
 import { cohortCourseIdMap, cohortIdsForCourse } from '../data/cohort-courses.js';
@@ -3850,7 +3851,7 @@ export class OperationsService {
       }),
       this.prisma.exam.findMany({
         where: { deleted_at: null, from_date: { gte: dateFrom, lte: dateTo } },
-        select: { id: true, title: true, from_date: true, from_time: true, to_time: true },
+        select: { id: true, title: true, from_date: true, from_time: true, to_time: true, parent_exam_id: true, status: true },
       }),
       this.prisma.events.findMany({
         where: { deleted_at: null, event_date: { gte: dateFrom, lte: dateTo } },
@@ -3862,12 +3863,17 @@ export class OperationsService {
     // as a PARENT whose window spans every sitting, so the calendar drew a
     // phantom 10–14 Aug exam on top of the five real sittings. Drop any exam
     // that has live children; single-sitting exams are unaffected.
+    //
+    // TTII 2026-10-16 — a supplementary exam's sittings exist as DRAFTS before
+    // it is published. Like any draft, it shows as its one exam until then:
+    // only published sittings replace their parent, and draft ones are left out.
+    // (A regular exam's sittings are always created published.)
     const examIds = exams.map((e) => e.id);
     const sittings = examIds.length > 0
-      ? await this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { parent_exam_id: true } })
+      ? await this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null, status: 'published' }, select: { parent_exam_id: true } })
       : [];
     const parentsWithSittings = new Set(sittings.map((s) => s.parent_exam_id).filter((x): x is number => x !== null && x !== undefined));
-    const calendarExams = exams.filter((e) => !parentsWithSittings.has(e.id));
+    const calendarExams = exams.filter((e) => !parentsWithSittings.has(e.id) && isNotDraftSitting(e));
 
     const combined: SqlRow[] = [
       ...liveClasses.map(lc => ({
@@ -4937,7 +4943,9 @@ export class OperationsService {
       courseIds.length > 0 ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } }) : [],
       batchIds.length > 0 ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, title: true } }) : [],
       examIds.length > 0 ? this.prisma.exam_questions.groupBy({ by: ['exam_id'], where: { exam_id: { in: examIds }, deleted_at: null }, _count: { id: true } }) : [],
-      examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null }, select: { id: true, parent_exam_id: true } }) : [],
+      // Published sittings only: a draft supplementary exam's sittings (created
+      // up front with their students) count once published, like any draft's.
+      examIds.length > 0 ? this.prisma.exam.findMany({ where: { parent_exam_id: { in: examIds }, deleted_at: null, status: 'published' }, select: { id: true, parent_exam_id: true } }) : [],
       examSubjectIds.length > 0 ? this.prisma.exam_subjects.findMany({ where: { id: { in: examSubjectIds } }, select: { id: true, subject_title: true } }) : [],
       // Risha UAT 2026-08-08 — "why is the new exam showing sitting to 1 by
       // default? This will appear as a single exam then right?" Sittings only

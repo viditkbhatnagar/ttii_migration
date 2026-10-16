@@ -1,9 +1,9 @@
 import type { PrismaClient } from '@prisma/client';
 
-import { examWindowCloseInstant, examWindowOpenInstant, isNotDraftSitting } from '../assessment/assessment-service.js';
+import { examWindowCloseInstant, examWindowOpenInstant } from '../assessment/assessment-service.js';
 import { NOT_CANCELLED, withReExamWindow } from '../assessment/re-exam-window.js';
 import { getPrismaClient } from '../data/prisma-client.js';
-import { examPhase, type ExamPhase } from './exam-phase.js';
+import { examPhase, isNotDraftSitting, type ExamPhase } from './exam-phase.js';
 import { supplementaryExamIds } from './supplementary-links.js';
 
 // Exam Calendar (TTII 2026-10-12, Naji's ExamCalendarModule). Everything that
