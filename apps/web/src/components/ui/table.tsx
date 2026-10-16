@@ -67,8 +67,9 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
 }
 
 // Children of a cell. A capped cell (max-w-*) gets a box that asks the table
-// for the full text width, which the cap clamps as before, then wraps inside
-// it. Every other cell passes its children through untouched. See tableCellLayout.
+// for the full one-line width, which the cap clamps as before, and then fills
+// the cell so the text wraps inside it. Every other cell passes its children
+// through untouched. See tableCellLayout.
 function cellChildren(contentClass: string | null, children: React.ReactNode): React.ReactNode {
   if (contentClass === null) return children
   return (

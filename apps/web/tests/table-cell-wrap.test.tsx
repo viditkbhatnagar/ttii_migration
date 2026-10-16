@@ -9,7 +9,7 @@ import { tableCellLayout } from '../src/lib/table-cell-wrap';
 // Chrome paint its text over the next columns.
 
 const ONE_LINE = { whitespace: 'whitespace-nowrap', contentClass: null };
-const WRAPS = { whitespace: 'whitespace-normal break-words', contentClass: 'w-max max-w-full' };
+const WRAPS = { whitespace: 'whitespace-normal break-words', contentClass: 'w-max min-w-full max-w-full' };
 
 describe('tableCellLayout', () => {
   test('keeps an uncapped cell on one line (IDs, dates, amounts, pills)', () => {
@@ -36,11 +36,9 @@ describe('tableCellLayout', () => {
     expect(tableCellLayout('max-w-none')).toEqual(ONE_LINE);
   });
 
-  test('keeps the content box on the side the cell aligns to', () => {
-    expect(tableCellLayout('max-w-[200px] text-right').contentClass).toBe('w-max max-w-full ml-auto');
-    expect(tableCellLayout('max-w-[200px] text-end').contentClass).toBe('w-max max-w-full ml-auto');
-    expect(tableCellLayout('max-w-[200px] text-center').contentClass).toBe('w-max max-w-full mx-auto');
-    expect(tableCellLayout('max-w-[200px] text-right sm:text-left').contentClass).toBe('w-max max-w-full');
+  test('gives aligned capped cells the same full-width box (text-align then applies inside it)', () => {
+    expect(tableCellLayout('max-w-[200px] text-right')).toEqual(WRAPS);
+    expect(tableCellLayout('max-w-[200px] text-center')).toEqual(WRAPS);
   });
 });
 
@@ -80,8 +78,8 @@ describe('TableCell / TableHead layout', () => {
     expect(cell).toContain('whitespace-normal');
     expect(cell).toContain('break-words');
     expect(cell).not.toContain('whitespace-nowrap');
-    expect(classOf(html, 'table-cell-content')).toEqual(['w-max', 'max-w-full']);
-    expect(html).toContain('<div data-slot="table-cell-content" class="w-max max-w-full">Pg Diploma in Montessori Teacher Training</div>');
+    expect(classOf(html, 'table-cell-content')).toEqual(['w-max', 'min-w-full', 'max-w-full']);
+    expect(html).toContain('<div data-slot="table-cell-content" class="w-max min-w-full max-w-full">Pg Diploma in Montessori Teacher Training</div>');
   });
 
   test('a capped head gets the same treatment', () => {
